@@ -15,15 +15,15 @@ renderer implementation and editable source distribution.
 **Tessera** is the product built on this runtime: a local-first, governed data
 analysis agent for PostgreSQL and MySQL. By default it inspects every
 non-system schema visible to the configured database credential, executes
-bounded read-only analysis, and returns a verified business Artifact rather
-than a generated application.
+bounded read-only analysis, and returns a verified Markdown response with
+compact execution progress and evidence rather than a generated application.
 
 The naming boundary is deliberate:
 
 | Name | Role |
 | --- | --- |
 | **Tessera** | User-facing data-analysis product |
-| **Tessera Studio** | Local workspace connected to a configured database for querying, inspecting evidence, and viewing Artifacts |
+| **Tessera Studio** | Local workspace connected to a configured database for Markdown chat, querying, and inspecting execution evidence |
 | **Tessera Agent** | Governed agent that plans and runs database analysis |
 | `tessera.config.ts` | Server-only project configuration |
 | `tessera studio` | Local Studio command |

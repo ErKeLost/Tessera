@@ -1,0 +1,203 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
+  <title id="title">Tessera Data Agent Studio architecture</title>
+  <desc id="desc">A governed data agent architecture connecting the Tessera Studio experience to the server agent, semantic Data Agent, host policy, and an analyzed database.</desc>
+  <defs>
+    <style>
+      text { font-family: 'SFMono-Regular', 'Cascadia Code', Consolas, monospace; }
+      .title { fill: #f8fafc; font-size: 20px; font-weight: 700; }
+      .subtitle { fill: #94a3b8; font-size: 10px; }
+      .region-title { font-size: 9px; font-weight: 600; letter-spacing: .06em; }
+      .name { fill: #f8fafc; font-size: 11px; font-weight: 600; }
+      .detail { fill: #94a3b8; font-size: 8.5px; }
+      .label { fill: #93c5fd; font-size: 8px; font-weight: 500; }
+      .small { fill: #64748b; font-size: 7.5px; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#172554" stroke-width="0.6" opacity="0.7"/>
+    </pattern>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/>
+    </marker>
+  </defs>
+
+  <rect width="1440" height="900" fill="#020617"/>
+  <rect width="1440" height="900" fill="url(#grid)"/>
+
+  <text x="40" y="42" class="title">Tessera Data Agent Studio / Architecture</text>
+  <text x="40" y="62" class="subtitle">semantic intent · governed execution · bounded evidence · structured artifacts · host-owned identity</text>
+
+  <!-- Region boundaries -->
+  <rect x="30" y="92" width="320" height="590" rx="8" fill="#020617" stroke="#22d3ee" stroke-dasharray="8 4"/>
+  <text x="46" y="112" fill="#22d3ee" class="region-title">EXPERIENCE PLANE</text>
+  <rect x="370" y="92" width="320" height="590" rx="8" fill="#020617" stroke="#60a5fa" stroke-dasharray="8 4"/>
+  <text x="386" y="112" fill="#60a5fa" class="region-title">STUDIO SERVER + AGENT</text>
+  <rect x="710" y="92" width="320" height="590" rx="8" fill="#020617" stroke="#34d399" stroke-dasharray="8 4"/>
+  <text x="726" y="112" fill="#34d399" class="region-title">GOVERNED DATA AGENT</text>
+  <rect x="1050" y="92" width="360" height="590" rx="8" fill="#020617" stroke="#a78bfa" stroke-dasharray="8 4"/>
+  <text x="1066" y="112" fill="#a78bfa" class="region-title">HOST + DATA BOUNDARY</text>
+
+  <!-- Cross-plane flow -->
+  <path d="M330 190H390" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M670 190H730" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <path d="M1010 190H1070" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="360" y="178" class="label" text-anchor="middle">UI stream</text>
+  <text x="700" y="178" class="label" text-anchor="middle">typed tools</text>
+  <text x="1040" y="178" class="label" text-anchor="middle">connector</text>
+
+  <path d="M530 255V285" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M530 375V405" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M870 255V285" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M870 375V405" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1230 255V285" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1230 375V405" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+
+  <!-- Experience -->
+  <g>
+    <rect x="60" y="135" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="60" y="135" width="260" height="120" rx="6" fill="rgba(8,51,68,.42)" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="190" y="166" class="name" text-anchor="middle">Tessera Studio UI</text>
+    <text x="190" y="187" class="detail" text-anchor="middle">chat · threads · table preview</text>
+    <text x="190" y="204" class="detail" text-anchor="middle">trace timeline · artifacts · sources</text>
+    <text x="190" y="229" class="label" text-anchor="middle">user intent in, inspectable answer out</text>
+  </g>
+  <g>
+    <rect x="60" y="285" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="60" y="285" width="260" height="90" rx="6" fill="rgba(8,51,68,.32)" stroke="#22d3ee"/>
+    <text x="190" y="316" class="name" text-anchor="middle">Public Protocol</text>
+    <text x="190" y="337" class="detail" text-anchor="middle">UI message chunks · safe stages</text>
+    <text x="190" y="354" class="detail" text-anchor="middle">no raw args · SQL · private output</text>
+  </g>
+  <g>
+    <rect x="60" y="405" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="60" y="405" width="260" height="120" rx="6" fill="rgba(8,51,68,.32)" stroke="#22d3ee"/>
+    <text x="190" y="436" class="name" text-anchor="middle">Server Session Memory</text>
+    <text x="190" y="457" class="detail" text-anchor="middle">local SQLite · threads · messages</text>
+    <text x="190" y="474" class="detail" text-anchor="middle">resource-scoped and separate from data</text>
+    <text x="190" y="499" class="label" text-anchor="middle">durable navigation, not database memory</text>
+  </g>
+  <g>
+    <rect x="60" y="555" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="60" y="555" width="260" height="90" rx="6" fill="rgba(136,19,55,.24)" stroke="#fb7185"/>
+    <text x="190" y="586" class="name" text-anchor="middle">Human Control</text>
+    <text x="190" y="607" class="detail" text-anchor="middle">clarify · retry · stop · approve</text>
+    <text x="190" y="624" class="detail" text-anchor="middle">typed writes stay outside read flow</text>
+  </g>
+
+  <!-- Server + Agent -->
+  <g>
+    <rect x="400" y="135" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="400" y="135" width="260" height="120" rx="6" fill="rgba(59,130,246,.26)" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="530" y="166" class="name" text-anchor="middle">Hono Server Boundary</text>
+    <text x="530" y="187" class="detail" text-anchor="middle">auth hook · CORS · API routes</text>
+    <text x="530" y="204" class="detail" text-anchor="middle">/api/chat · /api/catalog · /api/runs</text>
+    <text x="530" y="229" class="label" text-anchor="middle">host identity, never model credentials</text>
+  </g>
+  <g>
+    <rect x="400" y="285" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="400" y="285" width="260" height="90" rx="6" fill="rgba(59,130,246,.18)" stroke="#60a5fa"/>
+    <text x="530" y="316" class="name" text-anchor="middle">Agent Orchestrator</text>
+    <text x="530" y="337" class="detail" text-anchor="middle">model loop · Mastra / AI SDK</text>
+    <text x="530" y="354" class="detail" text-anchor="middle">clarify · discover · plan · narrate</text>
+  </g>
+  <g>
+    <rect x="400" y="405" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="400" y="405" width="260" height="120" rx="6" fill="rgba(30,41,59,.5)" stroke="#94a3b8"/>
+    <text x="530" y="436" class="name" text-anchor="middle">Redaction + Publisher</text>
+    <text x="530" y="457" class="detail" text-anchor="middle">bounded evidence · safe narration</text>
+    <text x="530" y="474" class="detail" text-anchor="middle">validated artifact · public trace</text>
+    <text x="530" y="499" class="label" text-anchor="middle">publish only trusted, structured data</text>
+  </g>
+  <g>
+    <rect x="400" y="555" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="400" y="555" width="260" height="90" rx="6" fill="rgba(30,41,59,.5)" stroke="#94a3b8"/>
+    <text x="530" y="586" class="name" text-anchor="middle">Public Lifecycle</text>
+    <text x="530" y="607" class="detail" text-anchor="middle">catalog → planning → executing</text>
+    <text x="530" y="624" class="detail" text-anchor="middle">verifying → publishing → narrating</text>
+  </g>
+
+  <!-- Governed Data Agent -->
+  <g>
+    <rect x="740" y="135" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="740" y="135" width="260" height="120" rx="6" fill="rgba(6,78,59,.34)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="870" y="166" class="name" text-anchor="middle">Semantic Catalog</text>
+    <text x="870" y="187" class="detail" text-anchor="middle">inspect · search · describe · cache</text>
+    <text x="870" y="204" class="detail" text-anchor="middle">business entities · fields · metrics</text>
+    <text x="870" y="229" class="label" text-anchor="middle">model sees opaque semantic IDs</text>
+  </g>
+  <g>
+    <rect x="740" y="285" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="740" y="285" width="260" height="90" rx="6" fill="rgba(6,78,59,.28)" stroke="#34d399"/>
+    <text x="870" y="316" class="name" text-anchor="middle">Planning Capabilities</text>
+    <text x="870" y="337" class="detail" text-anchor="middle">short-lived signed scope</text>
+    <text x="870" y="354" class="detail" text-anchor="middle">live catalog fingerprint recheck</text>
+  </g>
+  <g>
+    <rect x="740" y="405" width="260" height="120" rx="6" fill="#020617"/>
+    <rect x="740" y="405" width="260" height="120" rx="6" fill="rgba(120,53,15,.28)" stroke="#fbbf24"/>
+    <text x="870" y="436" class="name" text-anchor="middle">Typed Compiler</text>
+    <text x="870" y="457" class="detail" text-anchor="middle">bind semantic draft → SQL</text>
+    <text x="870" y="474" class="detail" text-anchor="middle">server-only limits · timeout · joins</text>
+    <text x="870" y="499" class="label" text-anchor="middle">model cannot submit raw SQL</text>
+  </g>
+  <g>
+    <rect x="740" y="555" width="260" height="90" rx="6" fill="#020617"/>
+    <rect x="740" y="555" width="260" height="90" rx="6" fill="rgba(6,78,59,.34)" stroke="#34d399"/>
+    <text x="870" y="586" class="name" text-anchor="middle">Execute + Verify</text>
+    <text x="870" y="607" class="detail" text-anchor="middle">read-only query · bounded rows</text>
+    <text x="870" y="624" class="detail" text-anchor="middle">result shape · truncation · evidence</text>
+  </g>
+
+  <!-- Host + data -->
+  <g>
+    <rect x="1080" y="135" width="300" height="120" rx="6" fill="#020617"/>
+    <rect x="1080" y="135" width="300" height="120" rx="6" fill="rgba(76,29,149,.32)" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="1230" y="166" class="name" text-anchor="middle">Host Identity + Policy</text>
+    <text x="1230" y="187" class="detail" text-anchor="middle">authentication · tenant · roles</text>
+    <text x="1230" y="204" class="detail" text-anchor="middle">authorization stays in the host</text>
+    <text x="1230" y="229" class="label" text-anchor="middle">permission passthrough</text>
+  </g>
+  <g>
+    <rect x="1080" y="285" width="300" height="90" rx="6" fill="#020617"/>
+    <rect x="1080" y="285" width="300" height="90" rx="6" fill="rgba(76,29,149,.23)" stroke="#a78bfa"/>
+    <text x="1230" y="316" class="name" text-anchor="middle">Database Connector</text>
+    <text x="1230" y="337" class="detail" text-anchor="middle">Postgres · MySQL · host adapters</text>
+    <text x="1230" y="354" class="detail" text-anchor="middle">catalog + parameterized execution</text>
+  </g>
+  <g>
+    <rect x="1080" y="405" width="300" height="120" rx="6" fill="#020617"/>
+    <rect x="1080" y="405" width="300" height="120" rx="6" fill="rgba(76,29,149,.23)" stroke="#a78bfa"/>
+    <text x="1230" y="436" class="name" text-anchor="middle">Analyzed Database</text>
+    <text x="1230" y="457" class="detail" text-anchor="middle">live catalog · governed reads</text>
+    <text x="1230" y="474" class="detail" text-anchor="middle">credentials remain server-side</text>
+    <text x="1230" y="499" class="label" text-anchor="middle">no model or browser direct access</text>
+  </g>
+  <g>
+    <rect x="1080" y="555" width="300" height="90" rx="6" fill="#020617"/>
+    <rect x="1080" y="555" width="300" height="90" rx="6" fill="rgba(136,19,55,.24)" stroke="#fb7185"/>
+    <text x="1230" y="586" class="name" text-anchor="middle">Typed Write Actions</text>
+    <text x="1230" y="607" class="detail" text-anchor="middle">separate API · policy · approval</text>
+    <text x="1230" y="624" class="detail" text-anchor="middle">never part of read-only analysis</text>
+  </g>
+
+  <!-- Cross-plane return and side-effect paths -->
+  <path d="M1000 645V665H670" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="835" y="657" class="label" text-anchor="middle">verified evidence</text>
+  <path d="M1230 525V555" stroke="#fbbf24" stroke-width="1.5" fill="none" marker-end="url(#arrow-amber)"/>
+  <text x="1250" y="545" class="label">approval</text>
+  <path d="M1080 600H1010" stroke="#fb7185" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-slate)"/>
+  <text x="1045" y="589" class="small" text-anchor="middle">typed only</text>
+
+  <!-- Trust boundary -->
+  <rect x="30" y="715" width="1380" height="140" rx="8" fill="#020617" stroke="#fbbf24" stroke-dasharray="8 4"/>
+  <text x="46" y="737" fill="#fbbf24" class="region-title">TRUST BOUNDARY / PUBLIC CONTRACT</text>
+  <text x="60" y="770" class="detail">Model input: semantic catalog slices, opaque IDs, bounded evidence, and explicit next actions.</text>
+  <text x="60" y="790" class="detail">Server-only: credentials, physical bindings, signed capabilities, SQL compilation, connector calls, and raw traces.</text>
+  <text x="60" y="810" class="detail">Browser output: redacted lifecycle summaries, safe narration, validated artifacts, and claim-level evidence references.</text>
+  <text x="1380" y="835" class="small" text-anchor="end">Tessera · Data Agent Studio architecture v1</text>
+</svg>

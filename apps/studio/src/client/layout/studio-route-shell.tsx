@@ -20,8 +20,9 @@ import {
 import { StudioHistoryMenu } from "../studio-history-menu";
 import { StudioThemePicker } from "../studio-theme";
 import { RouteLoading } from "../routes/route-state";
+import type { TableEditorAgentPageContext } from "../table-editor";
 import { StudioDock } from "./studio-dock";
-import type { StudioRouteContext } from "./studio-route-context";
+import type { StudioAgentPageContext, StudioRouteContext } from "./studio-route-context";
 
 const TableEditor = lazy(() => import("../table-editor").then(({ TableEditor: Editor }) => ({ default: Editor })));
 
@@ -37,6 +38,7 @@ export function StudioRouteShell() {
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
+  const [agentPageContext, setAgentPageContext] = useState<StudioAgentPageContext>();
   const databasePanelRef = useRef<PanelImperativeHandle>(null);
   const databaseSize = useMotionValue(0);
   const lastDatabaseSizeRef = useRef(68);
@@ -56,6 +58,10 @@ export function StudioRouteShell() {
     });
     return () => controls.stop();
   }, [databaseOpen, databaseSize, isChatRoute, reduceMotion]);
+
+  useEffect(() => {
+    if (!databaseOpen || !isChatRoute) setAgentPageContext(undefined);
+  }, [databaseOpen, isChatRoute]);
 
   const createThread = useCallback(async () => {
     try {
@@ -81,9 +87,28 @@ export function StudioRouteShell() {
     navigate(`/chat/${encodeURIComponent(id)}`);
   }, [navigate]);
 
+  const onAgentPageContextChange = useCallback((context: TableEditorAgentPageContext | undefined) => {
+    if (!context) {
+      setAgentPageContext(undefined);
+      return;
+    }
+    setAgentPageContext({
+      hasLocalFilter: context.filterActive,
+      view: context.view,
+      ...(context.schema && context.table ? {
+        currentRelation: {
+          catalogFingerprint: context.catalogFingerprint,
+          schema: context.schema,
+          table: context.table,
+        },
+      } : {}),
+    });
+  }, []);
+
   const routeContext: StudioRouteContext = {
     activeThread,
     activeThreadId,
+    agentPageContext,
     refreshWorkspace,
     workspace,
   };
@@ -176,6 +201,7 @@ export function StudioRouteShell() {
                         connection={workspace.connection.data}
                         connectionError={workspace.connection.error ? publicError(workspace.connection.error) : undefined}
                         onClose={() => setDatabaseOpen(false)}
+                        onAgentPageContextChange={onAgentPageContextChange}
                         onRefreshCatalog={() => void refreshWorkspace()}
                         refreshingCatalog={workspace.catalog.isFetching}
                       />

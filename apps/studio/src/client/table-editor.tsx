@@ -151,12 +151,21 @@ type MutationDialogState =
   | Readonly<{ columnName?: string; kind: "update"; row: Record<string, PreviewValue>; table: CatalogTable }>
   | Readonly<{ kind: "delete"; rows: Array<Record<string, PreviewValue>>; table: CatalogTable }>;
 
+export type TableEditorAgentPageContext = Readonly<{
+  catalogFingerprint: string;
+  filterActive: boolean;
+  schema?: string;
+  table?: string;
+  view: "data" | "definition";
+}>;
+
 type TableEditorProps = {
   catalog: Catalog | undefined;
   catalogError: string | undefined;
   connection: Connection | undefined;
   connectionError: string | undefined;
   onClose: () => void;
+  onAgentPageContextChange?: (context: TableEditorAgentPageContext | undefined) => void;
   onRefreshCatalog: () => void;
   refreshingCatalog: boolean;
 };
@@ -167,7 +176,6 @@ const TABLE_EDITOR_STORAGE_VERSION = 1;
 type PersistedTableEditorState = {
   openTableKeys: string[];
   page: number;
-  rowFilter: string;
   selectedSchema?: string;
   selectedTableKey?: string;
   tableSearch: string;
@@ -180,6 +188,7 @@ export function TableEditor({
   connection,
   connectionError,
   onClose,
+  onAgentPageContextChange,
   onRefreshCatalog,
   refreshingCatalog,
 }: TableEditorProps) {
@@ -238,7 +247,7 @@ export function TableEditor({
   useEffect(() => {
     const restored = readPersistedTableEditorState(storageKey);
     setTableSearch(restored?.tableSearch ?? "");
-    setRowFilter(restored?.rowFilter ?? "");
+    setRowFilter("");
     setSelectedSchema(restored?.selectedSchema);
     setSelectedTableKey(restored?.selectedTableKey);
     setOpenTableKeys(restored?.openTableKeys ?? []);
@@ -277,7 +286,6 @@ export function TableEditor({
     writePersistedTableEditorState(storageKey, {
       openTableKeys: openTableKeys.filter((key) => allTables.some((table) => tableKey(table) === key)),
       page,
-      rowFilter,
       selectedSchema,
       selectedTableKey,
       tableSearch,
@@ -288,7 +296,6 @@ export function TableEditor({
     openTableKeys,
     page,
     restoredStorageKey,
-    rowFilter,
     selectedSchema,
     selectedTableKey,
     storageKey,
@@ -301,6 +308,28 @@ export function TableEditor({
     [allTables, selectedTableKey],
   );
   const selectedPreview = selectedTableKey ? previews[selectedTableKey] : undefined;
+
+  const catalogFingerprint = catalog?.fingerprint;
+
+  useEffect(() => {
+    onAgentPageContextChange?.(catalogFingerprint
+      ? {
+        catalogFingerprint,
+        filterActive: Boolean(rowFilter.trim()),
+        schema: selectedTable?.schema ?? selectedSchema,
+        table: selectedTable?.name,
+        view,
+      }
+      : undefined);
+  }, [
+    catalogFingerprint,
+    onAgentPageContextChange,
+    rowFilter,
+    selectedSchema,
+    selectedTable?.name,
+    selectedTable?.schema,
+    view,
+  ]);
 
   const loadPreview = useCallback(async (table: CatalogTable, force = false) => {
     const key = tableKey(table);
@@ -1349,7 +1378,6 @@ function readPersistedTableEditorState(storageKey: string): PersistedTableEditor
     return {
       openTableKeys,
       page: typeof state.page === "number" && Number.isInteger(state.page) && state.page > 0 ? Math.min(state.page, 10_000) : 1,
-      rowFilter: safeStoredText(state.rowFilter),
       selectedSchema: safeStoredOptionalText(state.selectedSchema),
       selectedTableKey: safeStoredOptionalText(state.selectedTableKey),
       tableSearch: safeStoredText(state.tableSearch),

@@ -1,4 +1,4 @@
 {
   "title": "Artifact Agent",
-  "pages": ["index", "examples", "agent-architecture", "concepts", "components", "integrations"]
+  "pages": ["index", "examples", "agent-studio", "agent-architecture", "concepts", "components", "integrations"]
 }

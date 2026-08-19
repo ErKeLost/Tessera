@@ -1,0 +1,126 @@
+---
+title: Tessera Data Agent Studio
+description: 将自然语言数据问题转化为经过验证、可审查分析的受治理工作台。
+---
+
+Tessera Data Agent Studio 是一个 Local-first 工作台，用于向已连接的数据提问并发布可审查的答案。
+它会把自然语言请求转化为语义计划、受限的只读查询、经过验证的证据，以及 UI 可以渲染的结构化
+Artifact。
+
+它不是在数据库外面包一层 Chat 的 Agent。模型只提出语义意图；Catalog 访问、授权边界、查询编译、
+执行、验证、证据限制和发布都由 Tessera 掌控。
+
+![Tessera Data Agent Studio 架构](/diagrams/tessera-data-agent-studio.svg)
+
+## Studio 做什么
+
+Studio 让一次运行始终只有一个回答责任主体，同时把足够的进度暴露给用户，使用户能够检查、
+中断、重试或澄清任务。
+
+| 步骤 | 用户看到的结果 | 服务端职责 |
+| --- | --- | --- |
+| 连接 | 工作台中出现已配置的数据源 | 宿主提供 Connector，并把凭据留在服务端 |
+| 发现 | 出现相关的业务实体、字段、指标和关系 | Data Agent 加载并缓存实时 Catalog，然后返回受限的语义切片 |
+| 澄清 | 把歧义变成明确问题或已确认的选择 | Agent 可以描述已检查的实体，并执行有限的发现 Probe |
+| 计划 | Runtime 可以审查只读分析意图 | 模型提交带语义 ID 的 `AnalysisDraft`，绝不提交 SQL 或物理名称 |
+| 执行 | 结果、Trace 和证据流入对话 | Data Agent 重新验证范围、绑定 ID、编译 SQL、按限制执行并验证结果 |
+| 发布 | 图表、表格、指标或其他 Artifact 随答案呈现 | Tessera 限制证据、验证结构化 UI 数据并脱敏私有 Runtime 细节 |
+
+默认实现位于 `apps/studio`。受治理的执行边界是 `@data-elements/data-agent`；宿主可以注入 Connector、
+身份提供器、Session Store、模型或兼容的 `StudioAgent`，而不必改变公开协议。
+
+## Agent Tool 契约
+
+面向模型的 Tool 集合刻意保持很小：
+
+```text
+inspect_current_context  -> 服务端绑定的当前数据上下文
+inspect_catalog          -> 针对一个问题的语义 Catalog 切片
+describe_data            -> 已检查实体的受限详细信息
+probe_data               -> 固定且受限的发现 Probe
+run_analysis             -> 根据语义 Draft 执行只读分析
+```
+
+Tool 只能使用当前 Catalog 返回的语义 ID。它们不能接收 SQL、连接字符串、凭据、物理关系名、Compiler
+输出 ID 或任意查询限制。`probe_data` 用于解决实质性歧义，不是第二个浏览记录的循环。最终答案必须
+建立在经过验证的 `run_analysis` 结果上。
+
+## 公开生命周期
+
+UI 接收的是面向产品的生命周期，而不是私有 Tool Payload。公开阶段按固定顺序呈现，使用户能够知道
+运行停在哪里以及为什么停止：
+
+| 阶段 | 含义 |
+| --- | --- |
+| `catalog` | 加载实时物理与语义 Catalog |
+| `retrieval` | 选择与请求相关的语义上下文 |
+| `planning` | 绑定安全的分析解释和 Capability Scope |
+| `probing` | 解决受限的值域、字段 Profile 或 Join 歧义 |
+| `compiling` | 把经过验证的语义 Draft 编译为服务端查询 |
+| `executing` | 通过 Connector 执行受限的只读查询 |
+| `verifying` | 检查结果形状、限制、截断情况和证据质量 |
+| `publishing` | 发布经过验证的结构化 Artifact 与证据引用 |
+| `narrating` | 流式输出安全的最终说明 |
+
+只有摘要会穿过 Browser 边界：Tool 名称与状态、阶段状态、受限耗时、安全叙述和证据引用。原始 Tool
+参数、SQL、Catalog ID、Connector 元数据和不受限查询输出都留在服务端。
+
+## 设计架构
+
+### Experience 平面
+
+React Studio UI 负责对话体验：Threads、Chat、表格预览、执行 Trace、Artifact、来源引用和人工控制。
+它消费 Tessera UI-message 协议，绝不直接调用数据库 Connector。
+
+### Studio Server 与 Agent 平面
+
+Hono Server 是 `/api/chat`、`/api/catalog`、`/api/runs`、Settings、Threads 和表格预览的传输边界。
+它调用模型循环，脱敏不可信的 Stream Chunk，把完整消息持久化到服务端 Local SQLite，并且只发布公开协议。
+
+### 受治理 Data Agent 平面
+
+`@data-elements/data-agent` 负责 Catalog 加载与缓存、语义绑定、短期签名的 Planning Capability、类型化
+发现 Probe、SQL 编译、Connector 执行和结果验证。在绑定和执行分析前，它会再次检查实时 Catalog Fingerprint，
+因此过期计划不能悄悄运行在已变化的 Schema 上。
+
+### 宿主与数据平面
+
+嵌入宿主负责 Authentication、Tenant Membership、Role 和 Policy。Connector 提供 Catalog Introspection
+与参数化执行。数据库写入是独立的类型化 Action Surface，需要 Policy 检查和 Approval Checkpoint；它不是
+只读 Agent 循环的延伸。
+
+## Trust Boundary
+
+| 边界 | 允许 | 永远不允许 |
+| --- | --- | --- |
+| Model | 语义 Catalog 切片、Opaque ID、受限证据、明确的下一步 | SQL、凭据、物理表名、任意 Tool Payload |
+| Browser | 脱敏生命周期数据、安全叙述、经过验证的 Artifact | 原始 Tool 参数、私有 Trace、直接访问 Connector |
+| Studio Server | Authentication Hook、编排、Stream 过滤、Session 持久化 | 自行解析或生成宿主凭据；绕过宿主授权 |
+| Data Agent | 实时 Catalog、签名 Scope、类型化 Draft、受限查询结果 | 调用方提供的 SQL，或超出当前 Capability 的分析 |
+| Write Surface | 类型化 Mutation、用途、幂等键、Approval 决策 | 只读分析中的隐式写入或自由 SQL |
+
+这些边界让模型成为意图规划器，而不是数据库 Principal。宿主仍然决定谁可以访问哪个 Tenant，
+Data Agent 则决定已获准的语义读取如何变成查询。
+
+## 实现对应关系
+
+| 关注点 | 实现 |
+| --- | --- |
+| 产品 Shell 与路由 | `apps/studio/src/server.ts` 与 `apps/studio/src/client` |
+| 默认 Agent 编排 | `apps/studio/src/agent.ts` |
+| 公开 Stream 与阶段类型 | `apps/studio/src/protocol.ts` |
+| Catalog、Capability、Compiler、执行 | `packages/data-agent/src/index.ts` 及其 Compiler 模块 |
+| Session Memory | 服务端/Local SQLite，与被分析数据库隔离 |
+| 可选写入 | 带 Policy 与 Approval Gate 的类型化 Database Action Service |
+
+## 继续阅读架构参考
+
+实现或审查生产集成时，可以继续阅读这些页面：
+
+<Cards>
+  <Card title="Agent 架构" description="四个运行平面、契约和生产边界的参考拓扑。" href="/docs/agent-architecture" />
+  <Card title="运行循环" description="请求如何从澄清经过验证并完成发布。" href="/docs/agent-architecture/run-loop" />
+  <Card title="Tool 与 SQL 安全" description="为什么语义 Tool 与服务端编译必须分离。" href="/docs/agent-architecture/tool-and-sql-safety" />
+  <Card title="证据与溯源" description="受限结果如何成为论断级证据。" href="/docs/agent-architecture/evidence-and-provenance" />
+  <Card title="评估与生产准入" description="Agent 接入生产数据前必须通过的门槛。" href="/docs/agent-architecture/evals-and-production-gates" />
+</Cards>

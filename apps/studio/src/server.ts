@@ -11,7 +11,10 @@ import {
 import {
   createDataAgent,
   DATA_AGENT_RELATION_PREVIEW_MAX_COLUMNS,
+  relationPlanningCatalogInputSchema,
   type DataAgent,
+  type PlanningCapability,
+  type SemanticCatalog,
 } from "@data-elements/data-agent";
 import { createMySqlConnector } from "@data-elements/mysql";
 import { createPostgresConnector } from "@data-elements/postgres";
@@ -109,6 +112,7 @@ const TESSERA_PUBLIC_STAGES: readonly TesseraDataAgentStage[] = [
   "narrating",
 ];
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
+  "inspect_current_context",
   "inspect_catalog",
   "describe_data",
   "probe_data",
@@ -146,6 +150,18 @@ const runRequestSchema = z.object({
   threadId: z.string().trim().min(1).max(128).optional(),
 }).strict();
 
+/**
+ * Browser page state is only a navigation hint. The selected relation is
+ * re-bound against the live catalog below before it can influence a turn.
+ * Local filter text is intentionally reduced to a boolean and never reaches
+ * the Agent, its memory, or a database predicate.
+ */
+const chatWorkspaceContextPayloadSchema = z.object({
+  currentRelation: relationPlanningCatalogInputSchema.optional(),
+  hasLocalFilter: z.boolean().optional(),
+  view: z.enum(["data", "definition"]).optional(),
+}).strict();
+
 const createThreadRequestSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
 }).strict();
@@ -172,7 +188,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["inspect_catalog", "describe_data", "probe_data", "run_analysis"]),
+    tool: z.enum(["inspect_current_context", "inspect_catalog", "describe_data", "probe_data", "run_analysis"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -206,10 +222,16 @@ export type StudioImageInput = Readonly<{
   dataUrl: string;
   mediaType: StudioImageMediaType;
 }>;
+type StudioChatWorkspaceContext = Readonly<{
+  currentRelation?: z.output<typeof relationPlanningCatalogInputSchema>;
+  hasLocalFilter: boolean;
+  view?: "data" | "definition";
+}>;
 type StudioChatRequest = z.infer<typeof runRequestSchema> & Readonly<{
   trigger: StudioChatTrigger;
   messageId?: string;
   images: readonly StudioImageInput[];
+  workspaceContext?: StudioChatWorkspaceContext;
 }>;
 
 type StudioEnv = {
@@ -260,6 +282,29 @@ export type StudioSettingsChangeAuthorizer = (
   input: StudioSettingsChangeAuthorizationInput,
 ) => boolean | Promise<boolean>;
 
+/**
+ * This is server-only turn state. It is constructed after validating a browser
+ * navigation hint against the live catalog; physical relation coordinates never
+ * cross this boundary into Mastra or the browser stream.
+ */
+export type StudioAgentTurnContext = Readonly<{
+  workspace: Readonly<{
+    hasLocalFilter: boolean;
+    view?: "data" | "definition";
+  }>;
+  currentRelation?: Readonly<{
+    capability: PlanningCapability;
+    semanticCatalog: SemanticCatalog;
+    truncated: boolean;
+    omitted: Readonly<{
+      entities: number;
+      fields: number;
+      metrics: number;
+      relationships: number;
+    }>;
+  }>;
+}>;
+
 export type StudioAgentRunInput = Readonly<{
   runId: string;
   threadId: string;
@@ -271,6 +316,8 @@ export type StudioAgentRunInput = Readonly<{
    * the source of truth for a chat run.
    */
   catalog?: DatabaseCatalog;
+  /** Server-bound transient page context. Never sourced directly from UI text. */
+  turnContext?: StudioAgentTurnContext;
   signal: AbortSignal;
   identity?: StudioIdentity;
 }>;
@@ -889,6 +936,13 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
           } satisfies TesseraUIMessage],
         });
       }
+      const turnContext = runtime.agent.catalogLoading === "data-agent"
+        ? await bindStudioAgentTurnContext({
+          dataAgent: runtime.dataAgent,
+          workspaceContext: request.workspaceContext,
+          signal: context.req.raw.signal,
+        })
+        : undefined;
       const catalog = await catalogForStudioAgent({
         agent: runtime.agent,
         catalogProvider: runtime.catalogProvider,
@@ -904,6 +958,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
         message,
         ...(request.images.length === 0 ? {} : { images: request.images }),
         ...(catalog === undefined ? {} : { catalog: catalogForAgent(catalog) }),
+        ...(turnContext === undefined ? {} : { turnContext }),
         signal: context.req.raw.signal,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       };
@@ -1630,6 +1685,43 @@ async function catalogForStudioAgent(input: AgentCatalogLoadInput & {
   }
 }
 
+/**
+ * A page context is advisory until this server-side bind succeeds. Stale tabs,
+ * changed catalogs, and malformed relation hints simply lose their shortcut;
+ * they never grant a planning capability and never break ordinary chat.
+ */
+async function bindStudioAgentTurnContext(input: Readonly<{
+  dataAgent: DataAgent;
+  signal: AbortSignal;
+  workspaceContext: StudioChatWorkspaceContext | undefined;
+}>): Promise<StudioAgentTurnContext | undefined> {
+  const workspaceContext = input.workspaceContext;
+  if (!workspaceContext) return undefined;
+  const workspace = {
+    hasLocalFilter: workspaceContext.hasLocalFilter,
+    ...(workspaceContext.view === undefined ? {} : { view: workspaceContext.view }),
+  } as const;
+  if (!workspaceContext.currentRelation) return { workspace };
+
+  try {
+    const currentRelation = await input.dataAgent.inspectRelationPlanningCatalog(
+      workspaceContext.currentRelation,
+      input.signal,
+    );
+    return {
+      workspace,
+      currentRelation: {
+        capability: currentRelation.capability,
+        semanticCatalog: currentRelation.semanticCatalog,
+        truncated: currentRelation.truncated,
+        omitted: currentRelation.omitted,
+      },
+    };
+  } catch {
+    return { workspace };
+  }
+}
+
 async function loadAgentCatalog(input: AgentCatalogLoadInput): Promise<DatabaseCatalog> {
   const startedAt = performance.now();
   logAgentEvent(input.logger, "info", input.request, input.runId, {
@@ -2299,11 +2391,23 @@ async function readStudioChatRequest(request: Request): Promise<StudioChatReques
   if (!parsed.success) {
     throw new StudioHttpError(400, "invalid_chat_request", "The chat request is invalid.");
   }
+  const workspaceContext = chatWorkspaceContextFromPayload(payload.workspaceContext);
   return {
     ...parsed.data,
     trigger: payload.trigger === "regenerate-message" ? "regenerate-message" : "submit-message",
     ...(typeof payload.messageId === "string" ? { messageId: payload.messageId } : {}),
     images: imageParts,
+    ...(workspaceContext === undefined ? {} : { workspaceContext }),
+  };
+}
+
+function chatWorkspaceContextFromPayload(value: unknown): StudioChatWorkspaceContext | undefined {
+  const parsed = chatWorkspaceContextPayloadSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  return {
+    ...(parsed.data.currentRelation === undefined ? {} : { currentRelation: parsed.data.currentRelation }),
+    hasLocalFilter: parsed.data.hasLocalFilter === true,
+    ...(parsed.data.view === undefined ? {} : { view: parsed.data.view }),
   };
 }
 
@@ -2853,6 +2957,7 @@ function publicDataToolId(
 }
 
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
+  if (tool === "inspect_current_context") return { action: "inspect_current_context" };
   if (tool === "inspect_catalog") return { action: "inspect_governed_catalog" };
   if (tool === "describe_data") return { action: "describe_governed_catalog" };
   if (tool === "probe_data") return { action: "probe_governed_data" };
@@ -2861,6 +2966,18 @@ function publicToolInput(tool: TesseraToolName): Record<string, string> {
 
 function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string, unknown> {
   const output = isRecord(value) ? value : undefined;
+  if (tool === "inspect_current_context") {
+    const entityCount = boundedPublicInteger(output?.entityCount, MAX_PUBLIC_TOOL_COUNT);
+    return {
+      status: output?.status === "completed"
+        ? "completed"
+        : output?.status === "unavailable"
+          ? "blocked"
+          : "failed",
+      ...(entityCount === undefined ? {} : { entityCount }),
+      ...(output?.truncated === true ? { truncated: true } : {}),
+    };
+  }
   if (tool === "inspect_catalog") {
     const tableCount = boundedPublicInteger(output?.tableCount, MAX_PUBLIC_TOOL_COUNT);
     return {
@@ -2898,6 +3015,7 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
 }
 
 function publicToolTitle(tool: TesseraToolName): string {
+  if (tool === "inspect_current_context") return "Read selected data context";
   if (tool === "inspect_catalog") return "Inspect data catalog";
   if (tool === "describe_data") return "Describe data definitions";
   if (tool === "probe_data") return "Probe governed data";

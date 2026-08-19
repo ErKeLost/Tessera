@@ -13,7 +13,7 @@ export function StudioChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const threadId = rawThreadId ? decodeURIComponent(rawThreadId) : undefined;
-  const { activeThreadId, workspace } = useStudioRouteContext();
+  const { activeThreadId, agentPageContext, workspace } = useStudioRouteContext();
   const refreshWorkspace = useRefreshStudioWorkspace();
   const messages = useStudioThreadMessagesQuery(threadId);
   const initialPromptRef = useRef(
@@ -54,6 +54,7 @@ export function StudioChatRoute() {
         onDatabaseSettingsSaved={() => { void refreshWorkspace(); }}
         onThreadActivity={() => { void messages.refetch(); }}
         threadId={threadId}
+        workspaceContext={agentPageContext}
       />
     </section>
   );

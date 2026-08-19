@@ -1,0 +1,143 @@
+---
+title: Tessera Data Agent Studio
+description: The governed workspace for turning natural-language data questions into verified, inspectable analysis.
+---
+
+Tessera Data Agent Studio is a local-first workspace for asking questions of
+connected data and publishing an inspectable answer. It turns a natural-language
+request into a semantic plan, a bounded read-only query, verified evidence, and
+a structured artifact that the UI can render.
+
+It is an Agent product, not a chat wrapper around a database. The model proposes
+semantic intent; Tessera owns catalog access, authorization boundaries, query
+compilation, execution, verification, evidence limits, and publication.
+
+![Tessera Data Agent Studio architecture](/diagrams/tessera-data-agent-studio.svg)
+
+## What the Studio does
+
+The Studio keeps one answer owner for a run while exposing enough progress for
+the user to inspect, interrupt, retry, or clarify the work.
+
+| Step | User-visible result | Server responsibility |
+| --- | --- | --- |
+| Connect | A configured database appears in the workspace | The host provides the connector and keeps credentials server-side |
+| Discover | Relevant business entities, fields, metrics, and relationships | The Data Agent loads and caches the live catalog, then returns a bounded semantic slice |
+| Clarify | Ambiguous terms become an explicit question or a resolved choice | The Agent can describe inspected entities and run at most bounded discovery probes |
+| Plan | A read-only analysis intent is visible to the runtime | The model submits an `AnalysisDraft` with semantic IDs, never SQL or physical names |
+| Execute | A result, trace, and evidence are streamed into the conversation | The Data Agent revalidates scope, binds identifiers, compiles SQL, executes with limits, and verifies the result |
+| Publish | A chart, table, metric, or other Artifact accompanies the answer | Tessera bounds evidence, validates structured UI data, and redacts private runtime details |
+
+The default implementation lives in `apps/studio`. The governed execution
+boundary is `@data-elements/data-agent`; the host can inject a connector,
+identity provider, session store, model, or compatible `StudioAgent` without
+changing the public protocol.
+
+## Agent tool contract
+
+The model-facing tool set is intentionally small:
+
+```text
+inspect_current_context  -> the server-bound current data context
+inspect_catalog          -> a semantic catalog slice for one question
+describe_data            -> bounded detail for already-inspected entities
+probe_data               -> a fixed, bounded discovery probe
+run_analysis             -> a read-only analysis from a semantic draft
+```
+
+Tools accept semantic identifiers returned by the current catalog. They do not
+accept SQL, connection strings, credentials, physical relation names, compiler
+output IDs, or arbitrary query limits. `probe_data` resolves a material ambiguity;
+it is not a second record-browsing loop. Final answers must be grounded in a
+verified `run_analysis` result.
+
+## Public lifecycle
+
+The UI receives a product-oriented lifecycle rather than private tool payloads.
+The public stages are ordered so a user can understand where a run is waiting or
+why it stopped:
+
+| Stage | Meaning |
+| --- | --- |
+| `catalog` | Load the live physical and semantic catalog |
+| `retrieval` | Select the semantic context relevant to the request |
+| `planning` | Bind a safe analysis interpretation and capability scope |
+| `probing` | Resolve a bounded value, profile, or join ambiguity |
+| `compiling` | Compile the validated semantic draft into a server query |
+| `executing` | Run the bounded read-only query through the connector |
+| `verifying` | Check result shape, limits, truncation, and evidence quality |
+| `publishing` | Publish validated structured artifacts and evidence references |
+| `narrating` | Stream the safe final explanation |
+
+Only summaries cross the browser boundary: tool name and state, stage status,
+bounded durations, safe narration, and evidence references. Raw tool arguments,
+SQL, catalog identifiers, connector metadata, and unbounded query output stay on
+the server.
+
+## Design architecture
+
+### Experience plane
+
+The React Studio UI owns conversation ergonomics: threads, chat, table previews,
+execution traces, artifacts, source references, and human controls. It consumes
+the Tessera UI-message protocol and never calls a database connector directly.
+
+### Studio server and Agent plane
+
+The Hono server is the transport boundary for `/api/chat`, `/api/catalog`,
+`/api/runs`, settings, threads, and table previews. It invokes the model loop,
+redacts untrusted stream chunks, persists complete messages in server-side local
+SQLite, and publishes only the public protocol.
+
+### Governed Data Agent plane
+
+`@data-elements/data-agent` owns catalog loading and caching, semantic bindings,
+short-lived signed planning capabilities, typed discovery probes, SQL compilation,
+connector execution, and result verification. A live catalog fingerprint is
+checked again before an analysis is bound and executed, so a stale plan cannot
+silently run against a changed schema.
+
+### Host and data plane
+
+The embedding host owns authentication, tenant membership, roles, and policy.
+Connectors provide catalog introspection and parameterized execution. Database
+writes are a separate typed action surface with policy checks and approval
+checkpoints; they are not an extension of the read-only Agent loop.
+
+## Trust boundaries
+
+| Boundary | Allowed | Never allowed |
+| --- | --- | --- |
+| Model | Semantic catalog slices, opaque IDs, bounded evidence, explicit next actions | SQL, credentials, physical table names, arbitrary tool payloads |
+| Browser | Redacted lifecycle data, safe narration, validated artifacts | Raw tool arguments, private traces, direct connector access |
+| Studio server | Authentication hook, orchestration, stream filtering, session persistence | Parsing or inventing host credentials; bypassing host authorization |
+| Data Agent | Live catalog, signed scope, typed draft, bounded query result | Caller-supplied SQL or an analysis outside the current capability |
+| Write surface | Typed mutation, purpose, idempotency, approval decision | Implicit writes from a read analysis or free-form SQL |
+
+These boundaries make the model an intent planner rather than a database
+principal. The host remains the authority for who may access a tenant, while the
+Data Agent remains the authority for how an approved semantic read becomes a
+query.
+
+## Implementation map
+
+| Concern | Implementation |
+| --- | --- |
+| Product shell and routes | `apps/studio/src/server.ts` and `apps/studio/src/client` |
+| Default Agent orchestration | `apps/studio/src/agent.ts` |
+| Public stream and stage types | `apps/studio/src/protocol.ts` |
+| Catalog, capability, compiler, execution | `packages/data-agent/src/index.ts` and its compiler modules |
+| Session memory | Server-side/local SQLite, isolated from the analyzed database |
+| Optional writes | Typed database-action service with policy and approval gates |
+
+## Continue with the architecture reference
+
+Use these pages when implementing or reviewing a production integration:
+
+<Cards>
+  <Card title="Agent architecture" description="The four-plane reference topology, contracts, and production boundaries." href="/docs/agent-architecture" />
+  <Card title="Run loop" description="How a request moves from clarification to verified publication." href="/docs/agent-architecture/run-loop" />
+  <Card title="Tool and SQL safety" description="Why semantic tools and server-side compilation are separate." href="/docs/agent-architecture/tool-and-sql-safety" />
+  <Card title="Evidence and provenance" description="How bounded results become claim-level evidence." href="/docs/agent-architecture/evidence-and-provenance" />
+  <Card title="Evals and production gates" description="What must pass before exposing the Agent to production data." href="/docs/agent-architecture/evals-and-production-gates" />
+</Cards>
