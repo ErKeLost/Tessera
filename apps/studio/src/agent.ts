@@ -1,6 +1,7 @@
 import { toAISdkV5Stream } from "@mastra/ai-sdk";
 import { Agent, type MastraDBMessage } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
+import { RequestContext } from "@mastra/core/request-context";
 import { createTool } from "@mastra/core/tools";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import type { Memory } from "@mastra/memory";
@@ -38,6 +39,7 @@ import type {
   TesseraDescribeDataToolOutput,
   TesseraExecutionTraceData,
   TesseraInspectCatalogToolOutput,
+  TesseraInspectCurrentContextToolOutput,
   TesseraProbeDataToolOutput,
   TesseraRunAnalysisToolOutput,
   TesseraStageData,
@@ -197,6 +199,9 @@ const inspectCatalogInputSchema = z.object({
   ),
 }).strict();
 
+/** The selected browser relation is bound by the server, so the model gets no selector arguments. */
+const inspectCurrentContextInputSchema = z.object({}).strict();
+
 const catalogOmittedSchema = z.object({
   entities: z.number().int().nonnegative(),
   fields: z.number().int().nonnegative(),
@@ -213,6 +218,19 @@ const inspectCatalogOutputSchema = z.object({
 }).strict();
 
 type InspectCatalogOutput = z.output<typeof inspectCatalogOutputSchema>;
+
+const inspectCurrentContextOutputSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("completed"),
+    entityCount: z.number().int().positive(),
+    truncated: z.boolean(),
+    omitted: catalogOmittedSchema,
+    catalog: semanticCatalogSchema,
+  }).strict(),
+  z.object({ status: z.literal("unavailable") }).strict(),
+]);
+
+type InspectCurrentContextOutput = z.infer<typeof inspectCurrentContextOutputSchema>;
 
 const describeDataInputSchema = z.object({
   entityIds: z.array(entityIdSchema).min(1).max(DATA_AGENT_DESCRIBE_MAX_ENTITIES),
@@ -286,6 +304,22 @@ export function compactInspectCatalogForModel(output: InspectCatalogOutput) {
       omitted: output.omitted,
       catalog: compactSemanticCatalogForModel(output.catalog),
     },
+  };
+}
+
+/** A current table is a trusted page hint, not a model-supplied resource selector. */
+export function compactInspectCurrentContextForModel(output: InspectCurrentContextOutput) {
+  return {
+    type: "json" as const,
+    value: output.status === "completed"
+      ? {
+        status: output.status,
+        entityCount: output.entityCount,
+        truncated: output.truncated,
+        omitted: output.omitted,
+        catalog: compactSemanticCatalogForModel(output.catalog),
+      }
+      : output,
   };
 }
 
@@ -423,6 +457,8 @@ type CopilotRuntime = {
   rejectedInvalidAnalysisInputs: number;
   /** Bound discovery to two probes so the Agent must decide or clarify. */
   probesUsed: number;
+  /** The server-bound current table may establish one trusted planning scope per turn. */
+  currentContextInspected: boolean;
   stages: Map<TesseraDataAgentStage, Omit<TesseraStageData, "runId" | "stage">>;
 };
 
@@ -430,7 +466,7 @@ export type PlanningCatalogScope = Readonly<{
   capability: PlanningCapability;
   catalog: SemanticCatalog;
   /** The scope source determines whether candidate discovery is complete enough to plan. */
-  discovery?: "inspect" | "describe";
+  discovery?: "context" | "inspect" | "describe";
   /** A partial scope cannot authorize a final analysis plan on its own. */
   truncated?: boolean;
   omitted?: Readonly<{
@@ -483,6 +519,7 @@ function createCopilotRuntime(): CopilotRuntime {
     rejectedAnalysisPlans: new Set(),
     rejectedInvalidAnalysisInputs: 0,
     probesUsed: 0,
+    currentContextInspected: false,
     stages: new Map(),
   };
 }

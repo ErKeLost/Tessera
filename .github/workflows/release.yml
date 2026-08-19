@@ -144,4 +144,11 @@ jobs:
           trap 'find "$verify_dir" -depth -delete' EXIT
           cd "$verify_dir"
           npm init --yes >/dev/null
-          npx --yes "data-elements@$RELEASE_VERSION" studio --help
+          for attempt in $(seq 1 12); do
+            if npx --yes "data-elements@$RELEASE_VERSION" studio --help; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The published CLI did not become installable from npm." >&2
+          exit 1

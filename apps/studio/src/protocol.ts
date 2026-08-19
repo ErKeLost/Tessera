@@ -1,7 +1,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "inspect_catalog" | "describe_data" | "probe_data" | "run_analysis";
+export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "describe_data" | "probe_data" | "run_analysis";
 export type TesseraToolState = "started" | "completed" | "blocked" | "failed";
 /**
  * Public lifecycle only. Details such as SQL, catalog identifiers, probe
@@ -28,6 +28,11 @@ export type TesseraInspectCatalogToolInput = Readonly<{
   action: "inspect_governed_catalog";
 }>;
 
+/** A server-bound current-page context. It has no browser-provided payload. */
+export type TesseraInspectCurrentContextToolInput = Readonly<{
+  action: "inspect_current_context";
+}>;
+
 export type TesseraProbeDataToolInput = Readonly<{
   action: "probe_governed_data";
 }>;
@@ -43,6 +48,12 @@ export type TesseraRunAnalysisToolInput = Readonly<{
 export type TesseraInspectCatalogToolOutput = Readonly<{
   status: "completed" | "failed";
   tableCount?: number;
+  truncated?: boolean;
+}>;
+
+export type TesseraInspectCurrentContextToolOutput = Readonly<{
+  status: "completed" | "blocked" | "failed";
+  entityCount?: number;
   truncated?: boolean;
 }>;
 
@@ -64,6 +75,10 @@ export type TesseraRunAnalysisToolOutput = Readonly<{
 
 /** The native AI SDK tool parts expected by assistant-ui renderers. */
 export type TesseraUITools = {
+  inspect_current_context: {
+    input: TesseraInspectCurrentContextToolInput;
+    output: TesseraInspectCurrentContextToolOutput;
+  };
   inspect_catalog: {
     input: TesseraInspectCatalogToolInput;
     output: TesseraInspectCatalogToolOutput;

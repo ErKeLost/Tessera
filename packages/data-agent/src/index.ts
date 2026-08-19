@@ -219,7 +219,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     if (!relation) throw unavailableRelationContext();
 
     const entity = Array.from(loaded.value.bindings.entities.values()).find((candidate) => (
-      candidate.schema === relation.schema && candidate.table === relation.name
+      candidate.source === relation
     ));
     if (!entity) throw unavailableRelationContext();
 

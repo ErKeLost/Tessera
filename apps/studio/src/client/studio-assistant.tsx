@@ -270,7 +270,7 @@ function StudioUserMessage() {
     <MessagePrimitive.Root className="tessera-message-root tessera-user-message">
       <Message className="ml-auto w-fit max-w-[72%] gap-1" from="user">
         <UserMessageAttachments />
-        <MessageContent className="tessera-message-content tessera-user-message-content rounded-md px-3 py-1.5 text-[13px] leading-5">
+        <MessageContent className="tessera-message-content tessera-user-message-content rounded-md px-3 !py-1.5 text-[13px] leading-5">
           <MessagePrimitive.Parts>
             {({ part }) => (part.type === "text" ? <MarkdownText /> : null)}
           </MessagePrimitive.Parts>

@@ -257,7 +257,7 @@ audited and revalidated.
 6. Represent scope groups as OR-of-AND alternatives when integrating with
    external OAuth/FGA providers.
 
-### Do not borrow as the final authority
+### Do not borrow as authority or Agent surface
 
 1. Do not expose arbitrary model-authored SQL as the default mutation surface.
 2. Do not trust a model-supplied `isWriteQuery` flag for classification.
