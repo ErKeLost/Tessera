@@ -1,0 +1,76 @@
+---
+title: Run Loop
+description: The explicit, interruptible analysis loop from clarification through a published artifact.
+---
+
+The run controller owns one visible state machine:
+
+```text
+clarify → discover → plan → query → validate → synthesize → publish
+              ↑         ↘ revise / retry ↗
+```
+
+## 1. Clarify
+
+Normalize the metric, grain, dimensions, comparison window, timezone, and
+expected decision. Ask the user only when ambiguity materially changes the
+query or answer. Record assumptions in run state and show them in the chat.
+
+## 2. Discover
+
+Retrieve relevant semantic definitions, approved datasets, joins, freshness,
+and prior scoped context. Rank a small context set; do not place an entire
+catalog in the model prompt.
+
+## 3. Plan
+
+Choose a bounded sequence of tools and assign cost, time, row, and retry
+budgets. The visible plan may contain action summaries, prerequisites, and
+status. It must not expose hidden chain-of-thought.
+
+Use a worker only when all of these are true:
+
+- the subproblem can complete independently;
+- results can be merged through a typed contract;
+- parallel execution materially reduces latency or improves recall;
+- the controller still validates and owns the final response.
+
+## 4. Query
+
+Generate structured tool arguments, pass them through policy and permission
+checks, then execute with stable idempotency and trace identifiers. Persist a
+checkpoint before approval or long-running work.
+
+## 5. Validate
+
+Treat syntactic query success as necessary but insufficient. Validate schema,
+row limits, totals, nulls, time boundaries, units, freshness, reconciliation,
+and any statistical assumptions. Failed validation returns a concise repair
+signal to the controller and consumes a bounded retry.
+
+## 6. Synthesize
+
+Build claims only from validated outputs. Attach evidence IDs while drafting,
+separate observed facts from interpretations, and state material limitations.
+Do not infer causality from correlation or significance from visible point
+estimates.
+
+## 7. Publish
+
+Publish prose, one or more versioned Artifact Agent artifacts, claim citations,
+source metadata, run duration, and safe follow-up actions as one response. The
+artifact renderer remains declarative and cannot execute model-authored code.
+
+## Failure and interruption
+
+Every stage writes status to durable run state. Cancellation propagates to
+warehouse queries and workers. Retriable errors preserve completed evidence;
+permission denials and failed approvals stop the branch without being treated
+as generic tool failures.
+
+## References
+
+- [OpenAI: Agents](https://developers.openai.com/api/docs/guides/agents)
+- [OpenAI: Agent orchestration](https://developers.openai.com/api/docs/guides/agents/orchestration)
+- [Anthropic: Building effective agents](https://www.anthropic.com/research/building-effective-agents)
+- [ReAct](https://arxiv.org/abs/2210.03629)

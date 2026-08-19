@@ -1,0 +1,41 @@
+{
+  "name": "@data-elements/mysql",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "description": "MySQL connector, schema introspection, and read-only query policy for Data Elements.",
+  "type": "module",
+  "sideEffects": [
+    "./dist/browser.mjs"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "browser": {
+    "./dist/index.mjs": "./dist/browser.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/database": "workspace:*",
+    "mysql2": "^3.23.3",
+    "node-sql-parser": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

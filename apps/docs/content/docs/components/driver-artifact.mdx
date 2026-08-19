@@ -1,0 +1,33 @@
+---
+title: Driver Artifact
+description: Reconcile a metric change through signed, additive contribution drivers.
+---
+
+Driver Artifact answers **what moved the metric**. Its waterfall-style bridge
+shows the starting value, positive and negative contributions, ending value,
+and any unreconciled remainder.
+
+<ComponentPreview filename="driver-artifact-example.tsx" code={`import { DriverArtifact } from "@/components/data-elements/driver-artifact"
+
+export function RevenueDrivers({ artifact }) {
+  return <DriverArtifact artifact={artifact} locale="en-US" />
+}`}>
+  <DriverDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="driver-artifact" />
+
+## Selection rule
+
+Use only additive, non-overlapping contributions from a trusted decomposition.
+Correlation is not contribution. Selecting a driver emits `driver-select` with
+its ID and index.
+
+## API Reference
+
+<ApiReference name="DriverArtifact" properties={[
+  { name: "artifact", type: "DriverArtifactData", required: true, description: "Start and end states plus one to twenty-four signed additive drivers." },
+  { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for totals and driver values." },
+]} />

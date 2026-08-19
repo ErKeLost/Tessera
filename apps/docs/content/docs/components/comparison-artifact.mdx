@@ -1,0 +1,91 @@
+---
+title: Comparison Artifact
+description: Compare several options across stable criteria and surface a clear recommendation.
+---
+
+Use this artifact when every option shares the same criteria. A row can mark a
+winner without forcing qualitative information into an artificial numeric
+score.
+
+<ComponentPreview
+  code={`import { ComparisonArtifact } from "@/components/data-elements/comparison-artifact"
+
+export function WarehouseComparison() {
+  return (
+    <ComparisonArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "comparison",
+        id: "warehouse-comparison",
+        title: "Choose a warehouse",
+        description: "Compare the criteria that matter for this workload.",
+        subjectLabel: "Criteria",
+        subjects: [
+          { id: "snowflake", label: "Snowflake" },
+          { id: "bigquery", label: "BigQuery" },
+          { id: "clickhouse", label: "ClickHouse" },
+        ],
+        criteria: [
+          {
+            id: "latency",
+            label: "Interactive latency",
+            values: {
+              snowflake: "Low",
+              bigquery: "Low",
+              clickhouse: "Very low",
+            },
+            winnerId: "clickhouse",
+          },
+        ],
+        recommendation: "Prefer managed operations for this team.",
+      }}
+    />
+  )
+}`}
+>
+  <ComparisonDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="comparison-artifact" />
+
+## Usage
+
+Subject IDs are the stable keys shared by each criterion's `values` object and
+its optional `winnerId`.
+
+<CodeExample
+  filename="components/decision-support.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { ComparisonArtifact } from "@/components/data-elements/comparison-artifact"
+
+export function DecisionSupport({ artifact }) {
+  return (
+    <DataElementsProvider onAction={(event) => saveDecision(event)}>
+      <ComparisonArtifact artifact={artifact} />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="ComparisonArtifact"
+  properties={[
+    { name: "artifact", type: "ComparisonArtifactData", required: true, description: "Validated subjects, shared criteria, optional row winners, and an optional recommendation." },
+  ]}
+/>
+
+### Limits
+
+| Collection | Limit | Why |
+| --- | --- | --- |
+| `subjects` | 2–8 | Preserves comparison readability and horizontal scanning. |
+| `criteria` | 1–24 | Keeps generated surfaces useful without becoming a raw spreadsheet. |
+
+Selecting the recommendation emits `recommendation-select` with the exact
+recommendation text.

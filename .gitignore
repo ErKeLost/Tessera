@@ -1,0 +1,17 @@
+node_modules
+.turbo
+.next
+.netlify
+.artifacts
+.source
+.tessera
+dist
+coverage
+apps/docs/.registry
+registry/generated
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example
+vendor

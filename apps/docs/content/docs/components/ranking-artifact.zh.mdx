@@ -1,0 +1,83 @@
+---
+title: 排名 Artifact
+description: 展示带变化上下文、可信高亮和条目级操作的显式指标排名。
+---
+
+当答案是由同一指标衡量的一组有序实体时，使用 Ranking Artifact。排名是经过校验的载荷
+的一部分，因此 Renderer 不会根据标签或自然语言自行推断顺序和优胜者。
+
+<ComponentPreview
+  filename="ranking-artifact-example.tsx"
+  code={`import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+
+export function PipelineRanking() {
+  return (
+    <RankingArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "ranking",
+        id: "pipeline-ranking",
+        title: "Pipeline by acquisition channel",
+        description: "Qualified pipeline created in the current quarter.",
+        metricLabel: "Qualified pipeline",
+        format: "currency",
+        currency: "USD",
+        highlightId: "partners",
+        items: [
+          { id: "organic", rank: 1, label: "Organic search", value: 2840000, change: 14.8 },
+          { id: "partners", rank: 2, label: "Technology partners", value: 2310000, change: 22.4 },
+          { id: "events", rank: 3, label: "Field events", value: 1760000, change: 5.1 },
+        ],
+        insight: "Partners contributed the largest quarter-over-quarter increase.",
+      }}
+    />
+  )
+}`}
+>
+  <RankingDemo />
+</ComponentPreview>
+
+## 安装
+
+<InstallCommand name="ranking-artifact" />
+
+## 使用方式
+
+提供 1 至 50 个按非递减名次排列的条目。条目 ID 必须唯一；并列时可以重复使用同一名次。
+`highlightId` 为可选字段，但提供后必须引用当前载荷中的某个条目。
+
+<CodeExample
+  filename="components/channel-ranking.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+
+export function ChannelRanking({ artifact }) {
+  return (
+    <DataElementsProvider onAction={({ payload }) => openChannel(payload.itemId)}>
+      <RankingArtifact artifact={artifact} locale="zh-CN" />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API 参考
+
+<ApiReference
+  name="RankingArtifact"
+  properties={[
+    { name: "artifact", type: "RankingArtifactData", required: true, description: "经过校验的指标、有序排名条目、可选高亮和可选洞察。" },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "用于数值、货币、百分比和条目数量的本地化格式。" },
+  ]}
+/>
+
+### 排名字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `rank` | `positive integer` | 由可信生产者显式提供的名次。 |
+| `change` | `number` | 当前条目的可选有符号百分比变化。 |
+| `highlightId` | `string` | 可选的语义高亮条目 ID。 |
+
+选择条目会发出 `ranking-item-select`，载荷为 `{ itemId, rank }`。

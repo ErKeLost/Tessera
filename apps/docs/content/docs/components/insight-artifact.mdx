@@ -1,0 +1,78 @@
+---
+title: Insight Artifact
+description: Present a concise set of evidence-backed findings and one structured recommended action.
+---
+
+Insight Artifact is for narrative findings grounded in trusted analysis. Each
+item separates the headline, explanation, and optional evidence instead of
+asking the model to invent an arbitrary card layout.
+
+<ComponentPreview
+  filename="insight-artifact-example.tsx"
+  code={`import { InsightArtifact } from "@/components/data-elements/insight-artifact"
+
+export function WeeklyInsights() {
+  return (
+    <InsightArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "insight",
+        id: "weekly-insights",
+        title: "What changed this week",
+        description: "Evidence-backed findings from trusted metrics.",
+        insights: [
+          {
+            id: "activation",
+            headline: "Assisted onboarding improved activation",
+            detail: "Teams reached a first query 1.8 days faster.",
+            evidence: "Activation: 71.4% vs 62.0% · n=1,842",
+          },
+        ],
+        recommendedAction: "Open the onboarding experiment brief",
+      }}
+    />
+  )
+}`}
+>
+  <InsightDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="insight-artifact" />
+
+## Usage
+
+Keep headlines concise and put the supporting measurement in `evidence`. The
+optional recommended action is emitted as structured data, never executed by
+the component itself.
+
+<CodeExample
+  filename="components/weekly-insights.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { InsightArtifact } from "@/components/data-elements/insight-artifact"
+
+export function WeeklyInsights({ artifact }) {
+  return (
+    <DataElementsProvider onAction={(event) => continueAnalysis(event)}>
+      <InsightArtifact artifact={artifact} />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="InsightArtifact"
+  properties={[
+    { name: "artifact", type: "InsightArtifactData", required: true, description: "One to twelve structured findings and an optional recommended action." },
+  ]}
+/>
+
+| Action | Payload |
+| --- | --- |
+| `insight-select` | `{ insightId }` |
+| `insight-action` | `{ action }` |

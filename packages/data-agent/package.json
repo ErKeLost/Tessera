@@ -1,0 +1,34 @@
+{
+  "name": "@data-elements/data-agent",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "description": "Server-only fixed workflow for governed database analysis.",
+  "type": "module",
+  "sideEffects": ["./dist/browser.mjs"],
+  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "browser": {
+    "./dist/index.mjs": "./dist/browser.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/database": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,33 @@
+---
+title: Experiment Artifact
+description: Present control and treatment outcomes with sample size, effect, uncertainty, method, and guardrails.
+---
+
+Experiment Artifact makes a causal result inspectable. A point estimate is not
+enough: the protocol requires both variants, sample sizes, an effect estimate,
+a confidence interval, a significance decision, and the statistical method.
+
+<ComponentPreview filename="experiment-artifact-example.tsx" code={`import { ExperimentArtifact } from "@/components/data-elements/experiment-artifact"
+
+export function OnboardingExperiment({ artifact }) {
+  return <ExperimentArtifact artifact={artifact} locale="en-US" />
+}`}>
+  <ExperimentDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="experiment-artifact" />
+
+## Selection rule
+
+Only use this component when an experiment service or approved causal analysis
+computed the result. Never infer significance from two visible percentages,
+and do not label observational comparisons as experiments.
+
+## API Reference
+
+<ApiReference name="ExperimentArtifact" properties={[
+  { name: "artifact", type: "ExperimentArtifactData", required: true, description: "Control, treatment, sample sizes, effect, interval, method, optional p-value, guardrails, and conclusion." },
+  { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for outcome values and sample sizes." },
+]} />

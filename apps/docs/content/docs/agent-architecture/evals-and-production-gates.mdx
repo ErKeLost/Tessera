@@ -1,0 +1,76 @@
+---
+title: Evals and Production Gates
+description: Evaluate analytical correctness, safety, evidence, tool behavior, and user outcomes before and after release.
+---
+
+One final-answer score cannot diagnose an agent. Evaluate the trace and the
+outcome at multiple layers.
+
+## Evaluation matrix
+
+| Layer | Measures |
+| --- | --- |
+| Intent | metric, grain, filters, period, timezone, clarification quality |
+| Retrieval | schema and definition recall, irrelevant context rate |
+| Tool use | correct tool, valid arguments, budget, retries, approval behavior |
+| Query | execution, semantic correctness, efficiency, tenant isolation |
+| Validation | detection of empty, stale, inconsistent, or unreconciled results |
+| Answer | factuality, completeness, calibrated language, useful limitations |
+| Evidence | citation completeness, entailment, source quality, provenance continuity |
+| Artifact | correct renderer selection, schema validity, accessibility, responsive layout |
+| Outcome | task completion, analyst correction rate, decision usefulness, time saved |
+
+Use deterministic checks wherever possible, human review for nuanced analytical
+quality, and model graders only after calibrating them against expert labels.
+
+## Benchmark sets
+
+Maintain versioned suites with golden definitions and expected invariants:
+
+- common business questions and ambiguous follow-ups;
+- multi-table and enterprise SQL tasks inspired by Spider 2.0 and BIRD;
+- permission-denied, injection, sensitive-column, and costly-query cases;
+- stale data, partial periods, nulls, duplicates, and reconciliation failures;
+- distribution, cohort, experiment, and driver payloads with statistical traps;
+- cancellation, retry, resume, approval, and worker-failure traces.
+
+Production traces become candidates only after redaction, consent, and review.
+Preserve difficult failures and near misses to prevent regression toward easy
+benchmarks.
+
+## Release gates
+
+Block release on tenant isolation, unsafe SQL, approval bypass, executable
+artifact content, or critical evidence failures. Require defined thresholds for
+task success, semantic SQL correctness, citation entailment, latency, and cost.
+Compare every change to a pinned baseline and inspect slice regressions rather
+than relying on one average.
+
+## Current repository status
+
+`@data-elements/evals` implements a versioned evaluation manifest, fixed sample
+plans, two-sided 95% Wilson lower bounds, per-provider/profile gates, immutable
+conformance fixtures, and hard security/compatibility/distribution failures.
+Local protocol, package, registry, and fresh-install fixtures run in CI.
+
+No production canary or live provider/model matrix has been run from this
+repository. The repaired-validity gate requires at least 4,000 eligible
+zero-failure samples for every gated provider/profile aggregate; smaller or
+missing runs are reported as `insufficient-data`, never as passing. Local
+fixtures verify the gate implementation but do not count toward that sample
+total.
+
+## Online monitoring
+
+Track policy denials, clarification rate, tool and query errors, repair loops,
+unreconciled results, unsupported-claim rate, user corrections, abandonment,
+latency, and cost by task slice. Alerts should link to a redacted trace and the
+exact evaluator version.
+
+## References
+
+- [OpenAI: Agent evals](https://developers.openai.com/api/docs/guides/agent-evals)
+- [Anthropic: Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+- [Spider 2.0](https://arxiv.org/abs/2411.07763)
+- [BIRD](https://arxiv.org/abs/2305.03111)
+- [Microsoft: Guidelines for human-AI interaction](https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/)

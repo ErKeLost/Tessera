@@ -1,0 +1,69 @@
+---
+title: AI SDK
+description: Compile a per-turn tool and stream only committed Artifact UI parts.
+---
+
+`@data-elements/ai-sdk` is the default server adapter. `createArtifactUI()`
+keeps the public path small while the compiler, policy boundary, runtime commit,
+and transport validation remain internal.
+
+```ts
+import { createArtifactUI } from "@data-elements/ai-sdk";
+import { streamText } from "ai";
+
+const artifactUI = createArtifactUI();
+
+export async function POST(request: Request) {
+  const { messages } = await request.json();
+  const turn = await artifactUI.prepareTurn({
+    messages,
+    profile: "analysis",
+  });
+  const result = streamText({
+    model,
+    messages: turn.messages,
+    system: turn.system,
+    tools: { ...dataTools, ...turn.tools },
+  });
+
+  return turn.toUIMessageStreamResponse(result);
+}
+```
+
+`prepareTurn()` freezes one task-specific catalog slice, provider schema,
+contract fingerprint, policy, and repair budget. The `renderArtifact` tool
+accepts the compact Surface DSL, then the shared commit layer produces a
+runtime v2 `ArtifactPart`. Raw tool arguments and raw provider output are not
+forwarded to the browser. The response contains a `data-artifact` transport
+part with a serializable runtime wire value and the exact contract fingerprint
+used for the turn.
+
+At the browser message-ingestion boundary, decode the wire with the
+browser-safe runtime package. Keep the resulting branded part in UI state and
+render only after validation succeeds:
+
+```tsx
+import { decodeArtifactPart } from "@data-elements/runtime";
+import { ArtifactRenderer } from "@/components/data-elements/artifact-ui";
+
+const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
+  contractFingerprint: dataArtifactPart.data.contractFingerprint,
+});
+
+if (!decoded.success) throw new Error("Artifact transport validation failed.");
+return <ArtifactRenderer value={decoded.part} />;
+```
+
+Do not pass the network wire directly to `ArtifactRenderer`; it deliberately
+accepts only an in-process branded `ArtifactPart`, a host-trusted committed
+document, or the explicit v1 compatibility type. `@data-elements/ai-sdk` is
+server-only, so browser code imports the decoder from `@data-elements/runtime`.
+
+Pass host-issued `resources`, `evidence`, and a `documentPolicy` to
+`prepareTurn()` when a turn needs governed data. IDs not granted by the host,
+policy downgrades, invalid schema hashes, and expired references fail before a
+runtime part is published.
+
+`createRenderArtifactTool()` and the v1 message helpers remain available for
+existing single-artifact integrations. New integrations should use
+`createArtifactUI()` and `ArtifactRenderer`.

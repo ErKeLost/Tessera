@@ -1,0 +1,615 @@
+---
+title: Embedded Business Artifact Runtime
+description: The target architecture for persistent, continuously editable semantic business artifacts embedded in existing host applications.
+---
+
+Status: **Normative target architecture**. This document defines the product
+boundary and the production design. It does not imply that every capability is
+already implemented.
+
+## Decision and non-goals
+
+Data Elements is a **persistent, continuously editable, host-embedded semantic
+business Artifact Runtime**.
+
+An Artifact is an addressable business interaction surface that lives inside an
+existing admin system, operations console, CRM, analytics product, or other host
+application. It can be created by a model, reopened later, edited in place,
+connected to authorized business data, and used to request governed actions.
+Generative UI is an authoring input to this runtime, not the product boundary.
+
+The invariant is:
+
+> The model proposes declarations; the host owns data, authority, effects,
+> persistence, and the final commit.
+
+React and shadcn/ui are the first official renderer implementation and source
+distribution model. They do not define the protocol, storage model, or trust
+boundary.
+
+The following are explicit non-goals:
+
+- Generating applications, routes, arbitrary pages, or sandbox mini-apps.
+- Generating HTML, JSX, JavaScript, CSS, SQL, executable formulas, or any other
+  executable code.
+- Letting a model choose arbitrary React components, class names, URLs, tools,
+  or credentials.
+- Replacing the host application's navigation, authentication, authorization,
+  data layer, design system, or business workflow engine.
+- Treating a chat transcript as the authoritative Artifact store.
+- Fabricating business data when an authorized resource is unavailable.
+
+The constrained protocol may still express rich business interaction. That is
+different from accepting arbitrary application code.
+
+## Architecture
+
+![Embedded Business Artifact Runtime architecture](/diagrams/embedded-business-artifact-runtime.svg)
+
+The runtime is embedded in the host rather than mounted as a separate generated
+application:
+
+```text
+Existing host + ArtifactHost
+  -> host context, selection, and session controller
+  -> task-scoped authoring compiler and proposal gate
+  -> lifecycle service and immutable revision store
+  -> trusted event stream
+  -> state, resource, action, and effect runtime
+  -> host capability broker, system surfaces, receipts, and audit
+```
+
+No model output crosses directly into the renderer or an effect handler.
+
+## Core entities
+
+The lifecycle model separates stable identity, mutable branch pointers, and
+immutable content. Representative types are shown below; transport codecs may
+use a different encoding while preserving these semantics.
+
+```ts
+type ArtifactRecord = {
+  artifactId: string
+  tenantId: string
+  defaultBranchId: string
+  createdAt: string
+  createdBy: ActorRef
+  meta: ArtifactMeta
+}
+
+type ArtifactBranch = {
+  artifactId: string
+  branchId: string
+  headRevisionId: string
+  headToken: string
+  updatedAt: string
+}
+
+type ArtifactRevision = {
+  artifactId: string
+  revisionId: string
+  parentRevisionIds: string[]
+  document: NormalizedArtifactDocument
+  contentHash: string
+  contractFingerprint: string
+  createdAt: string
+  createdBy: ActorRef
+}
+
+type RevisionAudit = {
+  artifactId: string
+  revisionId: string
+  operation: "create" | "edit" | "restore" | "migrate" | "merge"
+  actor: ActorRef
+  sessionId?: string
+  sourceRevisionId?: string
+  instructionHash?: string
+  recordedAt: string
+}
+
+type ArtifactRef = {
+  artifactId: string
+  branchId: string
+  revisionId?: string
+  headToken?: string
+}
+```
+
+An `ArtifactRevision` is branch-independent and immutable. It must not contain a
+`branchId`. An `ArtifactBranch` is a mutable pointer advanced with a
+compare-and-swap precondition. This permits branches, merges, replay, and history without
+duplicating or rewriting revisions.
+
+An authoring session binds a user interaction to one resolved base revision:
+
+```ts
+type ArtifactSession = {
+  sessionId: string
+  actor: ActorRef
+  artifact: ArtifactRef
+  baseRevisionId: string
+  contractFingerprint: string
+  selection?: ArtifactSelection
+  writeScope: ArtifactWriteScope
+  capabilityGrantIds: string[]
+  expiresAt: string
+}
+
+type ArtifactSelection = {
+  revisionId: string
+  nodeIds: string[]
+  anchorNodeId?: string
+}
+
+type ArtifactWriteScope = {
+  baseRevisionId: string
+  writableNodeIds: string[]
+  creatableSlots: Array<{ parentNodeId: string; slot: string }>
+  writableStateIds: string[]
+  writableActionIds: string[]
+  attachableResourceIds: string[]
+}
+```
+
+The server derives `ArtifactWriteScope`; the model cannot expand it. Sessions
+expire, but Artifacts do not depend on a session or conversation for identity.
+
+## Four planes
+
+| Plane | Responsibilities | Trust boundary |
+| --- | --- | --- |
+| Host experience plane | Existing product shell, `ArtifactHost`, rendering, selection, placement, accessibility, and protected system surfaces | Accepts only committed documents and trusted preview/runtime events |
+| Authoring and lifecycle plane | Task-specific authoring, proposal validation, Artifact identity, sessions, revisions, branches, optimistic concurrency, commit, restore, and migration | Model output is untrusted; only validated and authorized proposals become revisions |
+| Trusted runtime plane | Interaction projection, local and durable state, resource resolution, typed commands, action coordination, stream replay and resume | Browser intent is re-resolved against committed server state before execution |
+| Host authority and business data plane | Identity, policy, capabilities, approvals, business APIs, effects, evidence, receipts, telemetry, and audit | The host is the sole authority for external data, permissions, and side effects |
+
+These planes may run in separate processes. Their contracts must remain
+transport-neutral and must not import React into the compiler, protocol, store,
+or capability layers.
+
+## Create, edit, and restore
+
+Creation and editing deliberately use different model-facing shapes.
+
+### Create
+
+1. The host supplies the instruction, actor, tenant, authorized context, and
+   available capability descriptors.
+2. The service creates a session and freezes a task-scoped catalog,
+   `contractFingerprint`, limits, and policy bundle for the turn.
+3. The model proposes one nested `ArtifactSnapshotProposal` using named fields.
+4. The server decodes, normalizes, validates, checks information flow, and
+   authorizes the complete proposal.
+5. One transaction inserts the `ArtifactRecord`, initial immutable revision,
+   audit record, and branch head.
+6. The service publishes a trusted committed snapshot and returns an
+   `ArtifactRef`.
+
+The model never chooses the tenant, authoritative actor, branch head token, or
+revision identity.
+
+### Edit
+
+Editing targets the same Artifact. It does not create a new document by default
+and does not depend on replaying the complete chat history.
+
+```ts
+type ArtifactChangeSet = {
+  baseRevisionId: string
+  operations: AuthoringEditOperation[]
+}
+
+type AuthoringEditOperation =
+  | { type: "put-node"; node: AuthoringNode }
+  | { type: "remove-node"; nodeId: string }
+  | { type: "set-slot"; parentNodeId: string; slot: string; nodeIds: string[] }
+  | { type: "put-state"; state: AuthoringState }
+  | { type: "remove-state"; stateId: string }
+  | { type: "put-action"; action: AuthoringAction }
+  | { type: "remove-action"; actionId: string }
+  | { type: "attach-resource"; resource: AuthoringResource }
+  | { type: "detach-resource"; resourceId: string }
+  | { type: "set-root"; nodeId: string }
+  | { type: "set-meta"; meta: ArtifactMeta }
+```
+
+The edit lifecycle is:
+
+1. Resolve the `ArtifactRef` and current branch head.
+2. Build a minimal read bundle and an explicit `ArtifactWriteScope` from the
+   user's selection and permissions.
+3. Ask the model for complete, entity-level operations against
+   `baseRevisionId`.
+4. Parse and validate each complete operation on the server, then validate the
+   cumulative draft document.
+5. Commit a new immutable revision only if the branch head and policy
+   preconditions still match.
+6. Advance the branch head atomically and publish the committed snapshot.
+
+Generic JSON Patch is not the authoring contract. Entity-level operations keep
+node, slot, state, action, resource, and metadata invariants explicit. A stale
+base revision returns a structured conflict and preserves the current head; it
+is never silently overwritten.
+
+### Restore
+
+Restore copies the selected historical document into a **new revision** whose
+parent is the current branch head. The audit record identifies the source
+revision. A restore never moves a branch pointer backward and never attempts to
+undo external business effects that were already executed.
+
+## Selection-scoped editing
+
+Selection is a context and authority boundary, not merely a visual highlight.
+For an edit, the server sends the authoring model only:
+
+- The selected nodes and the ancestors required to understand their placement.
+- Referenced state, action, resource, evidence, and node contracts.
+- Sibling summaries only where needed to preserve layout or ordering.
+- The explicit write scope and current base revision.
+- Redacted host context permitted for this actor and task.
+
+Unselected subtrees, inaccessible resources, credentials, internal policy, and
+unrelated conversation history remain outside the prompt. The compiler rejects
+operations outside the write scope, edits to deleted selections, new references
+outside the permitted catalog, and changes based on a stale revision.
+
+The client reports stable node IDs through `onSelectionChange`; it never decides
+the final server write scope.
+
+## Trusted progressive preview
+
+Progressive rendering is allowed only after the server has parsed complete model
+operations. Raw text tokens, partial tool input, incomplete JSON, and unbranded
+wire values never reach the browser.
+
+```text
+last-good committed Artifact
+  -> parse complete model operations on the server
+  -> validate each operation and affected nodes
+  -> validate the cumulative draft
+  -> emit trusted draft-preview events
+  -> project the preview over last-good on the client
+  -> atomically commit and replace last-good
+```
+
+Every preview event carries a transaction ID, monotonically increasing preview
+sequence, base revision, and contract fingerprint. The client accepts only an
+ordered stream matching the active session and fingerprint.
+
+Safe layout and content shells may appear progressively. Semantic business nodes
+remain atomic until their complete contract, evidence requirements, and
+references validate. Effect-bearing controls are disabled in preview;
+preview-local state is discarded on abort. A rejection, stream gap, conflict, timeout,
+or disconnect removes the preview and leaves the last-good committed Artifact
+visible and interactive.
+
+Preview is an ephemeral projection. It is not a revision, does not advance a
+branch, and cannot authorize an effect.
+
+## Actions and host-owned system surfaces
+
+A model may declare a typed action and connect a node event port to it. It cannot
+implement the action, select an arbitrary handler, grant itself authority, or
+invent a successful result.
+
+The execution path is:
+
+```text
+event on committed node
+  -> validate revision, head, payload, and state preconditions
+  -> resolve host capability and current actor authorization
+  -> show required host confirmation or approval
+  -> execute an idempotent host handler
+  -> persist status and immutable receipt
+  -> publish trusted runtime events
+  -> optionally commit an authorized Artifact/state update
+```
+
+Every renderer consumes one unified, trusted interaction projection rather than
+assembling pending actions, approvals, effects, and receipts independently:
+
+```ts
+type ArtifactInteractionView = {
+  invocationId: string
+  artifactId: string
+  revisionId: string
+  nodeId: string
+  port: string
+  actionId: string
+  status:
+    | "queued"
+    | "running"
+    | "awaiting-approval"
+    | "cancel-requested"
+    | "succeeded"
+    | "rejected"
+    | "failed"
+    | "cancelled"
+    | "conflict"
+  cancellable: boolean
+  retryable: boolean
+  approval?: ClientApprovalCheckpoint
+  receipt?: ClientEffectReceipt
+  diagnostic?: ClientDiagnostic
+}
+```
+
+Action invocation IDs and effect request IDs are idempotency keys. Retries,
+cancellation, and resume operate on those identities rather than issuing a new
+effect implicitly. Every terminal effect has a receipt, including denial,
+failure, cancellation, and conflict.
+
+The ownership boundary is explicit:
+
+| Model-authored semantic Artifact content | Host-owned system surface |
+| --- | --- |
+| Record list and record detail | Confirmation |
+| Search results | Approval checkpoint |
+| Review and proposed change set | Permission denial |
+| Bulk-action declaration | Pending and running status |
+| Workflow steps | Success or failure receipt |
+| Audit-log presentation | Retry and cancellation controls |
+| Typed action intent | Conflict resolution |
+
+Host-owned surfaces are rendered by `ArtifactHost` outside the model-authored
+tree, using host policy and trusted runtime state. They cannot be suppressed,
+restyled deceptively, or replaced by model content. Official form and semantic
+renderers must propagate trigger results into these states; an action result may
+not be ignored.
+
+## Golden public APIs
+
+Internal sophistication must not leak into the default integration. Most
+developers should use three server operations and one React host.
+
+```ts
+import { createArtifactService } from "@data-elements/server"
+
+const artifacts = createArtifactService({
+  repository,
+  resolveActor,
+  modules: [standardBusinessArtifacts],
+  resources,
+  capabilities,
+})
+
+export const POST = artifacts.handle
+
+const created = await artifacts.create({
+  instruction,
+  context,
+})
+
+const edited = await artifacts.edit({
+  artifact: created.artifact,
+  instruction,
+  selection,
+})
+
+await artifacts.restore({
+  target: edited.artifact,
+  toRevisionId,
+})
+```
+
+Framework adapters translate provider messages and tool calls into this service;
+they do not own Artifact identity or commit behavior.
+
+```tsx
+import { ArtifactHost } from "@data-elements/react"
+
+<ArtifactHost
+  mode="inline"
+  value={artifact}
+  endpoint="/api/artifacts"
+  onSelectionChange={setSelection}
+/>
+```
+
+`mode` may be `inline`, `panel`, `drawer`, or `fullscreen`. These are host
+placements of the same Artifact, not separate document formats. `ArtifactHost`
+owns decode, stream projection, last-good state, selection, action status,
+approval and conflict surfaces, error boundaries, and accessible focus
+management. The default path must not require developers to wire the compiler,
+IR, stream reducer, or capability lifecycle manually.
+
+`createArtifactService()` derives the compiler catalog, provider schema,
+fingerprints, safe defaults, and handler bindings from registered modules.
+Advanced platform overrides remain available, but the normal integration does
+not manually assemble them. The browser receives no capability handler or
+credential; `ArtifactHost` submits typed intent to the endpoint, whose server
+facade re-resolves the committed node, actor, policy, capability, and action
+input before any effect runs.
+
+## Extension modules
+
+Extensions are coherent, versioned Artifact modules rather than disconnected
+schema, prompt, renderer, and registry edits.
+
+```ts
+type ArtifactModule = {
+  id: string
+  version: number
+  contract: NodeContract
+  prompt: PromptMetadata
+  providerSchema: JsonSchema
+  renderer: ReactNodeRenderer
+  eventContracts: EventContract[]
+  migrations: ArtifactMigration[]
+  fixtures: ArtifactFixture[]
+  registry: RegistryMetadata
+}
+```
+
+The contract is the source of truth. Prompt signatures, provider schemas, docs,
+compatibility manifests, and test fixtures should be generated or
+parity-checked from the module. Registration fails when the compiler catalog and
+renderer registry do not agree on module ID, version, or fingerprint.
+
+shadcn/ui supplies the primitive implementation. Artifact modules should focus
+on semantic business patterns such as `record-list`, `record-detail`,
+`search-results`, `review`, `change-set`, `bulk-action`, `workflow-steps`, and
+`audit-log`, rather than duplicating generic buttons, inputs, dialogs, and
+tables.
+
+Styling remains extensible through renderer recipes, shadcn component overrides,
+design tokens, and host slots. The model may choose semantic variants explicitly
+allowed by a node contract; it may not emit CSS, utility classes, arbitrary
+colors, or component imports.
+
+## Package boundaries
+
+The public surface is intentionally smaller than the internal package graph.
+
+| Boundary | Package | Responsibility |
+| --- | --- | --- |
+| Server facade | `@data-elements/server` | `createArtifactService`, lifecycle orchestration, sessions, trusted streams |
+| React facade | `@data-elements/react` | `ArtifactHost`, official native v2 renderers, host system surfaces |
+| Framework adapters | `@data-elements/ai-sdk`, `@data-elements/mastra`, `@data-elements/ag-ui` | Provider and transport mapping onto the server facade |
+| Protocol and runtime | `@data-elements/runtime` | Normalized IR, codecs, transactions, replay, commands, migrations |
+| Contracts and catalog | `@data-elements/schema`, `@data-elements/core` | Semantic contracts, manifests, task selection, deterministic helpers |
+| Authoring compiler | `@data-elements/compiler` | Server-only prompt/schema compilation, decoding, validation, repair, proposal gating |
+| Authority | `@data-elements/capability-broker`, `@data-elements/resources` | Grants, approvals, resource resolution, effects, evidence, receipts |
+| Distribution | CLI, npm, and shadcn registry | Version-locked installation, editable renderer source, extension packaging |
+
+Protocol v2 becomes canonical. v1 projection remains behind one compatibility
+adapter and may not constrain new semantics. Native v2 semantic renderers must
+consume v2 nodes and propagate typed `trigger()` results directly instead of
+wrapping v1 renderers indefinitely.
+
+Browser bundles may contain public schemas, runtime decoding, and renderers.
+They must not contain prompt examples, compiler policy, credentials, capability
+handlers, resource resolvers, or authorization logic.
+
+## Normalized storage
+
+Production storage must separate immutable Artifact history from mutable runtime
+state. A single serialized in-memory store image is useful for tests, but is not
+the production persistence model.
+
+| Store | Key and behavior |
+| --- | --- |
+| Artifact records | Tenant plus Artifact ID; stable identity and metadata |
+| Branches | Artifact plus branch ID; mutable head revision and CAS head token |
+| Revisions | Artifact plus revision ID; immutable canonical document and content hash |
+| Revision parents | Revision DAG edges; separate from branch ownership |
+| Revision audits | Append-only actor, reason, operation, policy and model-run references |
+| Sessions | Expiring actor, base revision, selection, write scope, catalog and grant references |
+| State records | Artifact, branch, state ID, schema/policy hash, and state revision |
+| Actions and effects | Invocation/request identity, status, preconditions, idempotency and receipts |
+| Approvals | Checkpoint identity, actor, decision, policy hash and expiry |
+| Streams and events | Ordered cursor-addressable trusted events with bounded retention |
+| Resources and evidence | Scoped references, hashes, sensitivity, expiry, provenance and resolution receipts |
+| Request claims | Tenant, actor, request ID and payload hash for deduplication |
+
+Creating or editing inserts a revision and audit record and advances the branch
+head in one transaction. Runtime updates write only the affected state, action,
+effect, approval, receipt, or event records. Read-optimized snapshots are
+derived projections and may be compacted; they are not the sole source of truth.
+
+Large immutable documents and resource payloads may be content-addressed and
+stored outside the relational index. Sensitive or non-persistable resources
+must follow host retention policy and may be represented only by an expiring
+binding and receipt. Every primary key and query is tenant-scoped.
+
+## Performance model
+
+Provider latency and runtime overhead must be measured separately. The
+architecture reduces work without weakening validation:
+
+- Cache frozen catalogs, provider schemas, prompt fragments, and renderer
+  registrations by contract fingerprint.
+- Use task catalog slicing for create and selection-scoped context for edit;
+  never resend the full installed catalog or complete Artifact by default.
+- Send `ArtifactRef`, base revision, and relevant normalized entities instead of
+  storing full Artifact payloads in conversational history.
+- Parse and validate complete operations incrementally, then validate only the
+  affected graph plus document-level invariants before commit.
+- Deduplicate immutable revision content and resources by canonical hash.
+- Persist normalized records and append-only events instead of rewriting a
+  complete runtime state image on every update.
+- Project previews by stable entity ID, batch trusted events, and apply stream
+  backpressure with cursor-based resume.
+- Memoize React nodes by node ID and revision, virtualize large record surfaces,
+  and resolve heavy resources lazily.
+- Keep local interaction state local; do not invoke the model for sorting,
+  disclosure, tabs, selection, or other deterministic UI behavior.
+
+The release manifest defines per-profile limits for nodes, depth, bytes,
+operations, resources, stream rate, server validation time, client projection
+time, render time, memory, and bundle size. A model-quality improvement cannot
+ship by exceeding those hard limits.
+
+## Security invariants
+
+These rules are non-negotiable:
+
+1. Model output is untrusted data until server decode, normalization, validation,
+   information-flow checks, authorization, and commit succeed.
+2. The protocol has no executable-content field and rejects HTML, JavaScript,
+   CSS, executable expressions, unknown node kinds, and unknown action handlers.
+3. Tenant, actor, role, row-level scope, capabilities, approvals, and write scope
+   come from the host and cannot be supplied or widened by the model.
+4. The browser renders only branded committed documents or ordered trusted
+   previews that match the expected contract fingerprint.
+5. External data is resolved through scoped resource descriptors; renderers do
+   not acquire credentials or call arbitrary APIs.
+6. Every external effect requires a registered capability, current
+   authorization, validated input, idempotency identity, and an immutable
+   receipt. Destructive effects require host policy confirmation or approval.
+7. A preview cannot execute effects, mutate durable state, or impersonate a
+   host-owned system surface.
+8. Revisions and audits are immutable. Branch updates use optimistic concurrency;
+   conflicts fail closed and preserve last-good.
+9. Missing governed data renders unavailable, denied, expired, or empty states;
+   it is never replaced with plausible values.
+10. Diagnostics sent to a repair model are bounded and redacted. Prompts,
+    resources, telemetry, and audit logs follow the host's sensitivity and
+    retention policy.
+11. Restoring Artifact content never claims to reverse an external business
+    effect.
+
+## Evaluation gates
+
+A release is blocked unless the relevant gates pass:
+
+| Gate | Required evidence |
+| --- | --- |
+| Lifecycle | Concurrent edits, branches, merge parents, restore-as-new-revision, migration, replay, resume, and crash recovery preserve history |
+| Editing | Selection scope, stale bases, deleted targets, operation ordering, idempotency, conflict reporting, and retry are deterministic |
+| Streaming | Every possible event prefix is crash-free; invalid input, gaps, disconnects, and aborts preserve last-good |
+| Security | Zero unauthorized effects, approval bypasses, cross-tenant reads, policy downgrades, executable-content acceptance, or fabricated governed values |
+| Semantics | Official business nodes satisfy their domain invariants, evidence requirements, units, and empty/error behavior |
+| Renderer | No serious or critical accessibility failures; keyboard, focus, responsive layout, loading, failure, retry, cancellation, and conflict paths are tested |
+| Model | Pinned provider/profile suites measure selection, first-pass validity, bounded repair success, edit locality, token cost, and operation count |
+| Performance | Catalog compilation, validation, storage, streaming, projection, rendering, memory, and bundle budgets pass for each official surface profile |
+| Compatibility | v1 fixtures project deterministically; v2 fingerprints fail closed; migration and rollback drills are reproducible |
+| Distribution | Registry and npm fixtures install, typecheck, test, and production-build across supported React and framework versions |
+| Simplicity | A fresh host integration uses `create`, `edit`, and `ArtifactHost` without manual prompt, schema, IR, stream reducer, or capability-state wiring |
+
+Invalid or conflicting proposals must preserve the last committed revision in
+100% of tests. Security violations have zero tolerance. Official renderers have
+no serious or critical accessibility failures. The pinned model suite uses the
+versioned statistical thresholds and minimum sample sizes defined by the release
+manifest; aggregate scores cannot hide a critical provider, permission,
+data-sensitivity, or business-workflow slice.
+
+## Migration phases and exit criteria
+
+Migration keeps the implemented v2 compiler/runtime foundation and replaces the
+missing lifecycle and product integration around it.
+
+| Phase | Work | Exit criterion |
+| --- | --- | --- |
+| 0. Freeze the product boundary | Remove app-generation language and profiles; make the no-code-generation invariant executable in schemas and tests | No public prompt, API, example, or catalog path can request an app, HTML, JavaScript, or CSS |
+| 1. Normalize identity and storage | Introduce Artifact records, branch pointers, branch-independent revisions, audits, repositories, and transactional CAS | Restart-safe create/read/history plus concurrent-edit and restore-as-new-revision tests pass |
+| 2. Add lifecycle authoring | Implement `createArtifactService`, create/edit/restore, sessions, selection bundles, write scopes, and entity-level change sets | The same Artifact can be created, reopened, edited, conflicted, retried, and restored through every supported adapter |
+| 3. Complete trusted streaming | Parse complete operations server-side, emit cumulative trusted previews, preserve last-good, and support resume/abort | Raw model deltas are unreachable from browser APIs and every stream-prefix property test preserves last-good |
+| 4. Ship the host interaction layer | Implement `ArtifactHost`, selection, placement modes, approval, confirmation, operation status, receipts, retry, cancel, permission, and conflict surfaces | End-to-end browser and accessibility suites pass for create, edit, action, failure, conflict, reconnect, and restore |
+| 5. Make v2 native and extensible | Replace v1 renderer wrappers, package coherent modules, add prioritized business Artifacts, shadcn overrides, migrations, fixtures, and registry parity | Every official module passes contract/compiler/renderer parity, migration, fixture, and distribution tests |
+| 6. Production hardening | Deploy normalized stores, observability, quotas, redaction, retention, performance budgets, pinned model evals, canary, and rollback controls | Security, reliability, accessibility, model, performance, distribution, and simplicity gates pass in a real canary |
+
+No phase may weaken the protocol to improve model success or visual flexibility.
+The finished product remains an embedded semantic business Artifact Runtime,
+even when its authoring experience feels as simple as asking for a change.

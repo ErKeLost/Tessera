@@ -1,0 +1,73 @@
+---
+title: Funnel Artifact
+description: Inspect staged conversion, local drop-off context, and individual funnel steps.
+---
+
+Use Funnel Artifact for ordered stages that represent the same cohort moving
+through a process. It is not a generic horizontal bar chart: stage order and
+conversion semantics are part of the schema.
+
+<ComponentPreview
+  filename="funnel-artifact-example.tsx"
+  code={`import { FunnelArtifact } from "@/components/data-elements/funnel-artifact"
+
+export function ActivationFunnel() {
+  return (
+    <FunnelArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "funnel",
+        id: "activation-funnel",
+        title: "Activation funnel",
+        description: "From creation to the first successful agent run.",
+        steps: [
+          { id: "created", label: "Workspace created", value: 18240 },
+          { id: "connected", label: "Data source connected", value: 13680 },
+          { id: "query", label: "First query completed", value: 9840 },
+          { id: "agent", label: "First agent run", value: 7210 },
+        ],
+        footnote: "Workspaces created in the last 30 days.",
+      }}
+    />
+  )
+}`}
+>
+  <FunnelDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="funnel-artifact" />
+
+## Usage
+
+Steps must be ordered from entry to outcome. The renderer calculates conversion
+from adjacent values when `conversionFromPrevious` is omitted.
+
+<CodeExample
+  filename="components/activation-funnel.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { FunnelArtifact } from "@/components/data-elements/funnel-artifact"
+
+export function ActivationFunnel({ artifact }) {
+  return (
+    <DataElementsProvider onAction={(event) => drillIntoStep(event.payload)}>
+      <FunnelArtifact artifact={artifact} />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="FunnelArtifact"
+  properties={[
+    { name: "artifact", type: "FunnelArtifactData", required: true, description: "Two to sixteen ordered, non-negative funnel steps and an optional footnote." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for stage counts." },
+  ]}
+/>
+
+Selecting a stage emits `funnel-step-select` with `{ stepId, index }`.

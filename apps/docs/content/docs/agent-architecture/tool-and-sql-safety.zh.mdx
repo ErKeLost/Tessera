@@ -1,0 +1,55 @@
+---
+title: 工具与 SQL 安全
+description: 面向生产数据访问的权限透传、查询策略、审批、预算和结果验证。
+---
+
+模型提出工具调用，由确定性网关决定它们能否执行。绝不能只在 Prompt 中编码授权规则。
+
+## 工具网关
+
+每个注册工具都声明输入和输出 Schema、风险、所需权限范围、超时、行数与成本预算、幂等性和审批策略。
+网关为每次尝试记录调用方、运行、参数 Hash、策略决策、耗时和输出引用。
+
+用户与工作区权限向下游系统透传。服务凭证可以缩小访问范围，但不能扩大用户原本允许查看的内容。
+
+## SQL 安全门
+
+生产环境默认使用只读分析 SQL，并要求：
+
+- 对 Catalog、Schema、View 和函数使用 Allowlist；
+- 只允许一条经过解析的语句，禁止 DDL、DML、控制型注释和动态 SQL；
+- 在模型编写的文本之外强制执行租户与行级策略；
+- 限制扫描成本、执行时长、结果行数和并发量；
+- 对用户提供的值使用参数绑定；
+- 数据仓库支持时执行 Dry Run 或查询计划检查；
+- 传播取消信号，并提供稳定查询标识符；
+- 在结果进入 Prompt、日志或 Artifact 前完成脱敏。
+
+应使用 SQL Parser 或数据仓库原生计划 API。仅靠正则表达式过滤无法理解嵌套语句、注释、方言或函数语义。
+
+## 执行后验证
+
+执行成功并不能证明回答可信。需要验证：
+
+| 检查 | 示例 |
+| --- | --- |
+| 结构 | 预期列、类型和粒度 |
+| 边界 | 时区、包含端点的日期、完整周期 |
+| 完整性 | 空值率、唯一性、不可能值 |
+| 核对 | 类别总计、Driver Bridge、Funnel 单调性 |
+| 统计 | 样本量、区间顺序、Cohort 成熟度 |
+| 新鲜度 | 数据源与语义模型 SLA |
+
+验证器输出类型化 Findings。控制器可以修复查询、请求澄清、发布可见限制或停止任务，
+但绝不能静默删除不利证据。
+
+## 人工审批
+
+导出敏感数据、超过常规预算、联系外部系统或修改状态时，必须要求审批。界面需要展示预期操作、
+目标、范围和预期影响。审批后从持久化检查点恢复，而不是重放整个运行。
+
+## 参考资料
+
+- [OpenAI: Guardrails and approvals](https://developers.openai.com/api/docs/guides/agents/guardrails-approvals)
+- [OpenAI: Function calling](https://developers.openai.com/api/docs/guides/function-calling)
+- [Anthropic: Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)

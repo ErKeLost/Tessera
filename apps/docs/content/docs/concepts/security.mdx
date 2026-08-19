@@ -1,0 +1,20 @@
+---
+title: Security model
+description: Why constrained artifacts are safer than model-generated applications.
+---
+
+Artifact Agent treats model output as untrusted data.
+
+- Unknown artifact kinds fail validation.
+- Unknown calculator IDs render a safe fallback.
+- Calculator formulas are registered TypeScript functions, never strings passed
+  to `eval` or `Function`.
+- The protocol has no fields for HTML, JSX, JavaScript, CSS, URLs to executable
+  code, or unregistered component names.
+- Query lineage and SQL are display data; execution belongs to the authorized
+  server tool.
+- Host applications remain responsible for authorization, data minimization,
+  row-level access, and destructive-action confirmation.
+
+For truly open-ended external mini-apps, use a sandboxed iframe/MCP App boundary
+instead of weakening the trusted catalog.

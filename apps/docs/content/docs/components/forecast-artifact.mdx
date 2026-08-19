@@ -1,0 +1,68 @@
+---
+title: Forecast Artifact
+description: Distinguish observed values from a bounded forecast with confidence, horizon, method, and target context.
+---
+
+Forecast Artifact shows actuals and projected values as separate series. The
+confidence interval is declarative data, and the renderer owns the trusted
+Recharts composition.
+
+<ComponentPreview
+  filename="forecast-artifact-example.tsx"
+  code={`import { ForecastArtifact } from "@/components/data-elements/forecast-artifact"
+
+export function RevenueForecast() {
+  return (
+    <ForecastArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "forecast",
+        id: "revenue-forecast",
+        title: "Revenue forecast",
+        description: "Observed revenue and the next-quarter projection.",
+        metricLabel: "Monthly revenue",
+        format: "currency",
+        currency: "USD",
+        confidenceLevel: 90,
+        horizon: "3 months",
+        method: "Seasonal exponential smoothing",
+        target: 185000,
+        points,
+      }}
+    />
+  )
+}`}
+>
+  <ForecastDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="forecast-artifact" />
+
+## Usage
+
+Each point must contain at least an `actual` or `forecast` value. Add `lower`
+and `upper` only when the forecasting tool returns a meaningful confidence
+interval.
+
+<CodeExample
+  filename="components/revenue-forecast.tsx"
+  code={`import { ForecastArtifact } from "@/components/data-elements/forecast-artifact"
+
+export function RevenueForecast({ artifact }) {
+  return <ForecastArtifact artifact={artifact} locale="en-US" />
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="ForecastArtifact"
+  properties={[
+    { name: "artifact", type: "ForecastArtifactData", required: true, description: "Validated observations, projections, optional interval bounds, target, confidence, horizon, and method." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for date and value formatting." },
+  ]}
+/>
+
+Forecast Artifact is intentionally read-only and emits no agent actions.

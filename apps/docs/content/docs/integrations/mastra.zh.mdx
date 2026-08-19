@@ -1,0 +1,48 @@
+---
+title: Mastra
+description: 在同一可信 Artifact UI Commit 边界之上准备真正的 Mastra Tool。
+---
+
+`@data-elements/mastra` 仅用于服务端，面向 `@mastra/core` 1.x。它调用 Mastra 真正的
+`createTool()` API，不是外形相似的普通对象。每一轮都会得到 Compiler 生成的 Standard Schema、
+经过校验的 Runtime Wire Output Schema、Strict Mode、MCP Annotation，以及安全的
+Display/Transcript Transform。
+
+```ts
+import { Agent } from "@mastra/core/agent";
+import { createArtifactUI } from "@data-elements/mastra";
+
+const artifactUI = createArtifactUI();
+const turn = await artifactUI.prepareTurn({
+  messages,
+  profile: "analysis",
+});
+
+const agent = new Agent({
+  id: "artifact-agent",
+  name: "Artifact agent",
+  model,
+  instructions: turn.system,
+  tools: { ...domainTools, ...turn.tools },
+});
+
+const result = await agent.generate(turn.messages);
+```
+
+这个紧凑示例创建 Request-scoped Agent，因为 Tool Schema 会按轮编译。长期存活的 Agent 也可以从
+Mastra `RequestContext` 动态解析 `instructions` 与 `tools`；不变量是同一轮的 `system`、经过过滤的
+`messages` 和生成 Tool 必须始终绑定在一起。
+
+Tool 返回可序列化的 runtime `ArtifactPartWire`；`turn.accept()` 与
+`turn.consumeWorkflowEvent()` 返回带本地 Brand 的 runtime `ArtifactPart`。已经包含 Wire Part
+的 Workflow Event 会按当前 Contract Fingerprint 重新 Decode 和校验；Proposal 形态的 Workflow
+Output 则走与直接 Tool Input 完全相同的 Compiler 与 Commit 路径。
+
+Mastra 的 `toModelOutput` 只向模型返回简短成功信息。`display` 与 `transcript` Transform 会把原始
+模型 DSL 输入和校验细节替换为有界安全摘要，同时保留 Renderer 需要的 Artifact Output。领域数据
+Tool 应与渲染 Tool 分离，Resource/Evidence 只能来自宿主签发的 Grant。
+
+如果 Tool 或 Workflow Output 跨越网络边界，它只是未带 Brand 的 `ArtifactPartWire`。浏览器必须使用
+`@data-elements/runtime` 的 `decodeArtifactPart()` 和本轮 Contract Fingerprint 解码，成功后才能把
+`decoded.part` 交给 `ArtifactRenderer`。`turn.accept()` 与 `turn.consumeWorkflowEvent()` 只在当前可信
+进程内提供 branded 路径。

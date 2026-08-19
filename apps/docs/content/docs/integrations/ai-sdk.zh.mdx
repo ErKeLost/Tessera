@@ -1,0 +1,62 @@
+---
+title: AI SDK
+description: 为每轮生成编译工具，并且只传输已提交的 Artifact UI Part。
+---
+
+`@data-elements/ai-sdk` 是默认服务端 Adapter。`createArtifactUI()` 保持公开入口简单，
+Compiler、Policy Boundary、Runtime Commit 和 Transport Validation 都留在内部。
+
+```ts
+import { createArtifactUI } from "@data-elements/ai-sdk";
+import { streamText } from "ai";
+
+const artifactUI = createArtifactUI();
+
+export async function POST(request: Request) {
+  const { messages } = await request.json();
+  const turn = await artifactUI.prepareTurn({
+    messages,
+    profile: "analysis",
+  });
+  const result = streamText({
+    model,
+    messages: turn.messages,
+    system: turn.system,
+    tools: { ...dataTools, ...turn.tools },
+  });
+
+  return turn.toUIMessageStreamResponse(result);
+}
+```
+
+`prepareTurn()` 会冻结本轮专属的 Catalog Slice、Provider Schema、Contract Fingerprint、
+Policy 和 Repair Budget。`renderArtifact` 接收紧凑的 Surface DSL，再由共享 Commit 层生成
+runtime v2 `ArtifactPart`。原始 Tool 参数和 Provider Output 不会传给浏览器；Response 只包含
+`data-artifact` Transport Part，其中携带可序列化的 Runtime Wire Value 与本轮使用的准确
+Contract Fingerprint。
+
+在浏览器消息接收边界，先使用 browser-safe Runtime Package 解码 Wire。只有验证成功后，
+才把得到的 branded Part 保存在 UI State 并交给 Registry 安装的 Renderer：
+
+```tsx
+import { decodeArtifactPart } from "@data-elements/runtime";
+import { ArtifactRenderer } from "@/components/data-elements/artifact-ui";
+
+const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
+  contractFingerprint: dataArtifactPart.data.contractFingerprint,
+});
+
+if (!decoded.success) throw new Error("Artifact transport validation failed.");
+return <ArtifactRenderer value={decoded.part} />;
+```
+
+不要把网络 Wire 直接传给 `ArtifactRenderer`。它只接受当前进程中带 Brand 的 `ArtifactPart`、
+宿主可信的已提交 Document，或明确的 v1 兼容类型。`@data-elements/ai-sdk` 仅限服务端，
+浏览器必须从 `@data-elements/runtime` 导入 Decoder。
+
+需要受治理数据时，把宿主签发的 `resources`、`evidence` 和 `documentPolicy` 传给
+`prepareTurn()`。未获授权的 ID、Policy 降级、错误 Schema Hash 与过期引用都会在 Runtime Part
+发布前失败。
+
+`createRenderArtifactTool()` 与 v1 Message Helper 继续服务旧的单 Artifact 集成。新集成应使用
+`createArtifactUI()` 与 `ArtifactRenderer`。

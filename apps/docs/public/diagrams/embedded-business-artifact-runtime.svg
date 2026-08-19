@@ -1,0 +1,266 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1160" role="img" aria-labelledby="title desc">
+  <title id="title">Data Elements embedded business Artifact Runtime reference architecture</title>
+  <desc id="desc">A layered architecture for persistent, editable business Artifacts embedded in an existing administration system. The model proposes declarations while the host owns data, authority, effects, persistence, and system interaction surfaces.</desc>
+  <defs>
+    <style>
+      text { font-family: 'JetBrains Mono', 'SFMono-Regular', 'Cascadia Code', Consolas, monospace; }
+      .title { fill: #f8fafc; font-size: 22px; font-weight: 700; }
+      .subtitle { fill: #94a3b8; font-size: 10px; }
+      .region-title { font-size: 9px; font-weight: 700; letter-spacing: .08em; }
+      .name { fill: #f8fafc; font-size: 11px; font-weight: 700; }
+      .detail { fill: #94a3b8; font-size: 8.5px; }
+      .label { fill: #cbd5e1; font-size: 8px; font-weight: 600; }
+      .bus-label { fill: #fed7aa; font-size: 8px; font-weight: 700; letter-spacing: .05em; }
+      .note-title { fill: #f8fafc; font-size: 9px; font-weight: 700; }
+      .note { fill: #cbd5e1; font-size: 8px; }
+      .small { fill: #64748b; font-size: 7.5px; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#22d3ee"/>
+    </marker>
+    <marker id="arrow-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#34d399"/>
+    </marker>
+    <marker id="arrow-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#a78bfa"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/>
+    </marker>
+    <marker id="arrow-open" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polyline points="0 0,10 3.5,0 7" fill="none" stroke="#fb923c" stroke-width="1.5"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1160" fill="#0f172a"/>
+  <rect width="1600" height="1160" fill="url(#grid)"/>
+
+  <text x="40" y="42" class="title">Data Elements / Embedded Business Artifact Runtime</text>
+  <text x="40" y="63" class="subtitle">Persistent · continuously editable · host-embedded · semantic · governed</text>
+
+  <rect x="1050" y="24" width="510" height="50" rx="6" fill="#0f172a"/>
+  <rect x="1050" y="24" width="510" height="50" rx="6" fill="rgba(136,19,55,.32)" stroke="#fb7185"/>
+  <text x="1070" y="44" class="note-title">EXPLICIT NON-GOAL</text>
+  <text x="1070" y="61" class="note">No application, HTML, JavaScript, CSS, React code, iframe, or executable generation.</text>
+
+  <!-- Region boundaries -->
+  <rect x="30" y="96" width="1540" height="240" rx="10" fill="none" stroke="#22d3ee" stroke-dasharray="8 4"/>
+  <text x="48" y="116" fill="#22d3ee" class="region-title">HOST EXPERIENCE PLANE</text>
+
+  <rect x="30" y="366" width="1540" height="286" rx="10" fill="none" stroke="#34d399" stroke-dasharray="8 4"/>
+  <text x="48" y="386" fill="#34d399" class="region-title">AUTHORING + ARTIFACT LIFECYCLE PLANE</text>
+
+  <rect x="30" y="682" width="1540" height="224" rx="10" fill="none" stroke="#fb923c" stroke-dasharray="8 4"/>
+  <text x="48" y="702" fill="#fb923c" class="region-title">TRUSTED RUNTIME PLANE</text>
+
+  <rect x="30" y="936" width="1540" height="154" rx="10" fill="none" stroke="#a78bfa" stroke-dasharray="8 4"/>
+  <text x="48" y="956" fill="#a78bfa" class="region-title">HOST AUTHORITY + BUSINESS DATA PLANE</text>
+
+  <!-- Connectors, drawn behind components -->
+  <path d="M410 216H500" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrow-cyan)"/>
+  <text x="455" y="203" class="label" text-anchor="middle">host context</text>
+
+  <path d="M1010 216H1130" stroke="#22d3ee" stroke-width="1.5" fill="none" marker-end="url(#arrow-cyan)"/>
+  <text x="1070" y="203" class="label" text-anchor="middle">host-owned UX</text>
+
+  <path d="M755 296V346H235V410" stroke="#34d399" stroke-width="1.4" fill="none" marker-end="url(#arrow-emerald)"/>
+  <text x="510" y="341" class="label" text-anchor="middle">instruction + selection + minimal host context</text>
+
+  <path d="M755 296V346H955V410" stroke="#34d399" stroke-width="1.4" fill="none" marker-end="url(#arrow-emerald)"/>
+  <text x="860" y="341" class="label" text-anchor="middle">create / edit / restore command</text>
+
+  <path d="M400 492H455" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrow-emerald)"/>
+  <text x="428" y="480" class="label" text-anchor="middle">proposal</text>
+
+  <path d="M760 492H800" stroke="#34d399" stroke-width="1.5" fill="none" marker-end="url(#arrow-emerald)"/>
+  <text x="780" y="480" class="label" text-anchor="middle">validated</text>
+
+  <path d="M1110 492H1200" stroke="#a78bfa" stroke-width="1.5" fill="none" marker-end="url(#arrow-violet)"/>
+  <text x="1155" y="480" class="label" text-anchor="middle">CAS commit</text>
+
+  <path d="M1355 566V625H955V714" stroke="#a78bfa" stroke-width="1.4" fill="none" marker-end="url(#arrow-violet)"/>
+  <text x="1150" y="620" class="label" text-anchor="middle">committed revision + durable session events</text>
+
+  <path d="M607 572V625H745V714" stroke="#34d399" stroke-width="1.4" fill="none" marker-end="url(#arrow-emerald)"/>
+  <text x="675" y="620" class="label" text-anchor="middle">validated preview operations only</text>
+
+  <path d="M1285 296V650H1440V714" stroke="#22d3ee" stroke-width="1.4" fill="none" marker-end="url(#arrow-cyan)"/>
+  <text x="1450" y="648" class="label" text-anchor="end">approval / receipt decisions</text>
+
+  <!-- Trusted event stream bus -->
+  <line x1="82" y1="728" x2="1518" y2="728" stroke="#fb923c" stroke-width="5" stroke-linecap="round"/>
+  <text x="800" y="719" class="bus-label" text-anchor="middle">TRUSTED COMMAND + EVENT STREAM · RAW MODEL DELTAS NEVER REACH THE BROWSER</text>
+
+  <path d="M235 728V755" stroke="#fb923c" stroke-width="1.5" fill="none" marker-end="url(#arrow-amber)"/>
+  <path d="M595 728V755" stroke="#fb923c" stroke-width="1.5" fill="none" marker-end="url(#arrow-amber)"/>
+  <path d="M955 728V755" stroke="#fb923c" stroke-width="1.5" fill="none" marker-end="url(#arrow-amber)"/>
+  <path d="M1355 728V755" stroke="#fb923c" stroke-width="1.5" fill="none" marker-end="url(#arrow-amber)"/>
+
+  <path d="M235 855V976" stroke="#a78bfa" stroke-width="1.4" fill="none" marker-end="url(#arrow-violet)"/>
+  <path d="M595 855V976" stroke="#a78bfa" stroke-width="1.4" fill="none" marker-end="url(#arrow-violet)"/>
+  <path d="M955 855V976" stroke="#a78bfa" stroke-width="1.4" fill="none" marker-end="url(#arrow-violet)"/>
+  <path d="M1355 855V976" stroke="#a78bfa" stroke-width="1.4" fill="none" marker-end="url(#arrow-violet)"/>
+
+  <path d="M1170 1023H1105" stroke="#a78bfa" stroke-width="1.2" fill="none" marker-end="url(#arrow-violet)"/>
+  <path d="M805 1023H740" stroke="#a78bfa" stroke-width="1.2" fill="none" marker-end="url(#arrow-violet)"/>
+  <path d="M440 1023H375" stroke="#a78bfa" stroke-width="1.2" fill="none" marker-end="url(#arrow-violet)"/>
+
+  <!-- Host experience components -->
+  <g>
+    <rect x="70" y="144" width="340" height="144" rx="6" fill="#0f172a"/>
+    <rect x="70" y="144" width="340" height="144" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="240" y="174" class="name" text-anchor="middle">Existing Admin / Business System</text>
+    <text x="240" y="197" class="detail" text-anchor="middle">identity · tenant · permissions · routes</text>
+    <text x="240" y="215" class="detail" text-anchor="middle">business services · shadcn theme · locale</text>
+    <text x="240" y="241" class="label" text-anchor="middle">remains the product shell and source of authority</text>
+    <text x="240" y="261" class="detail" text-anchor="middle">Artifact is embedded; it does not replace the host</text>
+  </g>
+
+  <g>
+    <rect x="500" y="130" width="510" height="166" rx="6" fill="#0f172a"/>
+    <rect x="500" y="130" width="510" height="166" rx="6" fill="rgba(8,51,68,.4)" stroke="#22d3ee" stroke-width="1.7"/>
+    <text x="755" y="159" class="name" text-anchor="middle">ArtifactHost · React + shadcn/ui</text>
+    <text x="755" y="182" class="detail" text-anchor="middle">decode boundary · renderer · session · selection · resource projection</text>
+    <text x="755" y="201" class="detail" text-anchor="middle">interaction projection · accessibility · error boundary · last-good view</text>
+    <line x1="530" y1="220" x2="980" y2="220" stroke="#164e63"/>
+    <text x="755" y="241" class="label" text-anchor="middle">same Artifact · inline | panel | drawer | fullscreen</text>
+    <text x="755" y="263" class="detail" text-anchor="middle">mode, density, theme, and responsive behavior stay outside the DSL</text>
+  </g>
+
+  <g>
+    <rect x="1130" y="144" width="380" height="144" rx="6" fill="#0f172a"/>
+    <rect x="1130" y="144" width="380" height="144" rx="6" fill="rgba(136,19,55,.32)" stroke="#fb7185" stroke-width="1.5"/>
+    <text x="1320" y="174" class="name" text-anchor="middle">Host-Owned System Surfaces</text>
+    <text x="1320" y="198" class="detail" text-anchor="middle">confirmation · approval · permission denial</text>
+    <text x="1320" y="216" class="detail" text-anchor="middle">pending · retry · cancel · receipt · conflict</text>
+    <text x="1320" y="242" class="label" text-anchor="middle">derived only from trusted runtime state</text>
+    <text x="1320" y="262" class="detail" text-anchor="middle">the model cannot fabricate success or approval</text>
+  </g>
+
+  <!-- Authoring and lifecycle components -->
+  <g>
+    <rect x="70" y="410" width="330" height="162" rx="6" fill="#0f172a"/>
+    <rect x="70" y="410" width="330" height="162" rx="6" fill="rgba(30,41,59,.56)" stroke="#94a3b8" stroke-width="1.5"/>
+    <text x="235" y="440" class="name" text-anchor="middle">AI Authoring Adapter · Optional</text>
+    <text x="235" y="463" class="detail" text-anchor="middle">natural language → Snapshot or ChangeSet proposal</text>
+    <text x="235" y="483" class="detail" text-anchor="middle">task-specific catalog · bounded repair · diagnostics</text>
+    <line x1="100" y1="505" x2="370" y2="505" stroke="#334155"/>
+    <text x="235" y="527" class="label" text-anchor="middle">Generative UI is an authoring input only</text>
+    <text x="235" y="548" class="detail" text-anchor="middle">never an executor, identity, or persistence owner</text>
+  </g>
+
+  <g>
+    <rect x="455" y="410" width="305" height="162" rx="6" fill="#0f172a"/>
+    <rect x="455" y="410" width="305" height="162" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.5"/>
+    <text x="607" y="440" class="name" text-anchor="middle">Compiler + Proposal Gate</text>
+    <text x="607" y="463" class="detail" text-anchor="middle">decode · normalize · contract validation</text>
+    <text x="607" y="482" class="detail" text-anchor="middle">selection write scope · policy · resource references</text>
+    <text x="607" y="501" class="detail" text-anchor="middle">complete operation parsing · preview safety</text>
+    <line x1="485" y1="520" x2="730" y2="520" stroke="#065f46"/>
+    <text x="607" y="542" class="label" text-anchor="middle">model-authored semantic content</text>
+    <text x="607" y="559" class="detail" text-anchor="middle">record-list · review · workflow · audit-log</text>
+  </g>
+
+  <g>
+    <rect x="800" y="400" width="310" height="182" rx="6" fill="#0f172a"/>
+    <rect x="800" y="400" width="310" height="182" rx="6" fill="rgba(6,78,59,.4)" stroke="#34d399" stroke-width="1.7"/>
+    <text x="955" y="430" class="name" text-anchor="middle">Artifact Lifecycle Service</text>
+    <text x="955" y="453" class="detail" text-anchor="middle">create · edit · branch · merge · restore</text>
+    <text x="955" y="472" class="detail" text-anchor="middle">session controller · transaction · idempotency</text>
+    <text x="955" y="491" class="detail" text-anchor="middle">head CAS · state preconditions · conflict packets</text>
+    <line x1="830" y1="513" x2="1080" y2="513" stroke="#065f46"/>
+    <text x="955" y="536" class="label" text-anchor="middle">last-good → trusted preview → atomic commit</text>
+    <text x="955" y="557" class="detail" text-anchor="middle">restore creates a new revision; business effects remain</text>
+  </g>
+
+  <g>
+    <rect x="1200" y="410" width="310" height="162" rx="6" fill="#0f172a"/>
+    <rect x="1200" y="410" width="310" height="162" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="1355" y="440" class="name" text-anchor="middle">Artifact Repository</text>
+    <text x="1355" y="463" class="detail" text-anchor="middle">ArtifactRecord · Branch pointer · immutable Revision</text>
+    <text x="1355" y="482" class="detail" text-anchor="middle">content blobs · edit sessions · operations · audit</text>
+    <text x="1355" y="501" class="detail" text-anchor="middle">state instances · event stream · transactional outbox</text>
+    <line x1="1230" y1="520" x2="1480" y2="520" stroke="#5b21b6"/>
+    <text x="1355" y="542" class="label" text-anchor="middle">Revision is branch-independent and immutable</text>
+    <text x="1355" y="559" class="detail" text-anchor="middle">Branch is a mutable head pointer with a CAS token</text>
+  </g>
+
+  <!-- Runtime components -->
+  <g>
+    <rect x="70" y="755" width="330" height="100" rx="6" fill="#0f172a"/>
+    <rect x="70" y="755" width="330" height="100" rx="6" fill="rgba(251,146,60,.22)" stroke="#fb923c"/>
+    <text x="235" y="784" class="name" text-anchor="middle">Interaction Projection</text>
+    <text x="235" y="807" class="detail" text-anchor="middle">queued · running · awaiting approval · succeeded</text>
+    <text x="235" y="826" class="detail" text-anchor="middle">failed · cancelled · conflict · retryable</text>
+  </g>
+
+  <g>
+    <rect x="430" y="755" width="330" height="100" rx="6" fill="#0f172a"/>
+    <rect x="430" y="755" width="330" height="100" rx="6" fill="rgba(251,146,60,.22)" stroke="#fb923c"/>
+    <text x="595" y="784" class="name" text-anchor="middle">State + Resource Runtime</text>
+    <text x="595" y="807" class="detail" text-anchor="middle">document · session · user scope · subject identity</text>
+    <text x="595" y="826" class="detail" text-anchor="middle">resolve · loading · stale · retry · redacted data plane</text>
+  </g>
+
+  <g>
+    <rect x="790" y="755" width="330" height="100" rx="6" fill="#0f172a"/>
+    <rect x="790" y="755" width="330" height="100" rx="6" fill="rgba(251,146,60,.22)" stroke="#fb923c"/>
+    <text x="955" y="784" class="name" text-anchor="middle">Command Router + Action Coordinator</text>
+    <text x="955" y="807" class="detail" text-anchor="middle">re-resolve committed node · validate event port</text>
+    <text x="955" y="826" class="detail" text-anchor="middle">authorize · execute · cancel · retry · publish receipt</text>
+  </g>
+
+  <g>
+    <rect x="1170" y="755" width="370" height="100" rx="6" fill="#0f172a"/>
+    <rect x="1170" y="755" width="370" height="100" rx="6" fill="rgba(136,19,55,.32)" stroke="#fb7185"/>
+    <text x="1355" y="784" class="name" text-anchor="middle">Approval + Receipt + Conflict Controller</text>
+    <text x="1355" y="807" class="detail" text-anchor="middle">host-generated summary · reauthorization · operation status</text>
+    <text x="1355" y="826" class="detail" text-anchor="middle">effect succeeded but view stale remains explicit</text>
+  </g>
+
+  <!-- Host authority and data components -->
+  <g>
+    <rect x="70" y="976" width="305" height="82" rx="6" fill="#0f172a"/>
+    <rect x="70" y="976" width="305" height="82" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/>
+    <text x="222" y="1005" class="name" text-anchor="middle">Identity + Policy</text>
+    <text x="222" y="1027" class="detail" text-anchor="middle">actor · tenant · role · RLS · risk · retention</text>
+    <text x="222" y="1045" class="detail" text-anchor="middle">current authority is always re-evaluated</text>
+  </g>
+
+  <g>
+    <rect x="440" y="976" width="300" height="82" rx="6" fill="#0f172a"/>
+    <rect x="440" y="976" width="300" height="82" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/>
+    <text x="590" y="1005" class="name" text-anchor="middle">Resource Resolver + Data Sources</text>
+    <text x="590" y="1027" class="detail" text-anchor="middle">scoped views · evidence · freshness · redaction</text>
+    <text x="590" y="1045" class="detail" text-anchor="middle">sensitive data never enters the Artifact document</text>
+  </g>
+
+  <g>
+    <rect x="805" y="976" width="300" height="82" rx="6" fill="#0f172a"/>
+    <rect x="805" y="976" width="300" height="82" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/>
+    <text x="955" y="1005" class="name" text-anchor="middle">Capability Broker + Business APIs</text>
+    <text x="955" y="1027" class="detail" text-anchor="middle">allowlisted handlers · schema · idempotency · timeout</text>
+    <text x="955" y="1045" class="detail" text-anchor="middle">the model declares intent; the host implements effects</text>
+  </g>
+
+  <g>
+    <rect x="1170" y="976" width="370" height="82" rx="6" fill="#0f172a"/>
+    <rect x="1170" y="976" width="370" height="82" rx="6" fill="rgba(76,29,149,.4)" stroke="#a78bfa"/>
+    <text x="1355" y="1005" class="name" text-anchor="middle">Audit + Evidence + Effect Receipts</text>
+    <text x="1355" y="1027" class="detail" text-anchor="middle">who · what · base revision · approval · result · trace</text>
+    <text x="1355" y="1045" class="detail" text-anchor="middle">validated and redacted before publication</text>
+  </g>
+
+  <!-- Invariant banner -->
+  <rect x="30" y="1110" width="1540" height="32" rx="5" fill="#0f172a"/>
+  <rect x="30" y="1110" width="1540" height="32" rx="5" fill="rgba(8,51,68,.4)" stroke="#22d3ee"/>
+  <text x="800" y="1131" class="note-title" text-anchor="middle">INVARIANT · MODEL PROPOSES DECLARATIONS; HOST OWNS DATA, AUTHORITY, EFFECTS, PERSISTENCE, AND SYSTEM TRUTH.</text>
+
+  <text x="1565" y="1153" class="small" text-anchor="end">Data Elements · target architecture v3</text>
+</svg>

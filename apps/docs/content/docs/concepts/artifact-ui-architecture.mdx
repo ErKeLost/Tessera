@@ -1,0 +1,2502 @@
+---
+title: Protocol and Compiler Reference
+description: Detailed v2 reference for the Artifact DSL, normalized IR, compiler, runtime, capabilities, and shadcn-based renderer.
+---
+
+> **Product boundary:** the canonical product and lifecycle decision now lives
+> in [Embedded Business Artifact Runtime](./embedded-artifact-runtime). This
+> document remains the detailed v2 protocol and implementation reference; any
+> older wording that suggests a standalone or general UI product is subordinate
+> to that decision.
+
+Status: **Local reference implementation**. The repository implements the core
+v2 protocol, compiler, runtime, adapters, capability/resource boundaries,
+renderer, registry tooling, deterministic eval gates, and rollout-control
+modules. This RFC also preserves explicitly future extension and production
+exit requirements; those are not claims of shipped behavior. A real production
+canary, the pinned provider/model evaluation matrix, the accessibility matrix,
+and 4,000+ eligible zero-failure samples per gated provider/profile remain
+external exit gates.
+
+## Decision
+
+The v2 protocol is a general semantic UI substrate inside the Embedded Business
+Artifact Runtime. It is not a language or product for generating arbitrary
+applications.
+
+The system will use two model-visible layers:
+
+1. A small **Surface DSL** for layout, content, forms, state bindings, and
+   action triggers.
+2. **Semantic Artifact nodes** for query results, metrics, trends, cohorts,
+   experiments, data quality, evidence, and other governed data concepts.
+
+Both layers compile into one transport-neutral **Normalized Artifact IR**. React
+and shadcn/ui remain the first renderer and source-distribution model, but they
+do not define the protocol.
+
+```text
+Catalog contracts + host grants + task context
+                    │
+                    ▼
+              Prompt compiler
+                    │
+          model emits snapshot or delta
+                    │
+                    ▼
+     decode → normalize → validate → authorize
+                    │
+             draft transaction
+                    │
+        strict commit or progressive preview
+                    │
+                    ▼
+          normalized document store
+          ├─ state/effect runtime
+          ├─ evidence bindings
+          ├─ diagnostics/telemetry
+          └─ React renderer → shadcn/ui recipes
+```
+
+The key boundary is simple: the model proposes declarative state. The host owns
+data access, authorization, effects, persistence, and the final commit.
+
+## Simplicity is a hard requirement
+
+The architecture is allowed to be sophisticated internally; its public path is
+not. A developer should not need to understand the IR, frame protocol, prompt
+compiler, repair loop, or capability lifecycle to render a safe artifact.
+
+The release-facing v2 golden path has one install command, one server helper,
+one browser decode boundary, and one renderer. The command is the tested public
+interface, but it is not externally usable until the npm packages and registry
+host are published:
+
+```bash
+npx data-elements@latest add artifact-ui
+```
+
+The command installs the editable shadcn-based React source and pins exact
+protocol/runtime/artifact-contract package versions. The server adapter is an
+explicit application dependency; the default example uses
+`@data-elements/ai-sdk`. The server creates one long-lived, request-stateless
+configuration object and prepares a fresh catalog slice for every model turn:
+
+```tsx
+import { createArtifactUI } from "@data-elements/ai-sdk"
+import { streamText } from "ai"
+
+const artifactUI = createArtifactUI()
+
+export async function POST(request: Request) {
+  const { messages } = await request.json()
+  const turn = await artifactUI.prepareTurn({ messages, profile: "analysis" })
+  const result = streamText({
+    model,
+    messages: turn.messages,
+    system: turn.system,
+    tools: { ...dataTools, ...turn.tools },
+  })
+
+  return turn.toUIMessageStreamResponse(result)
+}
+```
+
+The adapter brands validated server output in-process, serializes it as an
+`ArtifactPartWire` plus contract fingerprint, and never forwards raw model
+chunks or tool input. The browser validates that transport value once before
+rendering:
+
+```tsx
+import { decodeArtifactPart } from "@data-elements/runtime"
+import { ArtifactRenderer } from "@/components/data-elements/artifact-ui"
+
+const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
+  contractFingerprint: dataArtifactPart.data.contractFingerprint,
+})
+
+if (!decoded.success) throw new Error("Artifact transport validation failed.")
+return <ArtifactRenderer value={decoded.part} />
+```
+
+`prepareTurn(context)` is where task slicing happens. It freezes the catalog
+manifest, contract fingerprint, prompt bundle hash, limits, resources, and safe
+capability descriptors for exactly one model call. `toUIMessageStreamResponse`
+performs adapter validation and emits only the fingerprinted wire envelope and
+trusted server events. `decodeArtifactPart()` revalidates and applies the local
+brand after transport. `ArtifactRenderer` accepts `ArtifactPart`, a committed
+`ArtifactDocument`, or the explicit v1 compatibility type; it never parses raw
+model text, proposal chunks, or an unbranded network wire.
+
+Shared state, resume, and effects use one optional provider around all rendered
+parts:
+
+```tsx
+import {
+  ArtifactRenderer,
+  ArtifactUIProvider,
+} from "@/components/data-elements/artifact-ui"
+
+<ArtifactUIProvider runtimeTransport={artifactCommandTransport}>
+  <ArtifactRenderer value={artifactPart} />
+</ArtifactUIProvider>
+```
+
+`ArtifactUIProvider` owns one store per document/branch, stream cursors,
+last-good revisions, typed state, renderer bindings, and command dispatch. It is
+created automatically with an in-memory, document-local store when a renderer
+has no parent provider. A runtime command transport is required before follow-up
+messages, navigation, refresh, approval, or any external effect enters the
+active catalog; static rendering and local state require no transport. Static
+documents use literals or policy-permitted inline previews; a missing external
+resource renders its declared unavailable state until a runtime transport is present.
+
+`createArtifactUI()` uses the `standard` preset: task-sliced Surface and
+Semantic Artifact catalogs, progressive shells, atomic semantic nodes, and no
+external effect grants. `governed` makes the whole document strict and enforces
+evidence/policy requirements. `custom` is the explicit escape hatch. Users do
+not assemble dozens of policy flags for common cases.
+
+The zero-configuration default has no external effect capabilities. It can
+render data already returned by trusted tools and manage local interaction
+state. Follow-up messages, refreshes, navigation, exports, and writes appear
+only when the host supplies a runtime command transport and explicitly grants them.
+
+Complexity is disclosed in layers:
+
+| Level | User supplies | System owns |
+| --- | --- | --- |
+| Default | preset and model/tool wiring | catalog, schemas, prompt, validation, streaming, safe policy |
+| Product | custom node contracts and capability handlers | normalization, authorization hooks, diagnostics, migrations |
+| Platform | custom codecs, stores, policies, adapters, and telemetry sinks | protocol conformance and compatibility tests |
+
+There must be one opinionated golden path, one error vocabulary, and one
+documentation path. Advanced packages are implementation boundaries, not a
+requirement that every application assemble the framework manually.
+
+The product user's contract is equally small: they see familiar controls, not
+DSL or tool calls; local interactions respond immediately; long operations show
+pending, approval, success, failure, retry, and cancel states in place; an error
+never blanks the last useful result; and sources/limitations are inspectable
+without leaving the artifact. Keyboard and screen-reader behavior is part of
+the official node contract, not optional application work.
+
+## What the OpenUI study changes
+
+OpenUI proves several architectural ideas that Data Elements should adopt. Its
+visual design is irrelevant to this decision.
+
+| OpenUI mechanism | Data Elements decision |
+| --- | --- |
+| Component definitions generate schemas and prompt signatures | **Adopt.** A node contract becomes the source for schemas, prompt metadata, docs, fixtures, and compatibility data. |
+| Framework-neutral language core with renderer bindings | **Adopt.** The IR, validator, patch engine, and diagnostics cannot import React. |
+| Root-first streaming, forward references, and partial trees | **Adapt.** Keep stable references and early shells, but use named JSON fields and per-node commit policies. |
+| Last-good UI and data during parse, render, and refetch failures | **Adopt.** Draft state must never destroy the last committed revision. |
+| Structured parser/runtime errors for repair | **Adopt and strengthen.** Only redacted, model-correctable diagnostics enter a bounded repair loop. |
+| Incremental edits merged by statement name | **Adapt.** Use stable node IDs, base revisions, idempotent operations, and explicit commits. |
+| Reactive state and declarative action plans | **Adapt.** Use typed bindings and allowlisted effects without general-purpose expressions. |
+| `Query()` and `Mutation()` executed by the renderer | **Reject.** UI code may request a host-granted capability, but it never selects or directly invokes an arbitrary tool. |
+| Positional arguments inferred from Zod key order | **Reject.** All public DSL fields are named; schema reordering cannot change meaning. |
+| One broad catalog placed in every system prompt | **Reject.** Compile a task-specific catalog slice and identify it with a fingerprint. |
+| Plausible/mock data when real data is unavailable | **Reject for semantic artifacts.** Render an explicit unavailable/empty state; never fabricate governed values. |
+
+OpenUI's package graph also provides a useful separation reference:
+`lang-core` owns language behavior, framework packages bind renderers,
+`react-headless` owns chat state and stream adapters, and observability,
+devtools, integrations, and CLI are separate products. Data Elements should
+keep those boundaries while retaining stronger data semantics and governance.
+
+The legacy gaps that motivated this architecture are now guarded by the local
+reference implementation:
+
+| Legacy gap | Previous evidence | Implemented guard |
+| --- | --- | --- |
+| Catalog drift | The protocol and handwritten adapter once diverged at 15 versus 10 kinds | Contract parity tests and per-turn generated provider schemas |
+| Repeated sources of truth | Kinds, manifests, renderers, exports, and registry items could diverge | Versioned contracts, deterministic generated views, and registry closure checks |
+| Inconsistent strictness | Early artifact schemas were permissive while later schemas were strict | Strict envelopes plus shared byte, row, node, and depth limits |
+| Open action surface | String actions and unknown payloads lacked capability policy | Typed action contracts, host grants, approval, reauthorization, and receipts |
+| No document lifecycle | Adapters extracted only completed whole artifacts | Revisioned snapshots, transactions, replay, resume, migration, and last-good state |
+
+The first implementation milestone is therefore contract parity, not new visual
+components.
+
+## Goals and non-goals
+
+### Goals
+
+- Compose multiple artifacts, prose, controls, and layouts in one document.
+- Preserve the current semantic artifacts as trusted, high-level nodes.
+- Stream useful UI without accepting incomplete analytical claims.
+- Support deterministic editing, replay, migration, and conflict detection.
+- Generate model instructions and schemas from the same node contracts used by
+  validation.
+- Keep data tools, mutations, and permissions behind a host capability broker.
+- Work with AI SDK, Mastra, AG-UI, MCP, or future transports without changing
+  the document protocol.
+- Ship editable React implementations through a shadcn registry.
+- Make correctness measurable with protocol, model, runtime, renderer, and
+  security evaluations.
+- Keep the default developer workflow to one generated tool and one renderer,
+  with safe presets instead of mandatory low-level configuration.
+
+### Non-goals
+
+- Generating JSX, JavaScript, HTML, CSS, SQL, or executable formulas.
+- Replacing application frameworks or building arbitrary multi-page apps.
+- Letting a renderer acquire credentials or call model-selected tools.
+- Encoding business calculations in a client expression language.
+- Exposing every installed component to every model request.
+- Coupling document validity to one visual theme or React component tree.
+
+## Three contracts, not one syntax
+
+Calling the system a DSL is correct, but the DSL must not be confused with its
+wire encoding. The architecture has three explicit contracts.
+
+### 1. Artifact authoring DSL
+
+This is the compact, model-facing representation. Version one should use JSON
+with named properties because provider tool calling, JSON Schema, and existing
+Zod contracts already support it well. A future text codec may improve token
+efficiency, but it must compile to identical IR and pass the same conformance
+suite.
+
+The authoring form may be nested for generation ergonomics:
+
+```json
+{
+  "id": "root",
+  "type": "layout.stack",
+  "props": { "gap": "md" },
+  "slots": {
+    "children": [
+      {
+        "id": "revenue",
+        "type": "artifact.metric",
+        "props": {
+          "title": "Revenue",
+          "metrics": [{ "id": "mrr", "label": "MRR", "value": 461400 }]
+        },
+        "evidence": ["evidence:mrr-august"]
+      }
+    ]
+  }
+}
+```
+
+The authoring codec is replaceable. Its semantics are not.
+
+```ts
+type ConditionOperator = "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not"
+
+type PlainAuthoringObject = {
+  [key: string]: AuthoringValue
+  [key: `$${string}`]: never
+}
+
+type AuthoringValue =
+  | Scalar
+  | AuthoringValue[]
+  | PlainAuthoringObject
+  | { $ref: "state" | "resource"; id: string; path?: (string | number)[] }
+  | { $ref: "event"; port: string; path?: (string | number)[] }
+  | { $ref: "context"; key: "locale" | "timezone" }
+  | { $condition: { op: ConditionOperator; args: AuthoringValue[] } }
+
+type AuthoringNode = {
+  id: string
+  type: string
+  typeVersion?: number
+  props?: Record<string, AuthoringValue>
+  slots?: Record<string, AuthoringNode[]>
+  events?: Record<EventPortId, ActionId>
+  evidence?: string[]
+}
+
+type AuthoringActionPlan = {
+  contractId: string
+  contractVersion?: number
+  steps: AuthoringActionStep[]
+  onError?: "halt" | "continue"
+}
+
+type AuthoringNavigationTarget =
+  | { kind: "route"; capabilityId: string; routeId: string; params?: Record<string, AuthoringValue> }
+  | { kind: "resource"; capabilityId: string; resourceId: string }
+  | { kind: "external"; capabilityId: string; input: Record<string, AuthoringValue> }
+
+type AuthoringActionStep =
+  { stepId: string } & (
+    | { type: "state.set"; stateId: string; value: AuthoringValue }
+    | { type: "state.reset"; stateIds: string[] }
+    | { type: "node.focus"; nodeId: string }
+    | { type: "agent.message"; templateGrantId: string; values?: Record<string, AuthoringValue> }
+    | { type: "capability.request"; capabilityId: string; input: Record<string, AuthoringValue> }
+    | { type: "navigation.request"; target: AuthoringNavigationTarget }
+  )
+
+type AuthoringStateDefinition = {
+  schema: JSONSchema
+  initial: JsonValue
+}
+
+type ArtifactMeta = {
+  title?: string
+  description?: string
+  locale?: string
+  tags?: string[]
+}
+```
+
+Every key beginning with `$` is reserved in authoring values. A plain object is
+accepted only when its generated JSON Schema `propertyNames` rule rejects the
+`^\\$` prefix; the decoder recognizes only the exact `$ref` and `$condition`
+tagged shapes above and rejects every unknown `$...` key. Contract-generated
+schemas define where references and conditions are legal. The normalizer maps
+`AuthoringActionStep` one-for-one to `ActionStep`, lowers every authoring value
+into the tagged IR algebra, verifies unique step IDs within each plan, and fills
+an omitted `onError` with `"halt"`. State authoring declares only value shape
+and initial value; the host, never the model, resolves state identity, retention,
+persistence, sensitivity, model access, and lifecycle policy.
+
+### 2. Normalized Artifact IR
+
+The compiler flattens authoring input into a stable graph. This is the canonical
+form used by validation, storage, patches, renderers, traces, and migrations.
+Model output is an `ArtifactProposal`; it is never a committed document. The
+host stamps authoritative document, revision, catalog, policy, grant, and
+resource metadata only after validation.
+
+```ts
+type PolicySink =
+  | "model-generation"
+  | "renderer"
+  | "model-repair"
+  | "export"
+  | "share"
+  | "telemetry"
+
+type InformationFlowLabel = {
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  persistence: "none" | "session" | "host"
+  allowedSinks: PolicySink[]
+  expiresAt?: string
+}
+
+type DocumentPolicy = InformationFlowLabel & {
+  policyId: string
+  policyVersion: number
+  policyHash: string
+}
+
+type RevisionIdentity = {
+  revisionId: string
+  parentRevisionIds: string[]
+  branchId: string
+  sequence: number // display/order hint, not a concurrency token
+  contentHash: string
+  contractFingerprint: string
+  migrationReceiptIds: string[]
+  stateTransitionReceiptIds: string[]
+}
+
+type ArtifactDocument = {
+  protocol: "data-elements.artifact"
+  protocolVersion: "2.0"
+  documentId: string
+  revision: RevisionIdentity
+  policy: DocumentPolicy
+  catalog: {
+    id: string
+    version: string
+    contractFingerprint: string
+  }
+  renderMode: "strict" | "progressive"
+  root: NodeId
+  nodes: Record<NodeId, ArtifactNode>
+  state: Record<StateId, StateDefinition>
+  actions: Record<ActionId, ActionPlan>
+  resources: Record<ResourceId, ResourceReference>
+  evidence: Record<EvidenceId, EvidenceReference>
+  claims: Record<ClaimId, ClaimBinding>
+  meta: ArtifactMeta & { createdAt: string; updatedAt: string }
+}
+
+type ArtifactSemanticContent = {
+  protocol: ArtifactDocument["protocol"]
+  protocolVersion: ArtifactDocument["protocolVersion"]
+  policy: Omit<DocumentPolicy, "expiresAt">
+  catalog: ArtifactDocument["catalog"]
+  renderMode: ArtifactDocument["renderMode"]
+  root: ArtifactDocument["root"]
+  nodes: ArtifactDocument["nodes"]
+  state: Record<
+    StateId,
+    Omit<StateDefinition, "policy"> & {
+      policy: Omit<StatePolicy, "expiresAt">
+    }
+  >
+  actions: ArtifactDocument["actions"]
+  resources: Record<ResourceId, Omit<ResourceReference, "expiresAt">>
+  evidence: Record<
+    EvidenceId,
+    Omit<EvidenceReference, "observedAt" | "recordedAt" | "expiresAt">
+  >
+  claims: ArtifactDocument["claims"]
+  meta: ArtifactMeta
+}
+
+type ArtifactNode = {
+  type: string
+  typeVersion: number
+  props: Record<string, ArtifactValue>
+  slots?: Record<string, NodeId[]>
+  events?: Record<EventPortId, ActionId>
+  evidence?: EvidenceId[]
+}
+
+type ArtifactProposal = {
+  root: AuthoringNode
+  state?: Record<string, AuthoringStateDefinition>
+  actions?: Record<string, AuthoringActionPlan>
+  claims?: Record<string, ClaimBinding>
+  resourceIds?: string[]
+  meta?: ArtifactMeta
+}
+
+type BranchHeadPrecondition = {
+  branchId: string
+  revisionId: string
+  headToken: string
+}
+
+type ProposalTarget =
+  | {
+      mode: "create"
+      documentId: string
+      branchId: string
+      parentRevisionIds: []
+    }
+  | {
+      mode: "edit"
+      documentId: string
+      branchId: string
+      parentRevisionIds: [string]
+      headPreconditions: [BranchHeadPrecondition, ...BranchHeadPrecondition[]]
+      statePreconditions: Record<StateId, string>
+    }
+  | {
+      mode: "merge"
+      documentId: string
+      branchId: string
+      parentRevisionIds: [string, string, ...string[]]
+      headPreconditions: [BranchHeadPrecondition, ...BranchHeadPrecondition[]]
+      statePreconditions: Record<StateId, string>
+    }
+
+type SchemaProfileBinding = {
+  profileId: "data-elements.schema-core"
+  profileVersion: number
+  profileHash: string
+}
+
+type ProposalContext = {
+  protocolVersion: "2.0"
+  contractFingerprint: string
+  promptBundleHash: string
+  schemaProfile: SchemaProfileBinding
+  documentPolicy: DocumentPolicy
+  generationTaintHash: string
+  renderMode: "strict" | "progressive"
+  actionContractVersions: Record<string, number>
+  resourceGrants: Record<ResourceId, ResourceReference>
+  evidenceGrants: Record<EvidenceId, EvidenceReference>
+  capabilityGrantVersions: Record<string, number>
+  messageTemplateGrantVersions: Record<string, number>
+  grantSetVersion: number
+  authorizationContextRef: string
+  policyProfileHash: string
+  target: ProposalTarget
+}
+```
+
+Node IDs provide identity; array position does not. Slots contain references,
+not embedded renderer objects. The normalizer rejects duplicate IDs, cycles,
+unreachable roots, invalid slot types, excessive depth, and resource references
+outside the document's grants.
+
+`ProposalContext` is attached by the trusted adapter, not generated by the
+model. The model may reference only resource IDs and capabilities supplied in
+that context. It cannot choose a tenant, actor, branch head, grant version, or
+document/policy profile, or alter `generationTaintHash`. Every model-visible
+capability or message-template descriptor
+must match the corresponding ID/version map and `grantSetVersion`; a missing or
+extra descriptor invalidates the prompt bundle before generation.
+`DocumentPolicy.policyHash` covers its ID/version, scope, sensitivity,
+persistence, and sorted sink set; `expiresAt` is temporal host state and is
+excluded. The same policy identity with different static bytes is fatal, and
+the host resolves current expiry/revocation rather than trusting the document.
+
+`revisionId` is immutable and revisions form a DAG. Target mode makes create,
+edit, and merge impossible to confuse: an edit has exactly one parent and a
+merge has at least two. The target branch must appear in `headPreconditions`;
+every merge parent asserted as a live branch head has its own host-issued token.
+The host compares all supplied head and state preconditions atomically before
+commit. A stale token produces a conflict revision or a new explicit proposal,
+never an implicit last-write-wins merge. Neither a display sequence nor a
+content hash authorizes a branch-head update.
+
+`RevisionIdentity.contentHash` is SHA-256 over the RFC 8785-canonicalized
+`ArtifactSemanticContent` projection shown above. The projection is exact: it
+includes the static document-policy binding, catalog identity, normalized
+nodes, state definitions, actions, resource/evidence identities, claims, and
+semantic metadata; it excludes
+`documentId`, the complete revision envelope, head tokens, transport fields,
+state values, pending effects, expiry/observation/recording times, and document
+creation/update times. Host and adapter share this projection as generated code
+rather than independently maintaining omission lists.
+
+### Normalized value algebra
+
+No IR type may be an unbounded `unknown`. Plain JSON in the authoring DSL is
+lowered into this tagged, fully validated value algebra:
+
+```ts
+type Scalar = null | boolean | string | number
+type JsonValue = Scalar | JsonValue[] | { [key: string]: JsonValue }
+
+type ArtifactValue =
+  | { kind: "literal"; value: Scalar }
+  | { kind: "array"; items: ArtifactValue[] }
+  | { kind: "object"; entries: Record<string, ArtifactValue> }
+  | { kind: "state-ref"; stateId: string; path?: PathSegment[] }
+  | { kind: "resource-ref"; resourceId: string; path?: PathSegment[] }
+  | { kind: "event-ref"; port: string; path?: PathSegment[] }
+  | { kind: "context-ref"; key: "locale" | "timezone" }
+  | {
+      kind: "condition"
+      op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not"
+      args: ArtifactValue[]
+    }
+
+type PathSegment = string | number
+```
+
+Numbers must be finite. Protocol limits bound string bytes, collection length,
+object keys, total values, and nesting depth. Object keys reject prototype
+pollution names; paths never use JavaScript prototype lookup and are checked
+against the referenced state or resource schema. Conditions are legal only in
+contract-declared presentation fields such as `visible` and `enabled`.
+
+Condition evaluation has no coercion or host-language truthiness. `eq` and
+`neq` take exactly two schema-compatible values and compare canonical JSON
+structure; `lt/lte/gt/gte` take exactly two finite numbers; `and/or` take at
+least two booleans; and `not` takes exactly one boolean. A statically invalid
+path is rejected. A value that becomes unavailable at runtime produces an
+unresolved-reference diagnostic: presentation conditions fail closed to
+`false`, while an action input aborts before any effect request is created.
+
+Bindings are values inside `props`, not a second map that can conflict with a
+literal prop. The runtime resolves them immediately before node validation and
+passes only fully parsed values to a renderer. A `resource-ref` resolves only
+from an identity-matched `ClientResourceBinding` or its validated document
+preview; a missing binding leaves the node in its declared loading/unavailable
+state while the optional provider requests it. Dynamic action input is resolved
+server-side from the authoritative committed state/resource snapshot and the
+validated triggering event payload at click time, then validated again against
+the action-step and capability input schemas; a client cache value is never
+submitted back as authority. `event-ref` is legal only inside an action plan.
+
+### 3. Artifact stream protocol
+
+Snapshots are appropriate for first generation and strict tool output. Edits
+and progressive responses use self-contained JSON Lines or equivalent typed
+messages. Direction is part of the type system; model output, host commit
+commands, server events, and client commands are four different protocols.
+
+```ts
+type ModelProposalChunk =
+  | { type: "snapshot"; proposal: ArtifactProposal }
+  | { type: "operation"; operation: AuthoringPatchOperation }
+  | { type: "finish" }
+  | { type: "abort"; reasonCode?: string }
+
+type AuthoringPatchOperation =
+  | { op: "put-node"; value: AuthoringNode }
+  | { op: "remove-node"; nodeId: string }
+  | { op: "put-state"; stateId: string; value: AuthoringStateDefinition }
+  | { op: "remove-state"; stateId: string }
+  | { op: "put-action"; actionId: string; value: AuthoringActionPlan }
+  | { op: "remove-action"; actionId: string }
+  | { op: "put-claim"; claimId: string; value: ClaimBinding }
+  | { op: "remove-claim"; claimId: string }
+  | { op: "attach-resource"; resourceId: string }
+  | { op: "detach-resource"; resourceId: string }
+  | { op: "set-root"; nodeId: string }
+  | { op: "set-meta"; value: ArtifactMeta }
+
+type DraftOperation =
+  | { op: "put-node"; nodeId: string; value: ArtifactNode }
+  | { op: "remove-node"; nodeId: string }
+  | { op: "put-state"; stateId: string; value: StateDefinition }
+  | { op: "remove-state"; stateId: string }
+  | { op: "put-action"; actionId: string; value: ActionPlan }
+  | { op: "remove-action"; actionId: string }
+  | { op: "put-claim"; claimId: string; value: ClaimBinding }
+  | { op: "remove-claim"; claimId: string }
+  | { op: "attach-resource"; resourceId: string }
+  | { op: "detach-resource"; resourceId: string }
+  | { op: "set-root"; nodeId: string }
+  | { op: "set-meta"; value: ArtifactMeta }
+
+type CommitCommand =
+  | {
+      type: "begin"
+      transactionId: string
+      context: ProposalContext
+    }
+  | {
+      type: "apply"
+      transactionId: string
+      seq: number
+      opId: string
+      payloadHash: string
+      operation: DraftOperation
+    }
+  | { type: "finalize"; transactionId: string; canonicalDraftHash: string }
+  | { type: "abort"; transactionId: string; reason?: string }
+
+type BootstrapHello = {
+  bootstrapProtocol: "data-elements.bootstrap/1"
+  type: "hello"
+  requestId: string
+  offer: CompatibilityOffer
+}
+
+type BootstrapResponse =
+  | {
+      bootstrapProtocol: "data-elements.bootstrap/1"
+      type: "ready"
+      requestId: string
+      streamId: string
+      selection: CompatibilitySelection
+    }
+  | {
+      bootstrapProtocol: "data-elements.bootstrap/1"
+      type: "incompatible"
+      requestId: string
+      reasons: { code: string; message: string }[]
+    }
+
+type RuntimeSnapshot = {
+  document: ArtifactDocument
+  branchHead: BranchHeadPrecondition
+  state: StateRecord[]
+  pendingActions: ClientActionInvocationSummary[]
+  pendingEffects: ClientEffectSummary[]
+  activeApprovals: ClientApprovalCheckpoint[]
+  stateMigrationReceipts: StateMigrationReceipt[]
+  stateTransitionReceipts: ClientStateTransitionReceipt[]
+}
+
+type ServerEvent<T> = {
+  streamProtocol: "data-elements.stream/2.0"
+  streamId: string
+  seq: number
+  eventId: string
+  cursor: string
+  contractFingerprint: string
+  payload: T
+}
+
+type ClientArtifactEvent = ServerEvent<
+  | { type: "snapshot"; snapshot: RuntimeSnapshot }
+  | { type: "draft-preview"; transactionId: string; parentRevisionIds: string[]; previewSeq: number; operations: DraftOperation[]; unresolvedIds: string[] }
+  | { type: "ack"; requestId?: string; transactionId?: string; acceptedThroughSeq: number }
+  | { type: "reject"; requestId?: string; transactionId?: string; rejectedOpId?: string; diagnostics: Diagnostic[] }
+  | { type: "transaction-aborted"; transactionId: string; lastGoodRevisionId?: string; diagnostics: Diagnostic[] }
+  | { type: "committed"; transactionId: string; snapshot: RuntimeSnapshot }
+  | { type: "state-updated"; record: StateRecord; receipt: ClientStateTransitionReceipt }
+  | { type: "action-updated"; action: ClientActionInvocationSummary }
+  | { type: "action-cancellation"; receipt: ActionCancellationReceipt }
+  | { type: "effect-updated"; effect: ClientEffectSummary }
+  | { type: "approval-checkpoint"; checkpoint: ClientApprovalCheckpoint }
+  | { type: "effect-receipt"; receipt: ClientEffectReceipt }
+  | { type: "effect-cancellation"; receipt: EffectCancellationReceipt }
+  | { type: "resource-receipt"; receipt: ClientResourceResolutionReceipt }
+>
+
+declare const validatedArtifactPart: unique symbol
+type ArtifactPart = (
+  | { kind: "artifact-snapshot"; snapshot: RuntimeSnapshot }
+  | { kind: "artifact-stream"; base?: RuntimeSnapshot; events: ClientArtifactEvent[] }
+) & { readonly [validatedArtifactPart]: true }
+
+type ArtifactRendererValue =
+  | ArtifactPart
+  | ArtifactDocument
+  | import("@data-elements/schema").Artifact // explicit v1 compatibility
+
+type ClientCommand<T> = {
+  streamProtocol: "data-elements.stream/2.0"
+  streamId: string
+  contractFingerprint: string
+  payload: T
+}
+
+type ClientArtifactCommand = ClientCommand<
+  | { type: "resume"; requestId: string; cursor: string }
+  | { type: "state-write"; requestId: string; documentId: string; branchId: string; revisionId: string; stateId: string; expectedSchemaHash: string; expectedPolicyHash: string; expectedStateRevision: string; value: JsonValue }
+  | { type: "action-trigger"; requestId: string; documentId: string; branchId: string; revisionId: string; headToken: string; nodeId: string; port: EventPortId; payload: JsonValue; statePreconditions: Record<StateId, string> }
+  | { type: "resource-resolve"; requestId: string; documentId: string; branchId: string; revisionId: string; resourceId: string; expectedSchemaHash: string; expectedContentHash: string }
+  | { type: "approval-response"; requestId: string; checkpointId: string; effectRequestId: string; decision: "approve" | "reject" }
+  | { type: "cancel-transaction"; requestId: string; transactionId: string }
+  | { type: "cancel-action"; requestId: string; invocationId: string }
+  | { type: "cancel-effect"; requestId: string; effectRequestId: string }
+>
+
+type ClientResourceDataEnvelope = {
+  resourceProtocol: "data-elements.resource/1.0"
+  requestId: string
+  contractFingerprint: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  resourceId: string
+} & (
+  | {
+      type: "resource-data"
+      binding: ClientResourceBinding
+    }
+  | {
+      type: "resource-unavailable"
+      resolutionId?: string
+      reason: "expired" | "denied" | "unavailable"
+      retryable: boolean
+    }
+)
+```
+
+The model can produce only `ModelProposalChunk`. Its grammar has two mutually
+exclusive forms: exactly one `snapshot` followed by `finish`, or one or more
+`operation` chunks followed by `finish`. `abort` terminates either form; EOF
+before `finish`, mixed snapshot/operation mode, or any chunk after a terminal
+chunk is an abort. A trusted adapter validates and
+normalizes it, creates transaction identities, sequence/op IDs, payload hashes,
+and head-token context, then issues internal `CommitCommand`s. Only the host can
+produce `ClientArtifactEvent`; a browser can never send a snapshot, preview, or
+commit receipt back as authority. The browser can send only the explicit
+`ClientArtifactCommand` union.
+
+The `ArtifactPart` brand is applied only after the adapter or client decoder has
+validated the complete envelope against the negotiated manifest. It is a local
+type guarantee, not serialized authority; network bytes are always validated
+again. This is the only v2 message-part type accepted by the default renderer.
+
+`BootstrapHello` and `BootstrapResponse` always use the fixed bootstrap protocol
+and therefore do not pretend to know the stream version they are negotiating.
+`hello/ready` selects one catalog manifest, protocol ranges, codec, required and
+optional features, runtime/renderer API versions, and resource limits before
+generation starts. No intersection returns `incompatible`; it never falls
+through to a partial stream. Every post-ready command and event carries the
+selected stream ID and contract fingerprint.
+
+At every validation boundary,
+`document.revision.contractFingerprint`, `document.catalog.contractFingerprint`,
+the selected catalog manifest fingerprint, and the command/event envelope
+fingerprint must be byte-identical; every document node version must also equal
+the selected manifest entry, and every action plan must resolve to its selected
+action-contract version. `ProposalContext.schemaProfile` and
+`policyProfileHash` must equal the selected manifest bindings before prompt
+compilation and commit. Any mismatch is a compatibility failure, not a
+migration hint.
+
+Sequence numbers are monotonically increasing per stream. Replaying the same
+adapter-stamped `opId`, sequence, and payload hash is idempotent; reusing an
+identity with a
+different payload is fatal. Small gaps may be buffered within negotiated byte,
+frame, and time limits. Larger gaps require `resume`; when the cursor is no
+longer retained, the host returns one atomic `RuntimeSnapshot`. The document,
+branch head token, current state revisions and values, state migration receipts,
+relevant non-terminal action/effect summaries, and active approval checkpoints
+are read from one consistency point; the client never combines separately
+fetched versions. An approval therefore remains actionable after reload or
+cursor expiry without replaying a one-shot event. Runtime snapshots are always
+resource-value-free.
+
+`transactionId` also names a durable commit state machine with exactly one of
+`open`, `committed`, or `aborted` as its state. Replaying `begin` with the same
+canonical `ProposalContext` returns the existing transaction; reusing the ID
+with different context is fatal. Replaying `finalize` with the same
+`canonicalDraftHash` returns the originally committed revision and atomic
+runtime snapshot, even when the first response was lost; a different hash is
+fatal and can never create another revision. `committed` and `aborted` are
+mutually exclusive terminal states selected by one atomic compare-and-set.
+After either terminal state, a replay of the matching command returns the stored
+terminal result, while the opposite command returns `too-late` with that same
+result. Transaction records and their idempotency keys are retained for at least
+the maximum retry and cursor lifetime.
+
+`CommitCommand.payloadHash` is SHA-256 over the RFC 8785-canonicalized
+`DraftOperation`. Every client `requestId` is a globally stable operation key,
+not a stream-local sequence. The host persists
+`(tenant, actor, requestId, canonicalPayloadHash)` across stream replacement and
+through at least the cursor retention window and, for actions/effects, through
+the longer invocation or grant idempotency lifetime. Repeating the same payload
+on a new or old stream returns the original ack or receipt even when state
+revisions have advanced; reusing the key with different bytes is fatal. This
+deduplicates state writes, action invocations, resource resolutions, approvals,
+and all cancellation requests before they can cause another transition.
+For `resource-resolve`, that replay guarantee applies to the immutable receipt;
+the value is redelivered separately only after current authorization succeeds.
+
+`canonicalDraftHash` is SHA-256 over the prospective
+`ArtifactSemanticContent`, using catalog and granted resource/evidence records
+from `ProposalContext`. It excludes exactly the host/temporal fields omitted by
+that projection while retaining referenced resource and evidence content
+hashes. It detects corruption; it is not a trust token. The host re-normalizes,
+re-validates, and computes the hash independently before issuing a `committed`
+server event. Every abort path emits `transaction-aborted`, immediately removes
+the preview, and restores the snapshot's last-good revision.
+
+Resource handles are host-issued. A model may attach only IDs included in its
+visible resource grants; it cannot author endpoints, credentials, tenant scope,
+or evidence provenance. No action, resource fetch, navigation, or mutation may
+execute from a draft. Effects become eligible only from a committed revision.
+
+## Node contracts and catalogs
+
+The contract graph is the source for catalog identity, prompt/schema slices,
+renderer parity, compatibility data, and registry checks. The original
+handwritten AI SDK kind enum has been removed from the v2 path; drift now fails
+local parity and deterministic-build gates.
+
+A framework-neutral node contract becomes the single source of model-visible
+truth:
+
+```ts
+const metricNode = defineNodeContract({
+  type: "artifact.metric",
+  version: 1,
+  category: "semantic-artifact",
+  props: metricArtifactPropsSchema,
+  slots: {},
+  trust: "governed",
+  commitPolicy: "atomic",
+  evidence: { requirement: "required", min: 1 },
+  capabilities: [],
+  events: {
+    select: {
+      payload: z.object({ metricId: z.string() }),
+      actionContracts: { "artifact.selection": "^1" },
+    },
+  },
+  prompt: {
+    summary: "A compact set of validated business metrics.",
+    useWhen: ["The values and definitions are validated."],
+    avoidWhen: ["The values are estimates without evidence."],
+  },
+  limits: { maxInstances: 12 },
+  migrations: {},
+})
+```
+
+React binding is a separate operation so the contract package remains
+framework-neutral:
+
+```ts
+bindReactRenderer(metricNode, MetricArtifact)
+```
+
+A catalog build must fail when any of these are missing or inconsistent:
+
+- unique type and version;
+- prop and slot schemas;
+- event-port names, payload schemas, and allowed action-contract ranges;
+- renderer coverage for official nodes;
+- prompt selection guidance;
+- trust, streaming, evidence, and capability policies;
+- migration paths for supported old versions;
+- generated docs and fixture coverage.
+
+For each `ArtifactNode`, the validator selects the exact node contract by type
+and version. Every key in `node.events` must be a declared port, every target
+action must exist, and no arbitrary event key survives because generated
+schemas are closed. On `action-trigger`, the host resolves the action from the
+committed node rather than trusting an action ID from the browser, validates the
+payload against that port's schema and contextual invariants such as ID
+membership in the committed props, and then makes the immutable payload
+available to `event-ref`. An event path must type-check against the selected
+payload schema. If one action is bound to multiple ports, every event reference
+must be valid for every binding or the document is rejected.
+
+Action contracts are catalog contracts, generated and fingerprinted alongside
+node contracts. Each event port declares which action-contract versions it may
+bind. The document validator resolves that exact contract, checks every step
+kind/capability kind and plan limit, and rejects `onError: "continue"` unless
+the contract explicitly permits it. A plan reused by multiple ports must satisfy
+the intersection of all allowed contract ranges. `ProposalContext` and the
+compatibility manifest freeze exact action-contract versions, so a model-supplied
+ID is only a checked reference and can never select a broader installed policy.
+
+The implemented compiler derives provider JSON Schema, prompt signatures,
+catalog projections, and a deterministic contract fingerprint from the active
+contracts. Renderer bindings, Registry descriptors, documentation, and eval
+manifests remain explicit source artifacts guarded by parity and determinism
+tests; future code generation may remove more of that maintenance.
+
+## The two-layer node model
+
+### Surface nodes
+
+The implemented Surface catalog provides bounded composition through stacks,
+grids, sections, safe text, callouts, progress, explicit empty states, and typed
+forms with input, select, toggle, and button controls. Their props use semantic
+design tokens such as `gap: "md"`; they never accept arbitrary classes or CSS.
+Tabs and accordions remain ordinary future extension contracts, not hidden
+built-ins.
+
+Each slot declares allowed categories, cardinality, and fallback behavior.
+`layout.stack.children` accepts only composable catalog categories, while
+`form.root.fields` accepts only the four registered form controls; neither
+accepts an arbitrary graph. This makes composition expressive without making
+every tree valid.
+
+### Semantic Artifact nodes
+
+The existing query, calculator, metric, comparison, trend, anomaly, forecast,
+funnel, data-quality, insight, breakdown, distribution, cohort, experiment,
+and driver components become atomic nodes such as `artifact.trend` and
+`artifact.experiment`.
+
+Their internal chart, labels, evidence affordances, responsive behavior, and
+accessibility stay owned by trusted React recipes. The model chooses and fills
+the semantic node; it does not compose its internal visual structure. This is
+the main quality advantage over a completely generic component language.
+
+Host applications can register namespaced extension nodes, but an extension is
+available only when its contract, renderer, policy, and prompt metadata are all
+present in the active catalog.
+
+## Prompt compiler
+
+The prompt is a build artifact, not prose copied into an adapter.
+
+```ts
+type PromptCompileInput = {
+  catalog: Catalog
+  preset: "standard" | "governed" | "custom"
+  profile: "analysis" | "report" | "form" | "operations"
+  documentPolicy: DocumentPolicy
+  modelInputPolicies: {
+    provenanceRef: string
+    label: InformationFlowLabel
+  }[]
+  generationTaintHash: string
+  requestedNodeTypes?: string[]
+  codec: "snapshot-json" | "delta-jsonl"
+  renderMode: "strict" | "progressive"
+  capabilityDescriptors: ModelVisibleCapability[]
+  messageTemplateDescriptors: ModelVisibleMessageTemplate[]
+  locale: string
+  limits: GenerationLimits
+  parentDocumentSummaries?: DocumentSummary[]
+}
+```
+
+The compiler performs deterministic catalog slicing before generation. A
+trend question should not teach the model every form, carousel, and mutation
+component. The output bundle contains:
+
+- a system instruction and task-specific component signatures;
+- provider-ready JSON Schema or frame schemas;
+- slot, evidence, state, and capability rules;
+- a few catalog-tested examples selected for the active profile;
+- protocol versions, contract fingerprint, and prompt bundle hash;
+- a repair prompt template and redaction policy;
+- generation limits such as nodes, depth, bytes, and patch operations.
+
+The prompt bundle is cached and traced by hash. A response generated against
+one contract fingerprint cannot be interpreted against another without an
+explicit compatibility decision; a changed prompt bundle hash starts a distinct
+model-evaluation baseline even when contracts remain compatible.
+
+### Information-flow policy
+
+`prepareTurn` assigns an `InformationFlowLabel` to every message fragment,
+tool result, resource/state value, parent summary, example, and repair fragment
+that may enter model context. An input lacking the `model-generation` sink is
+not included. The compiler canonicalizes the complete labeled-input set into
+`generationTaintHash` and computes a conservative join: scope becomes the
+authorized intersection, sensitivity takes the most restrictive level,
+persistence takes the shortest class, allowed sinks are intersected, and expiry
+uses the earliest deadline. An empty scope or sink intersection fails before a
+model call. The host-stamped `DocumentPolicy` must be at least this restrictive.
+
+This is whole-generation taint, not a best-effort string matcher. A model can
+copy, summarize, encode, or paraphrase its context, so every literal and
+structural choice in its proposal inherits the joined label even when exact
+provenance cannot be recovered. Explicit state/resource/evidence references may
+only add restrictions. Heuristics for copied secrets are useful defense in
+depth, but never the authorization boundary. Only a trusted capability or
+registered calculator may create a newly labeled, declassified derivative; its
+policy decision, transformation identity, validation IDs, and evidence are
+recorded, and model-authored text can never lower a label.
+
+At commit, the host rebuilds the label set from the sealed prompt/tool inputs,
+checks `generationTaintHash`, joins it with every parent document and referenced
+state/resource/evidence policy, and evaluates each contract field against its
+allowed sinks. It then stamps the effective `DocumentPolicy`; create, edit, and
+merge can never broaden scope, lower sensitivity, lengthen persistence/expiry,
+or add an export/share/telemetry sink without a separately authorized trusted
+declassification. A mismatch aborts before preview publication or commit.
+
+The policy is enforced again before document-store write, renderer handoff,
+repair prompting, sharing, and export. Each read resolves current actor/tenant
+authorization and policy status; the immutable revision records the static
+policy binding, while expiry and revocation can still deny access and delete
+policy-bound payloads. Export is an ordinary brokered capability and inherits
+the source document label unless its registered transformation is authorized to
+produce a narrower result. These checks are preset-owned in the golden path;
+application developers do not manually propagate taint labels.
+
+## Compiler and runtime lifecycle
+
+Each snapshot or transaction passes through the same stages:
+
+1. **Decode** the selected codec into typed syntax values or frames.
+2. **Normalize** nested authoring input into the graph IR and assign no hidden
+   semantics based on field order.
+3. **Structural validation** checks protocol shape, IDs, references, slots,
+   limits, and catalog availability.
+4. **Semantic validation** runs node-specific invariants such as interval
+   ordering, cohort widths, units, evidence requirements, and row limits.
+5. **Policy and information-flow validation** checks URLs, resources, requested
+   capabilities, host grants, document policy, labeled inputs, and allowed
+   sinks.
+6. **Stage** valid changes in an isolated draft store.
+7. **Commit or preview** according to document and node commit policies.
+8. **Render** through a registry that only receives evaluated, validated props.
+9. **Observe** every stage with correlated document, revision, transaction,
+   node, model, and catalog identifiers.
+
+The renderer is deliberately boring. It does not parse model text, infer tool
+permissions, repair payloads, or calculate business metrics.
+
+## Strict and progressive rendering
+
+One global behavior is insufficient.
+
+| Mode | Behavior | Default use |
+| --- | --- | --- |
+| `strict` | Validate the full transaction and commit atomically. Keep the previous revision until success. | Finance, experiments, evidence, exported reports, audited analytics |
+| `progressive` | Preview valid shell/content nodes as they arrive. Atomic nodes retain their previous value or skeleton until complete. | Layout, prose, forms, exploratory surfaces |
+
+Every node contract declares a minimum `commitPolicy`. A progressive document
+cannot force an `artifact.experiment` node to render partial confidence data.
+A strict document may make normally progressive nodes atomic.
+
+Forward references are allowed only inside a draft transaction. Missing
+children render typed placeholders in progressive previews, never `null`
+silently. On abort, timeout, validation failure, or render failure, the last
+committed revision remains visible.
+
+## State, bindings, and expressions
+
+State has three owners:
+
+1. **Renderer-local state** such as focus, hover, and an uncontrolled tooltip is
+   private to the React component.
+2. **Artifact interaction state** such as filters and form values is typed in
+   the document store and may be persisted by a host adapter.
+3. **Authoritative business state** belongs to the server and changes only
+   through the host capability broker.
+
+Artifact state has a separate value revision because user input may change
+without creating a new document revision:
+
+```ts
+type StateDefinition = {
+  schemaId: string
+  schema: JSONSchema
+  schemaVersion: number
+  schemaHash: string
+  initial: JsonValue
+  policy: StatePolicy
+}
+
+type StatePolicy = {
+  policyId: string
+  policyVersion: number
+  policyHash: string
+  scope: "document" | "session" | "user"
+  persistence: "none" | "session" | "host"
+  sensitivity: "public" | "private" | "sensitive"
+  modelAccess: "none" | "read" | "read-write"
+  lifecycle: "retain" | "reset-on-commit" | "prune-when-unreferenced"
+  expiresAt?: string
+}
+
+type StateRecord = {
+  documentId: string
+  branchId: string
+  stateId: string
+  stateRevision: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  policyHash: string
+  value: JsonValue
+}
+
+type StateMigrationKey = {
+  schemaId: string
+  fromVersion: number
+  toVersion: number
+}
+
+type StateMigrationReceipt = {
+  receiptId: string
+  documentId: string
+  branchId: string
+  stateId: string
+  key: StateMigrationKey
+  fromSchemaHash: string
+  toSchemaHash: string
+  inputHash: string
+  outputHash: string
+  migrationIds: string[]
+  appliedAt: string
+}
+
+type StateTransitionReceipt = {
+  receiptId: string
+  operationKey: string
+  invocationId?: string
+  stepId?: string
+  documentId: string
+  branchId: string
+  stateId: string
+  transition: "write" | "reset" | "prune" | "migrate"
+  fromStateRevision: string
+  toStateRevision?: string
+  schemaHash: string
+  policyHash: string
+  migrationReceiptId?: string
+  recordedAt: string
+  auditRef: string
+}
+
+type ClientStateTransitionReceipt = Omit<StateTransitionReceipt, "auditRef">
+```
+
+Every `JSONSchema` in this architecture uses the closed, budgeted Data Elements
+Schema Core profile, not an arbitrary JSON Schema document. The selected
+compatibility manifest pins its profile ID, version, and hash; the contract and
+prompt-bundle fingerprints include that binding, and every standalone
+capability or template grant carries the identical binding. The core supports
+null/boolean, finite bounded numbers, bounded strings
+and enums, bounded arrays, closed objects, bounded unions, and acyclic local
+references. Remote or dynamic references, unknown vocabularies, unevaluated
+keys, executable formats, custom keywords, recursive schemas, and unbounded or
+backtracking patterns are forbidden. Profile limits cap encoded bytes, depth,
+object keys, collection items, union branches, pattern size, and validation
+work.
+
+Catalog, state-schema, capability-grant, and message-template registration
+canonicalize and compile every schema under the pinned profile, verify its
+identity/version/hash, and fail closed before publication on any unsupported
+construct or limit violation. Runtime validation uses the same compiled profile
+and budgets, never fetches a reference, and never delegates format semantics to
+consumer defaults. Redacted model-visible projections carry the exact schema
+hashes; no consumer may substitute a looser schema. The state authoring form
+cannot supply schema identity, hash, or `StatePolicy`. The host derives schema identity from
+the selected contract and previous revision, computes `schemaHash`, and verifies
+catalog-owned schemas against the registry. It resolves `StatePolicy` from the
+preset, node contract, and application policy with the most restrictive rule
+winning. A model therefore cannot promote state to user scope, persist it,
+lower its sensitivity, expose it to itself, change retention, or choose expiry.
+Policy identity and hash are semantic document content; the host-managed
+`expiresAt` instant is temporal policy state and is excluded from content hash.
+
+The first release should support references plus a small, typed condition AST
+for visibility and enablement. If expressions expand later, operators must be
+pure, deterministic, allowlisted, depth-limited, and resource-limited. They may
+format or select presentation data; they may not compute governed metrics,
+statistics, forecasts, experiment significance, or financial formulas. Those
+results come from trusted tools or registered calculators.
+
+State values are namespaced by document, branch, state ID, and host-resolved
+policy scope;
+they are not part of the immutable document content hash. State writes use
+`stateRevision`, `schemaHash`, and `policyHash` for optimistic concurrency.
+The effective disclosure and retention rule is always the restrictive
+intersection of `StatePolicy`, `DocumentPolicy`, and current host authorization;
+a state definition cannot be used to persist or disclose data beyond its
+document, and its `initial` value inherits the document's generation label.
+`schemaHash` is
+the canonical hash of the schema identified by `schemaId@schemaVersion`; the
+same identity with different bytes is a fatal catalog error. The same rule
+applies to `policyId@policyVersion` and `policyHash`. Across document
+revisions, the runtime retains a value only when the state ID and schema remain
+compatible. A schema change requires a registered pure migration keyed by the
+exact `(schemaId, fromVersion, toVersion)` tuple; the registry must select one
+unambiguous chain and emit `StateMigrationReceipt` for every transition.
+
+An edit or merge transaction carries the state revisions it read in
+`statePreconditions`. Updating a state definition, migrating its current value,
+publishing the document revision, and advancing the branch head happen in one
+host consistency boundary. A concurrent state write or branch update rejects
+the transaction instead of losing input. Reusing an ID with an incompatible
+schema and no migration is rejected. Removed state follows its declared
+host policy lifecycle and may be retained as a short-lived tombstone for undo, but it is
+never silently rebound to another field. Persisted private or sensitive state
+is encrypted, redacted from model/telemetry views, and expired by host policy.
+
+Streaming defaults never overwrite user-modified state. Reset, prune, and
+migration are explicit committed transitions with `StateTransitionReceipt`;
+migration transitions additionally reference their `StateMigrationReceipt`.
+Only transitions performed atomically with a document commit are referenced by
+that `RevisionIdentity.stateTransitionReceiptIds`. Independent user writes live
+in the runtime/audit store and appear in the next snapshot's bounded
+`stateTransitionReceipts`; they do not manufacture document revisions. A state
+record update and its transition receipt are one atomic write.
+
+## Actions and capability security
+
+An action is an ordered declarative plan. Built-in local effects may set or
+reset artifact state or focus a node. Agent messages, navigation, data access,
+exports, and writes are brokered effects and require a host-provided grant.
+Plans default to `halt` after a failed step; `continue` must be explicitly
+allowed by the action contract. The runtime never promises rollback for an
+external effect that already succeeded.
+
+```ts
+type ActionContract = {
+  contractId: string
+  version: number
+  allowedStepTypes: (
+    | "state.set"
+    | "state.reset"
+    | "node.focus"
+    | "agent.message"
+    | "capability.request"
+    | "navigation.request"
+  )[]
+  allowedCapabilityKinds: CapabilityGrant["kind"][]
+  maxSteps: number
+  maxBrokeredSteps: number
+  allowMixedLocalAndBrokered: boolean
+  allowContinueOnError: boolean
+}
+
+type ActionPlan = {
+  contractId: string
+  contractVersion: number
+  steps: ActionStep[]
+  onError: "halt" | "continue"
+}
+
+type NavigationTarget =
+  | { kind: "route"; capabilityId: string; routeId: string; params?: Record<string, ArtifactValue> }
+  | { kind: "resource"; capabilityId: string; resourceId: string }
+  | { kind: "external"; capabilityId: string; input: Record<string, ArtifactValue> }
+
+type ActionStep =
+  { stepId: string } & (
+    | { type: "state.set"; stateId: string; value: ArtifactValue }
+    | { type: "state.reset"; stateIds: string[] }
+    | { type: "node.focus"; nodeId: string }
+    | { type: "agent.message"; templateGrantId: string; values?: Record<string, ArtifactValue> }
+    | { type: "capability.request"; capabilityId: string; input: Record<string, ArtifactValue> }
+    | { type: "navigation.request"; target: NavigationTarget }
+  )
+
+type ActionInvocationStatus =
+  | "pending"
+  | "running"
+  | "awaiting-approval"
+  | "cancel-requested"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+type ActionContextSnapshot = {
+  locale: string
+  timezone: string
+}
+
+type ActionTriggerRecord = {
+  triggerRecordId: string
+  requestId: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  nodeId: string
+  eventPort: EventPortId
+  eventSchemaHash: string
+  validatedPayload: JsonValue
+  payloadHash: string
+  actorContextRef: string
+  contextSnapshot: ActionContextSnapshot
+  contextSnapshotHash: string
+  recordedAt: string
+  expiresAt: string
+}
+
+type ActionInvocation = {
+  invocationId: string
+  triggerRequestId: string
+  triggerRecordId: string
+  actorContextRef: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  expectedHeadToken: string
+  nodeId: string
+  eventPort: EventPortId
+  actionId: string
+  planHash: string
+  eventPayloadHash: string
+  contextSnapshotHash: string
+  statePreconditions: Record<StateId, string>
+  grantSetVersion: number
+  status: ActionInvocationStatus
+  nextStepId?: string
+  startedAt: string
+  updatedAt: string
+}
+
+type ActionStepReceipt = {
+  receiptId: string
+  invocationId: string
+  stepId: string
+  stepIndex: number
+  stepHash: string
+  status: "running" | "succeeded" | "failed" | "skipped" | "cancelled"
+  effectRequestId?: string
+  stateTransitionReceiptIds?: string[]
+  diagnostic?: Diagnostic
+  recordedAt: string
+  auditRef: string
+}
+
+type ClientActionInvocationSummary = {
+  invocationId: string
+  actionId: string
+  status: ActionInvocationStatus
+  nextStepId?: string
+  completedStepIds: string[]
+  pendingEffectRequestIds: string[]
+}
+
+type ActionCancellationReceipt = {
+  cancellationId: string
+  cancelRequestId: string
+  invocationId: string
+  outcome: "cancel-requested" | "cancelled" | "too-late"
+  actionStatus: ActionInvocationStatus
+  recordedAt: string
+}
+
+type MessageTemplateBinding = {
+  templateGrantId: string
+  templateGrantVersion: number
+  grantSetVersion: number
+  capabilityGrantVersion: number
+  templateId: string
+  templateVersion: number
+  templateHash: string
+  variableSchemaHash: string
+}
+
+type EffectRequest = {
+  requestId: string
+  invocationId: string
+  stepId: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  expectedHeadToken: string
+  nodeId: string
+  eventPort: EventPortId
+  actionId: string
+  capabilityId: string
+  grantVersion: number
+  grantSetVersion: number
+  messageTemplate?: MessageTemplateBinding
+  resolvedInput: JsonValue
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  statePreconditions: Record<StateId, string>
+  idempotencyKey: string
+  actorContextRef: string // attached by the host, never authored by the model
+}
+
+type PolicyDecision = {
+  decisionId: string
+  requestId: string
+  phase: "initial" | "pre-execution"
+  outcome: "allow" | "deny" | "require-approval"
+  policyHash: string
+  grantVersion: number
+  grantSetVersion: number
+  revisionId: string
+  headToken: string
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  messageTemplate?: MessageTemplateBinding
+  reasonCodes: string[]
+  evaluatedAt: string
+}
+
+type ApprovalCheckpoint = {
+  checkpointId: string
+  requestId: string
+  documentId: string
+  branchId: string
+  decisionId: string
+  policyHash: string
+  grantVersion: number
+  grantSetVersion: number
+  revisionId: string
+  headToken: string
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  messageTemplate?: MessageTemplateBinding
+  status: "pending" | "approved" | "rejected" | "expired" | "cancelled"
+  approverContextRef?: string
+  expiresAt: string
+}
+
+type EffectStatus =
+  | "pending"
+  | "denied"
+  | "awaiting-approval"
+  | "approved"
+  | "running"
+  | "cancel-requested"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+type CapabilityOutputBinding = {
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchemaHash: string
+  outputCodec: { id: string; version: string }
+  contentHash: string
+  byteLength: number
+  mediaType: string
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  validationIds: string[]
+  outputResourceId?: string
+  evidenceIds: string[]
+}
+
+type EffectReceipt = {
+  receiptId: string
+  requestId: string
+  status: EffectStatus
+  revisionId: string
+  expectedHeadToken: string
+  inputSchemaHash: string
+  inputHash: string
+  expectedOutputSchemaHash: string
+  grantVersion: number
+  grantSetVersion: number
+  messageTemplate?: MessageTemplateBinding
+  initialDecisionId?: string
+  executionDecisionId?: string
+  approvalCheckpointId?: string
+  output?: CapabilityOutputBinding
+  publication?: {
+    status: "not-requested" | "committed" | "conflict"
+    expectedHeadToken: string
+    revisionId?: string
+  }
+  diagnostic?: Diagnostic
+  auditRef: string
+}
+
+type ClientEffectSummary = {
+  requestId: string
+  invocationId: string
+  stepId: string
+  actionId: string
+  capabilityId: string
+  status: EffectStatus
+  cancellable: boolean
+}
+
+type ClientApprovalCheckpoint = {
+  checkpointId: string
+  effectRequestId: string
+  status: ApprovalCheckpoint["status"]
+  capabilityId: string
+  risk: CapabilityGrant["risk"]
+  title: string
+  summary?: string
+  redactedInputSummary?: JsonValue
+  expiresAt: string
+}
+
+type ClientEffectReceipt = {
+  receiptId: string
+  requestId: string
+  status: EffectStatus
+  output?: Pick<
+    CapabilityOutputBinding,
+    "contentHash" | "mediaType" | "sensitivity" | "outputResourceId" | "evidenceIds"
+  >
+  publication?: EffectReceipt["publication"]
+  diagnostic?: Diagnostic
+}
+
+type EffectCancellationReceipt = {
+  cancellationId: string
+  cancelRequestId: string
+  effectRequestId: string
+  outcome: "cancel-requested" | "cancelled" | "too-late"
+  effectStatus: EffectStatus
+  recordedAt: string
+}
+```
+
+Every trigger creates one `ActionInvocation`; replays of its client request
+return the same invocation. Before any step, the host validates the event and
+persists one immutable, encrypted `ActionTriggerRecord`; the invocation keeps
+its record and actor-context references, not only a non-reversible hash. The
+host validates locale and time-zone identifiers at trigger time and freezes
+them in `contextSnapshot`; every `context-ref` in that invocation resolves only
+against this snapshot, including after approval or crash recovery.
+`planHash` and `stepHash` are SHA-256 over the RFC
+8785-canonicalized normalized plan and step. Those hashes, stable unique
+`stepId`s, and
+`ActionStepReceipt`s make the ordered plan resumable. The runtime persists a
+step's `running` transition before dispatch and its receipt before advancing
+`nextStepId`; a brokered step derives a stable idempotency key from invocation,
+step, and grant identity and reuses it across transport/worker retries. After a
+crash it resumes the first step without a terminal receipt, never the last
+observed array index. A step left at `running` is first reconciled by its stable
+`(invocationId, stepId)` operation key against the existing effect or state
+operation; recovery reuses or continues that operation and never dispatches a
+new one. `halt`, `continue`, skip, and cancellation
+therefore have replayable meaning even after partial success. A no-transport,
+local-only plan uses the same reducer in the in-memory provider; any brokered
+step requires the durable host path.
+
+Recovery resolves the trigger record, rechecks its schema/payload/context hashes,
+tenant/actor authorization, document/head binding, state dependencies, and
+current grants before evaluating any remaining `event-ref`. Trigger payload
+retention is at least the longer invocation/idempotency lifetime and follows
+its sensitivity policy. A missing, expired, corrupted, or unauthorized record
+fails the invocation closed; the runtime never reconstructs event data from the
+hash or resumes it under another actor.
+
+For `state.set` and `state.reset`, the state record, `StateTransitionReceipt`,
+and `ActionStepReceipt` commit in one runtime-store transaction under the
+stable `(invocationId, stepId)` operation key. A retry returns that transaction
+rather than mutating state twice. `node.focus` is idempotent and receives its
+step receipt before the plan advances. Thus there is no crash window in which a
+local mutation succeeded but recovery can only infer that its step is missing.
+
+The browser's `statePreconditions` are concurrency hints, not a declaration of
+dependencies. The host derives the complete state-reference closure from the
+committed action plan, requires a revision for every dependency, rejects stale
+or missing entries, and ignores no dependency merely because the browser left
+it out.
+
+Capability grants are created by the host, outside model-authored documents,
+from one source contract:
+
+```ts
+type CapabilityGrant = {
+  capabilityId: string
+  grantVersion: number
+  grantSetVersion: number
+  schemaProfile: SchemaProfileBinding
+  kind: "read" | "write" | "navigation" | "export" | "agent-message"
+  inputSchemaId: string
+  inputSchemaVersion: number
+  inputSchema: JSONSchema
+  inputSchemaHash: string
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchema: JSONSchema
+  outputSchemaHash: string
+  outputCodec: { id: string; version: string }
+  outputMediaType: string
+  scope: {
+    tenantRef: string
+    actorRef: string
+    resourceScopeRefs: string[]
+  }
+  risk: "low" | "medium" | "high" | "critical"
+  approval: "never" | "risk-based" | "always"
+  idempotency: { required: boolean; retentionMs: number }
+  budgets: { timeoutMs: number; maxCalls: number; maxInputBytes: number; maxOutputBytes: number }
+  disclosure: {
+    allowedSensitivity: ("public" | "private" | "sensitive")[]
+    requireModelReadableState: boolean
+    allowedResourceScopeRefs: string[]
+  }
+  policyProfileHash: string
+  handlerRef: string
+  expiresAt?: string
+}
+
+type ModelVisibleCapability = {
+  capabilityId: string
+  grantVersion: number
+  schemaProfile: SchemaProfileBinding
+  kind: CapabilityGrant["kind"]
+  summary: string
+  inputSchemaId: string
+  inputSchemaVersion: number
+  inputSchema: JSONSchema
+  inputSchemaHash: string
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchemaHash: string
+  requiresApproval: boolean
+}
+
+type MessageTemplateGrant = {
+  templateGrantId: string
+  templateGrantVersion: number
+  grantSetVersion: number
+  schemaProfile: SchemaProfileBinding
+  capabilityId: string
+  capabilityGrantVersion: number
+  templateId: string
+  templateVersion: number
+  templateHash: string
+  variableSchema: JSONSchema
+  variableSchemaHash: string
+  disclosure: CapabilityGrant["disclosure"]
+  status: "active" | "revoked"
+  expiresAt?: string
+}
+
+type ModelVisibleMessageTemplate = {
+  templateGrantId: string
+  templateGrantVersion: number
+  schemaProfile: SchemaProfileBinding
+  summary: string
+  templateHash: string
+  variableSchema: JSONSchema
+  variableSchemaHash: string
+}
+```
+
+`ModelVisibleCapability` and `ModelVisibleMessageTemplate` are generated,
+redacted projections: they omit tenant, actor, handler, internal policy, and
+destination details while preserving the exact safe input contract. Their sets
+and `grantSetVersion` are frozen into
+`ProposalContext` and the prompt bundle hash. Possessing a descriptor or ID is
+not authorization; the broker resolves the host-only grant and checks schema
+hashes, grant-set version, expiry, scope, risk, approval, budgets, disclosure,
+and policy on every request.
+
+`agent.message` is syntactic convenience over an `agent-message` capability,
+not a local escape hatch. The broker resolves `templateGrantId`, accepts only
+named variables declared by `variableSchema`, traces each resolved value to its
+state/resource/event provenance, enforces sensitivity, model-access, and scope
+rules, then creates an ordinary idempotent `EffectRequest`. Arbitrary message
+templates and unrestricted value interpolation never enter the DSL.
+
+The template grant must reference an active `agent-message` capability at the
+exact capability-grant and grant-set versions. Its content, version, and
+variable schema produce `MessageTemplateBinding`, which is required on that
+effect kind and forbidden on every other kind. The request, both policy
+decisions, approval checkpoint, and receipt must carry byte-identical bindings.
+Pre-execution authorization rechecks template status, expiry, content hash,
+schema hash, disclosure rules, and underlying capability version; rotation or
+revocation invalidates a pending approval and requires a fresh trigger.
+
+Approval records a human decision; it is not a durable authorization. After an
+approval and immediately before `running`, the broker re-resolves actor/tenant
+scope, grant status and version, current policy, document revision, branch head,
+state preconditions, and input hash. It emits a `pre-execution`
+`PolicyDecision` and fails closed if any binding changed. Internal
+`EffectRequest`, `PolicyDecision`, `ApprovalCheckpoint`, resolved input, actor
+context, policy hash, and audit reference never cross into the browser; client
+events expose only the sanitized view types above.
+
+A capability handler's output is untrusted. Before `succeeded`, resource/
+evidence creation, or revision publication, the broker enforces the raw-output
+byte budget, decodes with the declared codec, validates against the exact
+`outputSchemaId@outputSchemaVersion` and `outputSchemaHash` from the
+pre-execution grant, applies scope/sensitivity/redaction policy, canonicalizes
+the sanitized value, and records its content hash and validation IDs in
+`CapabilityOutputBinding`. Request, policy decisions, approval, receipt, and
+output binding must agree on the schema hash. The resulting
+`ResourceReference` must match the output content hash, schema identity/hash,
+scope, sensitivity, codec, and media type. Evidence must cite that resource and
+the producing activity, carry the validation IDs, and may neither broaden scope
+nor lower sensitivity. Any mismatch or oversize output fails closed with a
+diagnostic: no output resource, evidence, success receipt, or document revision
+is created.
+
+Execution is a durable state machine:
+`EffectRequest → PolicyDecision → ApprovalCheckpoint? → EffectReceipt`.
+Request identity, document revision, actor/tenant context, resolved-input hash,
+grant version, idempotency key, status, cancellation, and audit reference are
+recorded at every transition. A retry with the same idempotency key returns or
+continues the existing execution rather than repeating a write.
+
+Cancellation has one target per command. An accepted request first produces
+`cancel-requested`; `cancelled` is terminal only after the worker confirms it
+stopped. `too-late` means the non-cancellable or commit point already passed and
+does not rewrite the effect's actual terminal result. Pre-policy cancellation
+and infrastructure failure may have no decision ID, so receipts make decision
+references optional rather than inventing authority that never existed.
+Cancelling an action prevents any unstarted step and requests cancellation of
+its active effect; already completed step receipts remain immutable. Action and
+effect cancellation outcomes are reported separately so a partially completed
+plan is never presented as rolled back.
+
+```text
+UI action
+  → validated effect request
+  → host capability broker
+  → auth + policy + optional approval
+  → tool/data service
+  → validated result + evidence record
+  → host publishes a new artifact revision with branch-head CAS
+```
+
+An effect that publishes a document revision is bound to the request's
+`revisionId`, input hash, grant version, and `expectedHeadToken`. Publication
+uses compare-and-swap on that exact branch head. If the head moves during tool
+execution, the external result and evidence remain auditable but the runtime
+returns `publication.status: "conflict"`; it never overwrites newer UI or
+silently rebases. A separately authorized proposal may revalidate the result
+against the new head and publish a new revision.
+
+There is no `Query("arbitrary_tool")` or `Mutation("arbitrary_tool")` in the
+renderer. Live refresh is a granted read capability. Writes always pass through
+the broker, and risky writes require approval and an idempotency key.
+Navigation normally targets a registered host route or resource. External URLs
+require a navigation capability whose scheme and origin policy is checked by
+the broker.
+
+## Resources, evidence, and claims
+
+Large or sensitive data should not be copied throughout the document. A
+resource entry contains a typed, scoped reference to a sanitized tool result,
+with an optional bounded preview. The resource resolver belongs to the host and
+applies the same user, tenant, expiry, and redaction rules as the original data.
+
+```ts
+type ResourceReferenceBase = {
+  resourceId: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  codec: { id: string; version: string }
+  mediaType: string
+  contentHash: string
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  expiresAt?: string
+}
+
+type ResourceReference = ResourceReferenceBase & (
+  | { preview?: never; previewPersistence?: never }
+  | {
+      sensitivity: "public"
+      expiresAt?: never
+      preview: JsonValue
+      previewPersistence: "document"
+    }
+)
+
+type EvidenceSourceReference = {
+  kind: "resource" | "dataset" | "document" | "service"
+  id: string
+  contentHash?: string
+}
+
+type EvidenceReference = {
+  evidenceId: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  sourceRefs: EvidenceSourceReference[]
+  activityRefs: string[]
+  contentHash: string
+  scopeRef: string
+  observedAt?: string
+  recordedAt: string
+  expiresAt?: string
+  validationIds: string[]
+  sensitivity: "public" | "private" | "sensitive"
+}
+
+type ClaimBinding = {
+  claimId: string
+  nodeId: string
+  fieldPath?: PathSegment[]
+  evidenceIds: string[]
+  qualifier: "observed" | "estimated" | "correlational" | "causal"
+}
+
+type ResourceResolutionReceipt = {
+  resolutionId: string
+  requestId: string
+  resourceId: string
+  schemaVersion: number
+  schemaHash: string
+  contentHash: string
+  status: "resolved" | "expired" | "denied" | "invalid" | "unavailable"
+  evidenceIds?: string[]
+  diagnostic?: Diagnostic
+  auditRef: string
+}
+
+type ClientResourceResolutionReceipt<
+  Status extends ResourceResolutionReceipt["status"] = ResourceResolutionReceipt["status"],
+> = Omit<ResourceResolutionReceipt, "auditRef" | "status"> & { status: Status }
+
+type ClientResourceBinding = {
+  resolutionId: string
+  requestId: string
+  resourceId: string
+  schemaVersion: number
+  schemaHash: string
+  codec: { id: string; version: string }
+  mediaType: string
+  contentHash: string
+  value: JsonValue
+  byteLength: number
+  sensitivity: "public" | "private" | "sensitive"
+  expiresAt?: string
+}
+```
+
+The document contains no fetch URL or credential. The resolver obtains those
+from the authoritative `resourceId` and actor context, validates returned data
+against the exact schema, codec, media type, and content hash, and emits a
+replayable `resource-receipt` control event. After a `resolved` receipt, the
+transport may deliver one matching `ClientResourceBinding` through the separate
+`ClientResourceDataEnvelope`; every other receipt status forbids a data
+binding. The binding contains only the bounded, decoded, sanitized `JsonValue`,
+never raw upstream bytes, headers, URLs, credentials, or resolver errors. Its
+request, resolution, and identity fields must equal the receipt and committed
+`ResourceReference`.
+
+The optional provider resolves a missing binding with `resource-resolve`; the
+host ignores client-supplied metadata as authority, re-resolves the reference
+from the committed revision, reauthorizes actor/tenant scope and sensitivity,
+and revalidates content before returning data. The runtime caches a binding only
+under `(actor, documentId, revisionId, resourceId, schemaHash, contentHash)` and
+evicts it on expiry, actor change, revision change, or policy denial. A late
+response cannot attach to another revision. Preloaded bindings are delivered as
+one or more independent `ClientResourceDataEnvelope`s after the value-free
+snapshot; they are never nested in `RuntimeSnapshot`, `ArtifactPart`, a stream
+base, or another cursor-bearing event. Without a transport, `ArtifactPart` and
+`ArtifactDocument` can use only literals and bounded inline previews and
+otherwise show the contract's unavailable state.
+
+Every client-visible resource value must fit `maxResolvedResourceBytes`. A
+larger source is never truncated under the original content hash: the host must
+publish a separately identified, schema-validated bounded view or page resource
+with its own content hash. An inline `preview` is immutable revision content and
+is therefore legal only for schema-validated public, non-expiring data whose
+host policy explicitly permits document persistence; it is included in the
+semantic content hash. Private, sensitive, session-only, non-persistable, or
+expiring previews must use the same transient `ClientResourceBinding` data
+plane. Resource resolution failure preserves the document and last valid
+binding while rendering the node's explicit unavailable/stale state; it never
+turns unchecked data into a literal prop.
+
+The resource-data envelope is deliberately not a `ServerEvent`: it has no
+sequence number, event ID, or cursor and never participates in deterministic
+stream replay. Repeating a resolution request replays its immutable receipt,
+then reauthorizes before redelivering the value. Expiry or revocation instead
+returns a sanitized transient `resource-unavailable` envelope without rewriting
+the historical receipt. The provider accepts data only when request,
+resolution, fingerprint, revision-cache key, schema, and content hashes all
+match; otherwise it discards the envelope.
+
+Semantic nodes cite evidence IDs from the document's authoritative `evidence`
+map. Evidence records bind an exact schema version, source and activity
+provenance, content hash, access scope, observation/recording/expiry times,
+validation records, and sensitivity. The host supplies these records from
+trusted tool/resource results; the model may select only granted IDs and cannot
+author or change their provenance. Every evidence ID in a node, claim, effect,
+or resource receipt must resolve under the same document and actor scope.
+
+Claims bind text or semantic fields to exact evidence records and qualifiers
+such as `observed`, `estimated`, `correlational`, or `causal`. A committed
+document stores content hashes and references; it does not turn trace storage
+into an unrestricted data lake.
+The validator never lets authored language upgrade provenance: a `causal`
+qualifier, for example, requires a contract-recognized causal validation ID and
+supporting evidence scope rather than model confidence alone.
+
+The compiler rejects a governed node whose contract requires evidence but has
+none. The renderer exposes provenance consistently, while the evidence service
+remains independent of React.
+
+## Diagnostics and repair
+
+Every failure uses one structured envelope:
+
+```ts
+type Diagnostic = {
+  phase: "decode" | "normalize" | "validate" | "policy" | "commit" | "render" | "effect" | "transport"
+  code: string
+  severity: "info" | "warning" | "error" | "fatal"
+  recoverable: boolean
+  modelCorrectable: boolean
+  message: string
+  location?: {
+    streamId?: string
+    transactionId?: string
+    seq?: number
+    opId?: string
+    revisionId?: string
+    entity?: { kind: "document" | "node" | "state" | "action" | "resource" | "evidence" | "claim" | "effect" | "migration"; id: string }
+    path?: string
+  }
+  expected?: JsonValue
+  actualSummary?: string
+  hint?: string
+  retryAfterMs?: number
+}
+```
+
+Raw exceptions, credentials, hidden policy, SQL text, and sensitive values are
+never inserted into a repair prompt. A repair request contains only
+model-correctable diagnostics, the relevant document fragment, parent revision
+IDs and head/state preconditions, active contract fingerprint, and permitted patch
+operations. Repair attempts are bounded. Policy denials, authorization failures,
+and transient infrastructure errors do not masquerade as schema mistakes.
+
+## Transport adapters
+
+Adapters translate framework events into Artifact snapshots and frames. They
+do not own validation semantics.
+
+- AI SDK maps tool input/output and data parts to the common stream protocol.
+- Mastra maps tool/workflow events to the same frames.
+- AG-UI maps run, text, tool, and artifact events without changing document
+  meaning.
+- MCP may expose catalog metadata, artifact publication, or host capabilities,
+  but the capability broker remains the authorization boundary.
+
+Transport storage has two tiers. An encrypted cursor replay buffer may retain
+the exact bytes of `ClientArtifactEvent`, including authorized state values,
+only until the earliest of cursor retention, `StatePolicy`, `DocumentPolicy`,
+session, or expiry limits. The durable message/audit store keeps committed
+semantic revisions, value-free control projections, state/action/step/effect/
+resource receipts, and hashes. A state value is durable only under
+`StatePolicy.persistence: "host"`; session/none values are omitted or removed,
+never smuggled into the event log through `state-updated` or a snapshot.
+
+`ClientResourceDataEnvelope` and `ClientResourceBinding.value` are policy-bound
+data-plane content: they are encrypted in transit and cache, never receive a
+stream sequence/cursor, and are excluded from message/event/telemetry logs by
+default. A binding may be persisted only when an explicit resource retention
+policy authorizes the same actor/tenant scope, sensitivity, and expiry; replay
+otherwise reauthorizes and resolves it again.
+
+When policy expiry, revocation, or deletion makes an exact value replay illegal,
+the host invalidates affected cursors instead of mutating an old event under the
+same identity. `resume` then returns a fresh atomic, currently authorized
+snapshot with state reset/pruned according to policy and value-free resource
+references; any resource value is separately reauthorized through the transient
+data envelope. Reloading never scrapes rendered React state or turns message
+history into a data lake.
+
+## Logical package boundaries
+
+These are target ownership boundaries. They may begin as modules inside the
+current packages and be extracted only after APIs stabilize.
+
+| Boundary | Responsibility |
+| --- | --- |
+| `@data-elements/protocol` | IR, stream frames, diagnostics, version types, JSON Schemas |
+| `@data-elements/catalog` | `defineNodeContract`, catalog validation, fingerprints, migrations |
+| `@data-elements/codec-json` | Credential-free snapshot/JSONL decoding and encoding, syntax limits, canonical draft/content projections |
+| `@data-elements/runtime-core` | Credential-free normalization, validation, draft/commit reducer, document store, state/binding evaluation, scoped resource-binding cache, action invocation, and effect intents; no network access |
+| `@data-elements/compiler` | Server/build-only prompt and repair bundles, provider schemas, examples, and task-specific catalog slicing |
+| `@data-elements/capability-broker` | Server-only grants, authorization, policy decisions, approvals, idempotency, and effect receipts |
+| `@data-elements/resources` | Server-side resource/evidence resolution, schema checks, redaction, expiry, and provenance receipts |
+| `@data-elements/react` | React renderer, error boundaries, hooks, official renderer bindings |
+| `@data-elements/artifacts` | Framework-neutral semantic artifact contracts and invariants |
+| `@data-elements/ai-sdk`, `@data-elements/mastra`, `@data-elements/ag-ui` | Thin transport integrations |
+| `@data-elements/observability` | Event vocabulary and sink API |
+| `@data-elements/evals` | Golden tasks, conformance suites, graders, provider matrices |
+| `@data-elements/registry-tools` | Private registry/code-generation build tooling and dependency-closure checks |
+| `@data-elements/codec-text` | Optional future compact codec; never the canonical representation |
+| `data-elements` CLI | shadcn registry install, compatibility checks, migrations, diagnostics |
+
+The dependency direction is enforced: protocol and codecs are leaves; catalog
+depends only on protocol/schema utilities; runtime core depends on protocol,
+codec, and catalog; React depends on runtime core and artifact contracts;
+compiler and transport adapters run on the server/build side; broker and
+resource packages are server-only. Browser bundles must contain no compiler,
+prompt examples, capability broker, resource resolver, Node built-ins,
+credentials, or policy implementation. Logical modules may be extracted later,
+but this environment boundary is enforced from the first v2 implementation.
+
+The existing `@data-elements/schema` remains the v1 compatibility facade,
+`@data-elements/core` owns the v1 catalog and safe calculator foundation, and
+`@data-elements/runtime` owns the v2 protocol/runtime. Existing v1 schemas contain envelope fields such
+as `protocolVersion`, `kind`, and `id`, so a defined `v1 envelope → v2 props`
+projection reuses their semantic fields; the entire v1 object is not treated as
+v2 node props.
+
+These packages are ownership boundaries, not the beginner API. The default
+AI-framework adapter exposes `createArtifactUI`, and React exposes
+`ArtifactRenderer`; those facades assemble the internal packages with safe
+presets.
+
+The current repository intentionally consolidates some logical boundaries:
+`@data-elements/runtime` owns protocol, JSON codec, and runtime-core behavior,
+while `@data-elements/schema` and `@data-elements/core` own the v1 contracts and
+catalog foundation. Logical names in the table are responsibilities, not a
+claim that every row is already a separately published npm package.
+
+## shadcn/ui distribution
+
+shadcn/ui is the implementation and ownership strategy, not the language.
+
+Official React nodes use local shadcn primitives and semantic design tokens.
+By default, shadcn copies the editable UI primitives, renderer bindings, and
+artifact recipes into the application while installing versioned
+protocol/runtime packages as dependencies. This preserves UI ownership without
+making security fixes depend on every project manually recopying a complex
+runtime.
+
+The default `artifact-ui` item installs a real `artifact-ui.tsx` public barrel,
+`ArtifactUIProvider`, `ArtifactRenderer`, official bindings, shadcn primitives,
+artifact recipes, semantic tokens, and the catalog lock. Its registry metadata
+pins `@data-elements/schema`, `@data-elements/core`, and
+`@data-elements/runtime` to exact versions; framework adapters are selected
+separately on the server. Individual artifact items install only the exact
+runtime-package subset required by their source closure, while sharing the same
+managed lock path.
+
+The private registry compiler consumes the same catalog and renderer bindings
+as npm builds and emits:
+
+- surface primitives;
+- form primitives;
+- individual semantic artifacts;
+- renderer bindings and catalog metadata;
+- the complete `all` UI bundle, public barrel, and compatibility lock item.
+
+Each component declares an entry file plus minimal explicit distribution
+metadata: item type, target path, CSS/assets and side effects, client/server
+boundary, registry dependencies, optional peers, and any dynamic imports. The
+registry builder uses the TypeScript module graph only to compute the static
+local file closure and external package set; it cannot infer deployment intent.
+Adapter integrations remain versioned server-side npm packages and are never
+copied as UI source. The registry output is built deterministically from the
+descriptors and the browser-source import graph; contract parity tests keep its
+catalog identities aligned with compiler and renderer contracts.
+
+The repository CI workflow runs typechecking, the complete protocol/package
+test suite, deterministic registry generation, registry-schema and
+fresh-project install tests, source-pollution checks, and package/docs builds.
+Ignored registry outputs are built twice and must have identical manifests and
+hashes; determinism never relies on an empty `git diff`.
+
+Each registry item records its type, source closure, registry dependencies, and
+exact external dependencies. The project-local lock records protocol,
+contract, runtime, and renderer ranges, the renderer build hash, and the hash
+and source identity of every installed React file. Registry generation fails
+on unresolved internal imports, server-only source, or stale generated output.
+Once a locked file changes, its status is `custom/unverified`; official status
+returns only when exact verified bytes are restored, including through an
+explicit `--force` overwrite. `--force` is not a three-way merge.
+
+Two consumption modes are implemented and tested locally:
+
+- **versioned-package mode** for centralized runtime upgrades after npm
+  publication;
+- **shadcn mode** for owned UI/recipe source with a versioned safe runtime after
+  registry and npm publication.
+
+Their local build and fresh-install fixtures enforce the same IR semantics and
+browser boundary. A future `all-source` mode is intentionally unavailable until
+its security conformance and migration tooling match the versioned-runtime
+path.
+
+## Versioning and compatibility
+
+Version each compatibility axis independently:
+
+- document protocol and stream protocol;
+- authoring codec;
+- node contract, for example `artifact.metric@1`;
+- action contract, for example `artifact.selection@1`;
+- state schema;
+- resource and evidence schemas;
+- capability contract;
+- information-flow and document-policy profile;
+- catalog release;
+- renderer binding/build;
+- immutable document revision.
+
+Do not overload one catalog hash. A **contract fingerprint** covers node and
+action schemas, slots, event ports, policies, and versions. A **prompt bundle
+hash** additionally covers the selected catalog slice, examples, profile,
+limits, document policy, generation taint hash, and model-visible capability and
+message-template descriptors. A **renderer build hash** identifies
+implementation and dependency versions, including project-owned shadcn
+modifications. Protocol compatibility
+depends on the contract fingerprint, not on matching visual source bytes.
+
+```ts
+type CatalogCompatibilityManifest = {
+  catalogReleaseId: string
+  catalogId: string
+  catalogVersion: string
+  schemaProfile: SchemaProfileBinding
+  policyProfileHash: string
+  contractFingerprint: string
+  nodeVersions: Record<string, number>
+  actionContractVersions: Record<string, number>
+  runtimeApiRange: string
+  rendererApiRange: string
+  rendererBuildHash: string
+  rendererConformance: "official" | "custom-verified" | "custom-unverified"
+}
+
+type CompatibilityOffer = {
+  documentProtocolRanges: string[]
+  streamProtocolRanges: string[]
+  codecs: { id: string; versions: string[] }[]
+  runtimeApiRanges: string[]
+  rendererApiRanges: string[]
+  requiredFeatures: string[]
+  optionalFeatures: string[]
+  catalogManifests: CatalogCompatibilityManifest[]
+  limits: ProtocolLimits
+}
+
+type CompatibilitySelection = {
+  documentProtocol: string
+  streamProtocol: string
+  codec: { id: string; version: string }
+  runtimeApiVersion: string
+  rendererApiVersion: string
+  enabledFeatures: string[]
+  catalogManifest: CatalogCompatibilityManifest
+  limits: ProtocolLimits
+}
+
+type ProtocolLimits = {
+  maxFrameBytes: number
+  maxDocumentBytes: number
+  maxNodes: number
+  maxDepth: number
+  maxStringBytes: number
+  maxCollectionItems: number
+  maxObjectKeys: number
+  maxTotalValues: number
+  maxResolvedResourceBytes: number
+  maxConcurrentResourceRequests: number
+  maxSnapshotReceipts: number
+  maxOperationsPerTransaction: number
+  maxBufferedGapFrames: number
+  maxBufferedGapBytes: number
+  maxBufferedGapMs: number
+  transactionTimeoutMs: number
+}
+```
+
+`hello/ready` chooses one explicit intersection. It selects an offered catalog
+manifest as a unit, then selects exact runtime and renderer API versions inside
+that manifest's ranges. A fingerprint and independently negotiated node map can
+never form a combination that was not built and tested. Unknown required
+features, unsupported manifests, API-range mismatches, or incompatible limits
+fail before model generation. Optional features may be disabled only when the
+compiled prompt also omits them.
+
+An immutable release manifest is the atomic distribution identity:
+
+```ts
+type ArtifactUIReleaseManifest = {
+  releaseId: string
+  catalog: CatalogCompatibilityManifest
+  packages: Record<string, { version: string; tarballIntegrity: string }>
+  registryItems: Record<string, { immutableUrl: string; sha256: string }>
+  migrationRanges: string[]
+  conformanceReportId: string
+  publishedAt: string
+}
+```
+
+Release order is fixed: build npm tarballs; run the full matrix against those
+tarballs; publish and verify npm; publish registry items under immutable
+`/r/{releaseId}/...` URLs; verify fresh installs; publish the release manifest;
+then atomically move the `latest` alias. Rollback only repoints that alias to a
+previous immutable manifest. Historical package versions, registry JSON, and
+persisted documents are never rewritten.
+
+Migration order is fixed: validate the source under its exact old schema and
+resource limits; select one unambiguous migration chain; run pure,
+deterministic, budgeted transformations; validate the target schema; then run
+current policy validation. A migration receipt records source/target versions
+and hashes, steps, warnings, and any intentionally dropped fields. Major
+protocol versions never auto-coerce.
+
+```ts
+type MigrationReceipt = {
+  receiptId: string
+  entity: "document" | "node" | "state" | "resource" | "evidence"
+  source: { version: string; contentHash: string }
+  target: { version: string; contentHash: string }
+  migrationIds: string[]
+  warnings: string[]
+  droppedPaths: string[]
+  appliedAt: string
+}
+```
+
+Receipts live in the audit store and their IDs are recorded in
+`RevisionIdentity`; applicable `StateMigrationReceipt` records and bounded
+recent `ClientStateTransitionReceipt` records are also included in the atomic
+runtime snapshot. This makes a migration claim encodable and replayable rather
+than only a log convention.
+
+Documents are immutable revision DAGs. Every committed revision records its
+parents, branch, content hash, contract fingerprint, migration receipts, and
+evidence bindings. This supports audit, replay, undo, branching, explicit
+merges, and deterministic exports.
+
+## Rollout and rollback
+
+The v2 launch is dual-read and single-write per turn. Every persisted message
+part has an explicit `artifactProtocol`; a conversation may contain both v1 and
+v2 parts, but one model turn emits only the protocol selected before generation.
+The renderer routes each part independently. A v1 artifact may be projected
+into v2 for display, but the original persisted bytes remain immutable.
+
+Rollout follows `shadow conversion → internal workspace → tenant canary →
+provider/model canary → opt-in → default`. Shadow conversion validates and
+compares v2 output without publishing it. Feature flags are scoped by tenant,
+conversation, provider, and catalog release, and every stage has automatic stop
+conditions tied to the release gates below. A v2-only feature never silently
+downgrades after generation; fallback to a v1-compatible generation path can
+occur only before a proposal or effect is committed.
+
+An old client that cannot send the fixed bootstrap `hello` is served v1 and is
+never sent unknown v2 frames. A client that requests v2 but has no compatible
+manifest receives `incompatible` plus a stable non-interactive fallback, not a
+partially interpreted document. Persisted-message upgrades create a derived v2
+revision and migration receipt alongside the original part; they do not mutate
+history in place.
+
+Operational rollback disables v2 for new turns and repoints `latest` to the
+last verified release manifest. The dual reader and immutable v2 registry URLs
+remain deployed so existing v2 messages still replay. Rollback never attempts
+to reverse an external effect. v1 reading remains supported for at least two
+stable releases and six months after v2 becomes default; removal requires usage
+telemetry, a published deadline, export tooling, and a successful rollback
+drill.
+
+## Observability and evaluation gates
+
+Every stage emits structured events with `runId`, `documentId`, `revision`,
+`transactionId`, `nodeId`, `contractFingerprint`, model/provider, duration, and
+redacted diagnostic codes. Event sinks and devtools subscribe to the same
+framework-neutral event bus.
+
+The release suite must cover:
+
+| Layer | Required checks |
+| --- | --- |
+| Contract | schema/prompt/docs generation is deterministic and drift-free |
+| Codec | fuzzing, malformed input, limits, duplicate IDs, cycles, unknown nodes |
+| Normalize | equivalent codecs produce byte-equivalent normalized IR |
+| Streaming | every prefix is crash-free; last-good state and user state survive |
+| Patch | base-revision conflicts, ordering, idempotency, remove semantics, replay |
+| Security | unauthorized capabilities, information-flow labels, literal/preview taint, retention, URL policy, prompt injection, resource scope, approval bypass |
+| Semantics | artifact-specific invariants, evidence presence, units, statistical traps |
+| Renderer | accessibility, keyboard behavior, responsive layouts, error boundaries |
+| Model | component selection, first-pass validity, repair success, token cost, patch size across providers |
+| Operations | latency, command deduplication, action-step resume, cancellation, retries, persistence, migration, export reproducibility |
+| Compatibility | 100% v1 fixture projection, API-range fail-closed behavior, migration and rollback drills |
+| Distribution | npm pack/exports/integrity, immutable registry hashes, Next.js/Vite, React 18/19, npm/pnpm/bun, custom aliases, install/typecheck/production build |
+| Golden path | the documented command, Provider, and Renderer build in a fresh fixture without handwritten schema, prompt, catalog, or protocol wiring |
+| Simplicity | default integration size, time to first valid render, required configuration, error comprehension, upgrade steps |
+
+Initial production gates should require zero unauthorized effect executions,
+100% preservation of the last committed revision after invalid patches, no
+serious or critical accessibility failures in official renderers, at least a
+98% lower confidence bound for first-pass structural validity on the pinned
+model suite, and at least a 99.9% lower confidence bound after one bounded
+repair. The last target requires at least 4,000 eligible zero-failure samples
+for each gated provider/profile aggregate when using a two-sided 95% interval;
+1,000 samples can never substantiate that claim. The versioned evaluation
+manifest fixes sample sizes before the run, model parameters, provider/profile
+slices, statistical method, and exclusions.
+
+Artifact-selection macro accuracy must be at least 95% overall and 90% in every
+critical slice. Evidence IDs must resolve and satisfy contract requirements in
+100% of governed cases. Capability bypass, cross-tenant resource access,
+document-policy downgrade, non-persistable data retention, approval bypass,
+executable-content injection, and semantic fabrication each have zero
+tolerance. Distribution fixtures must all install, typecheck, and
+production-build; official performance and bundle budgets are per-surface hard
+limits in the release manifest. Any security or distribution regression blocks
+release regardless of an aggregate model score.
+
+Track first useful paint, commit latency, repair latency and token cost,
+last-good retention, state retention, and artifact-selection quality separately.
+No aggregate score may hide a critical slice or provider regression.
+
+## Migration from the current system
+
+The existing protocol is a strong semantic foundation. Migration should wrap
+it, not replace it.
+
+Every phase runs behind the dual-stack flag and ships its own telemetry,
+conformance fixtures, distribution checks, rollback drill, and explicit exit
+gate. Observability, registry locks, and release gates are not deferred to the
+last phase.
+
+Repository status on 2026-08-15: the Phase 0-5 code paths and deterministic
+local gates below are present as a reference implementation. Exit gates that
+require deployed traffic, independent accessibility/browser matrices, pinned
+provider calls, or production operations remain open. In particular, local
+fixtures never count as the 4,000+ real eligible model samples and the rollout
+code is not evidence that a production canary occurred.
+
+### Phase 0: remove contract drift
+
+- Freeze the v1 contract and add a parity test across all 18 schema kinds,
+  manifests, renderers, adapters, exports, docs, and registry entries.
+- Fix the current AI SDK schema mismatch and make strictness, payload byte
+  limits, row limits, and action schemas consistent before adding v2 behavior.
+- Introduce `defineNodeContract` inside the current `core` package.
+- Generate artifact unions, adapter schemas, manifests, docs metadata, and
+  registry metadata from contracts.
+- Add contract fingerprints, prompt bundle hashes, and generation tests.
+- Establish the target `createArtifactUI`/`ArtifactRenderer` facade over v1,
+  registry distribution descriptors and lock records, and the shared event and
+  diagnostic vocabulary.
+- Keep all public `1.0` APIs working.
+- **Exit gate:** 100% parity across every v1 consumer, deterministic committed
+  views, two-build equality for ignored outputs, and fresh install/typecheck/
+  production-build fixtures all pass with no v1 behavior regression.
+
+### Phase 1: normalized document IR
+
+- Add document, node, slot, evidence, semantic-content hash, diagnostic,
+  revision-DAG, state identity, and migration receipt schemas.
+- Implement `fromV1Artifact(artifact)` as an explicit projection from the v1
+  envelope into one atomic semantic node under a surface root; do not copy v1
+  envelope fields into node props.
+- Render normalized documents while retaining `ArtifactRenderer` as a
+  compatibility entrypoint.
+- Add dual-read routing, shadow conversion, persisted-part discriminants,
+  feature flags, immutable release manifests, and operational rollback. The
+  registry lock must exist before the first v2 source distribution.
+- **Exit gate:** every v1 fixture projects deterministically, semantic hashes
+  replay byte-for-byte, old clients receive only v1, and shadow/canary rollback
+  drills preserve all persisted artifacts.
+
+### Phase 2: Surface DSL and prompt compiler
+
+- Ship only the smallest useful layout and content catalog; forms wait for
+  typed state.
+- Add nested JSON snapshot compilation and task-specific catalog slicing.
+- Generate prompt bundles and provider schemas; remove hand-written adapter
+  enums and descriptions.
+- Implement `prepareTurn`, the branded `ArtifactPart` handoff, and one bounded
+  snapshot repair with redacted model-correctable diagnostics.
+- **Exit gate:** the golden path builds in all distribution fixtures, contract
+  slicing is deterministic, snapshot limits/fuzz suites pass, and pinned-model
+  structural/selection gates meet their declared confidence thresholds.
+
+### Phase 3: transactional streaming and editing
+
+- Implement fixed bootstrap negotiation, directional message types, frame
+  decoding, draft/committed stores, forward references, strict/progressive
+  policies, revision/head conflicts, abort cleanup, and last-good behavior.
+- Add deterministic snapshot-to-delta, arbitrary-prefix, replay, resume,
+  expired-cursor snapshot, and stream telemetry tests. No external effect may
+  execute from this phase's drafts or previews.
+- **Exit gate:** every valid stream replays identically, every invalid prefix
+  retains the last-good revision and user state, incompatibility fails closed,
+  and canary rollback succeeds under injected disconnects and reordering.
+
+### Phase 4: typed state and capability broker
+
+- Add schema-identified state, migrations and receipts, forms, bindings, typed
+  event ports, durable action invocations/step receipts, local action plans, and
+  the shared `ArtifactUIProvider` lifecycle.
+- Add host-stamped document policy, whole-generation information-flow labels,
+  the split resource control/data plane, and policy-bound cursor persistence.
+- Add the capability broker and ship read-only capabilities only, with host
+  grant source contracts, brokered message templates, reauthorization,
+  idempotency, state/head preconditions, and sanitized browser views.
+- Keep data execution outside the renderer and publish results as new revisions.
+- **Exit gate:** state race/migration suites, event-payload validation,
+  action crash/replay, message disclosure/taint rules, cross-tenant isolation,
+  read-effect CAS, resume, cancellation, and receipt conformance pass with zero
+  authorization failures.
+
+### Phase 5: production system
+
+- Add mutation capabilities and approval UX only after pre-execution
+  reauthorization, cancellation/too-late, external-result publication conflict,
+  and audit suites pass. Complete devtools and production adapter coverage.
+- Expand bounded repair and provider evals. Release the optional text codec and
+  `all-source` mode only after each independently meets semantic, security,
+  migration, and distribution conformance.
+- Extract logical modules into packages only where independent versioning or
+  environment boundaries justify it.
+- **Exit gate:** every security, semantic, compatibility, distribution,
+  accessibility, reliability, and statistical gate in the versioned release
+  manifest passes, followed by a production canary and rollback drill.
+
+## Architecture invariants
+
+These rules define the product more than any component list:
+
+1. Model output is untrusted declarative data.
+2. Named fields have stable meaning; schema order never changes behavior.
+3. The normalized IR is independent of React, shadcn/ui, and transport vendors.
+4. Semantic analytical nodes are atomic and evidence-aware.
+5. The renderer never chooses or directly executes arbitrary tools.
+6. Capabilities are host-granted, policy-checked, auditable, and revocable.
+7. Incomplete or invalid updates cannot destroy the last committed UI or user
+   state.
+8. Prompt and provider schemas derive from versioned contracts; renderer,
+   registry, docs, migration, and eval sources must remain bound to them by
+   deterministic parity gates until further code generation exists.
+9. Every committed revision can be replayed and explained.
+10. New expressiveness is admitted only with a validator, policy, migration,
+    observability, and evaluation story.
+11. The host, never the model, owns state persistence, sensitivity, retention,
+    disclosure, and capability policy.
+12. Client commands, action steps, and effects are idempotent, durably receipted,
+    and resumable without repeating completed work.
+13. The default path remains one install, one server helper, one browser
+    decoder, and one renderer; internal package boundaries do not become user
+    configuration.
+14. Every model generation inherits the conservative join of all visible input
+    labels; only a trusted, receipted transformation may declassify output.
+15. Immutable documents, cursor buffers, message logs, renderer handoff, and
+    exports never outlive or broaden their host-owned scope and retention policy.
+
+This architecture is more general than the earlier single-artifact protocol
+and safer than a generic model-authored component tree. The competitive
+advantage is not the number of components. It is the combination of semantic
+data primitives, constrained composition, trustworthy effects, provenance,
+streaming stability, and measurable model reliability.

@@ -1,0 +1,70 @@
+---
+title: Evidence and Provenance
+description: Connect every analytical claim and artifact to validated source entities, activities, and transformations.
+---
+
+An analyst answer needs more than a footer that says “source: warehouse.” Keep
+an evidence ledger during the run and attach references while claims are
+created.
+
+## Evidence ledger
+
+An evidence record should include:
+
+```ts
+type EvidenceRecord = {
+  id: string
+  runId: string
+  activity: "query" | "calculation" | "retrieval" | "validation"
+  source: { system: string; object: string; version?: string }
+  definitionIds: string[]
+  inputHash: string
+  outputRef: string
+  observedAt: string
+  freshness?: string
+  validationIds: string[]
+}
+```
+
+This maps naturally to W3C PROV: warehouse tables and result sets are
+**entities**, tool executions are **activities**, and the user, controller, and
+services are **agents**. Store relationships rather than copying every result
+into the trace database.
+
+## Claim-level citations
+
+A claim record references the exact evidence used to support it:
+
+```ts
+type Claim = {
+  id: string
+  text: string
+  evidenceIds: string[]
+  qualifier?: "observed" | "estimated" | "correlational" | "causal"
+}
+```
+
+The UI should let a user inspect source name, metric definition, filters,
+query, timestamp, duration, validations, and limitations. Cite the smallest
+useful evidence unit. A single source list for a multi-claim answer makes it
+unclear which result supports which statement.
+
+## Artifact provenance
+
+Each Artifact Agent artifact is derived from validated evidence and includes a
+protocol version and stable ID. The artifact publisher records its schema
+version, renderer kind, evidence IDs, and content hash. A later refresh creates
+a new derivation instead of rewriting history.
+
+## Privacy and retention
+
+Traces should store metadata and secure references by default, not unrestricted
+row data. Apply the same tenant, residency, retention, and deletion policies as
+the underlying data. Redact sensitive values before prompt, log, analytics, and
+evaluation pipelines.
+
+## References
+
+- [W3C PROV overview](https://www.w3.org/TR/prov-overview/)
+- [ALCE: Automatic LLMs' Citation Evaluation](https://arxiv.org/abs/2305.14627)
+- [Self-RAG](https://arxiv.org/abs/2310.11511)

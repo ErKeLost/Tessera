@@ -1,0 +1,949 @@
+/*
+ * Data Elements owns this scoped copy of assistant-ui's default shadcn theme.
+ * The host can place components on any page surface without changing the
+ * artifact's colors, geometry, typography, or interaction treatment.
+ */
+.de-theme {
+  display: contents;
+}
+
+.de-theme,
+.de-theme-root:not(.de-theme .de-theme-root) {
+  color-scheme: light;
+  --spacing: 0.25rem;
+  --radius: 0.625rem;
+  --font-sans:
+    var(--font-geist-sans, "Geist"), "Geist Variable", ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono:
+    var(--font-geist-mono, "Geist Mono"), ui-monospace, SFMono-Regular, Menlo,
+    Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+}
+
+.dark .de-theme,
+[data-theme="dark"] .de-theme,
+.de-theme[data-theme="dark"],
+.dark .de-theme-root:not(.de-theme .de-theme-root),
+[data-theme="dark"] .de-theme-root:not(.de-theme .de-theme-root),
+.de-theme-root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+}
+
+.de-theme,
+.de-theme-root {
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv02", "cv03";
+  letter-spacing: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.de-artifact,
+.de-theme-root {
+  /* assistant-ui's semantic vocabulary, layered on shadcn's neutral base. */
+  --aui-success: oklch(0.6 0.15 149);
+  --aui-warning: oklch(0.68 0.16 70);
+
+  container-type: inline-size;
+}
+
+.de-artifact {
+  background: var(--background);
+  border: 0;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -16px rgba(0, 0, 0, 0.12);
+}
+
+.dark .de-artifact,
+[data-theme="dark"] .de-artifact,
+.de-artifact[data-theme="dark"] {
+  background: var(--popover);
+  box-shadow: none;
+}
+
+.dark .de-theme-root,
+[data-theme="dark"] .de-theme-root,
+.de-theme-root[data-theme="dark"] {
+  --aui-success: oklch(0.72 0.17 149);
+  --aui-warning: oklch(0.8 0.17 75);
+}
+
+/* Exact assistant-ui Elements surface recipes. */
+.de-paper {
+  background: var(--background);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 12px 32px -16px rgba(0, 0, 0, 0.12);
+}
+
+.dark .de-paper,
+[data-theme="dark"] .de-paper,
+.de-paper[data-theme="dark"] {
+  background: var(--popover);
+  box-shadow: none;
+}
+
+.de-floating {
+  background: var(--background);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.05),
+    0 20px 48px -16px rgba(0, 0, 0, 0.18);
+}
+
+.dark .de-floating,
+[data-theme="dark"] .de-floating,
+.de-floating[data-theme="dark"] {
+  background: var(--popover);
+  box-shadow: 0 20px 48px -16px rgba(0, 0, 0, 0.55);
+}
+
+.de-field {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+.de-field-interactive {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.de-field-interactive:hover {
+  background: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+.dark .de-field,
+[data-theme="dark"] .de-field,
+.de-field[data-theme="dark"] {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.dark .de-field-interactive,
+[data-theme="dark"] .de-field-interactive,
+.de-field-interactive[data-theme="dark"] {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.dark .de-field-interactive:hover,
+[data-theme="dark"] .de-field-interactive:hover,
+.de-field-interactive[data-theme="dark"]:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+.dark
+  :is(
+    .de-table-shell,
+    .de-table-shell > table thead th,
+    .de-list-footer,
+    .de-input,
+    .de-select,
+    .de-toggle,
+    .de-stat-grid,
+    .de-calculator-input-value
+  ),
+[data-theme="dark"]
+  :is(
+    .de-table-shell,
+    .de-table-shell > table thead th,
+    .de-list-footer,
+    .de-input,
+    .de-select,
+    .de-toggle,
+    .de-stat-grid,
+    .de-calculator-input-value
+  ) {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+/* Geometry recipes are emitted by the package, never by a host Tailwind build. */
+.de-shape-inner {
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.de-shape-control {
+  border-radius: var(--radius);
+}
+
+.de-shape-field {
+  border-radius: 0.75rem;
+}
+
+.de-shape-callout {
+  border-radius: 1.25rem;
+}
+
+.de-shape-panel {
+  border-radius: 1.25rem;
+}
+
+.de-shape-indicator {
+  border-radius: 0.125rem;
+}
+
+.de-shape-full {
+  border-radius: 9999px;
+}
+
+/* The table shell owns clipping, so cells cannot flatten its corners in a
+ * consuming application. */
+.de-table-shell {
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+.de-table-shell > table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.de-table-shell > table thead th {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+.de-table-viewport {
+  min-width: 0;
+}
+
+.de-theme-root ::selection {
+  background: color-mix(in oklab, var(--primary) 28%, transparent);
+}
+
+.de-theme-root table,
+.de-metadata,
+.de-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.de-theme-root :is(button, input, select, textarea) {
+  touch-action: manipulation;
+}
+
+.de-theme-root :is(button, input, select, textarea):focus-visible {
+  outline: 0;
+}
+
+/* Text recipes. */
+.de-title {
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.de-heading {
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.5rem;
+}
+
+.de-body {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.de-label {
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}
+
+.de-caption {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+}
+
+.de-metadata {
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  letter-spacing: 0;
+}
+
+/* Borders, rows, and page insets. */
+.de-divider,
+.de-row {
+  border-color: color-mix(in oklab, var(--foreground) 7%, transparent);
+}
+
+.de-table-row {
+  border-color: var(--border);
+}
+
+.de-content-inset {
+  padding: calc(var(--spacing) * 4);
+}
+
+.de-compact-inset {
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+}
+
+/* Controls follow assistant-ui's ghost treatment. */
+.de-ghost-button,
+.de-action-button {
+  border: 0;
+  border-radius: 9999px;
+  color: color-mix(in oklab, var(--foreground) 45%, transparent);
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    scale 150ms ease;
+}
+
+.de-control {
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--muted-foreground);
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.de-quiet-button {
+  border: 0;
+  border-radius: 0.75rem;
+  color: var(--foreground);
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.de-ghost-button:hover,
+.de-action-button:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+}
+
+.de-ghost-button:active,
+.de-action-button:active {
+  scale: 0.96;
+}
+
+.de-quiet-button:hover,
+.de-control:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+  color: color-mix(in oklab, var(--foreground) 90%, transparent);
+}
+
+.dark .de-quiet-button:hover,
+.dark .de-control:hover,
+[data-theme="dark"] .de-quiet-button:hover,
+[data-theme="dark"] .de-control:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+.dark .de-ghost-button:hover,
+.dark .de-action-button:hover,
+[data-theme="dark"] .de-ghost-button:hover,
+[data-theme="dark"] .de-action-button:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+.de-ghost-button:focus-visible,
+.de-quiet-button:focus-visible,
+.de-control:focus-visible,
+.de-action-button:focus-visible,
+.de-focus:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+.de-tab-trigger {
+  color: var(--muted-foreground);
+}
+
+.de-tab-trigger[data-state="active"] {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* List rows need breathing room so their hover surface keeps its corners. */
+.de-quiet-button.w-full {
+  width: calc(100% - calc(var(--spacing) * 2));
+  margin-inline: var(--spacing);
+  border-radius: 0.75rem;
+}
+
+/* Interactive artifact lists share one vertical rhythm. Content can still
+ * grow naturally, but the row's optical top and bottom padding stay stable. */
+.de-list-row {
+  padding-block: calc(var(--spacing) * 3);
+}
+
+.de-list-row.w-full {
+  width: calc(100% - calc(var(--spacing) * 2));
+  margin-inline: var(--spacing);
+  border-radius: 0.75rem;
+}
+
+/* Repeated rows use one rhythm: 4px between hover surfaces and 12px inside. */
+.de-list {
+  display: grid;
+  gap: var(--spacing);
+  padding-block: var(--spacing);
+}
+
+.de-list > li {
+  min-width: 0;
+}
+
+.de-list-note,
+.de-list-footer {
+  margin-top: var(--spacing);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+}
+
+.de-list-footer {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+/* A timeline is one continuous track, not a divided result list. The track
+ * runs through the 2px row breathing space so marker centers stay connected. */
+.de-timeline-list {
+  padding-block: calc(var(--spacing) * 0.5);
+}
+
+.de-timeline-list > li {
+  padding-block: calc(var(--spacing) * 0.5);
+}
+
+.de-timeline-track {
+  left: calc(var(--spacing) + calc(var(--spacing) * 4) + calc(var(--spacing) * 3));
+}
+
+.de-timeline-track-first {
+  top: calc(calc(var(--spacing) * 6) + calc(var(--spacing) * 0.5));
+  bottom: 0;
+}
+
+.de-timeline-track-last {
+  top: 0;
+  height: calc(calc(var(--spacing) * 6) + calc(var(--spacing) * 0.5));
+}
+
+.de-timeline-track-middle {
+  inset-block: 0;
+}
+
+@media (min-width: 640px) {
+  .de-timeline-track {
+    left: calc(
+      var(--spacing) + calc(var(--spacing) * 4) + 8rem + calc(var(--spacing) * 3) + calc(var(--spacing) * 3)
+    );
+  }
+}
+
+.de-icon-button {
+  min-height: calc(var(--spacing) * 7);
+  min-width: calc(var(--spacing) * 7);
+}
+
+.de-input,
+.de-select {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font-size: 0.84375rem;
+  line-height: 1.25rem;
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.de-input:focus-visible,
+.de-select:focus-visible,
+.de-toggle:focus-visible,
+.de-button:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+.de-input:disabled,
+.de-select:disabled,
+.de-toggle:disabled,
+.de-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.de-button {
+  border: 0;
+  border-radius: var(--radius);
+  font-size: 0.84375rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease;
+}
+
+.de-button-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+.de-button-primary:hover {
+  opacity: 0.9;
+}
+
+.de-button-danger {
+  background: color-mix(in oklab, var(--destructive) 15%, transparent);
+  color: var(--destructive);
+}
+
+.de-button-danger:hover {
+  background: color-mix(in oklab, var(--destructive) 20%, transparent);
+}
+
+.de-toggle {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  outline: 0;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+/* Data surfaces. */
+.de-stat-grid {
+  display: grid;
+  overflow: hidden;
+  border-radius: 0.75rem;
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+.de-stat-grid > * {
+  min-width: 0;
+  background: var(--card);
+}
+
+.de-stat-cell {
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+}
+
+.dark .de-stat-grid > *,
+[data-theme="dark"] .de-stat-grid > * {
+  background: var(--card);
+}
+
+.de-progress-track {
+  height: var(--spacing);
+  overflow: hidden;
+  border-radius: 9999px;
+  background: color-mix(in oklab, var(--foreground), transparent 92%);
+}
+
+.de-progress-value {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--foreground);
+}
+
+.de-positive {
+  color: var(--aui-success);
+}
+.de-warning {
+  color: var(--aui-warning);
+}
+.de-negative {
+  color: var(--destructive);
+}
+
+.de-positive-surface {
+  background: color-mix(in oklab, var(--aui-success) 15%, transparent);
+}
+.de-warning-surface {
+  background: color-mix(in oklab, var(--aui-warning) 15%, transparent);
+}
+.de-negative-surface {
+  background: color-mix(in oklab, var(--destructive) 15%, transparent);
+}
+
+.de-positive-fill {
+  background: var(--aui-success);
+}
+.de-warning-fill {
+  background: var(--aui-warning);
+}
+.de-negative-fill {
+  background: var(--destructive);
+}
+
+/* Data visualizations use named semantic roles instead of local opacity
+ * variants. This keeps their contrast stable across the scoped light/dark
+ * shadcn themes. */
+.de-chart-container .recharts-cartesian-axis-tick text {
+  fill: var(--muted-foreground);
+}
+
+.de-chart-container .recharts-cartesian-grid line {
+  stroke: color-mix(in oklab, var(--border) 55%, transparent);
+}
+
+.de-chart-container .recharts-curve.recharts-tooltip-cursor {
+  stroke: color-mix(in oklab, var(--foreground) 8%, transparent);
+}
+
+.de-chart-container .recharts-polar-grid [stroke="#ccc"],
+.de-chart-container .recharts-reference-line line {
+  stroke: var(--border);
+}
+
+.de-chart-container .recharts-radial-bar-background-sector {
+  fill: color-mix(in oklab, var(--foreground) 4%, transparent);
+}
+
+.de-chart-container .recharts-rectangle.recharts-tooltip-cursor {
+  fill: color-mix(in oklab, var(--foreground) 8%, transparent);
+}
+
+.de-chart-container .recharts-dot[stroke="#fff"],
+.de-chart-container .recharts-sector[stroke="#fff"] {
+  stroke: transparent;
+}
+
+.de-chart-container .recharts-layer,
+.de-chart-container .recharts-sector {
+  outline: none;
+}
+
+/* Recharts makes its SVG keyboard-focusable. Replace the browser's blue
+ * outline with the same shadcn focus token used by every other control. */
+.de-chart-container :is(.recharts-wrapper, .recharts-surface):focus {
+  outline: none;
+}
+
+.de-chart-container :is(.recharts-wrapper, .recharts-surface):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.de-data-guide {
+  background: color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+
+.de-data-guide-strong {
+  background: var(--muted-foreground);
+}
+
+.de-data-marker {
+  border-color: var(--background);
+  background: var(--foreground);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+.de-cohort-cell {
+  border-color: transparent;
+  transition: border-color 150ms ease;
+}
+
+.de-cohort-cell:not(:disabled):hover {
+  border-color: color-mix(in oklab, var(--foreground) 30%, transparent);
+}
+
+.de-cohort-cell:disabled {
+  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  color: var(--muted-foreground);
+}
+
+.de-source-list {
+  display: grid;
+  gap: var(--spacing);
+  padding-block: var(--spacing);
+}
+
+.de-source-list > * {
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 4);
+}
+
+.de-warning-callout {
+  border-left-color: var(--aui-warning);
+  background: color-mix(in oklab, var(--aui-warning) 15%, transparent);
+  color: var(--foreground);
+}
+
+.de-warning-marker {
+  background: var(--aui-warning);
+  box-shadow: 0 0 0 1px var(--aui-warning);
+}
+
+.de-metric-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--spacing);
+  padding: var(--spacing);
+}
+
+.de-metric-grid > * {
+  border: 0;
+  border-radius: 0.75rem;
+}
+
+.de-metric-grid > *:hover {
+  background: color-mix(in oklab, var(--foreground) 6%, transparent);
+}
+
+.dark .de-metric-grid > *:hover,
+[data-theme="dark"] .de-metric-grid > *:hover {
+  background: color-mix(in oklab, var(--foreground) 9%, transparent);
+}
+
+.de-metric-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.de-metric-value {
+  font-size: clamp(1.35rem, 7cqi, 1.65rem);
+  line-height: 1.1;
+}
+
+.de-data-table {
+  background: var(--card);
+}
+
+/* DataTable is a frameless inspection region. Its host owns any card boundary;
+ * this keeps the toolbar, rows, and pager on one rhythm without a nested fence. */
+.de-data-table-toolbar {
+  border-bottom: 1px solid var(--border);
+}
+
+.de-data-table-table {
+  border-collapse: collapse;
+  /* Fixed tracks prevent a long string from changing the width of adjacent
+   * columns. The viewport handles horizontal overflow on narrow surfaces. */
+  width: 100%;
+  min-width: max(100%, calc(var(--de-data-table-column-count, 1) * 10rem));
+  table-layout: fixed;
+}
+
+.de-data-table-data-column {
+  width: 10rem;
+}
+
+.de-data-table-data-column.is-numeric {
+  width: 8rem;
+}
+
+.de-data-table-table :is(th, td) {
+  border-color: var(--border);
+}
+
+.de-data-table-column,
+.de-data-table-cell {
+  overflow: hidden;
+}
+
+.de-data-table-column-details,
+.de-data-table-cell-content {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.de-data-table-table :is(th, td)[data-column-align="end"] {
+  text-align: end;
+}
+
+.dark .de-data-table,
+[data-theme="dark"] .de-data-table {
+  background: var(--card);
+}
+
+.de-data-chart {
+  isolation: isolate;
+}
+
+/* Recharts receives the same floating surface and mono axis recipe. */
+.de-artifact .recharts-tooltip-wrapper .recharts-default-tooltip {
+  border: 0 !important;
+  border-radius: 1rem !important;
+  background: var(--popover) !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05), 0 20px 48px -16px rgba(0, 0, 0, 0.18) !important;
+  color: var(--popover-foreground) !important;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem !important;
+  line-height: 1.25rem;
+  padding: calc(var(--spacing) * 2.5) calc(var(--spacing) * 3) !important;
+}
+
+.dark .de-artifact .recharts-tooltip-wrapper .recharts-default-tooltip,
+[data-theme="dark"]
+  .de-artifact
+  .recharts-tooltip-wrapper
+  .recharts-default-tooltip {
+  background: var(--popover) !important;
+  box-shadow: 0 20px 48px -16px rgba(0, 0, 0, 0.55) !important;
+}
+
+.de-artifact .recharts-cartesian-axis-tick text {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+}
+
+.de-calculator-layout {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.de-calculator-controls {
+  min-width: 0;
+}
+
+.de-calculator-chart-canvas {
+  height: 11rem;
+}
+
+@container (min-width: 20rem) {
+  .de-metric-grid:not(.de-metric-grid-single) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 42rem) {
+  .de-metric-grid:not(.de-metric-grid-single) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 40rem) {
+  .de-calculator-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .de-calculator-chart-canvas {
+    height: 13rem;
+  }
+}
+
+.de-slider {
+  appearance: none;
+  height: calc(var(--spacing) * 6);
+  cursor: pointer;
+  background: transparent;
+}
+
+.de-slider::-webkit-slider-runnable-track {
+  height: var(--spacing);
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    var(--primary) 0 var(--de-progress),
+    var(--border) var(--de-progress) 100%
+  );
+}
+
+.de-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: calc(var(--spacing) * 4);
+  height: calc(var(--spacing) * 4);
+  margin-top: calc(calc(var(--spacing) * 3) * -0.5);
+  border: 2px solid var(--card);
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--border);
+  transition: box-shadow 150ms ease;
+}
+
+.dark .de-slider::-webkit-slider-thumb,
+[data-theme="dark"] .de-slider::-webkit-slider-thumb {
+  border-color: var(--card);
+}
+
+.de-slider:hover::-webkit-slider-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring), transparent 78%);
+}
+
+.de-slider:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--foreground) 20%, transparent);
+}
+
+.de-slider::-moz-range-track {
+  height: var(--spacing);
+  border-radius: 9999px;
+  background: var(--border);
+}
+
+.de-slider::-moz-range-progress {
+  height: var(--spacing);
+  border-radius: 9999px;
+  background: var(--primary);
+}
+
+.de-slider::-moz-range-thumb {
+  width: calc(var(--spacing) * 4);
+  height: calc(var(--spacing) * 4);
+  border: 2px solid var(--card);
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.dark .de-slider::-moz-range-thumb,
+[data-theme="dark"] .de-slider::-moz-range-thumb {
+  border-color: var(--card);
+}
+
+.de-slider:hover::-moz-range-thumb {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--ring), transparent 78%);
+}
+
+.de-slider:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--foreground) 20%, transparent);
+}

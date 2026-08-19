@@ -1,0 +1,33 @@
+[submodule "vendor/ai-elements"]
+	path = vendor/ai-elements
+	url = https://github.com/vercel/ai-elements.git
+[submodule "vendor/shadcn-ui"]
+	path = vendor/shadcn-ui
+	url = https://github.com/shadcn-ui/ui.git
+[submodule "vendor/fumadocs"]
+	path = vendor/fumadocs
+	url = https://github.com/fuma-nama/fumadocs.git
+[submodule "vendor/paper-shaders"]
+	path = vendor/paper-shaders
+	url = https://github.com/paper-design/shaders.git
+[submodule "vendor/openui"]
+	path = vendor/openui
+	url = https://github.com/thesysdev/openui.git
+[submodule "vendor/data-formulator"]
+	path = vendor/data-formulator
+	url = https://github.com/microsoft/data-formulator.git
+[submodule "vendor/drizzle-orm"]
+	path = vendor/drizzle-orm
+	url = https://github.com/drizzle-team/drizzle-orm.git
+[submodule "vendor/mastra"]
+	path = vendor/mastra
+	url = https://github.com/mastra-ai/mastra.git
+[submodule "vendor/assistant-ui"]
+	path = vendor/assistant-ui
+	url = https://github.com/assistant-ui/assistant-ui.git
+[submodule "vendor/datus-agent"]
+	path = vendor/datus-agent
+	url = https://github.com/Datus-ai/Datus-agent.git
+[submodule "vendor/supabase"]
+	path = vendor/supabase
+	url = https://github.com/supabase/supabase.git

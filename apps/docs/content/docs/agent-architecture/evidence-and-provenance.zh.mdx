@@ -1,0 +1,61 @@
+---
+title: 证据与溯源
+description: 将每项分析论断和 Artifact 连接到经过验证的数据源实体、活动和转换过程。
+---
+
+分析回答不能只在页脚写一句“来源：数据仓库”。应在运行过程中维护证据账本，并在创建论断时附加引用。
+
+## 证据账本
+
+一条证据记录应包含：
+
+```ts
+type EvidenceRecord = {
+  id: string
+  runId: string
+  activity: "query" | "calculation" | "retrieval" | "validation"
+  source: { system: string; object: string; version?: string }
+  definitionIds: string[]
+  inputHash: string
+  outputRef: string
+  observedAt: string
+  freshness?: string
+  validationIds: string[]
+}
+```
+
+该结构可以自然映射到 W3C PROV：数据仓库表和结果集是**实体**，工具执行是**活动**，
+用户、控制器和服务是**智能体**。应存储关系，而不是把每项结果完整复制到 Trace 数据库中。
+
+## 论断级引用
+
+论断记录引用支持它的精确证据：
+
+```ts
+type Claim = {
+  id: string
+  text: string
+  evidenceIds: string[]
+  qualifier?: "observed" | "estimated" | "correlational" | "causal"
+}
+```
+
+UI 应允许用户检查来源名称、指标定义、筛选条件、查询、时间戳、耗时、验证结果和限制。
+引用应指向最小但仍有用的证据单元。对于包含多个论断的回答，只提供一份来源列表会让用户无法判断
+每项陈述究竟由哪个结果支持。
+
+## Artifact 溯源
+
+每个 Artifact Agent Artifact 都派生自经过验证的证据，并包含协议版本和稳定 ID。Artifact 发布器
+记录其 Schema 版本、渲染器 kind、证据 ID 和内容 Hash。后续刷新会创建新的派生关系，而不是改写历史。
+
+## 隐私与保留策略
+
+Trace 默认应存储元数据和安全引用，而不是无限制的行级数据。应用与底层数据相同的租户、数据驻留、
+保留和删除策略。在敏感值进入 Prompt、日志、分析和评估流水线前完成脱敏。
+
+## 参考资料
+
+- [W3C PROV overview](https://www.w3.org/TR/prov-overview/)
+- [ALCE: Automatic LLMs' Citation Evaluation](https://arxiv.org/abs/2305.14627)
+- [Self-RAG](https://arxiv.org/abs/2310.11511)

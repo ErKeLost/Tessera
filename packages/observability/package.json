@@ -1,0 +1,28 @@
+{
+  "name": "@data-elements/observability",
+  "version": "0.1.0",
+  "description": "Framework-neutral telemetry and devtools event bus for Artifact UI.",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/runtime": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

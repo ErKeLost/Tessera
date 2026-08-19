@@ -1,0 +1,80 @@
+---
+title: Data Quality Artifact
+description: Pair an overall quality score with inspectable freshness, completeness, and integrity checks.
+---
+
+Data Quality Artifact makes the evidence behind a score visible. Every check
+has an explicit status and explanation, with optional observed and threshold
+values for fast diagnosis.
+
+<ComponentPreview
+  filename="data-quality-artifact-example.tsx"
+  code={`import { DataQualityArtifact } from "@/components/data-elements/data-quality-artifact"
+
+export function OrdersQuality() {
+  return (
+    <DataQualityArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "data-quality",
+        id: "orders-quality",
+        title: "Orders data quality",
+        description: "Production model health checks.",
+        score: 92.4,
+        source: "analytics.fact_orders",
+        updatedAt: "2026-08-12T09:18:00.000Z",
+        checks: [
+          {
+            id: "freshness",
+            label: "Freshness",
+            status: "passed",
+            detail: "Latest partition arrived within SLA.",
+            observed: "18 min",
+            threshold: "30 min",
+          },
+        ],
+      }}
+    />
+  )
+}`}
+>
+  <DataQualityDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="data-quality-artifact" />
+
+## Usage
+
+Keep the overall score within `0–100`. Check statuses are the closed set
+`passed`, `warning`, and `failed`; icons come from `lucide-react` and remain
+consistent across themes.
+
+<CodeExample
+  filename="components/model-health.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { DataQualityArtifact } from "@/components/data-elements/data-quality-artifact"
+
+export function ModelHealth({ artifact }) {
+  return (
+    <DataElementsProvider onAction={(event) => inspectCheck(event.payload)}>
+      <DataQualityArtifact artifact={artifact} />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="DataQualityArtifact"
+  properties={[
+    { name: "artifact", type: "DataQualityArtifactData", required: true, description: "A bounded quality score, source metadata, and one to forty-eight inspectable checks." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for the update timestamp and numeric check values." },
+  ]}
+/>
+
+Selecting a check emits `quality-check-select` with `{ checkId }`.

@@ -1,0 +1,2159 @@
+---
+title: 协议与 Compiler 参考
+description: Artifact DSL、Normalized IR、Compiler、Runtime、Capability 与 shadcn Renderer 的 v2 详细参考。
+---
+
+> **产品边界：**规范性的产品与生命周期决策现在以
+> [嵌入式业务 Artifact Runtime](./embedded-artifact-runtime) 为准。本文继续作为 v2 协议与实现细节参考；
+> 任何暗示独立或通用 UI 产品的旧表述，都服从新的产品决策。
+
+状态：**本地参考实现已落地**。仓库已实现核心 v2 Protocol、Compiler、Runtime、Adapter、
+Capability/Resource Boundary、Renderer、Registry Tooling、确定性 Eval Gate 和 Rollout-control Module。
+本文也保留明确标注为未来扩展或生产 Exit Requirement 的设计，它们不代表已经发布。真实 Production Canary、
+固定 Provider/Model 评测矩阵、无障碍矩阵，以及每个受控 Provider/Profile 4,000+ 个 Eligible Zero-failure
+样本仍是外部 Exit Gate。
+
+## 核心决策
+
+v2 协议是嵌入式业务 Artifact Runtime 内部的通用语义 UI 基础，但它不是生成任意 App 的语言或产品。
+
+系统向模型提供两个层次：
+
+1. 小而稳定的 **Surface DSL**，负责布局、内容、表单、状态绑定和操作触发器。
+2. **语义 Artifact 节点**，负责查询结果、指标、趋势、Cohort、实验、数据质量、证据等受治理的数据概念。
+
+两层都编译到同一个与传输方式无关的 **Normalized Artifact IR**。React 和
+shadcn/ui 仍然是首要渲染器与源码分发方式，但它们不定义协议。
+
+```text
+组件契约目录 + 宿主授权 + 当前任务上下文
+                    │
+                    ▼
+                提示词编译器
+                    │
+          模型输出完整快照或增量变更
+                    │
+                    ▼
+       解码 → 规范化 → 校验 → 授权检查
+                    │
+                 草稿事务
+                    │
+          严格提交或渐进式预览
+                    │
+                    ▼
+             规范化文档存储
+             ├─ 状态与 Effect 运行时
+             ├─ 证据绑定
+             ├─ 诊断与可观测性
+             └─ React 渲染器 → shadcn/ui 组件方案
+```
+
+最重要的边界只有一句话：模型只提出声明式状态；宿主负责数据访问、授权、Effect、
+持久化和最终提交。
+
+## 简单使用是硬性要求
+
+内部架构可以复杂，公开入口不能复杂。普通开发者不需要理解 IR、Frame 协议、提示词编译、
+修复循环或 Capability 生命周期，仍然能够安全地渲染 Artifact。
+
+面向发布的 v2 Golden Path 只有一条安装命令、一个服务端 Helper、一个浏览器 Decode Boundary
+和一个 Renderer。该命令已经作为公开接口完成测试，但只有 npm Package 与 Registry Host
+发布后，外部项目才能真正执行：
+
+```bash
+npx data-elements@latest add artifact-ui
+```
+
+该命令安装基于 shadcn、可编辑的 React 源码，并锁定精确的 Protocol、Runtime 和
+Artifact Contract Package 版本。Server Adapter 由应用显式安装；默认示例使用
+`@data-elements/ai-sdk`。服务端创建一个长期存活、不保存请求状态的配置对象，并为每次模型调用
+准备新的 Catalog Slice：
+
+```tsx
+import { createArtifactUI } from "@data-elements/ai-sdk"
+import { streamText } from "ai"
+
+const artifactUI = createArtifactUI()
+
+export async function POST(request: Request) {
+  const { messages } = await request.json()
+  const turn = await artifactUI.prepareTurn({ messages, profile: "analysis" })
+  const result = streamText({
+    model,
+    messages: turn.messages,
+    system: turn.system,
+    tools: { ...dataTools, ...turn.tools },
+  })
+
+  return turn.toUIMessageStreamResponse(result)
+}
+```
+
+Adapter 会在服务端进程内把已校验输出标记为 `ArtifactPart`，再把它序列化成带 Contract Fingerprint
+的 `ArtifactPartWire`；原始模型 Chunk 与 Tool Input 永远不会下发。浏览器只需在渲染前校验一次 Transport Value：
+
+```tsx
+import { decodeArtifactPart } from "@data-elements/runtime"
+import { ArtifactRenderer } from "@/components/data-elements/artifact-ui"
+
+const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
+  contractFingerprint: dataArtifactPart.data.contractFingerprint,
+})
+
+if (!decoded.success) throw new Error("Artifact transport validation failed.")
+return <ArtifactRenderer value={decoded.part} />
+```
+
+`prepareTurn(context)` 负责按任务切片。它针对一次模型调用冻结 Catalog Manifest、Contract Fingerprint、
+Prompt Bundle Hash、Limit、Resource 和安全的 Capability Descriptor。`toUIMessageStreamResponse`
+负责 Adapter 校验，并且只发出带 Fingerprint 的 Wire Envelope 与可信 Server Event。
+`decodeArtifactPart()` 会在传输后重新校验并施加本地 Brand。`ArtifactRenderer` 接受 `ArtifactPart`、
+已提交的 `ArtifactDocument` 或显式的 v1 兼容类型；它从不解析原始模型文本、Proposal Chunk 或未带 Brand 的网络 Wire。
+
+共享状态、恢复和 Effect 只需要在所有渲染 Part 外包一层可选 Provider：
+
+```tsx
+import {
+  ArtifactRenderer,
+  ArtifactUIProvider,
+} from "@/components/data-elements/artifact-ui"
+
+<ArtifactUIProvider runtimeTransport={artifactCommandTransport}>
+  <ArtifactRenderer value={artifactPart} />
+</ArtifactUIProvider>
+```
+
+`ArtifactUIProvider` 为每个 Document/Branch 管理一个 Store、Stream Cursor、last-good Revision、
+类型化 State、Renderer Binding 和 Command Dispatch。当 Renderer 没有父级 Provider 时，系统会自动创建
+仅属于当前文档的内存 Store。Follow-up Message、Navigation、Refresh、Approval 或任何外部 Effect
+只有在提供 Runtime Command Transport 后才会进入 Active Catalog；静态渲染和本地状态不需要 Transport。
+静态文档只能使用 Literal 或 Policy 允许的 Inline Preview；缺失的外部 Resource 在 Runtime Transport 可用前始终渲染其
+声明的 Unavailable State。
+
+`createArtifactUI()` 默认使用 `standard` Preset：按任务切片的 Surface/Semantic Catalog、渐进外壳、
+原子语义节点，并且没有任何外部 Effect Grant。`governed` 把整个文档提升为 Strict，并强制 Evidence/Policy；
+`custom` 是明确的高级出口。常规用户不需要手工组合几十个 Policy Flag。
+
+零配置默认值不授予任何外部 Effect Capability。它可以渲染可信工具已经返回的数据并管理本地交互状态。
+Follow-up Message、Refresh、Navigation、Export 和写操作只有在宿主提供 Runtime Command Transport 并显式授权后才会出现。
+
+复杂度按需展开：
+
+| 层级 | 使用者提供 | 系统负责 |
+| --- | --- | --- |
+| 默认使用 | preset 与模型/工具接线 | 目录、Schema、提示词、校验、流式处理和安全策略 |
+| 产品扩展 | 自定义节点契约与 Capability handler | 规范化、授权钩子、诊断和迁移 |
+| 平台扩展 | 自定义 codec、store、policy、adapter、telemetry sink | 协议一致性与兼容性测试 |
+
+整个产品只能有一条推荐的 Golden Path、一套错误语言和一条主文档路径。高级包只是内部职责边界，
+不能要求每个应用手工组装整套框架。
+
+产品最终用户面对的契约同样简单：只看到熟悉控件，不看到 DSL 或 Tool Call；本地交互即时响应；长操作在原位显示
+Pending、Approval、Success、Failure、Retry 与 Cancel；任何错误都不能清空上一个有用结果；Source 与 Limitation
+无需离开 Artifact 即可检查。Keyboard 与 Screen Reader 行为属于官方 Node Contract，不是应用方额外选做工作。
+
+## 从 OpenUI 学到什么
+
+OpenUI 证明了一些值得 Data Elements 吸收的系统机制。这里完全不讨论或复制它的视觉设计。
+
+| OpenUI 机制 | Data Elements 决策 |
+| --- | --- |
+| 组件定义自动生成 Schema 与提示词签名 | **采用。** 节点契约同时生成 Schema、提示词元数据、文档、Fixture 和兼容信息。 |
+| 与框架无关的语言核心和独立 Renderer Binding | **采用。** IR、Validator、Patch Engine 和 Diagnostic 不能依赖 React。 |
+| Root-first 流式输出、前向引用和 Partial Tree | **改造后采用。** 保留稳定引用与早期外壳，但使用具名 JSON 字段和逐节点提交策略。 |
+| 解析、渲染、刷新失败时保留 last-good UI/data | **采用。** 草稿状态永远不能破坏上一个已提交版本。 |
+| 面向模型修复的结构化错误 | **加强后采用。** 只有经过脱敏、模型确实能修的 Diagnostic 才进入有限次修复循环。 |
+| 按 Statement 名称合并增量编辑 | **改造后采用。** 使用稳定 Node ID、base revision、幂等操作和显式 commit。 |
+| 响应式状态与声明式 Action Plan | **改造后采用。** 使用类型化 Binding 与白名单 Effect，不引入通用表达式语言。 |
+| Renderer 内执行 `Query()` 和 `Mutation()` | **拒绝。** UI 只能请求宿主已经授予的 Capability，不能选择或直接执行任意 Tool。 |
+| 根据 Zod key 顺序解释位置参数 | **拒绝。** DSL 全部使用具名字段，Schema 调整顺序不能改变语义。 |
+| 每次都把完整组件目录塞进系统提示词 | **拒绝。** 按任务编译目录切片，并用 fingerprint 标识准确版本。 |
+| 没有真实数据时生成“合理的”模拟数据 | **语义 Artifact 中拒绝。** 必须显示明确的 unavailable/empty 状态，不能伪造受治理数值。 |
+
+OpenUI 的包结构也值得参考：`lang-core` 负责语言本身，框架包绑定渲染器，
+`react-headless` 负责对话状态与 Stream Adapter，Observability、Devtools、Integration、CLI
+保持独立。Data Elements 应保留这些职责边界，同时维持更强的数据语义和治理边界。
+
+推动这次升级的旧问题，现在由本地参考实现的 Gate 持续约束：
+
+| 旧缺口 | 过去的代码事实 | 已实现的约束 |
+| --- | --- | --- |
+| Catalog 漂移 | Protocol 与手写 Adapter 曾在 15 对 10 个 Kind 时发生分叉 | Contract Parity Test 与逐轮生成的 Provider Schema |
+| 多份事实源 | Kind、Manifest、Renderer、Export 与 Registry Item 可能分叉 | 版本化 Contract、确定性 Generated View 与 Registry Closure Check |
+| Strictness 不一致 | 早期 Artifact Schema 宽松，后期 Schema 才 Strict | Strict Envelope 与共享 Byte、Row、Node、Depth Limit |
+| 开放 Action | String Action 与未知 Payload 缺少 Capability Policy | 类型化 Action、Host Grant、Approval、Reauthorization 与 Receipt |
+| 没有 Document Lifecycle | Adapter 只能提取完整最终 Artifact | Revisioned Snapshot、Transaction、Replay、Resume、Migration 与 last-good State |
+
+因此第一个实现里程碑不是增加新视觉组件，而是让所有 Contract 完全一致。
+
+## 目标与非目标
+
+### 目标
+
+- 在一个文档内组合多个 Artifact、文字、控件和布局。
+- 保留现有语义 Artifact，把它们升级为可信的高层节点。
+- 在不展示残缺分析结论的前提下流式呈现有用 UI。
+- 支持确定性的编辑、重放、迁移和冲突检测。
+- 从同一份节点契约生成模型指令、Schema 和运行时校验。
+- 把数据工具、写操作和权限放在宿主 Capability Broker 后面。
+- 不修改文档协议即可接入 AI SDK、Mastra、AG-UI、MCP 及未来传输层。
+- 继续通过 shadcn Registry 分发可编辑 React 源码。
+- 用协议、模型、运行时、渲染器和安全评测衡量正确性。
+- 默认开发流程保持为一个自动生成工具和一个 Renderer，以安全 preset 代替必填的底层配置。
+
+### 非目标
+
+- 生成 JSX、JavaScript、HTML、CSS、SQL 或可执行公式。
+- 取代应用框架，或生成任意多页面应用。
+- 允许 Renderer 获取凭据或调用模型任意选择的工具。
+- 在客户端表达式里实现业务计算。
+- 每次请求都把所有已安装组件暴露给模型。
+- 让文档有效性依赖某个视觉主题或 React 组件树。
+
+## 三份契约，而不是一种语法
+
+把它称为 DSL 是正确的，但 DSL 不能和 Wire Encoding 混为一谈。终极架构明确分成三份契约。
+
+### 1. Artifact Authoring DSL
+
+这是面向模型的紧凑表示。第一版应使用具名属性 JSON，因为 Provider Tool Calling、JSON Schema
+以及现有 Zod 契约都已经很好地支持它。未来可以增加更省 Token 的文本 Codec，但必须编译成完全相同的 IR，
+并通过同一套 Conformance Suite。
+
+为了便于模型生成，Authoring 形式可以嵌套：
+
+```json
+{
+  "id": "root",
+  "type": "layout.stack",
+  "props": { "gap": "md" },
+  "slots": {
+    "children": [
+      {
+        "id": "revenue",
+        "type": "artifact.metric",
+        "props": {
+          "title": "Revenue",
+          "metrics": [{ "id": "mrr", "label": "MRR", "value": 461400 }]
+        },
+        "evidence": ["evidence:mrr-august"]
+      }
+    ]
+  }
+}
+```
+
+Authoring Codec 可以替换，它所表达的语义不能替换。
+
+```ts
+type ConditionOperator = "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not"
+
+type PlainAuthoringObject = {
+  [key: string]: AuthoringValue
+  [key: `$${string}`]: never
+}
+
+type AuthoringValue =
+  | Scalar
+  | AuthoringValue[]
+  | PlainAuthoringObject
+  | { $ref: "state" | "resource"; id: string; path?: (string | number)[] }
+  | { $ref: "event"; port: string; path?: (string | number)[] }
+  | { $ref: "context"; key: "locale" | "timezone" }
+  | { $condition: { op: ConditionOperator; args: AuthoringValue[] } }
+
+type AuthoringNode = {
+  id: string
+  type: string
+  typeVersion?: number
+  props?: Record<string, AuthoringValue>
+  slots?: Record<string, AuthoringNode[]>
+  events?: Record<EventPortId, ActionId>
+  evidence?: string[]
+}
+
+type AuthoringActionPlan = {
+  contractId: string
+  contractVersion?: number
+  steps: AuthoringActionStep[]
+  onError?: "halt" | "continue"
+}
+
+type AuthoringNavigationTarget =
+  | { kind: "route"; capabilityId: string; routeId: string; params?: Record<string, AuthoringValue> }
+  | { kind: "resource"; capabilityId: string; resourceId: string }
+  | { kind: "external"; capabilityId: string; input: Record<string, AuthoringValue> }
+
+type AuthoringActionStep =
+  { stepId: string } & (
+    | { type: "state.set"; stateId: string; value: AuthoringValue }
+    | { type: "state.reset"; stateIds: string[] }
+    | { type: "node.focus"; nodeId: string }
+    | { type: "agent.message"; templateGrantId: string; values?: Record<string, AuthoringValue> }
+    | { type: "capability.request"; capabilityId: string; input: Record<string, AuthoringValue> }
+    | { type: "navigation.request"; target: AuthoringNavigationTarget }
+  )
+
+type AuthoringStateDefinition = {
+  schema: JSONSchema
+  initial: JsonValue
+}
+
+type ArtifactMeta = {
+  title?: string
+  description?: string
+  locale?: string
+  tags?: string[]
+}
+```
+
+Authoring Value 中所有以 `$` 开头的 Key 都是保留字段。只有 Generated JSON Schema 的 `propertyNames`
+规则拒绝 `^\\$` 前缀时，普通对象才会被接受；Decoder 只识别上面精确定义的 `$ref` 和 `$condition`
+Tagged Shape，并拒绝所有未知的 `$...` Key。Contract-generated Schema 决定哪些位置允许 Reference 和
+Condition。Normalizer 把 `AuthoringActionStep` 与 `ActionStep` 一一映射，把每个 Authoring Value Lower
+为 Tagged IR Algebra，校验每个 Plan 内 Step ID 唯一，并将缺省的 `onError` 补为 `"halt"`。State Authoring
+只声明 Value Shape 与 Initial Value；State Identity、Retention、Persistence、Sensitivity、Model Access 和
+Lifecycle Policy 只能由 Host 解析，模型永远不能决定。
+
+### 2. Normalized Artifact IR
+
+编译器把嵌套输入拉平成带稳定 ID 的图。这是校验、存储、Patch、Renderer、Trace 和 Migration
+共同使用的唯一规范形式。模型输出只能是 `ArtifactProposal`，永远不是已提交文档。只有完成全部校验后，
+宿主才能写入权威 Document、Revision、Catalog、Policy、Grant 和 Resource Metadata。
+
+```ts
+type PolicySink =
+  | "model-generation"
+  | "renderer"
+  | "model-repair"
+  | "export"
+  | "share"
+  | "telemetry"
+
+type InformationFlowLabel = {
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  persistence: "none" | "session" | "host"
+  allowedSinks: PolicySink[]
+  expiresAt?: string
+}
+
+type DocumentPolicy = InformationFlowLabel & {
+  policyId: string
+  policyVersion: number
+  policyHash: string
+}
+
+type RevisionIdentity = {
+  revisionId: string
+  parentRevisionIds: string[]
+  branchId: string
+  sequence: number // display/order hint, not a concurrency token
+  contentHash: string
+  contractFingerprint: string
+  migrationReceiptIds: string[]
+  stateTransitionReceiptIds: string[]
+}
+
+type ArtifactDocument = {
+  protocol: "data-elements.artifact"
+  protocolVersion: "2.0"
+  documentId: string
+  revision: RevisionIdentity
+  policy: DocumentPolicy
+  catalog: {
+    id: string
+    version: string
+    contractFingerprint: string
+  }
+  renderMode: "strict" | "progressive"
+  root: NodeId
+  nodes: Record<NodeId, ArtifactNode>
+  state: Record<StateId, StateDefinition>
+  actions: Record<ActionId, ActionPlan>
+  resources: Record<ResourceId, ResourceReference>
+  evidence: Record<EvidenceId, EvidenceReference>
+  claims: Record<ClaimId, ClaimBinding>
+  meta: ArtifactMeta & { createdAt: string; updatedAt: string }
+}
+
+type ArtifactSemanticContent = {
+  protocol: ArtifactDocument["protocol"]
+  protocolVersion: ArtifactDocument["protocolVersion"]
+  policy: Omit<DocumentPolicy, "expiresAt">
+  catalog: ArtifactDocument["catalog"]
+  renderMode: ArtifactDocument["renderMode"]
+  root: ArtifactDocument["root"]
+  nodes: ArtifactDocument["nodes"]
+  state: Record<
+    StateId,
+    Omit<StateDefinition, "policy"> & {
+      policy: Omit<StatePolicy, "expiresAt">
+    }
+  >
+  actions: ArtifactDocument["actions"]
+  resources: Record<ResourceId, Omit<ResourceReference, "expiresAt">>
+  evidence: Record<
+    EvidenceId,
+    Omit<EvidenceReference, "observedAt" | "recordedAt" | "expiresAt">
+  >
+  claims: ArtifactDocument["claims"]
+  meta: ArtifactMeta
+}
+
+type ArtifactNode = {
+  type: string
+  typeVersion: number
+  props: Record<string, ArtifactValue>
+  slots?: Record<string, NodeId[]>
+  events?: Record<EventPortId, ActionId>
+  evidence?: EvidenceId[]
+}
+
+type ArtifactProposal = {
+  root: AuthoringNode
+  state?: Record<string, AuthoringStateDefinition>
+  actions?: Record<string, AuthoringActionPlan>
+  claims?: Record<string, ClaimBinding>
+  resourceIds?: string[]
+  meta?: ArtifactMeta
+}
+
+type BranchHeadPrecondition = {
+  branchId: string
+  revisionId: string
+  headToken: string
+}
+
+type ProposalTarget =
+  | {
+      mode: "create"
+      documentId: string
+      branchId: string
+      parentRevisionIds: []
+    }
+  | {
+      mode: "edit"
+      documentId: string
+      branchId: string
+      parentRevisionIds: [string]
+      headPreconditions: [BranchHeadPrecondition, ...BranchHeadPrecondition[]]
+      statePreconditions: Record<StateId, string>
+    }
+  | {
+      mode: "merge"
+      documentId: string
+      branchId: string
+      parentRevisionIds: [string, string, ...string[]]
+      headPreconditions: [BranchHeadPrecondition, ...BranchHeadPrecondition[]]
+      statePreconditions: Record<StateId, string>
+    }
+
+type SchemaProfileBinding = {
+  profileId: "data-elements.schema-core"
+  profileVersion: number
+  profileHash: string
+}
+
+type ProposalContext = {
+  protocolVersion: "2.0"
+  contractFingerprint: string
+  promptBundleHash: string
+  schemaProfile: SchemaProfileBinding
+  documentPolicy: DocumentPolicy
+  generationTaintHash: string
+  renderMode: "strict" | "progressive"
+  actionContractVersions: Record<string, number>
+  resourceGrants: Record<ResourceId, ResourceReference>
+  evidenceGrants: Record<EvidenceId, EvidenceReference>
+  capabilityGrantVersions: Record<string, number>
+  messageTemplateGrantVersions: Record<string, number>
+  grantSetVersion: number
+  authorizationContextRef: string
+  policyProfileHash: string
+  target: ProposalTarget
+}
+```
+
+Node ID 才是身份，数组位置不是。Slot 只保存引用，不保存 Renderer 对象。Normalizer 必须拒绝
+重复 ID、循环引用、不可达 Root、错误 Slot 类型、过深树结构，以及越过当前授权范围的 Resource 引用。
+
+`ProposalContext` 由可信 Adapter 附加，不由模型生成。模型只能引用 Context 已提供的 Resource ID 和 Capability，
+不能选择 Tenant、Actor、Branch Head、Grant Version、Document/Policy Profile，也不能修改
+`generationTaintHash`。
+每个模型可见 Capability 或 Message-template Descriptor 都必须与相应的 ID/Version Map 及 `grantSetVersion`
+匹配；缺少或多出任何 Descriptor，都会在生成前使 Prompt Bundle 失效。
+`DocumentPolicy.policyHash` 覆盖其 ID/Version、Scope、Sensitivity、Persistence 和排序后的 Sink Set；
+`expiresAt` 属于 Temporal Host State，不包括在内。同一 Policy Identity 对应不同 Static Byte 属于 Fatal Error；
+Host 解析当前 Expiry/Revocation，不能信任 Document 中的状态。
+
+`revisionId` 不可变，所有 Revision 构成 DAG。Target Mode 让 Create、Edit 和 Merge 不会混淆：Edit
+恰好有一个 Parent，Merge 至少有两个。目标 Branch 必须出现在 `headPreconditions` 中；每个被声明为
+Live Branch Head 的 Merge Parent 都有独立的宿主签发 Token。宿主在 Commit 前原子比较全部 Head 和 State
+Precondition。过期 Token 会产生 Conflict Revision 或新的显式 Proposal，绝不能触发隐式的
+last-write-wins Merge。展示用 Sequence 和 Content Hash 都不能授权更新 Branch Head。
+
+`RevisionIdentity.contentHash` 是对上面精确定义的 `ArtifactSemanticContent` Projection 执行 RFC 8785
+Canonicalization 后计算的 SHA-256。该 Projection 包含静态 Document-policy Binding、Catalog Identity、Normalized Node、State Definition、
+Action、Resource/Evidence Identity、Claim 和 Semantic Metadata；排除 `documentId`、完整 Revision Envelope、
+Head Token、Transport Field、State Value、Pending Effect、Expiry/Observation/Recording Time，以及 Document
+的创建和更新时间。Host 与 Adapter 共用生成出来的 Projection Code，不能各自维护一份 Omission List。
+
+### 规范化 Value Algebra
+
+IR 里不能保留无边界的 `unknown`。Authoring DSL 中的普通 JSON 会被 Lower 为完整可校验的 Tagged Algebra：
+
+```ts
+type Scalar = null | boolean | string | number
+type JsonValue = Scalar | JsonValue[] | { [key: string]: JsonValue }
+
+type ArtifactValue =
+  | { kind: "literal"; value: Scalar }
+  | { kind: "array"; items: ArtifactValue[] }
+  | { kind: "object"; entries: Record<string, ArtifactValue> }
+  | { kind: "state-ref"; stateId: string; path?: PathSegment[] }
+  | { kind: "resource-ref"; resourceId: string; path?: PathSegment[] }
+  | { kind: "event-ref"; port: string; path?: PathSegment[] }
+  | { kind: "context-ref"; key: "locale" | "timezone" }
+  | {
+      kind: "condition"
+      op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not"
+      args: ArtifactValue[]
+    }
+
+type PathSegment = string | number
+```
+
+Number 必须是有限值。Protocol Limit 限制字符串字节数、Collection Length、Object Key、总 Value 数和深度。
+Object Key 拒绝 Prototype Pollution 名称；Path 不使用 JavaScript Prototype Lookup，并且必须针对目标
+State/Resource Schema 做类型与越界校验。Condition 只允许出现在 Contract 明确标记的展示字段，
+例如 `visible` 和 `enabled`。
+
+Condition 求值不做 Coercion，也不使用宿主语言的 Truthiness。`eq` 和 `neq` 恰好接收两个 Schema-compatible
+值，并比较 Canonical JSON Structure；`lt/lte/gt/gte` 恰好接收两个有限 Number；`and/or` 至少接收两个
+Boolean；`not` 恰好接收一个 Boolean。静态无效的 Path 会被拒绝。Runtime 中变为不可用的值会产生
+Unresolved-reference Diagnostic：展示 Condition Fail Closed 为 `false`，Action Input 则在创建任何
+Effect Request 前终止。
+
+Binding 直接作为 `props` 中的 Value，不再维护一份可能与 Literal Prop 冲突的第二张 Map。Runtime 在节点校验前
+解析 Binding，Renderer 只接收最终通过 Schema Parse 的值。`resource-ref` 只能从 Identity-matched
+`ClientResourceBinding` 或经过校验的 Document Preview 解析；Binding 缺失时，Node 保持其声明的
+Loading/Unavailable State，同时由可选 Provider 发起请求。Action 的动态输入在点击时由服务端从权威的
+Committed State/Resource Snapshot 和已经校验的触发 Event Payload 中解析，然后再次按照 Action Step 与
+Capability Input Schema 校验；Client Cache Value 永远不能作为权威提交回服务端。`event-ref` 只能出现在
+Action Plan 内。
+
+### 3. Artifact Stream Protocol
+
+第一次生成和严格 Tool Output 适合使用完整 Snapshot。编辑和渐进响应使用每行可独立解析的 JSON Lines，
+或者其他等价的类型化 Message。方向必须进入类型系统：Model Output、Host Commit Command、
+Server Event 与 Client Command 是四套不同协议。
+
+```ts
+type ModelProposalChunk =
+  | { type: "snapshot"; proposal: ArtifactProposal }
+  | { type: "operation"; operation: AuthoringPatchOperation }
+  | { type: "finish" }
+  | { type: "abort"; reasonCode?: string }
+
+type AuthoringPatchOperation =
+  | { op: "put-node"; value: AuthoringNode }
+  | { op: "remove-node"; nodeId: string }
+  | { op: "put-state"; stateId: string; value: AuthoringStateDefinition }
+  | { op: "remove-state"; stateId: string }
+  | { op: "put-action"; actionId: string; value: AuthoringActionPlan }
+  | { op: "remove-action"; actionId: string }
+  | { op: "put-claim"; claimId: string; value: ClaimBinding }
+  | { op: "remove-claim"; claimId: string }
+  | { op: "attach-resource"; resourceId: string }
+  | { op: "detach-resource"; resourceId: string }
+  | { op: "set-root"; nodeId: string }
+  | { op: "set-meta"; value: ArtifactMeta }
+
+type DraftOperation =
+  | { op: "put-node"; nodeId: string; value: ArtifactNode }
+  | { op: "remove-node"; nodeId: string }
+  | { op: "put-state"; stateId: string; value: StateDefinition }
+  | { op: "remove-state"; stateId: string }
+  | { op: "put-action"; actionId: string; value: ActionPlan }
+  | { op: "remove-action"; actionId: string }
+  | { op: "put-claim"; claimId: string; value: ClaimBinding }
+  | { op: "remove-claim"; claimId: string }
+  | { op: "attach-resource"; resourceId: string }
+  | { op: "detach-resource"; resourceId: string }
+  | { op: "set-root"; nodeId: string }
+  | { op: "set-meta"; value: ArtifactMeta }
+
+type CommitCommand =
+  | {
+      type: "begin"
+      transactionId: string
+      context: ProposalContext
+    }
+  | {
+      type: "apply"
+      transactionId: string
+      seq: number
+      opId: string
+      payloadHash: string
+      operation: DraftOperation
+    }
+  | { type: "finalize"; transactionId: string; canonicalDraftHash: string }
+  | { type: "abort"; transactionId: string; reason?: string }
+
+type BootstrapHello = {
+  bootstrapProtocol: "data-elements.bootstrap/1"
+  type: "hello"
+  requestId: string
+  offer: CompatibilityOffer
+}
+
+type BootstrapResponse =
+  | {
+      bootstrapProtocol: "data-elements.bootstrap/1"
+      type: "ready"
+      requestId: string
+      streamId: string
+      selection: CompatibilitySelection
+    }
+  | {
+      bootstrapProtocol: "data-elements.bootstrap/1"
+      type: "incompatible"
+      requestId: string
+      reasons: { code: string; message: string }[]
+    }
+
+type RuntimeSnapshot = {
+  document: ArtifactDocument
+  branchHead: BranchHeadPrecondition
+  state: StateRecord[]
+  pendingActions: ClientActionInvocationSummary[]
+  pendingEffects: ClientEffectSummary[]
+  activeApprovals: ClientApprovalCheckpoint[]
+  stateMigrationReceipts: StateMigrationReceipt[]
+  stateTransitionReceipts: ClientStateTransitionReceipt[]
+}
+
+type ServerEvent<T> = {
+  streamProtocol: "data-elements.stream/2.0"
+  streamId: string
+  seq: number
+  eventId: string
+  cursor: string
+  contractFingerprint: string
+  payload: T
+}
+
+type ClientArtifactEvent = ServerEvent<
+  | { type: "snapshot"; snapshot: RuntimeSnapshot }
+  | { type: "draft-preview"; transactionId: string; parentRevisionIds: string[]; previewSeq: number; operations: DraftOperation[]; unresolvedIds: string[] }
+  | { type: "ack"; requestId?: string; transactionId?: string; acceptedThroughSeq: number }
+  | { type: "reject"; requestId?: string; transactionId?: string; rejectedOpId?: string; diagnostics: Diagnostic[] }
+  | { type: "transaction-aborted"; transactionId: string; lastGoodRevisionId?: string; diagnostics: Diagnostic[] }
+  | { type: "committed"; transactionId: string; snapshot: RuntimeSnapshot }
+  | { type: "state-updated"; record: StateRecord; receipt: ClientStateTransitionReceipt }
+  | { type: "action-updated"; action: ClientActionInvocationSummary }
+  | { type: "action-cancellation"; receipt: ActionCancellationReceipt }
+  | { type: "effect-updated"; effect: ClientEffectSummary }
+  | { type: "approval-checkpoint"; checkpoint: ClientApprovalCheckpoint }
+  | { type: "effect-receipt"; receipt: ClientEffectReceipt }
+  | { type: "effect-cancellation"; receipt: EffectCancellationReceipt }
+  | { type: "resource-receipt"; receipt: ClientResourceResolutionReceipt }
+>
+
+declare const validatedArtifactPart: unique symbol
+type ArtifactPart = (
+  | { kind: "artifact-snapshot"; snapshot: RuntimeSnapshot }
+  | { kind: "artifact-stream"; base?: RuntimeSnapshot; events: ClientArtifactEvent[] }
+) & { readonly [validatedArtifactPart]: true }
+
+type ArtifactRendererValue =
+  | ArtifactPart
+  | ArtifactDocument
+  | import("@data-elements/schema").Artifact // explicit v1 compatibility
+
+type ClientCommand<T> = {
+  streamProtocol: "data-elements.stream/2.0"
+  streamId: string
+  contractFingerprint: string
+  payload: T
+}
+
+type ClientArtifactCommand = ClientCommand<
+  | { type: "resume"; requestId: string; cursor: string }
+  | { type: "state-write"; requestId: string; documentId: string; branchId: string; revisionId: string; stateId: string; expectedSchemaHash: string; expectedPolicyHash: string; expectedStateRevision: string; value: JsonValue }
+  | { type: "action-trigger"; requestId: string; documentId: string; branchId: string; revisionId: string; headToken: string; nodeId: string; port: EventPortId; payload: JsonValue; statePreconditions: Record<StateId, string> }
+  | { type: "resource-resolve"; requestId: string; documentId: string; branchId: string; revisionId: string; resourceId: string; expectedSchemaHash: string; expectedContentHash: string }
+  | { type: "approval-response"; requestId: string; checkpointId: string; effectRequestId: string; decision: "approve" | "reject" }
+  | { type: "cancel-transaction"; requestId: string; transactionId: string }
+  | { type: "cancel-action"; requestId: string; invocationId: string }
+  | { type: "cancel-effect"; requestId: string; effectRequestId: string }
+>
+
+type ClientResourceDataEnvelope = {
+  resourceProtocol: "data-elements.resource/1.0"
+  requestId: string
+  contractFingerprint: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  resourceId: string
+} & (
+  | {
+      type: "resource-data"
+      binding: ClientResourceBinding
+    }
+  | {
+      type: "resource-unavailable"
+      resolutionId?: string
+      reason: "expired" | "denied" | "unavailable"
+      retryable: boolean
+    }
+)
+```
+
+模型只能产生 `ModelProposalChunk`。其 Grammar 有两种互斥形式：恰好一个 `snapshot` 后跟 `finish`，
+或一个以上 `operation` 后跟 `finish`。`abort` 可以终止任一形式；`finish` 前遇到 EOF、混用 Snapshot/Operation
+Mode，或 Terminal Chunk 后仍有任何 Chunk，都会导致 Abort。可信 Adapter 对输出执行 Validate/Normalize，
+创建 Transaction Identity、Sequence/Op ID、Payload Hash 与 Head-token Context，然后生成内部
+`CommitCommand`。只有宿主能产生 `ClientArtifactEvent`；Browser 永远不能把 Snapshot、Preview 或 Commit
+Receipt 作为权威信息发回服务端，只能发送明确的 `ClientArtifactCommand` Union。
+
+只有在 Adapter 或 Client Decoder 根据协商后的 Manifest 校验完整 Envelope 后，才能施加 `ArtifactPart`
+Brand。它只是本地类型保证，不是序列化后的权威；Network Byte 始终需要再次校验。这是默认 Renderer
+唯一接受的 v2 Message-part 类型。
+
+`BootstrapHello` 与 `BootstrapResponse` 始终使用固定的 Bootstrap Protocol，因此不会假装提前知道正在协商的
+Stream Version。`hello/ready` 在生成前选择一个 Catalog Manifest、Protocol Range、Codec、Required/Optional
+Feature、Runtime/Renderer API Version 和 Resource Limit。没有交集时返回 `incompatible`，绝不能继续发出
+Partial Stream。Ready 之后的每个 Command 与 Event 都携带选中的 Stream ID 和 Contract Fingerprint。
+
+在每个 Validation Boundary，`document.revision.contractFingerprint`、
+`document.catalog.contractFingerprint`、选中 Catalog Manifest 的 Fingerprint，以及 Command/Event Envelope
+的 Fingerprint 都必须逐字节相同；每个 Document Node Version 也必须等于选中 Manifest 中的 Entry。
+每个 Action Plan 也必须解析到选中的 Action-contract Version。`ProposalContext.schemaProfile` 与
+`policyProfileHash` 必须在 Prompt Compilation 和 Commit 前等于选中 Manifest 的 Binding。任何不匹配都是
+Compatibility Failure，不是 Migration Hint。
+
+Sequence Number 在每个 Stream 内单调增加。重复发送相同 Adapter-stamped `opId`、Sequence 和 Payload Hash
+是幂等的；复用同一 Identity 却发送不同 Payload 属于 Fatal Error。小范围 Gap 只能在协商好的 Byte、Frame、
+Time Limit 内 Buffer；更大 Gap 必须 `resume`。如果 Cursor 已不再保留，宿主返回一个原子的
+`RuntimeSnapshot`。Document、Branch Head Token、当前 State Revision 与 Value、State Migration Receipt，
+相关的非 Terminal Action/Effect Summary 和 Active Approval Checkpoint，都从同一个 Consistency Point
+读取；客户端绝不能拼接分别获取的版本。因此 Approval 在 Reload 或 Cursor Expiry 后仍可执行，无需重放一次性
+Event。Runtime Snapshot 始终不包含 Resource Value。
+
+`transactionId` 还标识一个 Durable Commit State Machine，其状态只能是 `open`、`committed` 或 `aborted`。
+使用相同 Canonical `ProposalContext` 重放 `begin` 会返回现有 Transaction；使用相同 ID 但不同 Context 属于
+Fatal Error。使用相同 `canonicalDraftHash` 重放 `finalize` 会返回最初 Committed Revision 和原子 Runtime
+Snapshot，即使第一次 Response 丢失；不同 Hash 属于 Fatal Error，绝不能创建另一个 Revision。`committed`
+与 `aborted` 是互斥的 Terminal State，由一次 Atomic Compare-and-set 选定。进入任一 Terminal State 后，
+重放匹配 Command 会返回已存储的 Terminal Result；相反的 Command 返回携带同一 Result 的 `too-late`。
+Transaction Record 及其 Idempotency Key 至少保留到最长 Retry 与 Cursor Lifetime 结束。
+
+`CommitCommand.payloadHash` 是对 RFC 8785 Canonicalized `DraftOperation` 计算的 SHA-256。Client Command
+的每个 `requestId` 都是全局稳定 Operation Key，而不是 Stream-local Sequence。Host 跨 Stream Replacement
+持久化 `(tenant, actor, requestId, canonicalPayloadHash)`，至少持续到 Cursor Retention Window 结束；对于
+Action/Effect，则持续到更长的 Invocation 或 Grant Idempotency Lifetime。即使 State Revision 已推进，在新旧
+Stream 上重复相同 Payload 仍返回原始 Ack 或 Receipt；使用相同 Key 传入不同 Byte 属于 Fatal Error。
+State Write、Action Invocation、Resource Resolution、Approval 和全部 Cancellation Request 都会在引发第二次
+Transition 前被去重。对于 `resource-resolve`，该重放保证只适用于不可变 Receipt；只有当前 Authorization
+成功后，Value 才会通过独立通道重新发送。
+
+`canonicalDraftHash` 是对待提交 `ArtifactSemanticContent` 计算的 SHA-256，其中使用 `ProposalContext` 中的
+Catalog 和获准 Resource/Evidence Record。它精确排除该 Projection 已省略的 Host/Temporal Field，同时保留
+被引用 Resource 与 Evidence 的 Content Hash。它用于发现损坏，不是 Trust Token。宿主在发出 `committed`
+Server Event 前独立重新 Normalize、Validate 并计算 Hash。每条 Abort Path 都发出 `transaction-aborted`，
+立即移除 Preview，并恢复 Snapshot 中的 last-good Revision。
+
+Resource Handle 只能由宿主签发。模型只能 Attach 当前可见 Grant 中的 Resource ID，不能编写 Endpoint、
+Credential、Tenant Scope 或 Evidence Provenance。Draft 中的 Action、Resource Fetch、Navigation、Mutation
+全部禁止执行；只有 Committed Revision 中的 Effect 才具备执行资格。
+
+## 节点契约与目录
+
+Contract Graph 现在统一驱动 Catalog Identity、Prompt/Schema Slice、Renderer Parity、Compatibility Data
+与 Registry Check。v2 路径已经移除原先手写的 AI SDK Kind Enum；任何漂移都会使本地 Parity 或
+Deterministic-build Gate 失败。
+
+与框架无关的 Node Contract 应成为模型可见事实的单一来源：
+
+```ts
+const metricNode = defineNodeContract({
+  type: "artifact.metric",
+  version: 1,
+  category: "semantic-artifact",
+  props: metricArtifactPropsSchema,
+  slots: {},
+  trust: "governed",
+  commitPolicy: "atomic",
+  evidence: { requirement: "required", min: 1 },
+  capabilities: [],
+  events: {
+    select: {
+      payload: z.object({ metricId: z.string() }),
+      actionContracts: { "artifact.selection": "^1" },
+    },
+  },
+  prompt: {
+    summary: "一组经过校验的业务指标。",
+    useWhen: ["数值和指标定义已经通过校验。"],
+    avoidWhen: ["数值只是缺少证据的估计。"],
+  },
+  limits: { maxInstances: 12 },
+  migrations: {},
+})
+```
+
+React Binding 单独注册，保证契约包不依赖 React：
+
+```ts
+bindReactRenderer(metricNode, MetricArtifact)
+```
+
+Catalog Build 遇到以下任一缺失或不一致必须失败：
+
+- 唯一的 type 与 version；
+- Props 和 Slot Schema；
+- Event Port 名称、Payload Schema 和允许的 Action-contract Range；
+- 官方节点的 Renderer 覆盖；
+- 面向模型的使用与禁用指引；
+- Trust、Streaming、Evidence 与 Capability Policy；
+- 受支持旧版本的 Migration Path；
+- 自动生成文档与 Fixture 的测试覆盖。
+
+Validator 会根据 Type 与 Version 为每个 `ArtifactNode` 选择精确的 Node Contract。`node.events` 中的每个 Key
+都必须是已声明 Port，每个目标 Action 都必须存在；Generated Schema 是 Closed Schema，因此不会保留任意
+Event Key。收到 `action-trigger` 时，宿主从 Committed Node 解析 Action，而不是信任 Browser 传来的 Action ID；
+它按照该 Port 的 Schema 和上下文不变量（例如 ID 必须属于 Committed Props）校验 Payload，随后才把不可变
+Payload 提供给 `event-ref`。Event Path 必须针对选中的 Payload Schema通过 Type Check。如果一个 Action 绑定
+多个 Port，则每个 Event Reference 都必须对每个 Binding 有效，否则拒绝整个 Document。
+
+Action Contract 也是 Catalog Contract，与 Node Contract 一起生成并计算 Fingerprint。每个 Event Port 声明它可绑定
+哪些 Action-contract Version。Document Validator 解析该精确 Contract，检查每个 Step Kind、Capability Kind 和
+Plan Limit；除非 Contract 显式允许，否则拒绝 `onError: "continue"`。被多个 Port 复用的 Plan 必须满足所有允许
+Contract Range 的交集。`ProposalContext` 与 Compatibility Manifest 冻结精确 Action-contract Version，因此
+模型提供的 ID 只是一条经过检查的引用，绝不能选择范围更宽的已安装 Policy。
+
+已实现的 Compiler 会从 Active Contract 派生 Provider JSON Schema、Prompt Signature、Catalog Projection
+与确定性 Contract Fingerprint。Renderer Binding、Registry Descriptor、文档和 Eval Manifest 仍是显式源码，
+由 Parity 与 Determinism Test 约束；未来 Code Generation 可以继续减少这些维护点。
+
+## 双层节点模型
+
+### Surface 节点
+
+已实现的 Surface Catalog 通过 Stack、Grid、Section、安全文本、Callout、Progress、显式 Empty State，
+以及由 Input、Select、Toggle 与 Button 组成的类型化 Form 提供有边界的组合能力。属性使用
+`gap: "md"` 这样的语义 Token，不允许模型传入任意 className 或 CSS。Tabs 与 Accordion
+仍是普通的未来 Extension Contract，不是隐藏的内置能力。
+
+每个 Slot 都声明允许的节点类别、数量和 Fallback 行为。`layout.stack.children` 只接受可组合的
+Catalog Category，`form.root.fields` 只接受四种已注册 Form Control；两者都不能接收任意 Graph。
+系统因此具备表达力，但不是任何组件树都能通过校验。
+
+### 语义 Artifact 节点
+
+现有 query、calculator、metric、comparison、trend、anomaly、forecast、funnel、data-quality、
+insight、breakdown、distribution、cohort、experiment 和 driver 组件，分别成为
+`artifact.trend`、`artifact.experiment` 等 Atomic Node。
+
+内部图表、标签、证据入口、响应式行为和无障碍由可信 React Recipe 负责。模型只选择语义节点并填充数据，
+不能拼装这些节点内部的视觉结构。这是 Data Elements 相比完全通用组件语言最重要的质量优势。
+
+宿主可以注册带命名空间的扩展节点，但只有 Contract、Renderer、Policy 和 Prompt Metadata
+都存在时，扩展节点才会进入 Active Catalog。
+
+## 提示词编译器
+
+提示词是编译产物，不是散落在 Adapter 中的手写字符串。
+
+```ts
+type PromptCompileInput = {
+  catalog: Catalog
+  preset: "standard" | "governed" | "custom"
+  profile: "analysis" | "report" | "form" | "operations"
+  documentPolicy: DocumentPolicy
+  modelInputPolicies: {
+    provenanceRef: string
+    label: InformationFlowLabel
+  }[]
+  generationTaintHash: string
+  requestedNodeTypes?: string[]
+  codec: "snapshot-json" | "delta-jsonl"
+  renderMode: "strict" | "progressive"
+  capabilityDescriptors: ModelVisibleCapability[]
+  messageTemplateDescriptors: ModelVisibleMessageTemplate[]
+  locale: string
+  limits: GenerationLimits
+  parentDocumentSummaries?: DocumentSummary[]
+}
+```
+
+编译器先执行确定性的 Catalog Slicing。一个趋势问题不应该同时教模型所有 Form、Carousel 和
+Mutation 组件。编译结果 `PromptBundle` 包含：
+
+- 系统指令和当前任务所需的组件签名；
+- Provider 可直接使用的 JSON Schema 或 Frame Schema；
+- Slot、Evidence、State 与 Capability 规则；
+- 由 Catalog 测试过、适合当前 Profile 的少量示例；
+- Protocol Version、Contract Fingerprint 与 Prompt Bundle Hash；
+- Repair Prompt Template 和脱敏策略；
+- Node 数量、深度、字节数、Patch Op 数量等生成预算。
+
+PromptBundle 按 Hash 缓存并进入 Trace。针对某个 Contract Fingerprint 生成的响应，不能在另一个
+Fingerprint 下直接解释，除非经过显式兼容判断；即使 Contract 兼容，Prompt Bundle Hash 改变也必须启动
+一条独立的 Model Eval Baseline。
+
+### 信息流策略
+
+`prepareTurn` 为每个可能进入 Model Context 的 Message Fragment、Tool Result、Resource/State Value、Parent
+Summary、Example 和 Repair Fragment 分配 `InformationFlowLabel`。不包含 `model-generation` Sink 的 Input
+不会进入上下文。Compiler 将完整 Labeled-input Set Canonicalize 为 `generationTaintHash`，并计算保守 Join：
+Scope 取授权交集，Sensitivity 取最严格等级，Persistence 取最短 Class，Allowed Sink 取交集，Expiry 取最早
+Deadline。Scope 或 Sink 交集为空时，在调用模型前失败。Host-stamped `DocumentPolicy` 必须至少同样严格。
+
+这是 Whole-generation Taint，不是尽力而为的 String Matcher。模型可以复制、总结、编码或改写 Context，
+因此 Proposal 中的每个 Literal 和 Structural Choice 都继承 Joined Label，即使无法恢复精确 Provenance。
+显式 State/Resource/Evidence Reference 只能增加限制。复制 Secret 的 Heuristic 可以作为纵深防御，但永远不是
+Authorization Boundary。只有可信 Capability 或 Registered Calculator 能创建重新标记、已 Declassify 的
+Derivative；系统记录其 Policy Decision、Transformation Identity、Validation ID 和 Evidence，Model-authored
+Text 永远不能降低 Label。
+
+Commit 时，Host 从 Sealed Prompt/Tool Input 重建 Label Set，校验 `generationTaintHash`，再与每个 Parent
+Document 和被引用 State/Resource/Evidence Policy 做 Join，并针对 Allowed Sink 检查每个 Contract Field。
+随后才写入 Effective `DocumentPolicy`；Create、Edit 与 Merge 都不能扩大 Scope、降低 Sensitivity、延长
+Persistence/Expiry，或增加 Export/Share/Telemetry Sink，除非有单独授权的可信 Declassification。任何不匹配
+都会在发布 Preview 或 Commit 前 Abort。
+
+Document-store Write、Renderer Handoff、Repair Prompt、Share 和 Export 前都要再次执行该 Policy。每次 Read
+解析当前 Actor/Tenant Authorization 与 Policy Status；Immutable Revision 记录 Static Policy Binding，但 Expiry
+和 Revocation 仍可拒绝访问并删除受 Policy 约束的 Payload。Export 是普通的 Brokered Capability，默认继承
+Source Document Label，除非其 Registered Transformation 获准生成限制更窄的结果。Golden Path 中这些检查由
+Preset 管理，Application Developer 无需手工传播 Taint Label。
+
+## 编译与运行时生命周期
+
+无论完整 Snapshot 还是增量事务，都经过同一条 Pipeline：
+
+1. **Decode**：用选定 Codec 解码成类型化语法值或 Frame。
+2. **Normalize**：把嵌套 Authoring 输入编译为图 IR，绝不根据字段顺序推断隐藏语义。
+3. **结构校验**：检查协议形状、ID、引用、Slot、预算和 Catalog 可用性。
+4. **语义校验**：执行区间顺序、Cohort 宽度、单位、Evidence、Row Limit 等节点特有不变量。
+5. **策略与信息流校验**：检查 URL、Resource、Capability Request、Host Grant、Document Policy、Labeled
+   Input 和 Allowed Sink。
+6. **Stage**：把有效变更放入与已提交文档隔离的 Draft Store。
+7. **Commit 或 Preview**：根据文档与节点提交策略处理。
+8. **Render**：Registry 只接收已经求值并通过校验的 Props。
+9. **Observe**：所有阶段都记录 Document、Revision、Transaction、Node、Model 和 Catalog ID。
+
+Renderer 必须保持“无聊”：它不解析模型文本、不推断工具权限、不修复 Payload，也不计算业务指标。
+
+## 严格与渐进渲染
+
+一套全局策略无法同时满足内容 UI 与可信分析。
+
+| 模式 | 行为 | 默认用途 |
+| --- | --- | --- |
+| `strict` | 校验完整事务并原子提交；成功前始终保留上一 Revision | 财务、实验、证据、导出报告、审计分析 |
+| `progressive` | 有效的外壳和内容节点可以先预览；Atomic Node 在完整前保持旧值或 Skeleton | 布局、文字、表单、探索式界面 |
+
+每个 Node Contract 都声明最低 `commitPolicy`。Progressive Document 不能强迫
+`artifact.experiment` 展示残缺置信区间；Strict Document 可以把通常渐进的节点提升为原子提交。
+
+前向引用只允许出现在 Draft Transaction 内。渐进预览遇到缺失子节点时显示有类型的 Placeholder，
+不能静默变成 `null`。Abort、Timeout、Validation Error 或 Render Error 都不能破坏上一个已提交版本。
+
+## 状态、绑定与表达式
+
+状态分属三个 Owner：
+
+1. **Renderer Local State**：Focus、Hover、未受控 Tooltip 等，只存在于 React 组件内部。
+2. **Artifact Interaction State**：Filter 和 Form Value 等，在 Document Store 中有类型定义，
+   可以由 Host Adapter 持久化。
+3. **Authoritative Business State**：属于服务端，只能通过 Host Capability Broker 改变。
+
+Artifact State 拥有独立的 Value Revision，因为用户输入变化不应自动产生新的 Document Revision：
+
+```ts
+type StateDefinition = {
+  schemaId: string
+  schema: JSONSchema
+  schemaVersion: number
+  schemaHash: string
+  initial: JsonValue
+  policy: StatePolicy
+}
+
+type StatePolicy = {
+  policyId: string
+  policyVersion: number
+  policyHash: string
+  scope: "document" | "session" | "user"
+  persistence: "none" | "session" | "host"
+  sensitivity: "public" | "private" | "sensitive"
+  modelAccess: "none" | "read" | "read-write"
+  lifecycle: "retain" | "reset-on-commit" | "prune-when-unreferenced"
+  expiresAt?: string
+}
+
+type StateRecord = {
+  documentId: string
+  branchId: string
+  stateId: string
+  stateRevision: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  policyHash: string
+  value: JsonValue
+}
+
+type StateMigrationKey = {
+  schemaId: string
+  fromVersion: number
+  toVersion: number
+}
+
+type StateMigrationReceipt = {
+  receiptId: string
+  documentId: string
+  branchId: string
+  stateId: string
+  key: StateMigrationKey
+  fromSchemaHash: string
+  toSchemaHash: string
+  inputHash: string
+  outputHash: string
+  migrationIds: string[]
+  appliedAt: string
+}
+
+type StateTransitionReceipt = {
+  receiptId: string
+  operationKey: string
+  invocationId?: string
+  stepId?: string
+  documentId: string
+  branchId: string
+  stateId: string
+  transition: "write" | "reset" | "prune" | "migrate"
+  fromStateRevision: string
+  toStateRevision?: string
+  schemaHash: string
+  policyHash: string
+  migrationReceiptId?: string
+  recordedAt: string
+  auditRef: string
+}
+
+type ClientStateTransitionReceipt = Omit<StateTransitionReceipt, "auditRef">
+```
+
+本架构中的每个 `JSONSchema` 都使用封闭且受预算约束的 Data Elements Schema Core Profile，而不是任意
+JSON Schema 文档。选中的 Compatibility Manifest 锁定其 Profile ID、Version 与 Hash；Contract Fingerprint
+与 Prompt-bundle Fingerprint 都包含该 Binding，每个独立 Capability 或 Template Grant 也携带完全相同的
+Binding。Core 支持 Null/Boolean、有限且有界的 Number、受限 String 和 Enum、受限 Array、Closed Object、
+Bounded Union 与 Acyclic Local Reference。禁止 Remote/Dynamic Reference、Unknown Vocabulary、Unevaluated
+Key、Executable Format、Custom Keyword、Recursive Schema，以及无边界或带 Backtracking 的 Pattern。
+Profile Limit 限制 Encoded Byte、Depth、Object Key、Collection Item、Union Branch、Pattern Size 和 Validation Work。
+
+Catalog、State-schema、Capability-grant 与 Message-template Registration 在固定 Profile 下 Canonicalize 并
+Compile 每个 Schema，校验其 Identity/Version/Hash；任何不支持的 Construct 或 Limit Violation 都会在发布前
+Fail Closed。Runtime Validation 使用相同的 Compiled Profile 与 Budget，从不 Fetch Reference，也不把 Format
+Semantics 交给 Consumer Default。脱敏的 Model-visible Projection 携带精确 Schema Hash，任何 Consumer 都不能
+替换成更宽松的 Schema。State Authoring Form 不能提供 Schema Identity、Hash 或 `StatePolicy`。Host 从选中的
+Contract 与 Previous Revision 推导 Schema Identity，计算 `schemaHash`，并根据 Registry 校验 Catalog-owned
+Schema。它从 Preset、Node Contract 与 Application Policy 解析 `StatePolicy`，其中最严格的规则优先。因此
+模型不能把 State 提升为 User Scope、将其持久化、降低 Sensitivity、向自身开放、改变 Retention 或选择 Expiry。
+Policy Identity 与 Hash 属于 Semantic Document Content；Host 管理的 `expiresAt` Instant 属于 Temporal Policy
+State，不进入 Content Hash。
+
+第一版只支持引用，以及用于 Visible/Enabled 的小型类型化 Condition AST。未来即使扩展表达式，Operator
+也必须纯函数、确定性、白名单、限制深度和资源消耗。表达式只能格式化或选择展示数据，不能计算受治理的指标、
+统计量、预测、实验显著性或财务公式；这些结果必须来自可信 Tool 或已注册 Calculator。
+
+State Value 按 Document、Branch、State ID 和 Host-resolved Policy Scope 隔离，不进入不可变 Document
+Content Hash。State Write 同时使用 `stateRevision`、`schemaHash` 与 `policyHash` 做乐观并发。
+Effective Disclosure 与 Retention Rule 始终取 `StatePolicy`、`DocumentPolicy` 与当前 Host Authorization
+的最严格交集；State Definition 不能让数据在 Document 允许的范围之外持久化或披露，其 `initial` Value
+继承 Document 的 Generation Label。
+`schemaHash` 是
+`schemaId@schemaVersion` 所标识 Schema 的 Canonical Hash；相同 Identity 对应不同 Byte 属于 Fatal Catalog
+Error。相同规则也适用于 `policyId@policyVersion` 与 `policyHash`。跨 Document Revision 只在 State ID 与
+Schema 仍兼容时保留值。Schema 改变需要按精确
+`(schemaId, fromVersion, toVersion)` Tuple 注册的纯 Migration；Registry 必须选择一条无歧义 Chain，并为每次
+Transition 发出 `StateMigrationReceipt`。
+
+Edit 或 Merge Transaction 在 `statePreconditions` 中携带它读取的 State Revision。更新 State Definition、
+Migration 当前 Value、发布 Document Revision 与推进 Branch Head 必须发生在同一个 Host Consistency Boundary。
+并发 State Write 或 Branch Update 会拒绝 Transaction，不能丢失输入。复用 ID 却没有 Migration 的不兼容
+Schema 会被拒绝。被移除的 State 按声明的 Host Policy Lifecycle 处理，也可以为 Undo 短期保留 Tombstone，但不能静默
+绑定给另一个字段。持久化的 Private/Sensitive State 必须加密、从 Model/Telemetry View 脱敏，并按 Host Policy 过期。
+
+Streaming Default 永远不能覆盖用户修改过的状态。Reset、Prune 和 Migration 都是带
+`StateTransitionReceipt` 的显式 Committed Transition；Migration Transition 还要引用对应的
+`StateMigrationReceipt`。
+只有与 Document Commit 原子执行的 Transition 才会被其 `RevisionIdentity.stateTransitionReceiptIds` 引用。
+独立 User Write 存放在 Runtime/Audit Store 中，并出现在下一个 Snapshot 的受限
+`stateTransitionReceipts` 中；它们不会人为制造 Document Revision。State Record Update 与相应的
+Transition Receipt 是一次原子写入。
+
+## Action 与 Capability 安全
+
+Action 是有序的声明式计划。本地内置 Effect 可以设置或重置 Artifact State、Focus Node。Agent Message、
+Navigation、Data Access、Export 和写操作都是经 Broker 执行的 Effect，需要宿主提供 Grant。Step 失败后默认 `halt`；只有 Action Contract
+明确允许时才能 `continue`。外部 Effect 一旦成功，Runtime 不承诺自动回滚。
+
+```ts
+type ActionContract = {
+  contractId: string
+  version: number
+  allowedStepTypes: (
+    | "state.set"
+    | "state.reset"
+    | "node.focus"
+    | "agent.message"
+    | "capability.request"
+    | "navigation.request"
+  )[]
+  allowedCapabilityKinds: CapabilityGrant["kind"][]
+  maxSteps: number
+  maxBrokeredSteps: number
+  allowMixedLocalAndBrokered: boolean
+  allowContinueOnError: boolean
+}
+
+type ActionPlan = {
+  contractId: string
+  contractVersion: number
+  steps: ActionStep[]
+  onError: "halt" | "continue"
+}
+
+type NavigationTarget =
+  | { kind: "route"; capabilityId: string; routeId: string; params?: Record<string, ArtifactValue> }
+  | { kind: "resource"; capabilityId: string; resourceId: string }
+  | { kind: "external"; capabilityId: string; input: Record<string, ArtifactValue> }
+
+type ActionStep =
+  { stepId: string } & (
+    | { type: "state.set"; stateId: string; value: ArtifactValue }
+    | { type: "state.reset"; stateIds: string[] }
+    | { type: "node.focus"; nodeId: string }
+    | { type: "agent.message"; templateGrantId: string; values?: Record<string, ArtifactValue> }
+    | { type: "capability.request"; capabilityId: string; input: Record<string, ArtifactValue> }
+    | { type: "navigation.request"; target: NavigationTarget }
+  )
+
+type ActionInvocationStatus =
+  | "pending"
+  | "running"
+  | "awaiting-approval"
+  | "cancel-requested"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+type ActionContextSnapshot = {
+  locale: string
+  timezone: string
+}
+
+type ActionTriggerRecord = {
+  triggerRecordId: string
+  requestId: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  nodeId: string
+  eventPort: EventPortId
+  eventSchemaHash: string
+  validatedPayload: JsonValue
+  payloadHash: string
+  actorContextRef: string
+  contextSnapshot: ActionContextSnapshot
+  contextSnapshotHash: string
+  recordedAt: string
+  expiresAt: string
+}
+
+type ActionInvocation = {
+  invocationId: string
+  triggerRequestId: string
+  triggerRecordId: string
+  actorContextRef: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  expectedHeadToken: string
+  nodeId: string
+  eventPort: EventPortId
+  actionId: string
+  planHash: string
+  eventPayloadHash: string
+  contextSnapshotHash: string
+  statePreconditions: Record<StateId, string>
+  grantSetVersion: number
+  status: ActionInvocationStatus
+  nextStepId?: string
+  startedAt: string
+  updatedAt: string
+}
+
+type ActionStepReceipt = {
+  receiptId: string
+  invocationId: string
+  stepId: string
+  stepIndex: number
+  stepHash: string
+  status: "running" | "succeeded" | "failed" | "skipped" | "cancelled"
+  effectRequestId?: string
+  stateTransitionReceiptIds?: string[]
+  diagnostic?: Diagnostic
+  recordedAt: string
+  auditRef: string
+}
+
+type ClientActionInvocationSummary = {
+  invocationId: string
+  actionId: string
+  status: ActionInvocationStatus
+  nextStepId?: string
+  completedStepIds: string[]
+  pendingEffectRequestIds: string[]
+}
+
+type ActionCancellationReceipt = {
+  cancellationId: string
+  cancelRequestId: string
+  invocationId: string
+  outcome: "cancel-requested" | "cancelled" | "too-late"
+  actionStatus: ActionInvocationStatus
+  recordedAt: string
+}
+
+type MessageTemplateBinding = {
+  templateGrantId: string
+  templateGrantVersion: number
+  grantSetVersion: number
+  capabilityGrantVersion: number
+  templateId: string
+  templateVersion: number
+  templateHash: string
+  variableSchemaHash: string
+}
+
+type EffectRequest = {
+  requestId: string
+  invocationId: string
+  stepId: string
+  documentId: string
+  branchId: string
+  revisionId: string
+  expectedHeadToken: string
+  nodeId: string
+  eventPort: EventPortId
+  actionId: string
+  capabilityId: string
+  grantVersion: number
+  grantSetVersion: number
+  messageTemplate?: MessageTemplateBinding
+  resolvedInput: JsonValue
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  statePreconditions: Record<StateId, string>
+  idempotencyKey: string
+  actorContextRef: string // attached by the host, never authored by the model
+}
+
+type PolicyDecision = {
+  decisionId: string
+  requestId: string
+  phase: "initial" | "pre-execution"
+  outcome: "allow" | "deny" | "require-approval"
+  policyHash: string
+  grantVersion: number
+  grantSetVersion: number
+  revisionId: string
+  headToken: string
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  messageTemplate?: MessageTemplateBinding
+  reasonCodes: string[]
+  evaluatedAt: string
+}
+
+type ApprovalCheckpoint = {
+  checkpointId: string
+  requestId: string
+  documentId: string
+  branchId: string
+  decisionId: string
+  policyHash: string
+  grantVersion: number
+  grantSetVersion: number
+  revisionId: string
+  headToken: string
+  inputSchemaHash: string
+  inputHash: string
+  outputSchemaHash: string
+  messageTemplate?: MessageTemplateBinding
+  status: "pending" | "approved" | "rejected" | "expired" | "cancelled"
+  approverContextRef?: string
+  expiresAt: string
+}
+
+type EffectStatus =
+  | "pending"
+  | "denied"
+  | "awaiting-approval"
+  | "approved"
+  | "running"
+  | "cancel-requested"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+
+type CapabilityOutputBinding = {
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchemaHash: string
+  outputCodec: { id: string; version: string }
+  contentHash: string
+  byteLength: number
+  mediaType: string
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  validationIds: string[]
+  outputResourceId?: string
+  evidenceIds: string[]
+}
+
+type EffectReceipt = {
+  receiptId: string
+  requestId: string
+  status: EffectStatus
+  revisionId: string
+  expectedHeadToken: string
+  inputSchemaHash: string
+  inputHash: string
+  expectedOutputSchemaHash: string
+  grantVersion: number
+  grantSetVersion: number
+  messageTemplate?: MessageTemplateBinding
+  initialDecisionId?: string
+  executionDecisionId?: string
+  approvalCheckpointId?: string
+  output?: CapabilityOutputBinding
+  publication?: {
+    status: "not-requested" | "committed" | "conflict"
+    expectedHeadToken: string
+    revisionId?: string
+  }
+  diagnostic?: Diagnostic
+  auditRef: string
+}
+
+type ClientEffectSummary = {
+  requestId: string
+  invocationId: string
+  stepId: string
+  actionId: string
+  capabilityId: string
+  status: EffectStatus
+  cancellable: boolean
+}
+
+type ClientApprovalCheckpoint = {
+  checkpointId: string
+  effectRequestId: string
+  status: ApprovalCheckpoint["status"]
+  capabilityId: string
+  risk: CapabilityGrant["risk"]
+  title: string
+  summary?: string
+  redactedInputSummary?: JsonValue
+  expiresAt: string
+}
+
+type ClientEffectReceipt = {
+  receiptId: string
+  requestId: string
+  status: EffectStatus
+  output?: Pick<
+    CapabilityOutputBinding,
+    "contentHash" | "mediaType" | "sensitivity" | "outputResourceId" | "evidenceIds"
+  >
+  publication?: EffectReceipt["publication"]
+  diagnostic?: Diagnostic
+}
+
+type EffectCancellationReceipt = {
+  cancellationId: string
+  cancelRequestId: string
+  effectRequestId: string
+  outcome: "cancel-requested" | "cancelled" | "too-late"
+  effectStatus: EffectStatus
+  recordedAt: string
+}
+```
+
+每次 Trigger 都会创建一个 `ActionInvocation`；重放其 Client Request 会返回同一个 Invocation。在执行任何
+Step 前，Host 校验 Event 并持久化一条不可变、已加密的 `ActionTriggerRecord`；Invocation 保留该 Record 与
+Actor-context Reference，而不只是一段不可逆 Hash。Host 在 Trigger 时校验 Locale 和 Time-zone Identifier，
+并冻结到 `contextSnapshot`；该 Invocation 的每个 `context-ref` 都只能根据此 Snapshot 解析，包括 Approval
+完成后或 Crash Recovery 后。`planHash` 和 `stepHash` 分别是对 RFC 8785 Canonicalized Normalized Plan 与 Step
+计算的 SHA-256。Hash、稳定且唯一的 `stepId` 与 `ActionStepReceipt` 共同让有序 Plan 可以恢复。Runtime 在
+Dispatch 前持久化 Step 的 `running` Transition，在推进 `nextStepId` 前持久化 Receipt；经 Broker 执行的 Step
+根据 Invocation、Step 与 Grant Identity 推导稳定 Idempotency Key，并在 Transport/Worker Retry 中复用。
+Crash 后从第一个没有 Terminal Receipt 的 Step 恢复，而不是从最后观测到的 Array Index 恢复。遗留在
+`running` 的 Step 先以稳定 `(invocationId, stepId)` Operation Key 对照现有 Effect 或 State Operation 做
+Reconcile；Recovery 只复用或继续该 Operation，绝不 Dispatch 新 Operation。因此即使部分成功，`halt`、
+`continue`、Skip 和 Cancellation 也都有可重放的含义。无 Transport、仅本地的 Plan 在 In-memory Provider
+中使用相同 Reducer；任何经 Broker 执行的 Step 都必须使用 Durable Host Path。
+
+Recovery 会解析 Trigger Record，并在求值任何剩余 `event-ref` 前重新检查其 Schema/Payload/Context Hash、
+Tenant/Actor Authorization、Document/Head Binding、State Dependency 和当前 Grant。Trigger Payload 的 Retention
+至少覆盖较长的 Invocation/Idempotency Lifetime，并遵循其 Sensitivity Policy。Record 缺失、过期、损坏或
+未经授权时，Invocation 必须 Fail Closed；Runtime 永远不能从 Hash 重建 Event Data，也不能换一个 Actor 恢复。
+
+对于 `state.set` 和 `state.reset`，State Record、`StateTransitionReceipt` 与 `ActionStepReceipt` 使用稳定
+`(invocationId, stepId)` Operation Key，在一次 Runtime-store Transaction 中提交。Retry 返回该 Transaction，
+不会再次改变 State。`node.focus` 是幂等操作，Plan 推进前必须先收到 Step Receipt。因此不存在 Local Mutation
+已经成功、Recovery 却只能推断 Step 缺失的 Crash Window。
+
+Browser 提供的 `statePreconditions` 只是 Concurrency Hint，不是 Dependency Declaration。Host 从 Committed
+Action Plan 推导完整 State-reference Closure，要求每个 Dependency 都有 Revision，拒绝 Stale 或 Missing
+Entry；不能仅因 Browser 漏报某个 Dependency 就将其忽略。
+
+Capability Grant 由宿主在 Model-authored Document 之外根据一份 Source Contract 创建：
+
+```ts
+type CapabilityGrant = {
+  capabilityId: string
+  grantVersion: number
+  grantSetVersion: number
+  schemaProfile: SchemaProfileBinding
+  kind: "read" | "write" | "navigation" | "export" | "agent-message"
+  inputSchemaId: string
+  inputSchemaVersion: number
+  inputSchema: JSONSchema
+  inputSchemaHash: string
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchema: JSONSchema
+  outputSchemaHash: string
+  outputCodec: { id: string; version: string }
+  outputMediaType: string
+  scope: {
+    tenantRef: string
+    actorRef: string
+    resourceScopeRefs: string[]
+  }
+  risk: "low" | "medium" | "high" | "critical"
+  approval: "never" | "risk-based" | "always"
+  idempotency: { required: boolean; retentionMs: number }
+  budgets: { timeoutMs: number; maxCalls: number; maxInputBytes: number; maxOutputBytes: number }
+  disclosure: {
+    allowedSensitivity: ("public" | "private" | "sensitive")[]
+    requireModelReadableState: boolean
+    allowedResourceScopeRefs: string[]
+  }
+  policyProfileHash: string
+  handlerRef: string
+  expiresAt?: string
+}
+
+type ModelVisibleCapability = {
+  capabilityId: string
+  grantVersion: number
+  schemaProfile: SchemaProfileBinding
+  kind: CapabilityGrant["kind"]
+  summary: string
+  inputSchemaId: string
+  inputSchemaVersion: number
+  inputSchema: JSONSchema
+  inputSchemaHash: string
+  outputSchemaId: string
+  outputSchemaVersion: number
+  outputSchemaHash: string
+  requiresApproval: boolean
+}
+
+type MessageTemplateGrant = {
+  templateGrantId: string
+  templateGrantVersion: number
+  grantSetVersion: number
+  schemaProfile: SchemaProfileBinding
+  capabilityId: string
+  capabilityGrantVersion: number
+  templateId: string
+  templateVersion: number
+  templateHash: string
+  variableSchema: JSONSchema
+  variableSchemaHash: string
+  disclosure: CapabilityGrant["disclosure"]
+  status: "active" | "revoked"
+  expiresAt?: string
+}
+
+type ModelVisibleMessageTemplate = {
+  templateGrantId: string
+  templateGrantVersion: number
+  schemaProfile: SchemaProfileBinding
+  summary: string
+  templateHash: string
+  variableSchema: JSONSchema
+  variableSchemaHash: string
+}
+```
+
+`ModelVisibleCapability` 与 `ModelVisibleMessageTemplate` 是生成且脱敏的 Projection：它们省略 Tenant、Actor、
+Handler、内部 Policy 与 Destination Detail，同时保留精确的安全 Input Contract。它们的 Set 与
+`grantSetVersion` 会冻结到 `ProposalContext` 和 Prompt Bundle Hash。拥有 Descriptor 或 ID 不等于获得授权；
+Broker 每次请求都解析 Host-only Grant，并重新检查 Schema Hash、Grant-set Version、Expiry、Scope、Risk、
+Approval、Budget、Disclosure 和 Policy。
+
+`agent.message` 是 `agent-message` Capability 的语法糖，不是本地逃生口。Broker 解析 `templateGrantId`，只接受
+`variableSchema` 声明的具名 Variable，把每个已解析 Value 追溯到其 State/Resource/Event Provenance，执行
+Sensitivity、Model-access 和 Scope Rule，然后创建普通的幂等 `EffectRequest`。任意 Message Template 和不受限
+Value Interpolation 永远不能进入 DSL。
+
+Template Grant 必须以精确的 Capability-grant 与 Grant-set Version 引用 Active `agent-message` Capability。
+其 Content、Version 与 Variable Schema 形成 `MessageTemplateBinding`；该 Effect Kind 必须携带此 Binding，
+其他所有 Kind 则禁止携带。Request、两次 Policy Decision、Approval Checkpoint 与 Receipt 必须携带逐字节相同的
+Binding。Pre-execution Authorization 重新检查 Template Status、Expiry、Content Hash、Schema Hash、Disclosure
+Rule 和底层 Capability Version；Rotation 或 Revocation 会使 Pending Approval 失效，并要求重新 Trigger。
+
+Approval 记录的是一次人工决策，不是持久授权。Approval 完成后、进入 `running` 之前，Broker 会重新解析
+Actor/Tenant Scope、Grant Status 与 Version、当前 Policy、Document Revision、Branch Head、State
+Precondition 和 Input Hash。它会发出一个 `pre-execution` `PolicyDecision`；任何 Binding 发生变化都要
+Fail Closed。内部的 `EffectRequest`、`PolicyDecision`、`ApprovalCheckpoint`、Resolved Input、Actor Context、
+Policy Hash 和 Audit Reference 都不能进入 Browser；Client Event 只暴露上面定义的 Sanitized View Type。
+
+Capability Handler 的 Output 不可信。在创建 `succeeded`、Resource/Evidence 或发布 Revision 前，Broker 依次
+执行 Raw-output Byte Budget、按声明 Codec Decode、针对 Pre-execution Grant 中精确
+`outputSchemaId@outputSchemaVersion` 与 `outputSchemaHash` 校验、应用 Scope/Sensitivity/Redaction Policy、
+Canonicalize Sanitized Value，并把 Content Hash 与 Validation ID 写入 `CapabilityOutputBinding`。Request、
+Policy Decision、Approval、Receipt 与 Output Binding 必须对 Schema Hash 达成一致。生成的 `ResourceReference`
+必须在 Output Content Hash、Schema Identity/Hash、Scope、Sensitivity、Codec 和 Media Type 上与 Output Binding
+一致。Evidence 必须引用该 Resource 与 Producing Activity，携带 Validation ID，且不能扩大 Scope 或降低
+Sensitivity。任何不匹配或 Oversize Output 都会 Fail Closed 并产生 Diagnostic：不创建 Output Resource、
+Evidence、Success Receipt 或 Document Revision。
+
+执行过程是持久状态机：`EffectRequest → PolicyDecision → ApprovalCheckpoint? → EffectReceipt`。
+每一步都记录 Request Identity、Document Revision、Actor/Tenant Context、Resolved Input Hash、Grant Version、
+Idempotency Key、Status、Cancellation 和 Audit Reference。使用相同 Idempotency Key 重试时必须返回或继续
+已有执行，不能重复写入。
+
+每个 Cancellation Command 只能有一个 Target。请求被接受后首先产生 `cancel-requested`；只有 Worker 确认
+已经停止，`cancelled` 才是 Terminal。`too-late` 表示已经越过不可取消点或 Commit Point，不会改写 Effect
+真实的 Terminal Result。Pre-policy Cancellation 和基础设施失败可能没有 Decision ID，因此 Receipt 将
+Decision Reference 设为 Optional，不能虚构一条从未存在的权威决策。
+取消 Action 会阻止任何尚未开始的 Step，并请求取消其 Active Effect；已经完成的 Step Receipt 保持不可变。
+Action 与 Effect 的 Cancellation Outcome 分开报告，因此部分完成的 Plan 永远不会被描述成已经 Rollback。
+
+```text
+UI Action
+  → 通过校验的 Effect Request
+  → Host Capability Broker
+  → Auth + Policy + 可选 Approval
+  → Tool / Data Service
+  → 通过校验的结果 + Evidence Record
+  → Host 使用 Branch-head CAS 发布新的 Artifact Revision
+```
+
+发布 Document Revision 的 Effect 绑定到请求的 `revisionId`、Input Hash、Grant Version 和
+`expectedHeadToken`。Publication 针对该精确 Branch Head 使用 Compare-and-swap。如果 Tool 执行期间 Head
+已推进，External Result 和 Evidence 仍可审计，但 Runtime 返回 `publication.status: "conflict"`；它绝不能
+覆盖较新的 UI 或静默 Rebase。另一个单独授权的 Proposal 可以针对新 Head 重新校验结果，并发布新 Revision。
+
+Renderer 中不存在 `Query("arbitrary_tool")` 或 `Mutation("arbitrary_tool")`。实时刷新是一项已授权的 Read Capability；
+写操作始终经过 Broker，高风险写操作必须具备 Approval 和 Idempotency Key。
+Navigation 通常指向已注册的 Host Route 或 Resource。外部 URL 必须使用 Navigation Capability，
+并由 Broker 校验 Scheme 与 Origin Policy。
+
+## Resource、Evidence 与 Claim
+
+大体量或敏感数据不能在 Document 中反复复制。Resource Entry 保存一个指向已脱敏 Tool Result 的
+类型化、受作用域约束引用，并可以带受限 Preview。Resource Resolver 属于宿主，沿用原数据的 User、Tenant、
+Expiry 和 Redaction Policy。
+
+```ts
+type ResourceReferenceBase = {
+  resourceId: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  codec: { id: string; version: string }
+  mediaType: string
+  contentHash: string
+  scopeRef: string
+  sensitivity: "public" | "private" | "sensitive"
+  expiresAt?: string
+}
+
+type ResourceReference = ResourceReferenceBase & (
+  | { preview?: never; previewPersistence?: never }
+  | {
+      sensitivity: "public"
+      expiresAt?: never
+      preview: JsonValue
+      previewPersistence: "document"
+    }
+)
+
+type EvidenceSourceReference = {
+  kind: "resource" | "dataset" | "document" | "service"
+  id: string
+  contentHash?: string
+}
+
+type EvidenceReference = {
+  evidenceId: string
+  schemaId: string
+  schemaVersion: number
+  schemaHash: string
+  sourceRefs: EvidenceSourceReference[]
+  activityRefs: string[]
+  contentHash: string
+  scopeRef: string
+  observedAt?: string
+  recordedAt: string
+  expiresAt?: string
+  validationIds: string[]
+  sensitivity: "public" | "private" | "sensitive"
+}
+
+type ClaimBinding = {
+  claimId: string
+  nodeId: string
+  fieldPath?: PathSegment[]
+  evidenceIds: string[]
+  qualifier: "observed" | "estimated" | "correlational" | "causal"
+}
+
+type ResourceResolutionReceipt = {
+  resolutionId: string
+  requestId: string
+  resourceId: string
+  schemaVersion: number
+  schemaHash: string
+  contentHash: string
+  status: "resolved" | "expired" | "denied" | "invalid" | "unavailable"
+  evidenceIds?: string[]
+  diagnostic?: Diagnostic
+  auditRef: string
+}
+
+type ClientResourceResolutionReceipt<
+  Status extends ResourceResolutionReceipt["status"] = ResourceResolutionReceipt["status"],
+> = Omit<ResourceResolutionReceipt, "auditRef" | "status"> & { status: Status }
+
+type ClientResourceBinding = {
+  resolutionId: string
+  requestId: string
+  resourceId: string
+  schemaVersion: number
+  schemaHash: string
+  codec: { id: string; version: string }
+  mediaType: string
+  contentHash: string
+  value: JsonValue
+  byteLength: number
+  sensitivity: "public" | "private" | "sensitive"
+  expiresAt?: string
+}
+```
+
+Document 中不保存 Fetch URL 或 Credential。Resolver 根据权威 `resourceId` 与 Actor Context 获取资源，
+针对精确 Schema、Codec、Media Type 和 Content Hash 校验返回数据，并发出可重放的 `resource-receipt`
+Control Event。`resolved` Receipt 之后，Transport 可以通过独立 `ClientResourceDataEnvelope` 发送一条匹配的
+`ClientResourceBinding`；其他所有 Receipt Status 都禁止 Data Binding。Binding 只包含受限、已 Decode、
+已 Sanitized 的 `JsonValue`，永远不包含原始 Upstream Byte、Header、URL、Credential 或 Resolver Error。
+其 Request、Resolution 和 Identity Field 必须与 Receipt 及 Committed `ResourceReference` 相同。
+
+可选 Provider 通过 `resource-resolve` 解析缺失的 Binding；Host 不把 Client 提供的 Metadata 当作权威，而是从
+Committed Revision 重新解析 Reference，重新授权 Actor/Tenant Scope 与 Sensitivity，并在返回数据前重新校验
+Content。Runtime 只按 `(actor, documentId, revisionId, resourceId, schemaHash, contentHash)` 缓存 Binding，
+在 Expiry、Actor Change、Revision Change 或 Policy Denial 时 Evict。迟到的 Response 不能 Attach 到另一个
+Revision。Preloaded Binding 在不含 Value 的 Snapshot 之后，以一个或多个独立的
+`ClientResourceDataEnvelope` 发送；它们绝不能嵌套在 `RuntimeSnapshot`、`ArtifactPart`、Stream Base 或其他
+带 Cursor 的 Event 中。没有 Transport 时，`ArtifactPart` 和 `ArtifactDocument` 只能使用 Literal 与受限的
+Inline Preview，否则显示 Contract 定义的 Unavailable State。
+
+每个 Client-visible Resource Value 必须满足 `maxResolvedResourceBytes`。更大的 Source 绝不能在原 Content
+Hash 下被截断；Host 必须发布单独标识、经过 Schema 校验的 Bounded View 或 Page Resource，并赋予自己的
+Content Hash。Inline `preview` 是不可变的 Revision Content，因此仅当数据已通过 Schema 校验、为 Public、
+永不过期，且 Host Policy 明确允许 Document Persistence 时才合法；它会计入 Semantic Content Hash。Private、
+Sensitive、Session-only、Non-persistable 或 Expiring Preview 必须使用同一个临时
+`ClientResourceBinding` Data Plane。Resource Resolution 失败时保留 Document 与上一个有效 Binding，同时
+渲染 Node 明确的 Unavailable/Stale State；绝不能把未经检查的数据变成 Literal Prop。
+
+Resource-data Envelope 刻意不属于 `ServerEvent`：它没有 Sequence Number、Event ID 或 Cursor，也不参与
+Deterministic Stream Replay。重复 Resolution Request 会重放其不可变 Receipt，然后在重新发送 Value 前重新
+授权。Expiry 或 Revocation 则返回已 Sanitized 的临时 `resource-unavailable` Envelope，不改写历史 Receipt。
+只有 Request、Resolution、Fingerprint、Revision-cache Key、Schema 与 Content Hash 全部匹配时，Provider
+才接受数据；否则丢弃 Envelope。
+
+语义 Node 引用 Document 权威 `evidence` Map 中的 Evidence ID。Evidence Record 绑定精确 Schema Version、
+Source 与 Activity Provenance、Content Hash、Access Scope、Observation/Recording/Expiry Time、Validation
+Record 和 Sensitivity。Host 从可信 Tool/Resource Result 提供这些 Record；模型只能选择已授权的 ID，不能编写或
+更改 Provenance。Node、Claim、Effect 或 Resource Receipt 中的每个 Evidence ID，都必须在相同 Document
+与 Actor Scope 下成功解析。
+
+Claim 把文本或语义字段绑定到精确 Evidence Record，并标明 `observed`、`estimated`、`correlational` 或
+`causal`。Committed Document 保存 Content Hash 与引用，不能把 Trace Store 变成不受限制的数据副本仓库。
+Validator 绝不允许 Authoring Language 升级 Provenance。例如，`causal` Qualifier 必须有 Contract 认可的
+Causal Validation ID 和支持它的 Evidence Scope，不能只依赖模型置信度。
+
+如果 Governed Node 的 Contract 要求 Evidence 而实际没有，Compiler 必须拒绝。Renderer 统一提供
+Provenance 入口，但 Evidence Service 与 React 保持独立。
+
+## Diagnostic 与自动修复
+
+所有失败共用一个结构化 Envelope：
+
+```ts
+type Diagnostic = {
+  phase: "decode" | "normalize" | "validate" | "policy" | "commit" | "render" | "effect" | "transport"
+  code: string
+  severity: "info" | "warning" | "error" | "fatal"
+  recoverable: boolean
+  modelCorrectable: boolean
+  message: string
+  location?: {
+    streamId?: string
+    transactionId?: string
+    seq?: number
+    opId?: string
+    revisionId?: string
+    entity?: { kind: "document" | "node" | "state" | "action" | "resource" | "evidence" | "claim" | "effect" | "migration"; id: string }
+    path?: string
+  }
+  expected?: JsonValue
+  actualSummary?: string
+  hint?: string
+  retryAfterMs?: number
+}
+```
+
+Raw Exception、Credential、隐藏 Policy、SQL 和敏感值不能进入 Repair Prompt。Repair Request 只包含
+模型能修复且已脱敏的 Diagnostic、相关 Document Fragment、Parent Revision ID 与 Head/State Precondition、
+Active Contract Fingerprint 和允许的 Patch Operation。修复次数必须有上限。Policy Denial、Authorization Failure 与临时基础设施错误
+不能伪装成 Schema Error。
+
+## Transport Adapter
+
+Adapter 只把框架事件翻译成 Artifact Snapshot 和 Frame，不拥有校验语义。
+
+- AI SDK 把 Tool Input/Output 和 Data Part 映射到公共 Stream Protocol。
+- Mastra 把 Tool/Workflow Event 映射到同一套 Frame。
+- AG-UI 映射 Run、Text、Tool 和 Artifact Event，但不改变 Document 含义。
+- MCP 可以暴露 Catalog Metadata、Artifact Publication 或 Host Capability；Capability Broker
+  仍然是授权边界。
+
+Transport Storage 分为两层。加密的 Cursor Replay Buffer 可以逐字节原样保留 `ClientArtifactEvent`，
+包括已授权的 State Value，但只能保留到 Cursor Retention、`StatePolicy`、`DocumentPolicy`、Session 或 Expiry
+Limit 中最早到期的时刻。Durable Message/Audit Store 保存 Committed Semantic Revision、不含 Value 的 Control
+Projection、State/Action/Step/Effect/Resource Receipt 和 Hash。State Value 只有在
+`StatePolicy.persistence: "host"` 下才是 Durable；持久化策略为 `session` 或 `none` 的 Value 必须省略或
+删除，绝不能通过 `state-updated` 或 Snapshot 偷带进 Event Log。
+
+`ClientResourceDataEnvelope` 与 `ClientResourceBinding.value` 是受 Policy 约束的 Data-plane Content：
+它们在传输和 Cache 中加密，没有 Stream Sequence/Cursor，默认不进入 Message/Event/Telemetry Log。只有显式
+Resource Retention Policy 授权相同 Actor/Tenant Scope、Sensitivity 和 Expiry 时，Binding 才能持久化；否则
+Replay 必须重新授权并再次解析。
+
+当 Policy Expiry、Revocation 或 Deletion 导致精确 Value 无法合法重放时，Host 必须使受影响的 Cursor 失效，
+不能在同一 Identity 下改写旧 Event。随后 `resume` 返回一个新的、原子的、当前已授权的 Snapshot，并按 Policy
+重置或裁剪 State，只包含不带 Value 的 Resource Reference；所有 Resource Value 都通过临时 Data Envelope
+单独重新授权。Reload 绝不能抓取渲染后的 React State，也不能把 Message History 变成 Data Lake。
+
+## 逻辑包边界
+
+以下是终局的职责边界。最初可以作为现有 Package 内部 Module，只有 API 稳定且确有独立版本或环境需求时再拆包。
+
+| 边界 | 职责 |
+| --- | --- |
+| `@data-elements/protocol` | IR、Stream Frame、Diagnostic、Version Type、JSON Schema |
+| `@data-elements/catalog` | `defineNodeContract`、Catalog 校验、Fingerprint、Migration |
+| `@data-elements/codec-json` | 无 Credential 的 Snapshot/JSONL 编解码、Syntax Limit、Canonical Draft/Content Projection |
+| `@data-elements/runtime-core` | 无 Credential 的 Normalize、Validate、Draft/Commit Reducer、Document Store、State/Binding Evaluation、Scoped Resource-binding Cache、Action Invocation 与 Effect Intent；禁止网络访问 |
+| `@data-elements/compiler` | 仅服务端/构建期使用的 Prompt 与 Repair Bundle、Provider Schema、Example 和按任务 Catalog Slicing |
+| `@data-elements/capability-broker` | 仅服务端使用的 Grant、Authorization、Policy Decision、Approval、Idempotency 与 Effect Receipt |
+| `@data-elements/resources` | 服务端 Resource/Evidence Resolution、Schema Check、Redaction、Expiry 与 Provenance Receipt |
+| `@data-elements/react` | React Renderer、Error Boundary、Hook、官方 Renderer Binding |
+| `@data-elements/artifacts` | 与框架无关的语义 Artifact Contract 与不变量 |
+| `@data-elements/ai-sdk`、`@data-elements/mastra`、`@data-elements/ag-ui` | 薄 Transport Integration |
+| `@data-elements/observability` | Event Vocabulary 与 Sink API |
+| `@data-elements/evals` | Golden Task、Conformance Suite、Grader、Provider Matrix |
+| `@data-elements/registry-tools` | 私有 Registry/Codegen 构建工具与依赖闭包检查 |
+| `@data-elements/codec-text` | 未来可选的紧凑 Codec；永远不是 Canonical Representation |
+| `data-elements` CLI | shadcn 安装、兼容检查、Migration、Diagnostic |
+
+依赖方向必须强制执行：Protocol 与 Codec 是 Leaf；Catalog 只依赖 Protocol/Schema Utility；Runtime Core
+依赖 Protocol、Codec 和 Catalog；React 依赖 Runtime Core 与 Artifact Contract；Compiler 和 Transport Adapter
+运行在服务端/构建侧；Broker 与 Resource Package 仅限服务端。Browser Bundle 不能包含 Compiler、Prompt
+Example、Capability Broker、Resource Resolver、Node Built-in、Credential 或 Policy Implementation。Logical
+Module 可以晚些再拆包，但从第一个 v2 实现开始就必须强制该环境边界。
+
+现有 `@data-elements/schema` 保持为 v1 Compatibility Facade，`@data-elements/core` 负责 v1 Catalog
+与安全 Calculator Foundation，`@data-elements/runtime` 负责 v2 Protocol/Runtime。现有 v1 Schema 包含 `protocolVersion`、`kind`、`id`
+等 Envelope Field，因此必须通过明确的 `v1 envelope → v2 props` Projection 复用语义字段，不能把整个 v1
+Object 当作 v2 Node Props。
+
+这些 Package 是 Ownership Boundary，不是 Beginner API。默认 AI Framework Adapter 暴露
+`createArtifactUI`，React 暴露 `ArtifactRenderer`；这两个 Facade 使用安全 Preset 组装内部 Package。
+
+当前仓库有意合并了部分逻辑边界：`@data-elements/runtime` 承担 Protocol、JSON Codec 与 Runtime-core；
+`@data-elements/schema` 和 `@data-elements/core` 承担 v1 Contract 与 Catalog Foundation。表中的逻辑名称表示
+职责，不表示每一行都已经作为独立 npm Package 发布。
+
+## shadcn/ui 分发
+
+shadcn/ui 是实现与源码所有权策略，不是语言本身。
+
+官方 React Node 使用本地 shadcn Primitive 和语义 Design Token。默认情况下，shadcn 把可编辑 UI Primitive、
+Renderer Binding 和 Artifact Recipe 复制进应用，同时把版本化 Protocol/Runtime Package 作为依赖安装。
+这样既保留 UI 源码所有权，也不会让安全修复依赖每个项目手工重新复制复杂 Runtime。
+
+默认 `artifact-ui` Item 会安装真实的 `artifact-ui.tsx` 公共 Barrel、`ArtifactUIProvider`、
+`ArtifactRenderer`、官方 Binding、shadcn Primitive、Artifact Recipe、Semantic Token 和 Catalog Lock。
+它的 Registry Metadata 把 `@data-elements/schema`、`@data-elements/core` 与
+`@data-elements/runtime` 固定到精确版本；Framework Adapter 在服务端单独选择。单个 Artifact Item
+只安装其源码闭包需要的精确 Runtime Package 子集，同时共享同一条 Managed Lock 路径。
+
+私有 Registry Compiler 使用与 npm Build 相同的 Catalog 和 Renderer Binding，自动生成：
+
+- Surface Primitive；
+- Form Primitive；
+- 单个语义 Artifact；
+- Renderer Binding 与 Catalog Metadata；
+- 完整 `all` UI Bundle、公共 Barrel 与 Compatibility Lock Item。
+
+每个组件声明一个 Entry File 和最少量的显式 Distribution Metadata：Item Type、Target Path、CSS/Asset 与
+Side Effect、Client/Server Boundary、Registry Dependency、Optional Peer，以及 Dynamic Import。Registry
+Builder 只使用 TypeScript Module Graph 计算静态本地文件闭包与外部 Package Set，不能据此推断 Deployment
+Intent。Adapter Integration 始终是版本化的服务端 npm Package，绝不能作为 UI Source 复制。
+Registry Output 根据 Descriptor 与浏览器源码 Import Graph 确定性构建；Contract Parity Test 负责让其
+Catalog Identity 与 Compiler/Renderer Contract 保持一致。
+
+仓库 CI Workflow 会执行 Typecheck、完整 Protocol/Package Test、确定性 Registry Generation、
+Registry-schema 与 Fresh-project Install Test、Source-pollution Check，以及 Package/Docs Build。
+Ignored Registry Output 必须构建两次并得到完全相同的 Manifest 与 Hash；绝不能用空 `git diff`
+代替 Determinism 证据。
+
+每个 Registry Item 记录 Item Type、源码闭包、Registry Dependency 与精确 External Dependency。
+项目本地 Lock 记录 Protocol/Contract/Runtime/Renderer Range、Renderer Build Hash，以及每个已安装
+React 文件的 Hash 与 Source Identity。存在未解析内部 Import、Server-only Source 或过期 Generated Output 时，
+Registry Build 必须失败。一旦 Locked File 被修改，状态就变为 `custom/unverified`；只有恢复精确且可验证的
+Bytes（包括显式 `--force` 覆盖）才能恢复 Official Status。`--force` 不是 Three-way Merge。
+
+目前本地实现并验证了两种使用模式：
+
+- **版本化 Package 模式**：npm 发布后用于集中升级 Runtime；
+- **shadcn 模式**：Registry 与 npm 发布后拥有 UI/Recipe 源码，同时依赖版本化安全 Runtime。
+
+两条路径的本地 Build 与 Fresh-install Fixture 强制相同 IR 语义和 Browser Boundary。未来的
+`all-source` 模式在 Security Conformance 与 Migration Tooling 对齐版本化 Runtime 路径前保持不可用。
+
+## 版本与兼容性
+
+每一条兼容轴都要独立版本化：
+
+- Document Protocol 与 Stream Protocol；
+- Authoring Codec；
+- Node Contract，例如 `artifact.metric@1`；
+- Action Contract，例如 `artifact.selection@1`；
+- State Schema；
+- Resource 与 Evidence Schema；
+- Capability Contract；
+- Information-flow 与 Document-policy Profile；
+- Catalog Release；
+- Renderer Binding/Build；
+- 不可变 Document Revision。
+
+不能把所有含义塞进一个 Catalog Hash。**Contract Fingerprint** 覆盖 Node 与 Action Schema、Slot、Event Port、
+Policy 和 Version；**Prompt Bundle Hash** 额外覆盖选中的 Catalog Slice、Example、Profile、Limit、
+Document Policy、Generation Taint Hash，以及模型可见的 Capability 与 Message-template Descriptor；
+**Renderer Build Hash** 标识实现与依赖版本，包括项目自行修改的 shadcn 源码。Protocol Compatibility
+取决于 Contract Fingerprint，不要求视觉源码 Hash 相同。
+
+```ts
+type CatalogCompatibilityManifest = {
+  catalogReleaseId: string
+  catalogId: string
+  catalogVersion: string
+  schemaProfile: SchemaProfileBinding
+  policyProfileHash: string
+  contractFingerprint: string
+  nodeVersions: Record<string, number>
+  actionContractVersions: Record<string, number>
+  runtimeApiRange: string
+  rendererApiRange: string
+  rendererBuildHash: string
+  rendererConformance: "official" | "custom-verified" | "custom-unverified"
+}
+
+type CompatibilityOffer = {
+  documentProtocolRanges: string[]
+  streamProtocolRanges: string[]
+  codecs: { id: string; versions: string[] }[]
+  runtimeApiRanges: string[]
+  rendererApiRanges: string[]
+  requiredFeatures: string[]
+  optionalFeatures: string[]
+  catalogManifests: CatalogCompatibilityManifest[]
+  limits: ProtocolLimits
+}
+
+type CompatibilitySelection = {
+  documentProtocol: string
+  streamProtocol: string
+  codec: { id: string; version: string }
+  runtimeApiVersion: string
+  rendererApiVersion: string
+  enabledFeatures: string[]
+  catalogManifest: CatalogCompatibilityManifest
+  limits: ProtocolLimits
+}
+
+type ProtocolLimits = {
+  maxFrameBytes: number
+  maxDocumentBytes: number
+  maxNodes: number
+  maxDepth: number
+  maxStringBytes: number
+  maxCollectionItems: number
+  maxObjectKeys: number
+  maxTotalValues: number
+  maxResolvedResourceBytes: number
+  maxConcurrentResourceRequests: number
+  maxSnapshotReceipts: number
+  maxOperationsPerTransaction: number
+  maxBufferedGapFrames: number
+  maxBufferedGapBytes: number
+  maxBufferedGapMs: number
+  transactionTimeoutMs: number
+}
+```
+
+`hello/ready` 只能选择一个明确交集。它先把 Offered Catalog Manifest 作为整体选择，再在该 Manifest 的 Range
+内选择精确 Runtime 与 Renderer API Version。Fingerprint 与独立协商的 Node Map 绝不能组成一个未经过构建和
+测试的组合。未知 Required Feature、不支持的 Manifest、API Range 不匹配或不兼容 Limit，都必须在模型开始
+生成前失败。Optional Feature 只有在 Compiled Prompt 同时删除相关能力时才能关闭。
+
+不可变 Release Manifest 是原子分发 Identity：
+
+```ts
+type ArtifactUIReleaseManifest = {
+  releaseId: string
+  catalog: CatalogCompatibilityManifest
+  packages: Record<string, { version: string; tarballIntegrity: string }>
+  registryItems: Record<string, { immutableUrl: string; sha256: string }>
+  migrationRanges: string[]
+  conformanceReportId: string
+  publishedAt: string
+}
+```
+
+发布顺序固定：构建 npm Tarball；针对这些 Tarball 运行完整 Matrix；发布并验证 npm；把 Registry Item 发布到
+不可变的 `/r/{releaseId}/...` URL；验证 Fresh Install；发布 Release Manifest；最后原子移动 `latest` Alias。
+Rollback 只把该 Alias 重新指向之前的不可变 Manifest。历史 Package Version、Registry JSON 和 Persisted
+Document 永远不能被重写。
+
+Migration 顺序固定：先用精确的旧 Schema 和旧 Resource Limit 校验 Source；选择唯一且无歧义的 Migration Chain；
+运行纯、确定性、受预算限制的 Transform；校验 Target Schema；最后执行当前 Policy Validation。Migration Receipt
+记录 Source/Target Version 与 Hash、执行步骤、Warning 和明确丢弃的字段。Major Protocol 永远不能自动强转。
+
+```ts
+type MigrationReceipt = {
+  receiptId: string
+  entity: "document" | "node" | "state" | "resource" | "evidence"
+  source: { version: string; contentHash: string }
+  target: { version: string; contentHash: string }
+  migrationIds: string[]
+  warnings: string[]
+  droppedPaths: string[]
+  appliedAt: string
+}
+```
+
+Receipt 存放在 Audit Store 中，其 ID 记录到 `RevisionIdentity`；适用的 `StateMigrationReceipt` 和有界的近期
+`ClientStateTransitionReceipt` Record 还会进入原子的 Runtime Snapshot。这样 Migration Claim 才能被编码和
+重放，而不只是日志惯例。
+
+Document Revision 构成不可变 DAG。每个 Committed Revision 记录 Parent、Branch、Content Hash、
+Contract Fingerprint、Migration Receipt 与 Evidence Binding，从而支持 Audit、Replay、Undo、Branch、
+显式 Merge 和确定性 Export。
+
+## 发布与回滚
+
+v2 发布按每个 Turn 实行 Dual-read、Single-write。每个 Persisted Message Part 都有显式 `artifactProtocol`；
+一段 Conversation 可以同时包含 v1 与 v2 Part，但一次 Model Turn 只能发出生成前选定的协议。Renderer 独立路由
+每个 Part。v1 Artifact 可以 Projection 为 v2 以供展示，但原始持久化 Byte 必须保持不可变。
+
+发布顺序为 `shadow conversion → internal workspace → tenant canary → provider/model canary → opt-in → default`。
+Shadow Conversion 校验并比较 v2 Output，但不发布。Feature Flag 按 Tenant、Conversation、Provider 和 Catalog
+Release 划分，每个阶段都有与下述 Release Gate 绑定的自动停止条件。v2-only Feature 在生成后绝不能静默降级；
+只有在 Proposal 或 Effect Commit 前，才允许退回 v1-compatible Generation Path。
+
+无法发送固定 Bootstrap `hello` 的旧 Client 只会收到 v1，绝不能收到未知 v2 Frame。请求 v2 却没有兼容 Manifest
+的 Client 会收到 `incompatible` 和稳定的非交互 Fallback，而不是被部分解释的 Document。Persisted-message
+Upgrade 会在原始 Part 旁创建派生 v2 Revision 与 Migration Receipt，不能原地改写历史。
+
+Operational Rollback 会针对新 Turn 禁用 v2，并把 `latest` 重新指向上一个已经验证的 Release Manifest。
+Dual Reader 与不可变 v2 Registry URL 继续部署，保证现有 v2 Message 仍能 Replay。Rollback 绝不能尝试撤销
+External Effect。v2 成为默认版本后，v1 Read 至少继续支持两个 Stable Release 和六个月；移除前必须具备
+Usage Telemetry、公开 Deadline、Export Tooling，并成功完成 Rollback Drill。
+
+## 可观测性与评测门槛
+
+每个阶段发出结构化 Event，携带 `runId`、`documentId`、`revision`、`transactionId`、`nodeId`、
+`contractFingerprint`、Model/Provider、Duration 和脱敏 Diagnostic Code。Event Sink 与 Devtools
+订阅同一个与框架无关的 Event Bus。
+
+Release Suite 必须覆盖：
+
+| 层 | 必须检查 |
+| --- | --- |
+| Contract | Schema/Prompt/Docs 生成确定且无漂移 |
+| Codec | Fuzz、Malformed Input、Limit、Duplicate ID、Cycle、Unknown Node |
+| Normalize | 不同 Codec 生成逐字节等价的 Normalized IR |
+| Streaming | 任意 Prefix 不崩溃；last-good 与用户状态不丢失 |
+| Patch | Base Revision Conflict、Order、Idempotency、Remove Semantics、Replay |
+| Security | 未授权 Capability、Information-flow Label、Literal/Preview Taint、Retention、URL Policy、Prompt Injection、Resource Scope、Approval Bypass |
+| Semantics | Artifact 不变量、Evidence、Unit、统计陷阱 |
+| Renderer | Accessibility、Keyboard、Responsive Layout、Error Boundary |
+| Model | 组件选择、首轮有效率、修复成功率、Token Cost、Patch Size、跨 Provider 表现 |
+| Operations | Latency、Command Deduplication、Action-step Resume、Cancellation、Retry、Persistence、Migration、Export Reproducibility |
+| Compatibility | 100% v1 Fixture Projection、API Range Fail Closed、Migration 与 Rollback Drill |
+| Distribution | npm Pack/Export/Integrity、不可变 Registry Hash、Next.js/Vite、React 18/19、npm/pnpm/bun、Custom Alias、Install/Typecheck/Production Build |
+| Golden path | 文档中的 Command、Provider 与 Renderer 能在 Fresh Fixture 中 Build，无需手写 Schema、Prompt、Catalog 或 Protocol Wiring |
+| Simplicity | 默认接入代码量、首次成功时间、配置项数量、错误可理解性、升级步骤 |
+
+首批生产门槛应包括：未授权 Effect 执行为 0；Invalid Patch 后 last committed revision 保留率 100%；
+官方 Renderer 不存在 Serious 或 Critical Accessibility Failure；Pinned Model Suite 首轮结构有效率的
+置信下界至少为 98%，一次有限修复后的置信下界至少为 99.9%。最后一个目标在使用双侧 95% Interval 时，
+要求每个受 Gate 约束的 Provider/Profile Aggregate 至少有 4,000 个 Eligible Zero-failure Sample；1,000 个
+Sample 永远不足以证明该结论。Versioned Evaluation Manifest 必须在执行前固定 Sample Size、Model Parameter、
+Provider/Profile Slice、Statistical Method 和 Exclusion。
+
+Artifact Selection 的 Macro Accuracy 总体至少为 95%，每个 Critical Slice 至少为 90%。Evidence ID 必须在
+100% 的 Governed Case 中解析成功并满足 Contract Requirement。Capability Bypass、Cross-tenant Resource
+Access、Document-policy Downgrade、Non-persistable Data Retention、Approval Bypass、Executable-content
+Injection 与 Semantic Fabrication 的容忍度均为 0。全部 Distribution Fixture 必须成功 Install、Typecheck
+与 Production Build；官方 Performance 与 Bundle Budget 是 Release Manifest 中按 Surface 定义的硬限制。
+任何 Security 或 Distribution Regression 都会阻断发布，不受 Aggregate Model Score 影响。
+
+First Useful Paint、Commit Latency、Repair Latency/Token Cost、last-good Retention、State Retention 和
+Artifact Selection Quality 必须分开统计。任何 Aggregate Score 都不能掩盖关键 Slice 或 Provider Regression。
+
+## 从当前系统迁移
+
+当前协议是很好的语义地基。迁移应当包装它，而不是推倒重写。
+
+每个 Phase 都在 Dual-stack Flag 后运行，并交付各自的 Telemetry、Conformance Fixture、Distribution Check、
+Rollback Drill 和显式 Exit Gate。Observability、Registry Lock 与 Release Gate 不能推迟到最后一个 Phase。
+
+截至 2026-08-15：Phase 0-5 的代码路径和确定性本地 Gate 已作为参考实现落地。依赖已部署流量、独立
+Accessibility/Browser Matrix、固定 Provider 调用或生产运维的 Exit Gate 仍未完成。尤其要明确：本地 Fixture
+不能计入 4,000+ 个真实 Eligible Model Sample，存在 Rollout 代码也不代表已经执行 Production Canary。
+
+### Phase 0：消除契约漂移
+
+- 冻结 v1，并建立覆盖全部 18 个 Schema Kind、Manifest、Renderer、Adapter、Export、Docs 和 Registry Entry
+  的 Catalog Parity Test。
+- 在引入 v2 行为前修复当前 AI SDK Schema 漂移，并统一 Strictness、Payload Byte Limit、Row Limit 和 Action Schema。
+- 先在现有 `core` 包中引入 `defineNodeContract`。
+- 从 Contract 生成 Artifact Union、Adapter Schema、Manifest、Docs Metadata 与 Registry Metadata。
+- 加入 Contract Fingerprint、Prompt Bundle Hash 和生成一致性测试。
+- 在 v1 之上建立目标 `createArtifactUI`/`ArtifactRenderer` Facade、Registry Distribution Descriptor 与 Lock
+  Record，以及共享的 Event 与 Diagnostic Vocabulary。
+- 保持所有公开 `1.0` API 正常工作。
+- **Exit gate：** 所有 v1 Consumer 达到 100% Parity；Committed View 保持 Deterministic；Ignored Output 的
+  Two-build Equality，以及 Fresh Install/Typecheck/Production-build Fixture 全部通过，且 v1 行为零回归。
+
+### Phase 1：Normalized Document IR
+
+- 加入 Document、Node、Slot、Evidence、Semantic-content Hash、Diagnostic、Revision DAG、State Identity 和
+  Migration Receipt Schema。
+- 实现 `fromV1Artifact(artifact)`，明确把 v1 Envelope Project 成 Surface Root 下的一个 Atomic Semantic Node；
+  v1 Envelope Field 不能直接复制进 Node Props。
+- 支持渲染 Normalized Document，同时保留 `ArtifactRenderer` 兼容入口。
+- 加入 Dual-read Routing、Shadow Conversion、Persisted-part Discriminant、Feature Flag、不可变 Release
+  Manifest 和 Operational Rollback。首次分发 v2 Source 前必须已有 Registry Lock。
+- **Exit gate：** 每个 v1 Fixture 都能确定性 Projection；Semantic Hash 逐字节 Replay；旧 Client 只收到 v1；
+  Shadow/Canary Rollback Drill 保留全部 Persisted Artifact。
+
+### Phase 2：Surface DSL 与 Prompt Compiler
+
+- 只发布最小但有用的 Layout 与 Content Catalog；Form 等到 Typed State 阶段。
+- 加入嵌套 JSON Snapshot 编译和按任务 Catalog Slicing。
+- 自动生成 PromptBundle 和 Provider Schema，移除手写 Adapter Enum 与 Description。
+- 实现 `prepareTurn`、branded `ArtifactPart` Handoff，以及一次使用脱敏 Model-correctable Diagnostic 的有限
+  Snapshot Repair。
+- **Exit gate：** Golden Path 在全部 Distribution Fixture 中 Build；Contract Slicing 保持 Deterministic；
+  Snapshot Limit/Fuzz Suite 通过；Pinned Model 的结构与选择 Gate 达到声明的置信阈值。
+
+### Phase 3：事务式 Streaming 与 Editing
+
+- 实现固定 Bootstrap Negotiation、Directional Message Type、Frame Decode、Draft/Committed Store、Forward
+  Reference、Strict/Progressive Policy、Revision/Head Conflict、Abort Cleanup 和 last-good 行为。
+- 加入确定性的 Snapshot-to-Delta、Arbitrary-prefix、Replay、Resume、Expired-cursor Snapshot 与 Stream
+  Telemetry Test。该阶段的 Draft 或 Preview 绝不能执行外部 Effect。
+- **Exit gate：** 每条有效 Stream 都能相同 Replay；每个无效 Prefix 都保留 last-good Revision 与用户 State；
+  Incompatibility Fail Closed；Canary Rollback 在注入 Disconnect 与 Reordering 时仍然成功。
+
+### Phase 4：类型化 State 与 Capability Broker
+
+- 加入 Schema-identified State、Migration 与 Receipt、Form、Binding、Typed Event Port、Durable Action
+  Invocation/Step Receipt、Local Action Plan，以及共享的 `ArtifactUIProvider` Lifecycle。
+- 加入 Host-stamped Document Policy、Whole-generation Information-flow Label、拆分的 Resource Control/Data
+  Plane，以及受 Policy 约束的 Cursor Persistence。
+- 加入 Capability Broker，并且只发布 Read-only Capability，同时具备 Host Grant Source Contract、Brokered
+  Message Template、Reauthorization、Idempotency、State/Head Precondition 和 Sanitized Browser View。
+- 数据执行继续留在 Renderer 外部，结果通过新的 Revision 发布。
+- **Exit gate：** State Race/Migration Suite、Event-payload Validation、Action Crash/Replay、Message
+  Disclosure/Taint Rule、Cross-tenant Isolation、Read-effect CAS、Resume、Cancellation 与 Receipt
+  Conformance 全部通过，Authorization Failure 为 0。
+
+### Phase 5：完整生产系统
+
+- 只有 Pre-execution Reauthorization、Cancellation/Too-late、External-result Publication Conflict 和 Audit
+  Suite 通过后，才加入 Mutation Capability 与 Approval UX。完成 Devtools 和生产 Adapter Coverage。
+- 扩展受限 Repair 与 Provider Eval。Optional Text Codec 与 `all-source` Mode 只有在各自独立满足 Semantic、
+  Security、Migration 和 Distribution Conformance 后才能发布。
+- 只有独立版本或环境边界确实需要时，才把逻辑 Module 拆成独立 Package。
+- **Exit gate：** Versioned Release Manifest 中所有 Security、Semantic、Compatibility、Distribution、
+  Accessibility、Reliability 与 Statistical Gate 全部通过，随后完成 Production Canary 与 Rollback Drill。
+
+## 架构不变量
+
+真正定义产品的不是组件数量，而是以下规则：
+
+1. 模型输出永远是不可信的声明式数据。
+2. 具名字段具有稳定语义，Schema 顺序永远不能改变行为。
+3. Normalized IR 与 React、shadcn/ui 和传输厂商无关。
+4. 语义分析节点原子提交并且能够绑定 Evidence。
+5. Renderer 永远不选择或直接执行任意 Tool。
+6. Capability 由宿主授予、经过 Policy 检查、可审计、可撤销。
+7. 不完整或无效更新不能破坏 last committed UI 或用户状态。
+8. Prompt 与 Provider Schema 来自版本化 Contract；在进一步 Code Generation 完成前，Renderer、Registry、
+   Docs、Migration 与 Eval Source 必须通过确定性 Parity Gate 与 Contract 绑定。
+9. 每个 Committed Revision 都能重放和解释。
+10. 新表达能力必须同时具备 Validator、Policy、Migration、Observability 和 Eval 方案。
+11. State Persistence、Sensitivity、Retention、Disclosure 和 Capability Policy 只能由 Host 决定，模型不能决定。
+12. Client Command、Action Step 和 Effect 必须幂等、有 Durable Receipt，并且可以恢复而不重复已完成的工作。
+13. 默认路径始终是一条安装命令、一个 Server Helper、一个 Browser Decoder 和一个 Renderer；内部 Package Boundary 不能变成用户配置。
+14. 每次模型生成都继承所有可见 Input Label 的 Conservative Join；只有可信且有 Receipt 的 Transformation
+    才能对 Output 执行 Declassification。
+15. 不可变 Document、Cursor Buffer、Message Log、Renderer Handoff 和 Export 都不得超出 Host 规定的 Scope
+    与 Retention Policy，也不得比它们保留得更久。
+
+这套终局架构比早期单 Artifact 协议更通用，也比通用模型组件树更可信。真正的竞争壁垒不是组件数量，
+而是语义数据组件、受约束组合、可信 Effect、Provenance、流式稳定性、简单入口和可量化的模型可靠性同时成立。

@@ -1,0 +1,33 @@
+{
+  "name": "@data-elements/ai-sdk",
+  "version": "0.1.0",
+  "description": "AI SDK adapters for Data Elements.",
+  "type": "module",
+  "sideEffects": ["./dist/browser.mjs"],
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/compiler": "workspace:*",
+    "@data-elements/core": "workspace:*",
+    "@data-elements/runtime": "workspace:*",
+    "@data-elements/schema": "workspace:*",
+    "ai": "7.0.66",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

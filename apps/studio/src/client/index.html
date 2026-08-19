@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <meta content="Tessera" name="application-name" />
+    <link href="/tessera-logo.png" rel="icon" type="image/png" />
+    <meta content="noindex,nofollow" name="robots" />
+    <title>Tessera</title>
+    <script>
+      (() => {
+        try {
+          const preference = localStorage.getItem("tessera.theme") || "dark";
+          const resolved = preference === "system"
+            ? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+            : preference === "dark" ? "dark" : "light";
+          document.documentElement.dataset.theme = resolved;
+          document.documentElement.style.colorScheme = resolved;
+        } catch {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="/main.tsx" type="module"></script>
+  </body>
+</html>

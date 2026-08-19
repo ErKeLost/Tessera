@@ -1,0 +1,46 @@
+---
+title: 简介
+description: 嵌入现有业务系统、可持久化并持续编辑的业务 Artifact Runtime。
+---
+
+Data Elements 是嵌入现有业务系统、可持久化并持续编辑的语义业务 Artifact Runtime。模型只能组合
+宿主选出的 Surface 与语义 Node；校验、授权、计算、交互、渲染、持久化和所有外部 Effect 都由宿主掌控。
+
+<CalculatorDemo />
+
+## 安装
+
+以下命令是 npm Package 与远程 Registry 发布后的公开安装接口，目前尚不可用；本仓库当前是
+本地参考实现。
+
+发布后，可通过 Artifact Agent CLI 安装全部可编辑组件：
+
+```bash
+npx data-elements@latest
+```
+
+发布后，也可以只安装所需的 Artifact：
+
+```bash
+npx data-elements@latest add query-artifact metric-artifact
+```
+
+该命令届时会使用现有的 `components.json`，把源码安装到其中配置的组件别名下，并通过
+生成的 primitives 自动引入 Artifact Agent 样式。目前请使用 `bun install`、
+`bun run registry:build` 与 `bun run dev` 验证本地实现。
+
+## 核心不变量
+
+系统不生成 App。智能体不会编写 JSX、JavaScript、HTML、CSS 或可执行公式，只输出当前任务专属的声明式
+Surface DSL。服务端 Compiler 对 Proposal 执行 Normalize、Validate、Authorize 与 Commit，
+生成带本地 Brand 的 v2 `ArtifactPart`。序列化后的 Wire Part 必须由
+`@data-elements/runtime` 使用预期 Contract Fingerprint 再次 Decode，可信 React Renderer
+才会接收它。
+
+<Cards>
+  <Card title="目标架构" description="理解持久化 Artifact 生命周期、宿主边界、编辑模型与生产准入门槛。" href="/docs/concepts/embedded-artifact-runtime" />
+  <Card title="架构" description="理解智能体循环、安全模型、证据和生产准入门槛。" href="/docs/agent-architecture" />
+  <Card title="智能体选择" description="指导模型在适当场景选择对应界面。" href="/docs/concepts/agent-selection" />
+  <Card title="Query Artifact" description="在同一界面呈现数据、图表、SQL 和溯源信息。" href="/docs/components/query-artifact" />
+  <Card title="AI SDK" description="把 Surface DSL Proposal 编译为可信 Runtime Part。" href="/docs/integrations/ai-sdk" />
+</Cards>

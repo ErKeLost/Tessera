@@ -1,0 +1,335 @@
+import type {
+  EffectCancellationReceipt,
+  EffectExecutionResult,
+  ModelVisibleGrantSet,
+} from "@data-elements/capability-broker";
+import type {
+  DatabaseMutationAction,
+  DatabaseMutationResult,
+} from "@data-elements/database";
+import type { TesseraUIMessage } from "../../protocol";
+
+export type StudioThreadSummary = Readonly<{
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type DatabaseDialect = "postgres" | "mysql";
+
+export type StudioConnection = Readonly<{
+  connected: boolean;
+  credentialCanWrite?: boolean;
+  databaseName?: string;
+  dialect: DatabaseDialect;
+  latencyMs?: number;
+  readOnlyTransactions: boolean;
+  serverVersion?: string;
+  warnings: string[];
+}>;
+
+export type StudioCatalogColumn = Readonly<{
+  dataType: string;
+  name: string;
+  nullable: boolean;
+  ordinal?: number;
+}>;
+
+export type StudioCatalogForeignKey = Readonly<{
+  columns: string[];
+  name: string;
+  referencedColumns: string[];
+  referencedSchema: string;
+  referencedTable: string;
+}>;
+
+export type StudioCatalogTable = Readonly<{
+  columns: StudioCatalogColumn[];
+  estimatedRows?: number;
+  foreignKeys?: StudioCatalogForeignKey[];
+  kind: string;
+  name: string;
+  primaryKey?: string[];
+  schema: string;
+}>;
+
+export type StudioCatalog = Readonly<{
+  connectionRef: string;
+  databaseName: string;
+  dialect: DatabaseDialect;
+  fingerprint: string;
+  scannedAt: string;
+  schemas: Array<{ name: string; tables: StudioCatalogTable[] }>;
+}>;
+
+export type StudioMeta = Readonly<{
+  protocolVersion: number;
+  capabilities: Readonly<{ chat: boolean; artifacts: boolean }>;
+}>;
+
+/**
+ * Browser-facing typed mutation contract. Read actions continue through the
+ * existing Data Agent APIs; the database-actions transport only accepts this
+ * mutation union and never accepts raw SQL.
+ */
+export type StudioDatabaseAction = DatabaseMutationAction;
+
+export type StudioDatabaseActionResult = DatabaseMutationResult & Readonly<{
+  actionHash: `sha256:${string}`;
+  catalogFingerprint: `sha256:${string}`;
+}>;
+
+export type StudioDatabaseActionEffect = EffectExecutionResult & Readonly<{
+  result?: StudioDatabaseActionResult;
+}>;
+
+export type StudioDatabaseActionCapabilities = ModelVisibleGrantSet;
+
+export type StudioDatabaseActionSubmitInput = Readonly<{
+  action: StudioDatabaseAction;
+  purpose: string;
+  /** Stable request identity makes retries replay-safe. */
+  requestId?: string;
+  invocationId?: string;
+  stepId?: string;
+  actionId?: string;
+  idempotencyKey?: string;
+}>;
+
+export type StudioDatabaseActionApprovalInput = Readonly<{
+  checkpointId: string;
+  decision: "approve" | "reject";
+}>;
+
+export type StudioDatabaseActionCancelInput = Readonly<{
+  cancelRequestId?: string;
+}>;
+
+type ApiError = { error?: { message?: string } };
+
+type RequestJsonOptions = Readonly<{
+  acceptedStatuses?: readonly number[];
+}>;
+
+export async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit, options: RequestJsonOptions = {}): Promise<T> {
+  const response = await fetch(input, init);
+  const body = await response.json().catch(() => undefined) as ApiError | T | undefined;
+  if (!response.ok && !options.acceptedStatuses?.includes(response.status)) {
+    const message = body && typeof body === "object" && "error" in body ? body.error?.message : undefined;
+    throw new Error(message || "Tessera could not complete this request.");
+  }
+  return body as T;
+}
+
+export async function fetchStudioConnection(signal?: AbortSignal): Promise<StudioConnection> {
+  return (await requestJson<{ connection: StudioConnection }>("/api/connection", { signal })).connection;
+}
+
+export async function fetchStudioCatalog(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<StudioCatalog> {
+  const search = options.refresh ? "?refresh=1" : "";
+  return (await requestJson<{ catalog: StudioCatalog }>(`/api/catalog${search}`, { signal: options.signal })).catalog;
+}
+
+export function fetchStudioDatabaseActionCapabilities(signal?: AbortSignal): Promise<StudioDatabaseActionCapabilities> {
+  return requestJson<StudioDatabaseActionCapabilities>("/api/database-actions/capabilities", { signal });
+}
+
+export function submitStudioDatabaseAction(
+  input: StudioDatabaseActionSubmitInput,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return requestJson<StudioDatabaseActionEffect>("/api/database-actions", {
+    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  }, { acceptedStatuses: [202] });
+}
+
+export function fetchStudioDatabaseAction(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return requestJson<StudioDatabaseActionEffect>(
+    `/api/database-actions/${encodeURIComponent(requestId)}`,
+    { signal },
+  );
+}
+
+export function respondToStudioDatabaseActionApproval(
+  requestId: string,
+  input: StudioDatabaseActionApprovalInput,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return requestJson<StudioDatabaseActionEffect>(
+    `/api/database-actions/${encodeURIComponent(requestId)}/approval`,
+    {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      signal,
+    },
+  );
+}
+
+export function approveStudioDatabaseAction(
+  requestId: string,
+  checkpointId: string,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return respondToStudioDatabaseActionApproval(requestId, { checkpointId, decision: "approve" }, signal);
+}
+
+export function rejectStudioDatabaseAction(
+  requestId: string,
+  checkpointId: string,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return respondToStudioDatabaseActionApproval(requestId, { checkpointId, decision: "reject" }, signal);
+}
+
+export function cancelStudioDatabaseAction(
+  requestId: string,
+  input: StudioDatabaseActionCancelInput = {},
+  signal?: AbortSignal,
+): Promise<EffectCancellationReceipt> {
+  return requestJson<EffectCancellationReceipt>(
+    `/api/database-actions/${encodeURIComponent(requestId)}/cancel`,
+    {
+      body: JSON.stringify(input),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      signal,
+    },
+  );
+}
+
+export function fetchStudioMeta(signal?: AbortSignal): Promise<StudioMeta> {
+  return requestJson<StudioMeta>("/api/meta", { signal });
+}
+
+export async function fetchStudioThreads(signal?: AbortSignal): Promise<readonly StudioThreadSummary[]> {
+  return readThreadList(await requestJson<unknown>("/api/threads", { signal }));
+}
+
+export async function createStudioThread(signal?: AbortSignal): Promise<StudioThreadSummary> {
+  const body = await requestJson<unknown>("/api/threads", {
+    body: "{}",
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  });
+  const thread = readThreadSummary(body);
+  if (!thread) throw new Error("thread_create_response_invalid");
+  return thread;
+}
+
+export async function renameStudioThread(threadId: string, title: string): Promise<StudioThreadSummary> {
+  const body = await requestJson<unknown>(`/api/threads/${encodeURIComponent(threadId)}`, {
+    body: JSON.stringify({ title }),
+    headers: { "Content-Type": "application/json" },
+    method: "PATCH",
+  });
+  const thread = readThreadSummary(body);
+  if (!thread) throw new Error("thread_rename_response_invalid");
+  return thread;
+}
+
+export function deleteStudioThread(threadId: string): Promise<unknown> {
+  return requestJson<unknown>(`/api/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
+}
+
+export async function fetchStudioThreadMessages(threadId: string, signal?: AbortSignal): Promise<readonly TesseraUIMessage[]> {
+  const body = await requestJson<unknown>(`/api/threads/${encodeURIComponent(threadId)}/messages`, { signal });
+  return readPublicUiMessages(body);
+}
+
+export async function fetchStudioModelLabel(signal?: AbortSignal): Promise<string> {
+  const body = await requestJson<unknown>("/api/settings", {
+    headers: { Accept: "application/json" },
+    signal,
+  });
+  return readStudioModelLabel(body) ?? "Model";
+}
+
+export function publicError(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : "Tessera could not load this information.";
+}
+
+function readThreadList(value: unknown): readonly StudioThreadSummary[] {
+  const threads = asRecord(value)?.threads;
+  if (!Array.isArray(threads) || threads.length > 200) throw new Error("thread_list_response_invalid");
+
+  const seen = new Set<string>();
+  const result: StudioThreadSummary[] = [];
+  for (const item of threads) {
+    const thread = readThreadSummary(item);
+    if (!thread || seen.has(thread.id)) continue;
+    seen.add(thread.id);
+    result.push(thread);
+  }
+  return result;
+}
+
+function readThreadSummary(value: unknown): StudioThreadSummary | undefined {
+  const root = asRecord(value);
+  const thread = asRecord(root?.thread) ?? root;
+  const id = readStudioThreadId(thread?.id);
+  if (!id) return undefined;
+  return {
+    id,
+    title: readPublicText(thread?.title, 160) ?? "New analysis",
+    createdAt: readPublicText(thread?.createdAt, 64) ?? "",
+    updatedAt: readPublicText(thread?.updatedAt, 64) ?? "",
+  };
+}
+
+function readPublicUiMessages(value: unknown): readonly TesseraUIMessage[] {
+  const messages = asRecord(value)?.messages;
+  if (!Array.isArray(messages) || messages.length > 256) throw new Error("thread_messages_response_invalid");
+
+  const result: TesseraUIMessage[] = [];
+  for (const message of messages) {
+    const source = asRecord(message);
+    const id = readPublicText(source?.id, 256);
+    const role = source?.role;
+    const parts = source?.parts;
+    if (!id || (role !== "user" && role !== "assistant") || !Array.isArray(parts) || parts.length > 128) {
+      throw new Error("thread_message_invalid");
+    }
+    result.push({ id, role, parts } as TesseraUIMessage);
+  }
+  return result;
+}
+
+function readStudioModelLabel(value: unknown): string | undefined {
+  const llm = asRecord(asRecord(value)?.settings)?.llm ?? asRecord(value)?.llm;
+  const provider = readPublicText(asRecord(llm)?.provider, 64);
+  const model = readPublicText(asRecord(llm)?.model, 512);
+  if (!provider || !model) return undefined;
+  const normalizedModel = model.trim().replace(new RegExp(`^${escapeRegExp(provider.trim())}/`, "i"), "");
+  const compact = normalizedModel.length > 24 ? `${normalizedModel.slice(0, 21)}...` : normalizedModel;
+  return compact || provider || "Model";
+}
+
+function readStudioThreadId(value: unknown): string | undefined {
+  const id = readPublicText(value, 128);
+  return id && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(id) ? id : undefined;
+}
+
+function readPublicText(value: unknown, maximum: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed && trimmed.length <= maximum && !/[\u0000-\u001f\u007f]/.test(trimmed) ? trimmed : undefined;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}

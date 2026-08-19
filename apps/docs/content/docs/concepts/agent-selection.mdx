@@ -1,0 +1,55 @@
+---
+title: Agent selection
+description: How the compiler exposes the right Artifact UI nodes for one model turn.
+---
+
+An agent does not infer components from visual appearance. `prepareTurn()` uses
+the task, profile, requested node types, examples, prerequisites, and negative
+guidance to expose a bounded catalog slice for exactly one model call.
+
+## Recommended flow
+
+1. A host-authorized data tool fetches or computes authoritative content and
+   remains useful without a UI.
+2. The host labels any resources and evidence that may enter the model context.
+3. `createArtifactUI().prepareTurn()` selects the useful node contracts and
+   freezes their contract fingerprint, prompt, provider schema, and limits.
+4. The model calls `renderArtifact` with the compact Surface DSL generated for
+   that slice. It cannot name nodes or resources outside the slice.
+5. The compiler normalizes, validates, authorizes, and commits the proposal
+   before producing a runtime `ArtifactPart`.
+
+Each node contract carries selection and trust metadata. For example:
+
+```ts
+{
+  type: "artifact.metric",
+  version: 1,
+  category: "semantic-artifact",
+  trust: "governed",
+  commitPolicy: "atomic",
+  prompt: {
+    summary: "Show one or more high-signal values and their change in a compact surface.",
+    useWhen: [
+      "The answer is primarily a small set of KPIs or status values.",
+      "A compact summary is more useful than detailed rows."
+    ],
+    avoidWhen: ["The user needs row-level inspection or trend exploration."]
+  }
+}
+```
+
+Positive and negative rules distinguish similar nodes. Stable named fields,
+strict schemas, and task-specific examples reduce selection errors without
+placing the entire 27-contract catalog in every prompt.
+
+## Keep retrieval behind the host
+
+Data access and rendering remain separate. A rendered node can update approved
+local state immediately. Refresh, follow-up, navigation, approval, export, or
+external effects emit a typed runtime command through `ArtifactUIProvider`.
+
+The host decides whether that command is available and passes it through an
+authorized `runtimeTransport`, capability policy, and any required approval. UI
+code never selects credentials, grants itself access, or calls an arbitrary data
+tool directly.

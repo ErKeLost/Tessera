@@ -1,0 +1,92 @@
+---
+title: Chart
+description: A shadcn Chart API and Recharts renderer for trusted query visualizations.
+---
+
+Artifact Agent uses the **shadcn Chart API**, implemented by `ChartContainer`,
+`ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, and `ChartLegendContent`,
+with **Recharts** as the visualization engine. It does not use Apache ECharts.
+
+<ComponentPreview
+  filename="data-chart-example.tsx"
+  code={`import { DataChart } from "@/components/data-elements/data-chart"
+
+export function CreditFlowChart({ rows }) {
+  return (
+    <DataChart
+      rows={rows}
+      chart={{
+        kind: "area",
+        xKey: "day",
+        yKeys: ["credits"],
+      }}
+      locale="en-US"
+      height={280}
+    />
+  )
+}`}
+>
+  <ChartDemo height={280} />
+</ComponentPreview>
+
+## Installation
+
+Chart primitives currently ship with Query Artifact so the chart, validated
+query schema, and table renderer stay version-compatible.
+
+<InstallCommand name="query-artifact" />
+
+## Usage
+
+Use `DataChart` for catalog-driven `line`, `bar`, or `area` query charts. Use
+the lower-level shadcn-compatible primitives when building a trusted custom
+renderer in your own catalog.
+
+<CodeExample
+  filename="components/revenue-chart.tsx"
+  code={`import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/data-elements/chart"
+import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
+
+const config = {
+  revenue: { label: "Revenue", color: "var(--chart-1)" },
+} satisfies ChartConfig
+
+export function RevenueChart({ data }) {
+  return (
+    <ChartContainer config={config}>
+      <AreaChart data={data}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="month" />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <Area dataKey="revenue" fill="var(--color-revenue)" />
+      </AreaChart>
+    </ChartContainer>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="DataChart"
+  properties={[
+    { name: "rows", type: "QueryArtifact['rows']", required: true, description: "Validated records passed to the Recharts data prop." },
+    { name: "chart", type: "ChartSpec", description: "Trusted line, bar, or area specification with one x key and up to eight y keys." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for axes and tooltip formatting." },
+    { name: "height", type: "number", defaultValue: "320", description: "Explicit chart height in CSS pixels." },
+  ]}
+/>
+
+<ApiReference
+  name="ChartContainer"
+  properties={[
+    { name: "config", type: "ChartConfig", required: true, description: "Maps data keys to labels, Lucide icon components, and semantic colors or light/dark theme colors." },
+    { name: "children", type: "ResponsiveContainer['children']", required: true, description: "A Recharts chart element such as AreaChart, BarChart, or LineChart." },
+    { name: "initialDimension", type: "{ width: number; height: number }", defaultValue: "{ width: 320, height: 200 }", description: "Stable first render dimensions used before responsive measurement completes." },
+  ]}
+/>

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@data-elements/docs#build": {
+      "dependsOn": ["^build", "//#registry:build"],
+      "outputs": [".next/**", "!.next/cache/**"]
+    },
+    "//#registry:build": {
+      "inputs": [
+        "registry.json",
+        "scripts/prepare-registry.ts",
+        "packages/schema/package.json",
+        "packages/schema/src/**",
+        "packages/core/package.json",
+        "packages/core/src/**",
+        "packages/runtime/package.json",
+        "packages/react/src/**"
+      ],
+      "outputs": ["apps/docs/.registry/**", "registry/generated/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    }
+  }
+}

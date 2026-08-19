@@ -1,0 +1,65 @@
+---
+title: Data Analyst Agent Architecture
+description: A production reference architecture for interruptible analysis, governed execution, evidence-backed answers, and durable evaluation.
+---
+
+A production data analyst agent is not a chat completion with a SQL tool. It is
+an interruptible system that separates user intent, governed execution,
+validation, evidence, and presentation while preserving one owner for the
+final answer.
+
+![Data Analyst Agent reference architecture](/diagrams/data-analyst-agent-reference.svg)
+
+## The default topology
+
+Use one **run controller** as the answer owner. It clarifies the request,
+selects approved tools, manages budgets and checkpoints, and publishes the
+final response. Add bounded workers only when investigations are independent,
+parallelizable, and valuable enough to justify extra cost and coordination.
+
+The architecture has four operational planes:
+
+| Plane | Responsibility |
+| --- | --- |
+| Experience | Complete chat, assumptions, run timeline, artifacts, sources, and follow-up composer |
+| Runtime | Run controller, context service, durable state, policy and budget engine |
+| Execution | Tool gateway, SQL safety gate, result validator, artifact publisher |
+| Context and data | Semantic definitions, warehouse metadata, scoped memory, approved data systems |
+
+An evidence ledger and trace store span every plane. They connect claims to
+tool outputs and make runs reproducible without exposing private hidden
+reasoning.
+
+## Non-negotiable contracts
+
+- Data access and rendering are separate tools. A render call never silently
+  queries a database.
+- Permissions pass through from the user and workspace. The model cannot grant
+  itself access.
+- SQL execution is read-only by default, scoped, bounded, and observable.
+- The final answer cites claim-level evidence, not only a list of sources.
+- Every artifact is versioned, declarative data validated against a strict
+  schema. It contains no JSX, HTML, scripts, or executable formulas.
+- Runs persist state before risky or long operations so they can pause, resume,
+  retry, and accept human approval.
+
+## Why this shape
+
+OpenAI's agent guidance treats tools, orchestration, guardrails, tracing, and
+evaluation as first-class parts of an agent system. Anthropic's effective
+agent patterns distinguish predictable workflows from autonomous agents and
+recommend adding complexity only when it improves results. Claude Code's
+documented loop similarly gathers context, takes action, and verifies work.
+W3C PROV supplies a durable vocabulary for entities, activities, agents, and
+their relationships.
+
+Continue with the [run loop](./run-loop), then add the safety, provenance, and
+evaluation boundaries before exposing production data.
+
+## Primary references
+
+- [OpenAI: Agents](https://developers.openai.com/api/docs/guides/agents)
+- [OpenAI: Orchestration](https://developers.openai.com/api/docs/guides/agents/orchestration)
+- [Anthropic: Building effective agents](https://www.anthropic.com/research/building-effective-agents)
+- [Claude Code: How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works)
+- [W3C PROV overview](https://www.w3.org/TR/prov-overview/)

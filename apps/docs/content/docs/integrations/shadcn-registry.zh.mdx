@@ -1,0 +1,104 @@
+---
+title: 安装
+description: 将可编辑的 Artifact Agent 入口安装到应用程序中。
+---
+
+## 前置条件
+
+- Node.js 20.18.1 或更高版本
+- 使用 Tailwind CSS 的 React 项目
+- shadcn `components.json` 文件
+
+如果项目尚未初始化 shadcn，请先运行 `npx shadcn@4.17.0 init`。
+
+发布状态：CLI Package、Runtime Package 与 `data-elements.dev` Registry 尚未公开发布。
+下面两个章节记录的是已经测试的发布接口，只有这些 Artifact 发布后外部项目才能真正执行。
+页面末尾的本地仓库工作流现在即可使用。
+
+## Artifact Agent CLI
+
+安装完整目录：
+
+```bash
+npx data-elements@latest
+```
+
+安装一个或多个 Artifact：
+
+```bash
+npx data-elements@latest add query-artifact metric-artifact
+```
+
+CLI 会根据调用它的包管理器检测 npm、pnpm、Yarn 或 Bun，并把安装工作委托给兼容的
+shadcn CLI。不带参数时，默认安装完整目录 `artifact-ui`。
+
+随时检查现有安装：
+
+```bash
+npx data-elements@latest doctor
+```
+
+该命令会读取项目本地的兼容性 Lock，校验每一个已复制源码的 Hash、
+Protocol/Contract/Runtime/Renderer 兼容范围、精确 Runtime 依赖以及 Renderer Conformance。
+
+### 更新自定义源码
+
+未修改的官方安装可以正常更新。如果 Locked Source 被修改或删除，CLI 会把当前安装标记为
+`custom/unverified`，并拒绝静默覆盖。请先通过 `doctor` 查看受影响文件，再决定如何处理本地改动。
+
+如果确认要丢弃本地修改并显式覆盖：
+
+```bash
+npx data-elements@latest --force
+```
+
+`--force` 执行覆盖，不是三方合并。使用前请先提交或以其他方式保留本地修改。
+
+## 直接通过 shadcn 安装
+
+发布后，同一目录也会以标准远程 Registry 的形式提供：
+
+```bash
+npx shadcn@4.17.0 add https://data-elements.dev/r/all.json
+```
+
+安装单个 Artifact 时，使用对应条目的 URL：
+
+```bash
+npx shadcn@4.17.0 add https://data-elements.dev/r/query-artifact.json
+```
+
+Registry 只会把浏览器安全的 React/shadcn UI 源码复制到
+`components/data-elements`：Renderer Binding、视觉组件、交互桥接、Recipe 和语义样式都由宿主
+项目持有，可以直接检查和编辑。Schema、Core、Runtime、Compiler、Capability Broker、
+Resource Resolver 及其他服务端实现源码绝不会被复制进应用。
+
+完整 Item 会把 `@data-elements/schema`、`@data-elements/core` 和 `@data-elements/runtime`
+作为精确版本的 npm 依赖安装；单个 Item 只安装其源码闭包所需的精确版本子集。这样既能让协议校验和
+Runtime 安全修复保持版本化，也保留 UI 源码的本地所有权。服务端 Adapter 与 Capability Package
+不属于浏览器分发内容。
+
+实际父目录由 `components.json` 中的 `aliases.components` 决定。例如，别名 `@/ui`
+会把目录安装到 `src/ui/data-elements`。primitives 会自动引入同目录的 `styles.css`。
+每条 Item 依赖链都会包含 `data-elements.lock.json`，其中记录兼容范围、Renderer Build Hash 与完整
+Catalog Source Hash。shadcn 成功后，Data Elements CLI 会原子封存本次实际安装的文件子集；后续
+`add` 会维护其并集，`doctor` 只校验该子集。建议使用 Data Elements CLI 管理升级；直接调用 shadcn
+不会执行 CLI 的安装前检查与安装后封存。
+
+## 本地 Registry 开发
+
+在本仓库中构建并提供 Registry：
+
+```bash
+bun run registry:build
+bun run dev
+```
+
+然后让 CLI 指向本地回环服务器：
+
+```bash
+DATA_ELEMENTS_REGISTRY_URL=http://localhost:3000/r/ node packages/cli/index.js
+```
+
+该流程会运行本地 Registry 与 CLI。在 `@data-elements/*@0.1.0` 发布前，独立 Consumer 还需要本地
+Pack 或 Link 这些 Runtime Package；仓库 Fresh-install Test 会自动创建这种隔离 Fixture。

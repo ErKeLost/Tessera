@@ -1,0 +1,64 @@
+---
+title: Tool and SQL Safety
+description: Permission passthrough, query policy, approvals, budgets, and result validation for production data access.
+---
+
+The model proposes tool calls. A deterministic gateway decides whether they can
+run. Never encode authorization only in a prompt.
+
+## Tool gateway
+
+Each registered tool declares input and output schemas, risk, required scopes,
+timeouts, row and cost budgets, idempotency, and approval policy. The gateway
+records the caller, run, arguments hash, policy decision, duration, and output
+reference for every attempt.
+
+User and workspace permissions pass through to downstream systems. Service
+credentials may narrow access but cannot broaden what the user is allowed to
+see.
+
+## SQL safety gate
+
+The production default is read-only analytical SQL with:
+
+- an allowlist of catalogs, schemas, views, and functions;
+- one parsed statement and no DDL, DML, comments-as-control, or dynamic SQL;
+- enforced tenant and row-level policy outside model-authored text;
+- bounded scan cost, duration, result rows, and concurrency;
+- parameter binding for user-provided values;
+- dry-run or query-plan inspection when the warehouse supports it;
+- cancellation propagation and a stable query identifier;
+- redaction before results enter prompts, logs, or artifacts.
+
+Use an SQL parser or warehouse-native plan API. Regex filtering alone does not
+understand nested statements, comments, dialects, or function semantics.
+
+## Validation after execution
+
+Successful execution does not prove a trustworthy answer. Validate:
+
+| Check | Example |
+| --- | --- |
+| Shape | expected columns, types, and grain |
+| Boundaries | timezone, inclusive dates, complete periods |
+| Integrity | null rate, uniqueness, impossible values |
+| Reconciliation | category totals, driver bridge, funnel monotonicity |
+| Statistics | sample size, interval order, cohort maturity |
+| Freshness | source and semantic model SLA |
+
+The validator emits typed findings. The controller may repair a query, ask for
+clarification, publish a visible limitation, or stop. It never silently removes
+unfavorable evidence.
+
+## Human approval
+
+Require approval for operations that export sensitive data, exceed normal
+budgets, contact external systems, or mutate state. Present the intended action,
+target, scope, and expected impact. Resume from the persisted checkpoint after
+approval instead of replaying the entire run.
+
+## References
+
+- [OpenAI: Guardrails and approvals](https://developers.openai.com/api/docs/guides/agents/guardrails-approvals)
+- [OpenAI: Function calling](https://developers.openai.com/api/docs/guides/function-calling)
+- [Anthropic: Writing tools for agents](https://www.anthropic.com/engineering/writing-tools-for-agents)

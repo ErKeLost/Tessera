@@ -1,0 +1,54 @@
+---
+title: Introduction
+description: A persistent, editable business Artifact Runtime embedded in existing host systems.
+---
+
+Data Elements is a persistent, continuously editable semantic business Artifact
+Runtime embedded in an existing host system. A model may compose only the
+Surface and semantic nodes selected by the host. The host owns validation,
+authorization, computation, interaction, rendering, persistence, and every
+external effect.
+
+<CalculatorDemo />
+
+## Install
+
+The following commands are the public installation interface after the npm
+packages and remote registry are published. They are not available yet; this
+repository is currently a local reference implementation.
+
+After publication, install every editable component through the Artifact Agent
+CLI:
+
+```bash
+npx data-elements@latest
+```
+
+Or install only the artifacts you need after publication:
+
+```bash
+npx data-elements@latest add query-artifact metric-artifact
+```
+
+The command will use the existing `components.json`, install source under its
+configured components alias, and include the Artifact Agent styles through the
+generated primitives. For now, use `bun install`, `bun run registry:build`, and
+`bun run dev` to exercise the local implementation.
+
+## Core invariant
+
+The system does not generate an application. The agent never writes JSX,
+JavaScript, HTML, CSS, or executable formulas. It
+emits only the task-specific declarative Surface DSL. The server compiler
+normalizes, validates, authorizes, and commits that proposal to a locally branded
+v2 `ArtifactPart`. A serialized wire part is decoded again by
+`@data-elements/runtime` with the expected contract fingerprint before the
+trusted React renderer accepts it.
+
+<Cards>
+  <Card title="Target architecture" description="Understand the persistent Artifact lifecycle, host boundary, editing model, and production gates." href="/docs/concepts/embedded-artifact-runtime" />
+  <Card title="Architecture" description="Understand the agent loop, safety model, evidence, and production gates." href="/docs/agent-architecture" />
+  <Card title="Agent selection" description="Teach models when to use each surface." href="/docs/concepts/agent-selection" />
+  <Card title="Query Artifact" description="Render data, chart, SQL, and lineage together." href="/docs/components/query-artifact" />
+  <Card title="AI SDK" description="Compile Surface DSL proposals into trusted runtime parts." href="/docs/integrations/ai-sdk" />
+</Cards>

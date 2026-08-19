@@ -1,0 +1,53 @@
+---
+title: 数据分析智能体架构
+description: 面向可中断分析、受治理执行、证据支撑回答和持久评估的生产级参考架构。
+---
+
+生产级数据分析智能体并不是带 SQL 工具的聊天补全。它是一个可中断系统，需要在保留
+最终回答单一责任主体的同时，分离用户意图、受治理执行、验证、证据和呈现。
+
+![数据分析智能体参考架构](/diagrams/data-analyst-agent-reference.svg)
+
+## 默认拓扑
+
+使用一个**运行控制器**作为回答责任主体。它负责澄清请求、选择获准工具、管理预算与检查点，
+并发布最终回答。只有当调查任务彼此独立、可并行执行，并且其价值足以覆盖额外成本和协调开销时，
+才增加有界 Worker。
+
+该架构包含四个运行平面：
+
+| 平面 | 职责 |
+| --- | --- |
+| 体验 | 完整对话、假设、运行时间线、Artifact、来源和后续问题输入框 |
+| 运行时 | 运行控制器、上下文服务、持久状态、策略与预算引擎 |
+| 执行 | 工具网关、SQL 安全门、结果验证器、Artifact 发布器 |
+| 上下文与数据 | 语义定义、数据仓库元数据、限定范围的记忆和获准数据系统 |
+
+证据账本和 Trace 存储贯穿所有平面。它们把论断连接到工具输出，使运行可以复现，
+同时不暴露私有的隐藏推理。
+
+## 不可协商的契约
+
+- 数据访问与渲染必须是独立工具。渲染调用绝不能在后台静默查询数据库。
+- 权限从用户和工作区向下游透传，模型不能自行授予访问权限。
+- SQL 默认只读，且受到范围、资源上限和可观测性约束。
+- 最终回答引用论断级证据，而不只是列出数据来源。
+- 每个 Artifact 都是经过严格 Schema 验证、带版本的声明式数据，不包含 JSX、HTML、脚本或可执行公式。
+- 在高风险或长时间操作前持久化运行状态，使任务可以暂停、恢复、重试和接受人工审批。
+
+## 为什么采用这种结构
+
+OpenAI 的智能体指南把工具、编排、护栏、Tracing 和评估视为智能体系统的一等组成部分。
+Anthropic 的有效智能体模式区分可预测工作流与自主智能体，并建议只在复杂度确实能改善结果时增加复杂度。
+Claude Code 的公开循环同样遵循收集上下文、执行操作和验证工作的过程。W3C PROV 则为实体、活动、
+智能体及其关系提供持久的术语体系。
+
+接下来阅读[运行循环](./run-loop)，并在接入生产数据前补齐安全、溯源和评估边界。
+
+## 主要参考资料
+
+- [OpenAI: Agents](https://developers.openai.com/api/docs/guides/agents)
+- [OpenAI: Orchestration](https://developers.openai.com/api/docs/guides/agents/orchestration)
+- [Anthropic: Building effective agents](https://www.anthropic.com/research/building-effective-agents)
+- [Claude Code: How Claude Code works](https://code.claude.com/docs/en/how-claude-code-works)
+- [W3C PROV overview](https://www.w3.org/TR/prov-overview/)

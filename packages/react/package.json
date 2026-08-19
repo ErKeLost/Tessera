@@ -1,0 +1,41 @@
+{
+  "name": "@data-elements/react",
+  "version": "0.1.0",
+  "description": "Interactive React artifacts for data agents.",
+  "type": "module",
+  "sideEffects": ["**/*.css"],
+  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "scripts": {
+    "build": "tsdown && cp src/styles.css dist/styles.css",
+    "lint": "tsc --noEmit",
+    "test": "bun test src/*.test.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/core": "workspace:*",
+    "@data-elements/runtime": "workspace:*",
+    "@data-elements/schema": "workspace:*",
+    "@radix-ui/react-tabs": "1.1.21",
+    "lucide-react": "1.31.0",
+    "recharts": "3.10.1"
+  },
+  "peerDependencies": {
+    "react": ">=18.3.0",
+    "react-dom": ">=18.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

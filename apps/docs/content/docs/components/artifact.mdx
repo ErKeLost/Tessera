@@ -1,0 +1,100 @@
+---
+title: Artifact primitives
+description: Composable shadcn-style structure for every generated surface.
+---
+
+Artifact primitives are the neutral frame used by every generated data surface.
+They provide a consistent header, description, status, action area, content
+region, and empty state while leaving composition in the host application's
+control.
+
+<ComponentPreview
+  code={`import {
+  Artifact,
+  ArtifactContent,
+  ArtifactDescription,
+  ArtifactHeader,
+  ArtifactStatus,
+  ArtifactTitle,
+} from "@/components/data-elements/primitives"
+
+export function ResultFrame() {
+  return (
+    <Artifact>
+      <ArtifactHeader>
+        <div>
+          <div className="flex items-center gap-2">
+            <ArtifactTitle>Revenue analysis</ArtifactTitle>
+            <ArtifactStatus>Ready</ArtifactStatus>
+          </div>
+          <ArtifactDescription>
+            Generated from approved warehouse sources.
+          </ArtifactDescription>
+        </div>
+      </ArtifactHeader>
+      <ArtifactContent className="p-6">
+        Your trusted renderer goes here.
+      </ArtifactContent>
+    </Artifact>
+  )
+}`}
+>
+  <ArtifactPrimitivesDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="data-elements-primitives" />
+
+## Usage
+
+Primitives include `Artifact`, `ArtifactHeader`, `ArtifactTitle`,
+`ArtifactDescription`, `ArtifactActions`, `ArtifactAction`, `ArtifactClose`,
+`ArtifactStatus`, `ArtifactContent`, and `ArtifactEmpty`.
+
+They use shadcn semantic tokens such as `background`, `foreground`, `muted`,
+`border`, `primary`, and `ring`, so the host theme remains in control.
+
+## API Reference
+
+<ApiReference
+  name="Artifact"
+  properties={[
+    {
+      name: "className",
+      type: "string",
+      description:
+        "Adds host-level layout and visual classes to the artifact frame.",
+    },
+    {
+      name: "...props",
+      type: "React.HTMLAttributes<HTMLDivElement>",
+      description: "Forwards standard section attributes to the root element.",
+    },
+  ]}
+/>
+
+<ApiReference
+  name="ArtifactAction"
+  properties={[
+    {
+      name: "label",
+      type: "string",
+      required: true,
+      description:
+        "Accessible name announced by assistive technology and shown as the native tooltip.",
+    },
+    {
+      name: "icon",
+      type: "LucideIcon",
+      description:
+        "Optional icon component. Children can be used when an icon is not supplied.",
+    },
+    {
+      name: "...props",
+      type: "ButtonHTMLAttributes<HTMLButtonElement>",
+      description:
+        "Forwards native button behavior, including click and disabled state.",
+    },
+  ]}
+/>

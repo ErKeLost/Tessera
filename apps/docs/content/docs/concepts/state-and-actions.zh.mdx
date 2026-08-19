@@ -1,0 +1,25 @@
+---
+title: 状态与操作
+description: 保持本地 UI 状态快速响应，同时向智能体发送有意图的操作。
+---
+
+Artifact Agent 使用三个状态所有者：
+
+- **权威业务状态** 位于服务端。
+- **临时交互状态** 位于 Artifact 内部。滑块移动会立即更新图表，不消耗模型 Token。
+- **持久用户状态** 位于宿主控制的存储中。
+
+使用 `DataElementsProvider` 包裹渲染器以接收结构化事件：
+
+```tsx
+<DataElementsProvider
+  onAction={(event) => {
+    // event.artifactId, event.action, event.payload
+  }}
+>
+  <ArtifactRenderer artifact={artifact} />
+</DataElementsProvider>
+```
+
+宿主决定一个事件仅作为遥测数据、直接触发工具，还是转换为发送给模型的用户消息。
+这样可以避免普通控件交互产生高成本的对话轮次。

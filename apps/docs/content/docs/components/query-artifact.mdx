@@ -1,0 +1,95 @@
+---
+title: Query Artifact
+description: Inspect charts, exact rows, SQL, filters, warnings, and lineage in one trusted result surface.
+---
+
+Use Query Artifact when an authoritative data tool returns rows and people need
+to inspect both a visualization and exact values. The displayed SQL is always
+read-only—the component never executes it.
+
+<ComponentPreview
+  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+
+export function RevenueQuery() {
+  return (
+    <QueryArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "query",
+        id: "revenue-query",
+        title: "Credit flow",
+        description: "Last 30 days · completed transactions",
+        metricDefinition: "Sum of completed credit transactions by day.",
+        timeZone: "Asia/Shanghai",
+        filters: ["status = completed"],
+        warnings: [],
+        sql: "select day, sum(amount) as credits from credit_ledger group by 1",
+        columns: [
+          { key: "day", label: "Day", type: "date", format: "plain" },
+          { key: "credits", label: "Credits", type: "number", format: "compact" },
+        ],
+        rows,
+        rowCount: rows.length,
+        truncated: false,
+        sourceTables: ["analytics.credit_ledger"],
+        chart: { kind: "area", xKey: "day", yKeys: ["credits"] },
+      }}
+    />
+  )
+}`}
+>
+  <QueryDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="query-artifact" />
+
+## Usage
+
+Wrap artifacts with `DataElementsProvider` once, then render validated data.
+
+<CodeExample
+  filename="app/analytics/page.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge";
+import { QueryArtifact } from "@/components/data-elements/query-artifact";
+
+export default function AnalyticsPage() {
+  return (
+    <DataElementsProvider onAction={(event) => sendToAgent(event)}>
+      <QueryArtifact artifact={queryResult} defaultView="chart" />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="QueryArtifact"
+  properties={[
+    {
+      name: "artifact",
+      type: "QueryArtifactData",
+      required: true,
+      description:
+        "Validated query payload containing rows, columns, provenance, and an optional chart specification.",
+    },
+    {
+      name: "locale",
+      type: "string",
+      defaultValue: '"en-US"',
+      description: "Locale used to format dates, numbers, and row counts.",
+    },
+    {
+      name: "defaultView",
+      type: '"chart" | "table" | "sql" | "lineage"',
+      description:
+        "Initially active inspection view. Defaults to chart when a chart specification exists.",
+    },
+  ]}
+/>
+
+CSV export is performed locally and does not require an agent action.

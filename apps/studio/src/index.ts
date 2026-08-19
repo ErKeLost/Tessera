@@ -1,0 +1,128 @@
+export {
+  DEFAULT_CATALOG_CACHE_TTL_MS,
+  DEFAULT_TESSERA_LLM_MAX_OUTPUT_TOKENS,
+  DEFAULT_TESSERA_LLM_MAX_RETRIES,
+  DEFAULT_TESSERA_LLM_MAX_STEPS,
+  DEFAULT_TESSERA_LLM_MODEL,
+  DEFAULT_TESSERA_LLM_REASONING_EFFORT,
+  DEFAULT_TESSERA_LLM_TEMPERATURE,
+  DEFAULT_TESSERA_STUDIO_HOST,
+  DEFAULT_TESSERA_STUDIO_PORT,
+  TESSERA_CONFIG_FILE,
+  TESSERA_ENV_FILE,
+  TESSERA_OPENROUTER_REASONING_EFFORTS,
+  TESSERA_AGENT_MODEL,
+  TesseraConfigError,
+  createTesseraConfigFromDatabaseUrl,
+  defineTesseraConfig,
+  inferTesseraDatabaseDialect,
+  isTesseraLlmConfigured,
+  isLoopbackHost,
+  loadTesseraEnvironment,
+  loadTesseraConfig,
+  normalizeOrigin,
+  resolveTesseraLlmConfig,
+  tesseraConfigSchema,
+  withTesseraDatabaseUrl,
+  withTesseraStudioOverrides,
+} from "./config";
+export type {
+  LoadedTesseraConfig,
+  LoadedTesseraEnvironment,
+  LoadTesseraConfigOptions,
+  LoadTesseraEnvironmentOptions,
+  TesseraConfig,
+  TesseraConfigInput,
+  TesseraDatabaseConfig,
+  TesseraDatabaseDialect,
+  TesseraLlmConfig,
+  TesseraReasoningEffort,
+  TesseraStudioConfig,
+  TesseraStudioOverrides,
+} from "./config";
+export {
+  createStudioApp,
+  createDataAgentCatalogProvider,
+  createStudioCatalogProvider,
+  createTesseraDatabaseConnector,
+  createTesseraStudioRuntime,
+  startTesseraStudio,
+  startTesseraStudioFromDatabaseUrl,
+  startTesseraStudioServer,
+  TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
+} from "./server";
+export {
+  createStudioConsoleLogger,
+  silentStudioLogger,
+} from "./studio-logger";
+export {
+  TesseraSettingsRuntimeError,
+  createTesseraLocalSettingsStore,
+  createTesseraStudioRuntimeManager,
+  createTesseraStudioSettingsSnapshot,
+  normalizeTesseraStudioSettings,
+} from "./settings-runtime";
+export { createOpenRouterModelCatalogProvider } from "./openrouter-model-catalog";
+export { createTesseraDatabaseActionService } from "./database-actions";
+export type {
+  CreateTesseraDatabaseActionServiceOptions,
+  TesseraDatabaseActionActor,
+  TesseraDatabaseActionApprovalInput,
+  TesseraDatabaseActionCancelInput,
+  TesseraDatabaseActionEffect,
+  TesseraDatabaseActionGetInput,
+  TesseraDatabaseActionResult,
+  TesseraDatabaseActionService,
+  TesseraDatabaseActionSubmitInput,
+} from "./database-actions";
+export type {
+  CreateOpenRouterModelCatalogProviderOptions,
+  OpenRouterModelCatalog,
+  OpenRouterModelCatalogProvider,
+  OpenRouterModelOption,
+  OpenRouterReasoningCapability,
+} from "./openrouter-model-catalog";
+export type {
+  CreateTesseraLocalSettingsStoreOptions,
+  TesseraDatabaseAccessMode,
+  TesseraRuntimeManagerOptions,
+  TesseraRuntimeReplaceOptions,
+  TesseraSettingsConnectionSnapshot,
+  TesseraSettingsValidationResult,
+  TesseraStudioRuntimeBuild,
+  TesseraStudioRuntimeFactory,
+  TesseraStudioRuntimeGeneration,
+  TesseraStudioRuntimeLease,
+  TesseraStudioRuntimeManager,
+  TesseraStudioSettingsCandidate,
+  TesseraStudioSettingsSnapshot,
+  TesseraStudioSettingsStore,
+} from "./settings-runtime";
+export { createTesseraStudioAgent } from "./agent";
+export type { TesseraStudioAgentOptions } from "./agent";
+export type { DataAgent } from "@data-elements/data-agent";
+export type {
+  CreateStudioCatalogProviderOptions,
+  CreateTesseraStudioRuntimeOptions,
+  StudioAgent,
+  StudioAgentRun,
+  StudioAgentRunInput,
+  StudioAppDependencies,
+  StudioAuthenticationInput,
+  StudioAuthenticator,
+  StudioCatalogProvider,
+  StudioCatalogRequest,
+  StudioErrorReport,
+  StudioIdentity,
+  StudioLogEvent,
+  StudioLogger,
+  StudioSettingsChangeAuthorizationInput,
+  StudioSettingsChangeAuthorizer,
+  StudioSettingsChangeKind,
+  TesseraStudioRuntime,
+  TesseraStudioServer,
+} from "./server";
+export type {
+  CreateStudioConsoleLoggerOptions,
+  StudioLogLevel,
+} from "./studio-logger";

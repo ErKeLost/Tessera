@@ -1,0 +1,283 @@
+{
+  "$schema": "https://ui.shadcn.com/schema/registry.json",
+  "name": "data-elements",
+  "homepage": "https://data-elements.dev",
+  "items": [
+    {
+      "name": "data-elements-lock",
+      "type": "registry:component",
+      "title": "Data Elements Compatibility Lock",
+      "description": "Compatibility metadata and source hashes maintained by the Data Elements CLI.",
+      "files": [
+        { "path": "registry/generated/data-elements.lock.json", "type": "registry:lib", "target": "@components/data-elements/data-elements.lock.json" }
+      ]
+    },
+    {
+      "name": "data-elements-provider",
+      "type": "registry:component",
+      "title": "Data Elements Provider",
+      "description": "Structured action bridge for interactive data artifacts.",
+      "dependencies": ["@data-elements/schema@0.1.0", "@data-elements/runtime@0.1.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-lock.json"],
+      "files": [
+        { "path": "registry/generated/bridge.tsx", "type": "registry:component", "target": "@components/data-elements/bridge.tsx" }
+      ]
+    },
+    {
+      "name": "data-elements-primitives",
+      "type": "registry:component",
+      "title": "Data Elements Primitives",
+      "description": "Composable shadcn-style artifact structure and utilities.",
+      "dependencies": ["lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json"],
+      "files": [
+        { "path": "registry/generated/primitives.tsx", "type": "registry:component", "target": "@components/data-elements/primitives.tsx" },
+        { "path": "registry/generated/tokens.ts", "type": "registry:lib", "target": "@components/data-elements/tokens.ts" },
+        { "path": "registry/generated/utils.ts", "type": "registry:lib", "target": "@components/data-elements/utils.ts" },
+        { "path": "registry/generated/styles.css", "type": "registry:style", "target": "@components/data-elements/styles.css" }
+      ]
+    },
+    {
+      "name": "query-artifact",
+      "type": "registry:component",
+      "title": "Query Artifact",
+      "description": "Interactive query result with chart, table, SQL, lineage, refresh, and CSV export.",
+      "dependencies": ["@data-elements/schema@0.1.0", "@radix-ui/react-tabs@1.1.21", "lucide-react@1.31.0", "recharts@3.10.1"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [
+        { "path": "registry/generated/query-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/query-artifact.tsx" },
+        { "path": "registry/generated/chart.tsx", "type": "registry:component", "target": "@components/data-elements/chart.tsx" },
+        { "path": "registry/generated/data-chart.tsx", "type": "registry:component", "target": "@components/data-elements/data-chart.tsx" },
+        { "path": "registry/generated/data-table.tsx", "type": "registry:component", "target": "@components/data-elements/data-table.tsx" },
+        { "path": "registry/generated/types.ts", "type": "registry:lib", "target": "@components/data-elements/types.ts" }
+      ]
+    },
+    {
+      "name": "calculator-artifact",
+      "type": "registry:component",
+      "title": "Calculator Artifact",
+      "description": "Local slider-driven calculator with a trusted formula and live chart.",
+      "dependencies": ["@data-elements/core@0.1.0", "@data-elements/schema@0.1.0", "lucide-react@1.31.0", "recharts@3.10.1"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [
+        { "path": "registry/generated/calculator-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/calculator-artifact.tsx" }
+      ]
+    },
+    {
+      "name": "metric-artifact",
+      "type": "registry:component",
+      "title": "Metric Artifact",
+      "description": "Compact KPI surface with change indicators and structured actions.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/metric-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/metric-artifact.tsx" }]
+    },
+    {
+      "name": "comparison-artifact",
+      "type": "registry:component",
+      "title": "Comparison Artifact",
+      "description": "Structured comparison matrix for agent recommendations.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/comparison-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/comparison-artifact.tsx" }]
+    },
+    {
+      "name": "trend-artifact",
+      "type": "registry:component",
+      "title": "Trend Artifact",
+      "description": "Focused time-series trend with target, change, and structured point selection.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0", "recharts@3.10.1"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/trend-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/trend-artifact.tsx" }]
+    },
+    {
+      "name": "anomaly-artifact",
+      "type": "registry:component",
+      "title": "Anomaly Artifact",
+      "description": "Prioritized anomaly review with expected values, deviation, and next actions.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/anomaly-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/anomaly-artifact.tsx" }]
+    },
+    {
+      "name": "forecast-artifact",
+      "type": "registry:component",
+      "title": "Forecast Artifact",
+      "description": "Actuals and forecast with a confidence interval, target, horizon, and method.",
+      "dependencies": ["@data-elements/schema@0.1.0", "recharts@3.10.1"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/forecast-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/forecast-artifact.tsx" }]
+    },
+    {
+      "name": "funnel-artifact",
+      "type": "registry:component",
+      "title": "Funnel Artifact",
+      "description": "Interactive staged conversion flow with local drop-off context.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/funnel-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/funnel-artifact.tsx" }]
+    },
+    {
+      "name": "data-quality-artifact",
+      "type": "registry:component",
+      "title": "Data Quality Artifact",
+      "description": "Data quality score with inspectable passed, warning, and failed checks.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/data-quality-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/data-quality-artifact.tsx" }]
+    },
+    {
+      "name": "insight-artifact",
+      "type": "registry:component",
+      "title": "Insight Artifact",
+      "description": "Evidence-backed insight list with a structured recommended action.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/insight-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/insight-artifact.tsx" }]
+    },
+    {
+      "name": "breakdown-artifact",
+      "type": "registry:component",
+      "title": "Breakdown Artifact",
+      "description": "Ranked category contribution with values, shares, changes, and drill-down actions.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/breakdown-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/breakdown-artifact.tsx" }]
+    },
+    {
+      "name": "distribution-artifact",
+      "type": "registry:component",
+      "title": "Distribution Artifact",
+      "description": "Histogram with quantiles, mean, median, count, and outlier context.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0", "recharts@3.10.1"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/distribution-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/distribution-artifact.tsx" }]
+    },
+    {
+      "name": "cohort-artifact",
+      "type": "registry:component",
+      "title": "Cohort Artifact",
+      "description": "Retention heatmap aligned by cohort age with size and incomplete-period context.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/cohort-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/cohort-artifact.tsx" }]
+    },
+    {
+      "name": "experiment-artifact",
+      "type": "registry:component",
+      "title": "Experiment Artifact",
+      "description": "Control and treatment outcomes with effect, uncertainty, samples, method, and guardrails.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/experiment-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/experiment-artifact.tsx" }]
+    },
+    {
+      "name": "driver-artifact",
+      "type": "registry:component",
+      "title": "Driver Artifact",
+      "description": "Waterfall-style bridge of signed contributions from a starting value to an ending value.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/driver-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/driver-artifact.tsx" }]
+    },
+    {
+      "name": "ranking-artifact",
+      "type": "registry:component",
+      "title": "Ranking Artifact",
+      "description": "Explicit ranking by one validated metric with change context, a highlighted item, and drill-down actions.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/ranking-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/ranking-artifact.tsx" }]
+    },
+    {
+      "name": "target-artifact",
+      "type": "registry:component",
+      "title": "Target Artifact",
+      "description": "Actual-versus-target progress with explicit direction, trusted status, baseline, and deadline context.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/target-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/target-artifact.tsx" }]
+    },
+    {
+      "name": "timeline-artifact",
+      "type": "registry:component",
+      "title": "Timeline Artifact",
+      "description": "Ordered event history with trusted timestamps, statuses, actors, and item selection.",
+      "dependencies": ["@data-elements/schema@0.1.0", "lucide-react@1.31.0"],
+      "registryDependencies": ["http://localhost:3000/r/data-elements-provider.json", "http://localhost:3000/r/data-elements-primitives.json"],
+      "files": [{ "path": "registry/generated/timeline-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/timeline-artifact.tsx" }]
+    },
+    {
+      "name": "artifact-renderer",
+      "type": "registry:component",
+      "title": "Artifact Renderer",
+      "description": "Safe catalog-backed renderer for the complete Data Elements artifact catalog.",
+      "dependencies": ["@data-elements/schema@0.1.0", "@data-elements/runtime@0.1.0"],
+      "registryDependencies": ["http://localhost:3000/r/query-artifact.json", "http://localhost:3000/r/calculator-artifact.json", "http://localhost:3000/r/metric-artifact.json", "http://localhost:3000/r/comparison-artifact.json", "http://localhost:3000/r/trend-artifact.json", "http://localhost:3000/r/anomaly-artifact.json", "http://localhost:3000/r/forecast-artifact.json", "http://localhost:3000/r/funnel-artifact.json", "http://localhost:3000/r/data-quality-artifact.json", "http://localhost:3000/r/insight-artifact.json", "http://localhost:3000/r/breakdown-artifact.json", "http://localhost:3000/r/distribution-artifact.json", "http://localhost:3000/r/cohort-artifact.json", "http://localhost:3000/r/experiment-artifact.json", "http://localhost:3000/r/driver-artifact.json", "http://localhost:3000/r/ranking-artifact.json", "http://localhost:3000/r/target-artifact.json", "http://localhost:3000/r/timeline-artifact.json"],
+      "files": [
+        { "path": "registry/generated/renderer.tsx", "type": "registry:component", "target": "@components/data-elements/renderer.tsx" },
+        { "path": "registry/generated/node-types.ts", "type": "registry:lib", "target": "@components/data-elements/node-types.ts" },
+        { "path": "registry/generated/surface-nodes.tsx", "type": "registry:component", "target": "@components/data-elements/surface-nodes.tsx" },
+        { "path": "registry/generated/form-nodes.tsx", "type": "registry:component", "target": "@components/data-elements/form-nodes.tsx" }
+      ]
+    },
+    {
+      "name": "artifact-ui",
+      "type": "registry:component",
+      "title": "Artifact UI",
+      "description": "The complete extensible Artifact UI renderer, provider, semantic recipes, theme tokens, and compatibility lock.",
+      "registryDependencies": ["http://localhost:3000/r/all.json"],
+      "files": [
+        { "path": "registry/generated/artifact-ui.tsx", "type": "registry:component", "target": "@components/data-elements/artifact-ui.tsx" }
+      ]
+    },
+    {
+      "name": "all",
+      "type": "registry:component",
+      "title": "All Data Elements",
+      "description": "Bundle containing every editable Data Elements React source.",
+      "dependencies": ["@data-elements/schema@0.1.0", "@data-elements/core@0.1.0", "@data-elements/runtime@0.1.0", "@radix-ui/react-tabs@1.1.21", "lucide-react@1.31.0", "recharts@3.10.1"],
+      "files": [
+        { "path": "registry/generated/bridge.tsx", "type": "registry:component", "target": "@components/data-elements/bridge.tsx" },
+        { "path": "registry/generated/node-types.ts", "type": "registry:lib", "target": "@components/data-elements/node-types.ts" },
+        { "path": "registry/generated/surface-nodes.tsx", "type": "registry:component", "target": "@components/data-elements/surface-nodes.tsx" },
+        { "path": "registry/generated/form-nodes.tsx", "type": "registry:component", "target": "@components/data-elements/form-nodes.tsx" },
+        { "path": "registry/generated/primitives.tsx", "type": "registry:component", "target": "@components/data-elements/primitives.tsx" },
+        { "path": "registry/generated/utils.ts", "type": "registry:lib", "target": "@components/data-elements/utils.ts" },
+        { "path": "registry/generated/styles.css", "type": "registry:style", "target": "@components/data-elements/styles.css" },
+        { "path": "registry/generated/types.ts", "type": "registry:lib", "target": "@components/data-elements/types.ts" },
+        { "path": "registry/generated/chart.tsx", "type": "registry:component", "target": "@components/data-elements/chart.tsx" },
+        { "path": "registry/generated/data-chart.tsx", "type": "registry:component", "target": "@components/data-elements/data-chart.tsx" },
+        { "path": "registry/generated/data-table.tsx", "type": "registry:component", "target": "@components/data-elements/data-table.tsx" },
+        { "path": "registry/generated/query-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/query-artifact.tsx" },
+        { "path": "registry/generated/calculator-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/calculator-artifact.tsx" },
+        { "path": "registry/generated/metric-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/metric-artifact.tsx" },
+        { "path": "registry/generated/comparison-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/comparison-artifact.tsx" },
+        { "path": "registry/generated/trend-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/trend-artifact.tsx" },
+        { "path": "registry/generated/anomaly-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/anomaly-artifact.tsx" },
+        { "path": "registry/generated/forecast-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/forecast-artifact.tsx" },
+        { "path": "registry/generated/funnel-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/funnel-artifact.tsx" },
+        { "path": "registry/generated/data-quality-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/data-quality-artifact.tsx" },
+        { "path": "registry/generated/insight-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/insight-artifact.tsx" },
+        { "path": "registry/generated/breakdown-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/breakdown-artifact.tsx" },
+        { "path": "registry/generated/distribution-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/distribution-artifact.tsx" },
+        { "path": "registry/generated/cohort-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/cohort-artifact.tsx" },
+        { "path": "registry/generated/experiment-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/experiment-artifact.tsx" },
+        { "path": "registry/generated/driver-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/driver-artifact.tsx" },
+        { "path": "registry/generated/ranking-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/ranking-artifact.tsx" },
+        { "path": "registry/generated/target-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/target-artifact.tsx" },
+        { "path": "registry/generated/timeline-artifact.tsx", "type": "registry:component", "target": "@components/data-elements/timeline-artifact.tsx" },
+        { "path": "registry/generated/renderer.tsx", "type": "registry:component", "target": "@components/data-elements/renderer.tsx" },
+        { "path": "registry/generated/data-elements.lock.json", "type": "registry:lib", "target": "@components/data-elements/data-elements.lock.json" }
+      ]
+    },
+    {
+      "name": "data-elements",
+      "type": "registry:block",
+      "title": "Data Elements Bundle",
+      "description": "Compatibility alias for the complete Data Elements bundle.",
+      "registryDependencies": ["http://localhost:3000/r/artifact-ui.json"],
+      "files": []
+    }
+  ]
+}

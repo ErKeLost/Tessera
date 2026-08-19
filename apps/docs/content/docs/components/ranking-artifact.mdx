@@ -1,0 +1,85 @@
+---
+title: Ranking Artifact
+description: Present an explicit metric ranking with change context, a trusted highlight, and item-level actions.
+---
+
+Use Ranking Artifact when the answer is an ordered list of entities measured by
+the same metric. The rank is part of the validated payload, so the renderer does
+not invent an ordering or infer a winner from labels and prose.
+
+<ComponentPreview
+  filename="ranking-artifact-example.tsx"
+  code={`import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+
+export function PipelineRanking() {
+  return (
+    <RankingArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "ranking",
+        id: "pipeline-ranking",
+        title: "Pipeline by acquisition channel",
+        description: "Qualified pipeline created in the current quarter.",
+        metricLabel: "Qualified pipeline",
+        format: "currency",
+        currency: "USD",
+        highlightId: "partners",
+        items: [
+          { id: "organic", rank: 1, label: "Organic search", value: 2840000, change: 14.8 },
+          { id: "partners", rank: 2, label: "Technology partners", value: 2310000, change: 22.4 },
+          { id: "events", rank: 3, label: "Field events", value: 1760000, change: 5.1 },
+        ],
+        insight: "Partners contributed the largest quarter-over-quarter increase.",
+      }}
+    />
+  )
+}`}
+>
+  <RankingDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="ranking-artifact" />
+
+## Usage
+
+Provide one to fifty items in nondecreasing rank order. Item IDs must be unique;
+duplicate rank numbers are allowed for ties. `highlightId` is optional, but when
+present it must reference an item in the same payload.
+
+<CodeExample
+  filename="components/channel-ranking.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+
+export function ChannelRanking({ artifact }) {
+  return (
+    <DataElementsProvider onAction={({ payload }) => openChannel(payload.itemId)}>
+      <RankingArtifact artifact={artifact} locale="en-US" />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="RankingArtifact"
+  properties={[
+    { name: "artifact", type: "RankingArtifactData", required: true, description: "A validated metric, ordered ranking items, optional highlight, and optional insight." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for values, currency, percentages, and the item count." },
+  ]}
+/>
+
+### Ranking fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `rank` | `positive integer` | Explicit rank supplied by the trusted producer. |
+| `change` | `number` | Optional signed percentage change for the same item. |
+| `highlightId` | `string` | Optional item ID that receives semantic emphasis. |
+
+Selecting an item emits `ranking-item-select` with `{ itemId, rank }`.

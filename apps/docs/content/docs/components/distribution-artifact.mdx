@@ -1,0 +1,33 @@
+---
+title: Distribution Artifact
+description: Explain the shape of a numeric metric with bins, quantiles, center, spread, and outlier context.
+---
+
+Distribution Artifact pairs a histogram with the statistics needed to
+interpret it. The agent supplies validated bins and summary values; the
+renderer never derives a statistical conclusion from untrusted prose.
+
+<ComponentPreview filename="distribution-artifact-example.tsx" code={`import { DistributionArtifact } from "@/components/data-elements/distribution-artifact"
+
+export function QueryLatency({ artifact }) {
+  return <DistributionArtifact artifact={artifact} locale="en-US" />
+}`}>
+  <DistributionDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="distribution-artifact" />
+
+## Selection rule
+
+Use it for the shape of individual numeric observations. Stable bins, ordered
+quartiles, count, mean, and median must come from a trusted statistical tool.
+Selecting a bar emits `distribution-bin-select` with its bounds.
+
+## API Reference
+
+<ApiReference name="DistributionArtifact" properties={[
+  { name: "artifact", type: "DistributionArtifactData", required: true, description: "Validated histogram bins, seven summary statistics, outlier count, and optional interpretation." },
+  { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for metric and count formatting." },
+]} />

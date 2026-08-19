@@ -1,0 +1,444 @@
+.page {
+  min-height: 100svh;
+  background:
+    linear-gradient(to right, color-mix(in oklab, var(--foreground), transparent 97%) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--foreground), transparent 97%) 1px, transparent 1px),
+    var(--background);
+  background-size: 48px 48px;
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  border-bottom: 1px solid color-mix(in oklab, var(--border), transparent 10%);
+  background: color-mix(in oklab, var(--background), transparent 4%);
+  backdrop-filter: blur(10px);
+}
+
+.headerInner {
+  display: flex;
+  min-height: 3.75rem;
+  width: min(100% - 2rem, 78rem);
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0 auto;
+}
+
+.backLink,
+.headerMeta,
+.modelInfo,
+.statusRow,
+.protocolLabel,
+.pendingResponse,
+.artifactHeader,
+.artifactLoading,
+.artifactInvalid {
+  display: inline-flex;
+  align-items: center;
+}
+
+.backLink {
+  gap: .55rem;
+  color: var(--foreground);
+  font-size: .875rem;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.backLink svg {
+  width: 1rem;
+  height: 1rem;
+  color: var(--muted-foreground);
+}
+
+.backLink:hover {
+  color: var(--primary);
+}
+
+.headerMeta {
+  gap: .25rem;
+}
+
+.modelInfo {
+  min-width: 0;
+  gap: .45rem;
+}
+
+.modelName {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: .75rem;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.modelContext {
+  flex: none;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: .625rem;
+  white-space: nowrap;
+}
+
+.modelInfo {
+  width: min(21rem, 52vw);
+  min-width: 0;
+}
+
+.modelDot,
+.statusDot {
+  display: block;
+  width: .4375rem;
+  height: .4375rem;
+  flex: none;
+  border-radius: 999px;
+  background: oklch(.66 .16 155);
+  box-shadow: 0 0 0 3px color-mix(in oklab, oklch(.66 .16 155), transparent 86%);
+}
+
+.newConversationButton {
+  color: var(--muted-foreground);
+}
+
+.main {
+  height: calc(100svh - 3.8125rem);
+  min-height: 33rem;
+  padding-inline: max(0px, env(safe-area-inset-left)) max(0px, env(safe-area-inset-right));
+}
+
+.chatStage {
+  display: flex;
+  width: min(100%, 70rem);
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  margin: 0 auto;
+  border-inline: 1px solid color-mix(in oklab, var(--border), transparent 24%);
+  background: color-mix(in oklab, var(--background), transparent 6%);
+}
+
+.statusRow {
+  min-height: 2.75rem;
+  gap: .55rem;
+  padding: 0 1.5rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: .75rem;
+}
+
+.statusDot {
+  width: .375rem;
+  height: .375rem;
+  background: var(--muted-foreground);
+  box-shadow: none;
+}
+
+.statusDotActive {
+  background: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--primary), transparent 85%);
+}
+
+.conversation {
+  width: 100%;
+  min-height: 0;
+}
+
+.conversationContent {
+  width: 100%;
+  max-width: 66rem;
+  gap: 1.5rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.5rem 2rem;
+}
+
+.emptyState {
+  min-height: 100%;
+  justify-content: center;
+  color: var(--muted-foreground);
+}
+
+.emptyState :global(svg) {
+  width: 2rem;
+  height: 2rem;
+  color: var(--primary);
+}
+
+.emptyState :global(h3) {
+  color: var(--foreground);
+  font-size: .9375rem;
+}
+
+.userMessage {
+  max-width: min(84%, 40rem);
+}
+
+.assistantMessage {
+  max-width: 100%;
+}
+
+.messageContent {
+  width: 100%;
+  max-width: 100%;
+  line-height: 1.65;
+}
+
+.userMessage .messageContent {
+  width: fit-content;
+}
+
+.userMessageText {
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.messageActions {
+  margin-top: -.2rem;
+}
+
+.messageActions :global(button) {
+  color: var(--muted-foreground);
+}
+
+.pendingResponse {
+  gap: .5rem;
+  margin-top: .25rem;
+  color: var(--muted-foreground);
+  font-size: .75rem;
+}
+
+.pendingResponse svg,
+.artifactLoading svg {
+  width: .875rem;
+  height: .875rem;
+  animation: spin 1s linear infinite;
+}
+
+.artifactSurface {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: var(--card);
+  box-shadow: none;
+}
+
+.artifactHeader {
+  width: 100%;
+  min-height: 2.25rem;
+  justify-content: space-between;
+  padding: 0 .875rem;
+  border-bottom: 1px solid color-mix(in oklab, var(--border), transparent 12%);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: .65625rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.artifactHeader span:last-child {
+  color: oklch(.57 .15 155);
+}
+
+.artifactBody {
+  min-width: 0;
+  padding: 1rem;
+}
+
+.artifactLoading,
+.artifactInvalid {
+  width: 100%;
+  gap: .625rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in oklab, var(--border), transparent 10%);
+  border-radius: .5rem;
+  background: color-mix(in oklab, var(--muted), transparent 12%);
+  color: var(--muted-foreground);
+  font-size: .8125rem;
+}
+
+.artifactInvalid {
+  align-items: flex-start;
+  border-color: color-mix(in oklab, var(--destructive), transparent 60%);
+  background: color-mix(in oklab, var(--destructive), transparent 95%);
+  color: var(--foreground);
+}
+
+.artifactInvalid svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  margin-top: .1rem;
+  color: var(--destructive);
+}
+
+.artifactInvalid strong,
+.artifactInvalid p {
+  display: block;
+}
+
+.artifactInvalid strong {
+  font-size: .8125rem;
+}
+
+.artifactInvalid p {
+  margin: .15rem 0 0;
+  color: var(--muted-foreground);
+  font-size: .75rem;
+  line-height: 1.5;
+}
+
+.artifactFallback {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: .8125rem;
+}
+
+.scrollButton {
+  z-index: 2;
+  border-radius: .375rem;
+}
+
+.errorBanner {
+  display: flex;
+  width: calc(100% - 2.5rem);
+  align-items: center;
+  gap: .625rem;
+  margin: 0 auto .75rem;
+  padding: .625rem .75rem;
+  border: 1px solid color-mix(in oklab, var(--destructive), transparent 58%);
+  border-radius: .5rem;
+  background: color-mix(in oklab, var(--destructive), transparent 95%);
+  color: var(--foreground);
+  font-size: .8125rem;
+}
+
+.errorBanner svg {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+  color: var(--destructive);
+}
+
+.errorBanner p {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerArea {
+  padding: .75rem 1.5rem max(1rem, env(safe-area-inset-bottom));
+  border-top: 1px solid color-mix(in oklab, var(--border), transparent 18%);
+  background: color-mix(in oklab, var(--background), transparent 1%);
+}
+
+.suggestions {
+  max-width: 64rem;
+  margin: 0 auto .625rem;
+}
+
+.suggestions :global(button) {
+  height: 1.875rem;
+  border-color: color-mix(in oklab, var(--border), transparent 8%);
+  background: color-mix(in oklab, var(--background), transparent 10%);
+  color: var(--muted-foreground);
+  font-size: .75rem;
+}
+
+.suggestions :global(button:hover:not(:disabled)) {
+  border-color: color-mix(in oklab, var(--primary), transparent 65%);
+  background: color-mix(in oklab, var(--primary), transparent 94%);
+  color: var(--foreground);
+}
+
+.promptInput {
+  max-width: 64rem;
+  margin: 0 auto;
+}
+
+.promptInput :global([data-slot="input-group"]) {
+  border-color: var(--border);
+  border-radius: .5rem;
+  background: var(--card);
+  box-shadow: none;
+}
+
+.promptInput :global(textarea) {
+  min-height: 3.5rem;
+  font-size: .875rem;
+  line-height: 1.5;
+}
+
+.promptFooter {
+  min-height: 2.25rem;
+}
+
+.protocolLabel {
+  gap: .4rem;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: .65625rem;
+}
+
+.protocolLabel svg {
+  width: .875rem;
+  height: .875rem;
+  color: oklch(.57 .15 155);
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .headerInner {
+    width: min(100% - 1.25rem, 78rem);
+  }
+
+  .main {
+    min-height: 30rem;
+  }
+
+  .statusRow,
+  .conversationContent,
+  .composerArea {
+    padding-left: .75rem;
+    padding-right: .75rem;
+  }
+
+  .conversationContent {
+    padding-top: .75rem;
+  }
+
+  .userMessage {
+    max-width: 91%;
+  }
+
+  .artifactBody {
+    padding: .75rem;
+  }
+
+  .errorBanner {
+    width: calc(100% - 1.5rem);
+  }
+
+  .modelInfo {
+    gap: .25rem;
+    width: min(13rem, 55vw);
+  }
+
+  .modelName {
+    font-size: .6875rem;
+  }
+
+  .modelContext {
+    display: none;
+  }
+}

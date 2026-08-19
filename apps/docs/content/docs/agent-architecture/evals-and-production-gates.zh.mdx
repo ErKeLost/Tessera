@@ -1,0 +1,65 @@
+---
+title: 评估与生产准入门槛
+description: 在发布前后评估分析正确性、安全性、证据、工具行为和用户结果。
+---
+
+单一的最终回答分数无法诊断智能体。应在多个层次评估 Trace 和结果。
+
+## 评估矩阵
+
+| 层 | 衡量内容 |
+| --- | --- |
+| 意图 | 指标、粒度、筛选条件、周期、时区和澄清质量 |
+| 检索 | Schema 与定义召回率、无关上下文比例 |
+| 工具使用 | 工具选择、参数有效性、预算、重试和审批行为 |
+| 查询 | 执行、语义正确性、效率和租户隔离 |
+| 验证 | 对空结果、过期结果、不一致结果或未核对结果的检测 |
+| 回答 | 事实性、完整性、校准语言和有用限制 |
+| 证据 | 引用完整性、蕴涵关系、来源质量和溯源连续性 |
+| Artifact | 渲染器选择、Schema 有效性、无障碍能力和响应式布局 |
+| 结果 | 任务完成度、分析师修正率、决策价值和节省时间 |
+
+尽可能使用确定性检查；细致的分析质量由人工审查；模型评分器只有在根据专家标签完成校准后才能使用。
+
+## 基准集合
+
+维护带版本的测试套件，包含 Golden Definition 和预期不变量：
+
+- 常见业务问题和有歧义的后续问题；
+- 受 Spider 2.0 和 BIRD 启发的多表及企业级 SQL 任务；
+- 权限拒绝、注入、敏感列和高成本查询场景；
+- 过期数据、部分周期、空值、重复值和核对失败；
+- 包含统计陷阱的 Distribution、Cohort、Experiment 和 Driver 载荷；
+- 取消、重试、恢复、审批和 Worker 故障 Trace。
+
+生产 Trace 只有在完成脱敏、获得同意并经过审查后，才能成为基准候选。保留困难故障和险些失败的案例，
+防止系统只针对简单基准优化。
+
+## 发布门槛
+
+出现租户隔离失败、不安全 SQL、绕过审批、可执行 Artifact 内容或严重证据故障时，应阻止发布。
+为任务成功率、SQL 语义正确性、引用蕴涵、延迟和成本设置明确阈值。每次变更都与固定基线比较，
+并检查分片回归，而不是只依赖一个平均值。
+
+## 当前仓库状态
+
+`@data-elements/evals` 已实现版本化 Evaluation Manifest、固定 Sample Plan、双侧 95% Wilson Lower Bound、
+逐 Provider/Profile Gate、不可变 Conformance Fixture，以及 Security/Compatibility/Distribution 硬失败。
+本地 Protocol、Package、Registry 与 Fresh-install Fixture 会进入 CI。
+
+本仓库尚未执行 Production Canary 或真实 Provider/Model Matrix。Repaired-validity Gate 要求每个受控
+Provider/Profile Aggregate 至少拥有 4,000 个 Eligible Zero-failure Sample；样本更少或缺失时必须报告
+`insufficient-data`，不能判定为通过。本地 Fixture 只能校验 Gate 实现，不能计入这 4,000 个样本。
+
+## 在线监控
+
+按任务分片跟踪策略拒绝、澄清率、工具与查询错误、修复循环、未核对结果、无证据论断率、
+用户修正、放弃率、延迟和成本。告警应链接到脱敏后的 Trace 以及精确的评估器版本。
+
+## 参考资料
+
+- [OpenAI: Agent evals](https://developers.openai.com/api/docs/guides/agent-evals)
+- [Anthropic: Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents)
+- [Spider 2.0](https://arxiv.org/abs/2411.07763)
+- [BIRD](https://arxiv.org/abs/2305.03111)
+- [Microsoft: Guidelines for human-AI interaction](https://www.microsoft.com/en-us/research/publication/guidelines-for-human-ai-interaction/)

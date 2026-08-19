@@ -1,0 +1,49 @@
+---
+title: 智能体选择
+description: Compiler 如何为单次模型调用暴露正确的 Artifact UI Node。
+---
+
+智能体不会根据视觉外观推断组件。`prepareTurn()` 会结合任务、Profile、请求的 Node Type、
+Example、前置条件与负向规则，只为当前一次模型调用暴露有界的 Catalog Slice。
+
+## 推荐流程
+
+1. 获得宿主授权的 Data Tool 获取或计算权威内容，并且在没有 UI 时仍可独立使用。
+2. 宿主为允许进入模型上下文的 Resource 与 Evidence 标注信息流标签。
+3. `createArtifactUI().prepareTurn()` 选择有用的 Node Contract，并冻结 Contract Fingerprint、
+   Prompt、Provider Schema 与 Limit。
+4. 模型使用为该 Slice 生成的紧凑 Surface DSL 调用 `renderArtifact`，不能引用 Slice 之外的
+   Node 或 Resource。
+5. Compiler 对 Proposal 执行 Normalize、Validate、Authorize 与 Commit，之后才生成 Runtime
+   `ArtifactPart`。
+
+每个 Node Contract 都包含选择与信任元数据。例如：
+
+```ts
+{
+  type: "artifact.metric",
+  version: 1,
+  category: "semantic-artifact",
+  trust: "governed",
+  commitPolicy: "atomic",
+  prompt: {
+    summary: "Show one or more high-signal values and their change in a compact surface.",
+    useWhen: [
+      "The answer is primarily a small set of KPIs or status values.",
+      "A compact summary is more useful than detailed rows."
+    ],
+    avoidWhen: ["The user needs row-level inspection or trend exploration."]
+  }
+}
+```
+
+正向和负向规则用于区分相似 Node。稳定的命名字段、严格 Schema 与当前任务专属的 Example
+可以减少选择错误，也不需要把全部 27 个 Contract 放入每一个 Prompt。
+
+## 把数据获取留在宿主边界之后
+
+数据访问与渲染始终分离。已渲染 Node 可以立即更新获准的本地 State；Refresh、Follow-up、
+Navigation、Approval、Export 或外部 Effect 则通过 `ArtifactUIProvider` 发出类型化 Runtime Command。
+
+宿主决定该 Command 是否可用，并让它经过获授权的 `runtimeTransport`、Capability Policy 与必要的
+Approval。UI 代码绝不能选择 Credential、自行授权，或直接调用任意 Data Tool。

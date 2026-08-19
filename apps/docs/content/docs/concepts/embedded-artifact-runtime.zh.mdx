@@ -1,0 +1,741 @@
+---
+title: 嵌入式业务 Artifact Runtime
+description: Data Elements 终极版本的产品定位、生命周期、编辑协议、宿主边界与生产级 Exit Gate。
+---
+
+本文定义 Data Elements 的**目标架构**。它是一份面向工程、产品、安全和平台团队的规范，
+不是对当前仓库完成度的声明。
+
+文中的“必须”表示生产版本不可省略的不变量；“应该”表示默认实现；“可以”表示受约束的扩展点。
+
+## 一句话决策
+
+Data Elements 是一套**嵌入现有后台和业务系统、可持久化、可持续编辑的语义业务 Artifact Runtime**。
+
+Artifact 是一个有身份、有版本、有状态、有权限边界并能持续演进的业务交互对象。模型可以创建或修改它的
+声明，但模型不是 Runtime、数据库、权限系统或应用框架。
+
+> 模型提出声明；宿主拥有数据、权限、Effect、持久化和最终提交权。
+
+![嵌入式业务 Artifact Runtime 架构图](/diagrams/embedded-business-artifact-runtime.svg)
+
+Generative UI 只是 Authoring Plane 的一种输入方式。用户也可以通过可视化编辑器、规则引擎、模板、迁移器
+或人工操作修改同一份 Artifact。无论输入来自哪里，都必须经过同一套 Compiler、Policy、Lifecycle 和 Commit
+边界。
+
+React 与 shadcn/ui 是默认 Renderer 实现和源码分发方式，但它们不进入 Artifact Protocol。协议描述的是业务
+语义、状态、资源和操作意图，而不是 React 组件树、Tailwind Class 或视觉主题。
+
+## 明确的非目标
+
+终极版本**不以生成 App 为产品目标**，也不因为模型能力提升而放宽下面的边界：
+
+- 不生成 HTML、JavaScript、CSS、JSX、React 源码或可执行表达式。
+- 不生成路由、构建配置、依赖树、后端服务、数据库 Schema 或任意多页面应用。
+- 不运行模型提供的代码、URL、SQL、Formula、Event Handler 或 Component Name。
+- 不让 Renderer 直接访问凭据、业务 API、任意 Tool 或模型上下文。
+- 不用 Artifact 取代宿主的导航、认证、授权、审批、审计和数据治理。
+- 不把一个独立 Sandbox App 作为默认能力或协议 Profile。
+- 不把“能生成计算器或小应用”作为架构优化方向。
+
+Record List、Record Detail、Review、Change Set、Workflow Steps 等可以是语义 Artifact，因为它们表达的是
+宿主业务对象及交互。确认框、权限拒绝、审批检查点、操作进度、Receipt 和冲突处理属于宿主系统界面，模型
+不能伪造它们。
+
+## 当前基础与目标差距
+
+仓库已经具备可信 Artifact Runtime 的重要基础，但还没有达到本文定义的完整产品形态。
+
+| 能力 | 当前状态 | 目标状态 |
+| --- | --- | --- |
+| v2 Protocol、Normalized IR、校验、事务、Replay | 已有实现基础 | 保持为语义内容的规范核心，并补齐生命周期外壳 |
+| Catalog Slicing、Surface DSL、Compiler、Policy Check | 已有实现基础 | 同时服务 Create、Edit、Restore 和 Selection 编辑 |
+| Draft Preview 与 last-good 概念 | Runtime 已有基础 | 浏览器只接收可信累计 Preview，具备完整失败与冲突 UX |
+| React Renderer 与 shadcn/ui Recipe | 已有实现基础 | 升级为完整 `ArtifactHost`，语义节点原生使用 v2 Contract |
+| AI SDK Adapter | 当前主路径偏向每次创建新文档 | 提供编辑同一 Artifact 的 Lifecycle Facade |
+| Branch 与 Revision | 当前 v2 Identity 仍把 `branchId` 放在 Revision 内 | Revision 与 Branch 完全分离，Revision 永久不可变且可被多分支引用 |
+| Selection 与 Write Scope | 尚未形成端到端公共协议 | 宿主计算最小 Read Projection 和不可扩大 Write Scope |
+| Approval、Receipt、Conflict 等界面 | Runtime Schema 有部分基础 | 由 `ArtifactHost` 提供不可被模型仿造的系统界面 |
+| Durable Store | 当前实现仍存在读取和写回完整状态映像的路径 | 内容、分支、状态、Effect、Receipt 和 Event 分表并增量写入 |
+
+因此，本文出现的类型和 API 默认表示**目标契约**。除非明确写为“当前已实现”，否则不能在发布说明中宣称
+已经交付。
+
+## 核心实体
+
+Artifact 的身份、内容版本、编辑会话和授权范围必须分开建模。目标生命周期模型可称为 v3 Lifecycle；它不要求
+语义内容协议在同一时间更换版本。
+
+```ts
+type ArtifactRecord = {
+  artifactId: string
+  tenantId: string
+  defaultBranchId: string
+  lifecycleState: "active" | "archived"
+  createdAt: string
+  createdBy: string
+}
+
+type ArtifactBranch = {
+  branchId: string
+  artifactId: string
+  name: string
+  headRevisionId: string
+  headToken: string
+  createdAt: string
+  updatedAt: string
+}
+
+type ArtifactRevision = {
+  revisionId: string
+  artifactId: string
+  parentRevisionIds: string[]
+  contentHash: string
+  contentRef: string
+  contractFingerprint: string
+  createdAt: string
+}
+
+type RevisionAudit = {
+  revisionId: string
+  operation: "create" | "edit" | "merge" | "restore" | "migrate"
+  actorRef: string
+  source: "human" | "model" | "system"
+  sessionId?: string
+  instructionDigest?: string
+  restoredFromRevisionId?: string
+  policyDecisionRef: string
+}
+
+type ArtifactRef = {
+  artifactId: string
+  branchId: string
+  revisionId?: string
+}
+
+type ArtifactSession = {
+  sessionId: string
+  artifactId: string
+  branchId: string
+  baseRevisionId: string
+  status: "open" | "committed" | "aborted" | "conflicted" | "expired"
+  selection?: ArtifactSelection
+  writeScopeId?: string
+  createdAt: string
+  expiresAt: string
+}
+
+type ArtifactSelection = {
+  focusNodeId?: string
+  nodeIds: string[]
+}
+
+type SlotRef = { nodeId: string; slot: string }
+
+type ArtifactWriteScope = {
+  writeScopeId: string
+  baseRevisionId: string
+  scopeHash: string
+  writableNodeIds: string[]
+  writableSlots: SlotRef[]
+  creatableNodeTypesBySlot: Record<string, string[]>
+  writableStateIds: string[]
+  writableActionIds: string[]
+  attachableResourceIds: string[]
+  canSetRoot: boolean
+}
+```
+
+这些实体遵循以下规则：
+
+- `ArtifactRecord` 是长期身份，不随编辑、分支或恢复变化。
+- `ArtifactRevision` 是不可变内容版本，不包含 `branchId`，可以被多个 Branch 引用。
+- `ArtifactBranch` 是指向 Revision 的可变指针；并发控制使用 `headToken`，不使用展示用序号。
+- `RevisionAudit` 记录“为什么产生这个 Revision”，但不污染内容 Hash。
+- `ArtifactSession` 是一次 Authoring 流程，不是 Artifact 的事实源；Terminal Session 不会重新打开。
+- `ArtifactSelection` 表达用户意图，不等于授权。
+- `ArtifactWriteScope` 由宿主签发并 Hash 固化，模型不能增加它的范围。
+
+语义内容仍使用规范化 Artifact IR。Branch、Session、Approval、Effect、Receipt、Cursor 等运行时信息不能混入
+语义内容 Hash。
+
+## 四个平面
+
+系统必须划分为四个独立平面。每个平面有不同的信任级别、存储职责和扩展方式。
+
+| 平面 | 输入 | 核心职责 | 输出与边界 |
+| --- | --- | --- | --- |
+| Host Experience Plane | 可信 Artifact Event、宿主主题、布局模式、权限状态 | 现有产品外壳、`ArtifactHost`、Selection、Renderer、受保护系统界面、可访问性 | 只接收已提交 Document 与可信 Preview/Runtime Event |
+| Authoring + Lifecycle Plane | 用户指令、宿主上下文、Selection Projection、Catalog Slice、Base Revision | Prompt、Schema、Proposal Gate、Artifact Identity、Session、Revision、Branch、Conflict、Commit、Restore | 模型输出始终不可信；只有通过校验和授权的 Proposal 才能成为 Revision |
+| Trusted Runtime Plane | 已提交 Artifact、用户 Event、State、Resource、Capability Descriptor | Interaction Projection、状态事务、资源解析、Command Router、Action Coordinator、Replay/Resume | 浏览器只提交意图；执行前服务端必须基于已提交事实重新解析 |
+| Host Authority + Business Data Plane | Actor、Tenant、Policy、Business API、Data Source | Identity、授权、Approval、Capability、Effect、Evidence、Receipt、Telemetry、Audit | 宿主是外部数据、权限和副作用的唯一权威 |
+
+平面之间只能交换版本化、可校验的类型。Authoring + Lifecycle Plane 的原始 Token、文本 Delta 和 Tool Input Delta
+永远不能直接进入 Host Experience Plane。
+
+## 端到端数据流
+
+```text
+现有后台页面
+  -> ArtifactHost 收集 Selection、用户意图和允许公开的 Host Context
+  -> Artifact Service 建立 Session，并冻结 Base Revision 与 Write Scope
+  -> Compiler 按任务选择 Catalog，生成 Snapshot 或 ChangeSet Proposal
+  -> Lifecycle Gate 逐实体 Normalize、Validate、Authorize
+  -> 可信 Draft Preview 覆盖在 last-good Revision 上
+  -> Finalize 时校验完整 Draft、Policy 和 Branch Head Token
+  -> 原子写入 Revision、Audit、Branch Pointer 与 Outbox Event
+  -> Runtime 处理 State、Resource、Action、Approval、Effect 和 Receipt
+  -> ArtifactHost 渲染提交结果或宿主系统状态
+```
+
+任何一步失败都必须保留 last-good Revision。系统不能用空白界面、半棵树或未校验模型输出替换已有结果。
+
+## Create 生命周期
+
+Create 使用一份嵌套 `AuthoringSnapshot`，因为新 Artifact 还没有稳定的实体集合可供增量修改。
+
+1. 宿主创建 `ArtifactRecord` Identity 和未提交 Session，但不创建可见 Revision。
+2. Service 冻结 Tenant、Actor、Policy、Catalog Fingerprint、Capability Descriptor 与数据最小化后的 Context。
+3. 模型提出嵌套 Snapshot。模型只能引用本轮 Catalog 和宿主已授予的 Resource/Capability ID。
+4. Compiler 将 Snapshot 拉平为稳定 Node ID 图，生成规范化 State、Action 和 Resource Reference。
+5. Lifecycle Gate 校验 Contract、Limit、Reference、Information Flow、Capability 和完整图不变量。
+6. Progressive 模式可以发送已经验证的累计 Preview；Strict 模式只显示 Pending 和 last-good Shell。
+7. Finalize 在一个事务内写入首个 Revision、Audit 和默认 Branch Head，并通过 Outbox 发出 `committed`。
+8. 如果任何阶段失败，Session 进入 `aborted`，未提交 Artifact 不进入可发现列表。
+
+Create 的结果是一个稳定 `ArtifactRef`，不是一次性的聊天消息附件。
+
+## Edit 生命周期
+
+Edit 必须修改同一个 Artifact，而不是把旧 Artifact 文本塞回模型后再创建一个新文档。
+
+1. Service 解析 `ArtifactRef`，读取同一 Consistency Point 的 Branch Head、Revision、Policy 和必要 Runtime State。
+2. 宿主根据当前 Selection 计算 Read Projection 和 `ArtifactWriteScope`。
+3. Session 冻结 `baseRevisionId`、`headToken`、`scopeHash`、Catalog Fingerprint 和 Policy Context。
+4. 模型只接收 Selection Projection、相关 Contract、允许引用的 Context，以及用户的新指令。
+5. 模型输出实体级 `ArtifactChangeSet`。Adapter 在服务端等待每个完整 Operation 后才交给 Compiler。
+6. Compiler 逐 Operation 校验 Scope 和实体 Contract，并对累计 Draft 执行图级不变量校验。
+7. 可信 Preview 可以覆盖在 base Revision 上；未触及的实体继续引用 last-good 数据。
+8. Finalize 再次检查完整 Draft、授权、资源、Branch Head 和实体前置条件。
+9. 无冲突时写入新 Revision，并使用 Compare-and-set 推进 Branch Head。
+10. Head 已变化时，只有触及集合完全不相交且 Rebase 可确定证明时才允许自动 Rebase；其他情况进入宿主 Conflict Surface。
+
+模型历史中不需要复制整个 Renderer 输出，但必须保留当前 `ArtifactRef`、最近一次结果摘要和本轮所需的 Selection
+Projection。删除 Artifact Data Part 会让后续请求退化为“重新创建”，不符合目标生命周期。
+
+## Restore 生命周期
+
+Restore 是“用历史内容创建一个新 Revision”，不是把 Branch 指针倒退。
+
+```text
+current head R9 + target content R4
+  -> new revision R10(parent = R9, content = content(R4))
+  -> audit.operation = restore
+  -> audit.restoredFromRevisionId = R4
+  -> branch head moves R9 -> R10
+```
+
+Restore 必须满足：
+
+- 历史 Revision 永不修改，Branch History 始终向前推进。
+- 恢复可以复用相同的 Content Blob，但必须产生新的 Revision 和 Audit。
+- Restore 仍需经过当前 Catalog、Migration、Policy 和 Authorization 检查。
+- 恢复 Artifact 内容不会撤销、补偿或重放过去的外部业务 Effect。
+- 如果需要撤销业务 Effect，必须调用宿主定义的独立补偿 Capability，并产生新的 Receipt。
+
+## Selection 限域编辑
+
+Selection 的价值不只是减少 Token，而是建立可解释、可审计的最小编辑边界。
+
+### Read Projection
+
+模型只能看到完成当前编辑所需的信息：
+
+- 被选中的 Node。
+- 从 Root 到 Selection 的必要祖先，但默认只读。
+- Selection 使用的 Slot 和直接子树结构。
+- 被选节点引用的 State、Action、Resource、Evidence 和 Event Contract。
+- 允许插入位置支持的 Node Contract。
+- 宿主明确公开的 Locale、Timezone、用户指令和业务上下文。
+
+未选择的兄弟子树、敏感 State Value、未授权 Resource、凭据和 Effect Handler 不应仅靠 Prompt 隐藏，而应从
+Projection 中物理移除。
+
+### Write Scope
+
+Write Scope 至少约束：
+
+- 哪些现有 Node 可以替换或删除。
+- 哪些 Slot 可以重排或插入新 Node。
+- 每个 Slot 可创建的 Node Type。
+- 哪些 State、Action 和 Resource Reference 可以修改。
+- 是否允许修改 Root、Document Meta 或跨 Selection 引用。
+
+任何越界 Operation 都必须在 Commit 前拒绝。Selection 变化不会自动扩大一个已经打开的 Session；宿主必须签发
+新的 Write Scope 或新建 Session。
+
+## 实体级 ChangeSet
+
+Edit 使用封闭的实体操作 Union，不使用 RFC 6902 JSON Patch，也不允许任意路径字符串。Node ID 是身份，数组
+位置不是身份。
+
+```ts
+type ArtifactChangeSet = {
+  baseRevisionId: string
+  operations: AuthoringEditOperation[]
+}
+
+type AuthoringEditOperation =
+  | { op: "put-node"; nodeId: string; value: AuthoringNodeDraft }
+  | { op: "remove-node"; nodeId: string }
+  | { op: "set-slot"; nodeId: string; slot: string; childIds: string[] }
+  | { op: "put-state"; stateId: string; value: AuthoringStateDefinition }
+  | { op: "remove-state"; stateId: string }
+  | { op: "put-action"; actionId: string; value: AuthoringActionPlan }
+  | { op: "remove-action"; actionId: string }
+  | { op: "attach-resource"; resourceId: string }
+  | { op: "detach-resource"; resourceId: string }
+  | { op: "set-root"; nodeId: string }
+  | { op: "set-meta"; value: ArtifactMeta }
+```
+
+操作语义必须稳定：
+
+- `put-node` 替换一个完整 Node Entity；Semantic Node 不能以半个 Props 对象进入 Preview。
+- `set-slot` 一次提交一个 Slot 的完整有序 Child ID 集合，避免索引漂移和隐式移动。
+- 删除前必须证明没有悬空 Slot、State、Action、Resource 或 Evidence Reference。
+- 同一个 ChangeSet 内的前向引用可以短暂存在，但只在有界累计 Draft 中解析；Finalize 前必须全部闭合。
+- Operation 必须有 Adapter 签发的 Sequence、Idempotency Key 和 Canonical Payload Hash。
+- 新的操作类型必须通过 Protocol Version 和 Conformance Test 增加，不能退化为通用 Path Patch。
+
+## 可信渐进预览
+
+Progressive Preview 的目标是降低感知延迟，不是让浏览器渲染模型正在输出的任意内容。
+
+```text
+last-good committed Artifact
+  -> 服务端解析一个完整模型 Operation
+  -> 校验 Operation、Node Contract、Write Scope 和累计引用
+  -> 应用到服务端累计 Draft
+  -> 生成宿主签发的 draft-preview Event
+  -> 客户端把 Preview Projection 覆盖到 last-good
+  -> Finalize 后原子切换到 committed Revision
+```
+
+必须遵守以下规则：
+
+- 原始模型文本、JSON Fragment、Tool Input Delta 和未完成 Node 永远不进入浏览器。
+- 客户端只接受带 Stream ID、Sequence、Base Revision、Fingerprint 和 Draft Hash 的可信 Event。
+- Preview 是临时 Overlay，不是 Revision，也不能被其他用户当成 Branch Head 读取。
+- Semantic Node 原子更新；只有经过 Contract 标记的 Layout 或 Content Shell 可以渐进显示。
+- Preview Event 必须按 Sequence 累计应用，Gap、Hash 不匹配或 Base 变化立即触发 Resume 或 Snapshot。
+- Reject、Abort、Disconnect、Timeout 和 Conflict 都会移除 Preview，恢复 last-good Revision 和兼容的本地状态。
+- Commit Event 必须携带原子 Runtime Snapshot，客户端不能把分开获取的 Document、State 和 Approval 拼接成事实。
+- Preview 发送需要背压、合并和大小限制，不能因为模型高频输出造成 Renderer 抖动。
+
+## Runtime Action 与宿主系统界面
+
+模型可以声明 Action，但永远不能实现 Action。一个 Action 只能引用 Catalog 中版本化的 Action Contract 和宿主
+公开的 Capability ID。
+
+```text
+node event
+  -> typed action invocation
+  -> authoritative input resolution
+  -> authorization and policy check
+  -> optional confirmation / approval checkpoint
+  -> host capability handler
+  -> immutable receipt
+  -> runtime state and host surface update
+```
+
+所有 Renderer 必须消费统一的可信 Interaction Projection，不能分别拼接 Pending Action、Approval、Effect 和 Receipt：
+
+```ts
+type ArtifactInteractionView = {
+  invocationId: string
+  artifactId: string
+  revisionId: string
+  nodeId: string
+  port: string
+  actionId: string
+  status:
+    | "queued"
+    | "running"
+    | "awaiting-approval"
+    | "cancel-requested"
+    | "succeeded"
+    | "rejected"
+    | "failed"
+    | "cancelled"
+    | "conflict"
+  cancellable: boolean
+  retryable: boolean
+  approval?: ClientApprovalCheckpoint
+  receipt?: ClientEffectReceipt
+  diagnostic?: ClientDiagnostic
+}
+```
+
+权限必须在 Action 创建时和 Effect 真正执行前重新检查。动态 Input 从服务端权威 State、Resource Snapshot 和已校验
+Event Payload 解析；客户端 Cache 不能成为写入依据。
+
+以下界面属于 `ArtifactHost` 的受保护系统命名空间，不能由模型创建同名 Node 模仿：
+
+- Confirmation
+- Approval Checkpoint
+- Permission Denied
+- Pending / Running
+- Success Receipt
+- Failure / Retry / Cancel
+- Conflict Resolution
+
+Receipt 是 Effect 的不可变事实，至少包含 Tenant、Actor、Capability、Canonical Input Hash、Authorization Decision、
+Idempotency Key、Outcome、Timestamp 和相关业务对象引用。重试同一个 Idempotency Key 不能产生第二次 Effect。
+
+Artifact 的 Restore、编辑或删除都不会删除 Receipt。UI 可以隐藏旧 Receipt，但审计存储必须按宿主 Retention Policy
+保留。
+
+## 简单公共 API
+
+内部可以包含多个包和状态机，默认开发者只需要理解三个服务端操作和一个 React Host。
+
+```ts
+import { createArtifactService } from "@data-elements/server"
+
+const artifacts = createArtifactService({
+  repository,
+  resolveActor,
+  modules: [standardBusinessArtifacts],
+  resources,
+  capabilities,
+})
+
+export const POST = artifacts.handle
+
+const created = await artifacts.create({
+  instruction,
+  context,
+})
+
+const edited = await artifacts.edit({
+  artifact: created.artifact,
+  instruction: "把审批人和变更原因放到最前面",
+  selection,
+})
+
+const restored = await artifacts.restore({
+  target: edited.artifact,
+  toRevisionId,
+})
+```
+
+```tsx
+import { ArtifactHost } from "@data-elements/react"
+
+<ArtifactHost
+  mode="inline"
+  value={artifact}
+  endpoint="/api/artifacts"
+  onSelectionChange={setSelection}
+/>
+```
+
+`mode` 只控制 Artifact 如何嵌入现有界面，可以是 `inline`、`panel`、`drawer` 或 `fullscreen`；它不创建新 App、
+路由或执行环境。
+
+Golden Path 必须满足：
+
+- 零外部 Effect 是默认值；只有宿主传入 Capability Handler 后相关 Action 才可用。
+- `create`、`edit` 和 `restore` 返回统一的 Operation Handle、可信 Event Stream 与最终 `ArtifactRef`。
+- Provider、AI SDK、Mastra 或其他 Agent Framework 通过 Adapter 注入，不改变 Lifecycle API。
+- 普通开发者不需要手工调用 Normalize、Patch、Replay、Fingerprint 或 Approval State Machine。
+- 所有产品级错误使用稳定 Error Code，并默认呈现在对应 Artifact 的宿主系统界面中。
+- 高级用户可以替换 Repository、Policy、Telemetry 和 Renderer Module，但不能绕过 Commit Gate。
+
+`createArtifactService()` 从注册 Module 自动生成 Compiler Catalog、Provider Schema、Fingerprint、安全默认值和 Handler
+Binding；高级平台仍可覆盖，但普通集成不需要手工组装。浏览器端不包含 Capability Handler 或 Credential，
+`ArtifactHost` 只向 Endpoint 提交类型化意图。服务端在执行前重新解析已提交 Node、Actor、Policy、Capability 和
+权威 Action Input。
+
+## 扩展模块
+
+一个可分发组件不能只包含 React Component。每个 Artifact 扩展必须作为一个闭合、版本化的 Module 发布：
+
+```ts
+export default defineArtifactModule({
+  id: "business.record-list",
+  version: 1,
+  contract,
+  promptMetadata,
+  providerSchema,
+  renderer,
+  eventPayloadContracts,
+  migrations,
+  fixtures,
+  registryMetadata,
+})
+```
+
+Module 的职责包括：
+
+| 部分 | 要求 |
+| --- | --- |
+| Contract | 定义语义 Props、Slots、Bindings、Events、Limits 和可访问性要求 |
+| Prompt Metadata | 说明何时选择该节点、何时禁止使用及最小示例，不包含视觉营销文案 |
+| Provider Schema | 从 Contract 确定性生成或校验，不能独立手写漂移 |
+| Renderer | 默认提供 shadcn/ui 实现，也可以提供其他框架 Binding |
+| Event Contract | 为每个 Event Port 定义可校验 Payload，禁止字符串 Action |
+| Migration | 声明可重复、可审计的版本迁移，禁止在 Renderer 内临时兼容 |
+| Fixtures | 覆盖最小、完整、空、错误、长内容、权限不足和可访问性状态 |
+| Registry Metadata | 固化依赖、版本、源码文件、样式 Token 和兼容范围 |
+
+样式扩展属于 Renderer Module。默认实现使用 shadcn/ui、宿主 CSS Variable 和受控 Recipe；协议只保存语义 Variant
+和 Design Token，不保存任意 Class Name、CSS 字符串或组件导入路径。这样既允许宿主换品牌和继续扩展样式，又不会
+把视觉实现固化为模型语言。
+
+优先扩展的业务 Artifact 是：
+
+- `record-list`
+- `record-detail`
+- `search-results`
+- `review`
+- `change-set`
+- `bulk-action`
+- `workflow-steps`
+- `audit-log`
+
+基础 Button、Input、Select、Table、Dialog 等继续复用 shadcn/ui，不为每个基础组件创建一层复杂业务 DSL。只有当一个
+组件承载稳定业务语义、数据契约或交互政策时，才升级为 Artifact Module。
+
+## Package 边界
+
+最终对外保持少量 Facade，同时保留内部可测试的职责边界。
+
+| Package / 边界 | 可见性 | 最终职责 |
+| --- | --- | --- |
+| `@data-elements/server` | 目标公开 Facade | `createArtifactService`、Create/Edit/Restore、Session 与 Repository 接线 |
+| `@data-elements/react` | 公开 | `ArtifactHost`、Renderer、Selection、Host Surface 和 shadcn/ui Recipe |
+| `@data-elements/ai-sdk`、`@data-elements/mastra`、`@data-elements/ag-ui` | 公开可选 | 把不同 Agent Framework 映射到统一 Authoring Session，不拥有 Commit 语义 |
+| `@data-elements/schema` | 兼容与共享类型 | 旧 v1 Schema 和明确的兼容入口，不继续承载新生命周期职责 |
+| `@data-elements/core` | 内部稳定核心 | Module Catalog、Contract Graph、选择规则和生成视图 |
+| `@data-elements/runtime` | 内部稳定核心，部分类型公开 | Normalized IR、Codec、Brand、Replay、State、Stream 和 Migration |
+| `@data-elements/compiler` | 仅服务端 | Authoring DSL、Prompt、Schema、Normalize、Validation、Repair 和 Proposal Gate |
+| `@data-elements/capability-broker`、`@data-elements/resources` | 仅服务端 | Grant、Authorization、Approval、Resource、Effect、Evidence 和 Receipt |
+| CLI + shadcn Registry | 分发 | 安装可编辑 Renderer Source、Module、Fixture 和锁定兼容版本 |
+
+浏览器 Bundle 不能包含 Compiler、Prompt Example、Credential、Capability Handler、Resource Resolver 或服务端 Policy。
+Framework Adapter 不能复制一套自己的 Schema、Commit 或 Lifecycle 实现。
+
+目标语义 Renderer 应直接消费 v2 Node Contract。当前通过 v1 Renderer 包装语义节点的兼容层必须被隔离，并在迁移完成后
+退出默认路径。
+
+## 规范化存储
+
+生产 Store 不能把整个 Runtime 当成一张可变 JSON 大图反复读取和写回。推荐逻辑表如下：
+
+| 存储集合 | 内容与不变量 |
+| --- | --- |
+| `artifacts` | Artifact 长期身份、Tenant、默认 Branch 和生命周期状态 |
+| `artifact_branches` | Branch Head 与 CAS Token；唯一可变的内容指针 |
+| `artifact_revisions` | 不可变 Revision 元数据、Content Hash、Fingerprint 和 Content Ref |
+| `artifact_revision_parents` | Revision DAG 的父子关系 |
+| `artifact_contents` | Canonical Semantic Content；按 Hash 去重，可使用 Chunk 或 Snapshot + Delta |
+| `artifact_revision_audits` | Actor、来源、操作原因、Policy Decision 和 Restore/Migration 关系 |
+| `artifact_sessions` | Authoring Session、Base、Scope、Terminal Result 和有限期幂等记录 |
+| `runtime_state_records` | 独立 State Value、Schema Hash、Policy Hash、Revision 和 Retention |
+| `action_invocations` / `effect_requests` | Action 与 Effect 状态机、前置条件和 Idempotency Key |
+| `approval_checkpoints` / `receipts` | 宿主授权决策和不可变 Effect 事实 |
+| `artifact_events` / `outbox` | 可恢复 Stream、Cursor 和提交后可靠投递 |
+
+Canonical Content Hash 必须基于确定性序列化后的语义内容，排除 Branch、Session、Timestamp、Pending Effect、Approval、
+Runtime State Value 和其他时间性字段。相同内容可以被多个 Revision 复用，但每个 Revision 仍有独立 Audit。
+
+一次 Commit 事务必须原子完成：
+
+1. 校验当前 Branch `headToken`。
+2. 插入或复用 Content Blob。
+3. 插入 Revision、Parent 和 Audit。
+4. Compare-and-set 更新 Branch Head。
+5. 写入 Outbox Event。
+
+State Write、Action 和 Effect 有自己的事务与幂等生命周期，不能为了更新一个 Toggle 而重写整个 Artifact Document。
+读取 Runtime Snapshot 时，Document、Branch Head、兼容 State、Pending Action、Active Approval 和 Receipt Summary 必须来自
+同一 Consistency Point。
+
+## 性能模型
+
+性能优化必须围绕“编辑局部、提交增量、渲染触及子图”展开，而不是降低校验强度。
+
+### Authoring 与 Compiler
+
+- Catalog 按任务切片并按 Fingerprint 缓存；不能每轮发送全部组件描述。
+- Edit Prompt 的大小必须随 Selection Projection 和依赖闭包增长，而不是随整个 Artifact 线性增长。
+- Provider 流只在服务端解析；完整 Operation 到达后立即做局部 Contract 校验。
+- 图级校验使用 Node、Reference 和 Contract Index，只重新检查受影响闭包。
+- Repair 只接收脱敏、可修复 Diagnostic，并有固定次数、Token 和时间预算。
+- 新指令会取消过期 Session；Parser、Compiler 和 Preview Stream 必须支持背压和 AbortSignal。
+
+### Store 与 Stream
+
+- Revision 内容按 Hash 去重；高频编辑使用 Entity Delta，并周期性物化 Snapshot 控制读取深度。
+- Branch Commit 只锁定目标 Branch 的 CAS，不持有模型生成期间的数据库锁。
+- State、Action、Effect 和 Receipt 增量写入，不加载或写回完整 Runtime State Image。
+- Event 支持 Cursor Resume、有限保留和 Snapshot Fallback；断线重连不重复模型调用。
+- Resource Value 通过独立缓存和授权通道传输，不复制进每个 Revision 或 Runtime Snapshot。
+
+### Client 与 Renderer
+
+- 客户端保持按 Node ID 规范化的 Cache，Preview Overlay 只替换触及实体。
+- Renderer 使用 Node 级 Selector 和 Memoization，单节点编辑不能导致整棵 Artifact Tree 重新渲染。
+- 长 Record List、Audit Log 和 Search Results 必须虚拟化或分页；协议不依赖全部 DOM 同时存在。
+- Preview Event 在帧边界合并，但不能跨越语义 Commit、Approval 或 Receipt Boundary。
+- shadcn/ui Recipe 必须提供稳定尺寸和 Loading/Error State，避免流式内容造成布局跳动。
+
+性能发布 Gate 使用固定硬件、数据 Fixture、浏览器和 Store Profile。至少记录 First Trusted Preview、Commit Latency、
+Selection Edit Prompt Tokens、Touched-node Render Count、State-write Bytes、Resume Latency 和 Peak Memory。任何版本不得出现：
+
+- Selection Edit 因无关节点增加而近似线性增长 Token。
+- 单一 State Write 产生完整 Document 写放大。
+- 单节点 Preview 触发全树 React Commit。
+- 为追求首屏速度把未验证模型 Delta 发送给浏览器。
+- 相同基准相对上一稳定版出现超过 10% 的 p95 回退而没有批准的性能豁免。
+
+## 安全不变量
+
+以下条件必须由代码和测试保证，不能只写在 Prompt 中：
+
+1. 模型输出始终是不可信 Proposal；只有 Compiler 和 Commit Gate 能产生可信 Artifact。
+2. Protocol 不存在 HTML、JS、CSS、React、可执行 Formula、任意 URL Handler 或未注册 Component Name。
+3. Selection 不是 Authorization；Write Scope、Capability Grant 和 Information-flow Policy 均由宿主签发。
+4. 模型、Renderer 和浏览器都不能看到 Credential、Capability Handler 或未授权 Resource Value。
+5. 每个网络边界重新校验 Envelope、Protocol Version、Fingerprint、Limit 和本地 Brand。
+6. Tenant、Actor、Artifact、Branch、Revision、State 和 Capability Identity 必须在每个 Command 上重新绑定。
+7. Action Input 在服务端从权威数据解析并按 Contract 校验；客户端值不具有提交权威。
+8. Approval、Confirmation、Permission、Conflict 和 Receipt 是宿主界面，模型不能生成等价的可信状态。
+9. 每个外部 Effect 使用稳定 Idempotency Key；相同 Key 不同 Payload 是 Fatal Error。
+10. Reject、Abort、Gap、Timeout、Migration Failure 和 Renderer Failure 都保留 last-good Revision。
+11. Restore 不撤销外部 Effect；补偿必须是新的、授权的、可审计 Action。
+12. Object Key、Path、Collection、Depth、Byte、Node、Operation 和 Stream 均有硬限制，并拒绝 Prototype Pollution。
+13. Telemetry、Repair Context 和 Audit 分别执行脱敏与 Retention Policy，不能泄漏业务数据。
+14. Renderer 失败只能降级到受控 Fallback，不能回退到执行模型代码。
+
+## Evaluation Gates
+
+所有正式发布都必须通过同一套确定性和模型驱动 Gate。
+
+| Gate | 必须证明的结果 |
+| --- | --- |
+| Contract Closure | Module Contract、Provider Schema、Prompt Metadata、Renderer、Event、Migration、Fixture 与 Registry 版本完全闭合 |
+| Protocol Conformance | Snapshot、ChangeSet、Stream、Replay、Resume、Hash、Limit 和未知字段行为在所有 Adapter 一致 |
+| Lifecycle | Create/Edit/Restore/Merge 产生正确 Revision DAG；Branch CAS 和幂等重试不会重复提交 |
+| Selection Safety | 越界读写、隐藏引用、Root Escalation、跨 Slot 插入和未授权 Resource 的接受数为零 |
+| Streaming | 任意无效 Prefix、Gap、Abort 或 Disconnect 不崩溃、不展示原始 Delta，并保留 last-good 与兼容 State |
+| Action Security | 无 Grant Effect、绕过 Approval、重复 Effect、客户端伪造 Receipt 和越权 Reauthorization 的成功数为零 |
+| Renderer | 所有官方 Module 覆盖 Loading、Empty、Unavailable、Error、Long Content、Keyboard 和 Screen Reader Fixture |
+| Migration | Legacy v1/v2 输入可确定迁移；失败会 Fail Closed；迁移不会修改历史 Content 或丢失 Audit |
+| Performance | 固定基准无未批准的 p95 回退，Selection/State/Preview 的工作量与触及范围一致 |
+| Operability | 每个 Session、Revision、Action、Effect、Approval 和 Receipt 可通过 Trace ID 关联并可安全重放 |
+
+模型评测至少覆盖：从零创建、对同一 Artifact Follow-up 编辑、Selection 局部修改、拒绝越界修改、长内容、歧义指令、
+无可用数据、Capability 缺失、并发冲突和自我修复。Provider/Model 升级必须重新运行固定数据集，不能把 Playground
+中“看起来成功”当成生产 Gate。
+
+## 分阶段迁移
+
+迁移必须按可验证的 Exit Criteria 推进。已有代码可以作为各阶段基础，但只有满足对应 Gate 才能标记完成。
+
+### Phase 0：冻结产品边界和术语
+
+工作内容：将本文作为 Canonical Decision，冻结“不生成 App/Code”、四平面、宿主 Effect 所有权和 shadcn/ui
+Renderer 定位；统一 Artifact、Revision、Branch、Session、Selection、Scope 和 Receipt 的术语。
+
+Exit Criteria：
+
+- 所有公开文档和示例使用同一产品定义。
+- 默认 Catalog、API 和 Playground 不再暗示 App、HTML、JS、CSS 或 Sandbox 生成。
+- Architecture Decision 和 Security Invariant 有代码 Owner。
+
+### Phase 1：分离 Lifecycle Identity 与规范化持久化
+
+工作内容：引入 `ArtifactRecord`、Branch-independent `ArtifactRevision`、Revision DAG、Audit、Repository、CAS、Outbox
+和一致 Runtime Snapshot；为当前把 `branchId` 放进 Revision 的 v2 数据提供兼容投影和迁移器。
+
+Exit Criteria：
+
+- Revision 永不更新，并能被两个 Branch 引用。
+- 并发 Commit、幂等 Finalize、断线重试和 Restore-forward 测试全部通过。
+- State Write 不再读写完整 Runtime State Image。
+- Legacy 数据可双读并产生内容 Hash 一致的新 Lifecycle Record。
+
+### Phase 2：交付 Create/Edit/Restore Facade
+
+工作内容：实现 `createArtifactService()`、统一 Session、Repository 接口和 Framework Adapter；让 AI SDK Follow-up
+保留 `ArtifactRef`，Edit 不再默认创建新 Document。
+
+Exit Criteria：
+
+- 默认开发者只使用 `create`、`edit`、`restore` 和 `ArtifactHost` 即可完成主流程。
+- 连续十轮 Follow-up 编辑保持同一 `artifactId`，每轮产生正确 Revision 和 Audit。
+- 所有 Adapter 使用共享 Compiler 和 Commit Gate，没有私有 Lifecycle 分支。
+
+### Phase 3：Selection、ChangeSet 与可信 Preview
+
+工作内容：实现 Read Projection、签名 Write Scope、实体级 ChangeSet、完整 Operation Parser、累计 Draft Preview、
+Conflict Detection 和 last-good Overlay。
+
+Exit Criteria：
+
+- Selection 编辑 Prompt 不包含无关子树或敏感值。
+- 所有越界 Operation 在 Preview/Commit 前被拒绝。
+- 浏览器网络记录中不存在原始模型 Token 或 Tool Input Delta。
+- Abort、Gap、Conflict 和 Validation Failure 均恢复 last-good，且不丢失兼容本地 State。
+
+### Phase 4：ArtifactHost 与宿主 Action UX
+
+工作内容：实现 inline/panel/drawer/fullscreen Host、Selection、Confirmation、Approval、Permission、Pending、Receipt、
+Failure、Retry、Cancel 和 Conflict Surface；打通 Node Event 到 Capability Receipt。
+
+Exit Criteria：
+
+- 模型无法创建或伪造受保护 Host Surface。
+- Form Button 和所有语义 Node 的 Trigger Result 能进入统一 Runtime Command Path。
+- 重放、重试和多标签页并发不会产生重复 Effect。
+- Keyboard、Focus、Screen Reader 和 Reduced Motion Fixture 通过。
+
+### Phase 5：原生 v2 业务 Module 与性能收敛
+
+工作内容：移除默认路径中的 v1 Renderer 包装，交付优先业务 Artifact Module，建立 Module Closure CI、Node Selector、
+Virtualization、增量 Store 和基准套件。
+
+Exit Criteria：
+
+- 官方语义节点原生消费 v2 Contract 并完整桥接 Event、State、Resource 和 Evidence。
+- 每个 Module 具有 Contract、Schema、Renderer、Event、Migration、Fixture 和 Registry Metadata。
+- Selection Edit、State Write 和 Preview Render 满足性能 Gate。
+- 主题或 shadcn/ui Recipe 变化不改变 Artifact Content Hash。
+
+### Phase 6：生产验证与迁移下线
+
+工作内容：Shadow Read、双写验证、历史回填、Canary、Provider/Model Matrix、Telemetry、Runbook 和兼容层下线计划。
+
+Exit Criteria：
+
+- 全部 Evaluation Gate 在受控生产候选版本上通过。
+- Migration 可暂停、可重试、可审计，并有经过演练的回滚路径。
+- Canary 达到约定的零越权 Effect、零 last-good 丢失和零不可恢复 Revision 指标。
+- v1/旧 Lifecycle 兼容层只有在存量数据和调用方完成迁移后才退出默认 Bundle。
+
+## 最终完成定义
+
+“终极版本完成”不等于组件数量最多，也不等于模型能生成最复杂的页面。它必须同时满足：
+
+- Artifact 能在现有后台中被创建、保存、再次打开、局部编辑、分支、恢复和审计。
+- 用户只面对熟悉的业务界面；DSL、Tool Call、Revision State Machine 和权限协议保持在系统内部。
+- 任意模型错误、网络错误、冲突或 Renderer 错误都不会破坏 last-good Artifact。
+- 任何业务 Effect 都可授权、可确认、可追踪、可去重并产生 Receipt。
+- 组件、样式、Agent Framework、Store 和 Renderer 可以扩展，但不能绕过统一协议和宿主边界。
+- 默认开发体验仍然只有 `create`、`edit`、`restore` 和 `ArtifactHost`。
+
+这套约束让 Data Elements 可以覆盖复杂后台交互，也可以组合出更丰富的体验，但始终是一套可信、可持续编辑的
+业务 Artifact Runtime，而不是 App 生成器。

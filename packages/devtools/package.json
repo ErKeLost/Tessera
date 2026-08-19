@@ -1,0 +1,17 @@
+{
+  "name": "@data-elements/devtools",
+  "version": "0.1.0",
+  "description": "Bounded, secret-free Artifact UI observability timeline.",
+  "type": "module",
+  "sideEffects": false,
+  "files": ["dist"],
+  "exports": { ".": { "types": "./dist/index.d.mts", "import": "./dist/index.mjs" } },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": { "@data-elements/observability": "workspace:*" },
+  "devDependencies": { "@types/bun": "1.3.14", "tsdown": "0.22.14", "typescript": "7.0.2" }
+}

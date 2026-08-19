@@ -1,0 +1,56 @@
+---
+title: Examples
+description: Complete data-agent answers composed from trusted Artifact Agent components.
+---
+
+Examples show how schemas, renderers, actions, tables, and charts work together
+inside a real data-agent response. Every interface below is rendered from
+validated data rather than model-generated JSX.
+
+## Query result
+
+Use Query Artifact when people need a chart, exact rows, SQL, and source
+lineage in one inspectable answer.
+
+<ComponentPreview
+  filename="examples/credit-flow.tsx"
+  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+
+export function CreditFlow({ artifact }) {
+  return <QueryArtifact artifact={artifact} defaultView="table" />
+}`}
+>
+  <QueryDemo />
+</ComponentPreview>
+
+## Operational snapshot
+
+Use Metric Artifact for a focused set of related KPIs that can each open a
+follow-up analysis.
+
+<ComponentPreview
+  filename="examples/workspace-health.tsx"
+  code={`import { MetricArtifact } from "@/components/data-elements/metric-artifact"
+
+export function WorkspaceHealth({ artifact }) {
+  return <MetricArtifact artifact={artifact} />
+}`}
+>
+  <MetricsDemo />
+</ComponentPreview>
+
+## Interactive calculation
+
+Calculator Artifact keeps formula exploration local and deterministic after
+the agent selects a registered calculator.
+
+<ComponentPreview
+  filename="examples/compound-interest.tsx"
+  code={`import { CalculatorArtifact } from "@/components/data-elements/calculator-artifact"
+
+export function CompoundInterest({ artifact }) {
+  return <CalculatorArtifact artifact={artifact} />
+}`}
+>
+  <CalculatorDemo />
+</ComponentPreview>

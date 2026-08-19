@@ -1,0 +1,33 @@
+---
+title: Cohort Artifact
+description: Compare retention or conversion across cohort start dates and consistent elapsed periods.
+---
+
+Cohort Artifact renders a compact heatmap with cohort size and incomplete
+recent periods kept explicit. Rows align by cohort age, so calendar totals
+cannot be mistaken for retention.
+
+<ComponentPreview filename="cohort-artifact-example.tsx" code={`import { CohortArtifact } from "@/components/data-elements/cohort-artifact"
+
+export function WorkspaceRetention({ artifact }) {
+  return <CohortArtifact artifact={artifact} locale="en-US" />
+}`}>
+  <CohortDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="cohort-artifact" />
+
+## Selection rule
+
+Use identical cohort membership and period definitions for every row. Use
+`null` for periods that have not matured, never zero. Selecting a populated
+cell emits `cohort-cell-select` with cohort, period, and value.
+
+## API Reference
+
+<ApiReference name="CohortArtifact" properties={[
+  { name: "artifact", type: "CohortArtifactData", required: true, description: "Period labels and cohort rows with size and one nullable percentage per period." },
+  { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for cohort sizes and percentages." },
+]} />

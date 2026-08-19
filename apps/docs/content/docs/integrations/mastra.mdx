@@ -1,0 +1,54 @@
+---
+title: Mastra
+description: Prepare a real Mastra tool over the same trusted Artifact UI commit boundary.
+---
+
+`@data-elements/mastra` is server-only and targets `@mastra/core` 1.x. It uses
+Mastra's real `createTool()` API, not a lookalike tool object. Each turn receives
+the compiler-generated Standard Schema, a validated runtime wire output schema,
+strict mode, MCP annotations, and safe display/transcript transforms.
+
+```ts
+import { Agent } from "@mastra/core/agent";
+import { createArtifactUI } from "@data-elements/mastra";
+
+const artifactUI = createArtifactUI();
+const turn = await artifactUI.prepareTurn({
+  messages,
+  profile: "analysis",
+});
+
+const agent = new Agent({
+  id: "artifact-agent",
+  name: "Artifact agent",
+  model,
+  instructions: turn.system,
+  tools: { ...domainTools, ...turn.tools },
+});
+
+const result = await agent.generate(turn.messages);
+```
+
+This compact example creates a request-scoped Agent because the tool schema is
+compiled per turn. A long-lived Agent can instead resolve `instructions` and
+`tools` from Mastra `RequestContext`; the invariant is that the same turn's
+`system`, filtered `messages`, and generated tool stay together.
+
+The tool returns a serializable runtime `ArtifactPartWire`; `turn.accept()` and
+`turn.consumeWorkflowEvent()` return a locally branded runtime `ArtifactPart`.
+Workflow events that already contain a wire part are decoded and revalidated
+against the active contract fingerprint. Proposal-shaped workflow output goes
+through the same compiler and commit path as direct tool input.
+
+Mastra's `toModelOutput` receives only a short success message. Its `display`
+and `transcript` transforms replace raw model DSL input and validation details
+with bounded safe summaries, while leaving the Artifact output available to the
+renderer. Keep domain data tools separate and supply resources/evidence only as
+host-issued grants.
+
+If a tool or workflow output crosses a network boundary, it is an unbranded
+`ArtifactPartWire`. Decode it in the browser with `decodeArtifactPart()` from
+`@data-elements/runtime` and the turn's contract fingerprint before passing the
+resulting `decoded.part` to `ArtifactRenderer`. `turn.accept()` and
+`turn.consumeWorkflowEvent()` provide the branded path only within the current
+trusted process.

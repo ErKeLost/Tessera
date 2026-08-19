@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noUncheckedIndexedAccess": true,
+    "paths": {
+      "@data-elements/schema": ["./packages/schema/src/index.ts"],
+      "@data-elements/core": ["./packages/core/src/index.ts"],
+      "@data-elements/runtime": ["./packages/runtime/src/index.ts"],
+      "@data-elements/compiler": ["./packages/compiler/src/index.ts"],
+      "@data-elements/capability-broker": ["./packages/capability-broker/src/index.ts"],
+      "@data-elements/resources": ["./packages/resources/src/index.ts"],
+      "@data-elements/react": ["./packages/react/src/index.ts"],
+      "@data-elements/ai-sdk": ["./packages/ai-sdk/src/index.ts"],
+      "@data-elements/mastra": ["./packages/mastra/src/index.ts"],
+      "@data-elements/ag-ui": ["./packages/ag-ui/src/index.ts"],
+      "@data-elements/observability": ["./packages/observability/src/index.ts"],
+      "@data-elements/devtools": ["./packages/devtools/src/index.ts"],
+      "@data-elements/database": ["./packages/database/src/index.ts"],
+      "@data-elements/mysql": ["./packages/mysql/src/index.ts"],
+      "@data-elements/postgres": ["./packages/postgres/src/index.ts"],
+      "@data-elements/data-agent": ["./packages/data-agent/src/index.ts"],
+      "@data-elements/evals": ["./packages/evals/src/index.ts"],
+      "@data-elements/release": ["./packages/release/src/index.ts"]
+    },
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "verbatimModuleSyntax": true,
+    "ignoreDeprecations": "6.0"
+  }
+}

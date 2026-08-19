@@ -1,0 +1,221 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 940" role="img" aria-labelledby="title desc">
+  <title id="title">Data Analyst Agent reference architecture</title>
+  <desc id="desc">A production architecture connecting a complete analyst workspace to a durable agent runtime, governed query execution, trusted data context, evidence artifacts, and evaluation.</desc>
+  <defs>
+    <style>
+      text { font-family: 'SFMono-Regular', 'Cascadia Code', Consolas, monospace; }
+      .title { fill: #f8fafc; font-size: 20px; font-weight: 700; }
+      .subtitle { fill: #94a3b8; font-size: 10px; }
+      .region-title { font-size: 9px; font-weight: 600; letter-spacing: .06em; }
+      .name { fill: #f8fafc; font-size: 11px; font-weight: 600; }
+      .detail { fill: #94a3b8; font-size: 8.5px; }
+      .label { fill: #93c5fd; font-size: 8px; font-weight: 500; }
+      .small { fill: #64748b; font-size: 7.5px; }
+    </style>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#172554" stroke-width="0.6" opacity="0.7"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrow-slate" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0,10 3.5,0 7" fill="#fbbf24"/>
+    </marker>
+  </defs>
+
+  <rect width="1440" height="940" fill="#020617"/>
+  <rect width="1440" height="940" fill="url(#grid)"/>
+  <circle cx="1220" cy="10" r="330" fill="#1d4ed8" opacity="0.08"/>
+  <circle cx="220" cy="920" r="300" fill="#0ea5e9" opacity="0.05"/>
+
+  <text x="40" y="43" class="title">Data Analyst Agent / Reference Architecture</text>
+  <text x="40" y="63" class="subtitle">Interruptible runs · permission passthrough · verified queries · claim-level evidence · durable evaluation</text>
+
+  <rect x="30" y="92" width="280" height="606" rx="8" fill="#020617" stroke="#22d3ee" stroke-dasharray="8 4"/>
+  <text x="46" y="112" fill="#22d3ee" class="region-title">EXPERIENCE PLANE</text>
+
+  <rect x="330" y="92" width="350" height="606" rx="8" fill="#020617" stroke="#60a5fa" stroke-dasharray="8 4"/>
+  <text x="346" y="112" fill="#60a5fa" class="region-title">DURABLE AGENT RUNTIME</text>
+
+  <rect x="700" y="92" width="330" height="606" rx="8" fill="#020617" stroke="#fbbf24" stroke-dasharray="8 4"/>
+  <text x="716" y="112" fill="#fbbf24" class="region-title">GOVERNED EXECUTION</text>
+
+  <rect x="1050" y="92" width="360" height="606" rx="8" fill="#020617" stroke="#a78bfa" stroke-dasharray="8 4"/>
+  <text x="1066" y="112" fill="#a78bfa" class="region-title">CONTEXT + DATA PLANE</text>
+
+  <!-- main connectors -->
+  <path d="M280 180H360" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M650 180H730" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <path d="M1000 180H1080" stroke="#60a5fa" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="320" y="169" class="label" text-anchor="middle">stream</text>
+  <text x="690" y="169" class="label" text-anchor="middle">tool call</text>
+  <text x="1040" y="169" class="label" text-anchor="middle">read only</text>
+
+  <!-- cross-layer routes behind boxes -->
+  <path d="M505 250V283" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M505 367V400" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M505 484V517" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M865 250V283" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M865 367V400" stroke="#fbbf24" fill="none" marker-end="url(#arrow-amber)"/>
+  <path d="M865 484V517" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1230 250V283" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1230 367V400" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1230 484V517" stroke="#64748b" fill="none" marker-end="url(#arrow-slate)"/>
+
+  <!-- Experience -->
+  <g>
+    <rect x="60" y="130" width="220" height="100" rx="6" fill="#020617"/>
+    <rect x="60" y="130" width="220" height="100" rx="6" fill="rgba(8,51,68,.42)" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="170" y="160" class="name" text-anchor="middle">Complete Analyst Chat</text>
+    <text x="170" y="180" class="detail" text-anchor="middle">prompt · assumptions · plan · steps</text>
+    <text x="170" y="197" class="detail" text-anchor="middle">answer · artifact · sources · composer</text>
+  </g>
+  <g>
+    <rect x="60" y="280" width="220" height="84" rx="6" fill="#020617"/>
+    <rect x="60" y="280" width="220" height="84" rx="6" fill="rgba(8,51,68,.32)" stroke="#22d3ee"/>
+    <text x="170" y="310" class="name" text-anchor="middle">Run Timeline</text>
+    <text x="170" y="330" class="detail" text-anchor="middle">status · duration · retry · checkpoint</text>
+  </g>
+  <g>
+    <rect x="60" y="414" width="220" height="84" rx="6" fill="#020617"/>
+    <rect x="60" y="414" width="220" height="84" rx="6" fill="rgba(8,51,68,.32)" stroke="#22d3ee"/>
+    <text x="170" y="444" class="name" text-anchor="middle">Evidence Inspector</text>
+    <text x="170" y="464" class="detail" text-anchor="middle">SQL · method · lineage · citations</text>
+  </g>
+  <g>
+    <rect x="60" y="548" width="220" height="104" rx="6" fill="#020617"/>
+    <rect x="60" y="548" width="220" height="104" rx="6" fill="rgba(136,19,55,.24)" stroke="#fb7185"/>
+    <text x="170" y="578" class="name" text-anchor="middle">Human Control</text>
+    <text x="170" y="598" class="detail" text-anchor="middle">stop · steer · edit scope</text>
+    <text x="170" y="615" class="detail" text-anchor="middle">approve side effects · approve memory</text>
+  </g>
+
+  <!-- Runtime -->
+  <g>
+    <rect x="360" y="130" width="290" height="120" rx="6" fill="#020617"/>
+    <rect x="360" y="130" width="290" height="120" rx="6" fill="rgba(59,130,246,.26)" stroke="#60a5fa" stroke-width="1.5"/>
+    <text x="505" y="160" class="name" text-anchor="middle">Run Controller / Orchestrator</text>
+    <text x="505" y="183" class="detail" text-anchor="middle">clarify → discover → plan → query</text>
+    <text x="505" y="200" class="detail" text-anchor="middle">validate → synthesize → publish</text>
+    <text x="505" y="224" class="label" text-anchor="middle">one owner by default</text>
+  </g>
+  <g>
+    <rect x="360" y="283" width="290" height="84" rx="6" fill="#020617"/>
+    <rect x="360" y="283" width="290" height="84" rx="6" fill="rgba(59,130,246,.18)" stroke="#60a5fa"/>
+    <text x="505" y="313" class="name" text-anchor="middle">Context Service</text>
+    <text x="505" y="333" class="detail" text-anchor="middle">semantic + exact retrieval · live inspect</text>
+  </g>
+  <g>
+    <rect x="360" y="400" width="290" height="84" rx="6" fill="#020617"/>
+    <rect x="360" y="400" width="290" height="84" rx="6" fill="rgba(59,130,246,.18)" stroke="#60a5fa"/>
+    <text x="505" y="430" class="name" text-anchor="middle">Durable Run State</text>
+    <text x="505" y="450" class="detail" text-anchor="middle">events · checkpoints · resume · cancel</text>
+  </g>
+  <g>
+    <rect x="360" y="517" width="290" height="135" rx="6" fill="#020617"/>
+    <rect x="360" y="517" width="290" height="135" rx="6" fill="rgba(30,41,59,.5)" stroke="#94a3b8"/>
+    <text x="505" y="547" class="name" text-anchor="middle">Policy + Budget Engine</text>
+    <text x="505" y="570" class="detail" text-anchor="middle">allowed tools · rows · cost · time</text>
+    <text x="505" y="587" class="detail" text-anchor="middle">permissions · PII · retention · stop rules</text>
+    <text x="505" y="618" class="label" text-anchor="middle">bounded workers only when independent</text>
+  </g>
+
+  <!-- Execution -->
+  <g>
+    <rect x="730" y="130" width="270" height="120" rx="6" fill="#020617"/>
+    <rect x="730" y="130" width="270" height="120" rx="6" fill="rgba(120,53,15,.28)" stroke="#fbbf24" stroke-width="1.5"/>
+    <text x="865" y="160" class="name" text-anchor="middle">Tool Gateway</text>
+    <text x="865" y="182" class="detail" text-anchor="middle">typed schemas · ACL · timeout · audit</text>
+    <text x="865" y="199" class="detail" text-anchor="middle">catalog.search · dataset.inspect</text>
+    <text x="865" y="216" class="detail" text-anchor="middle">query.validate · query.execute</text>
+  </g>
+  <g>
+    <rect x="730" y="283" width="270" height="84" rx="6" fill="#020617"/>
+    <rect x="730" y="283" width="270" height="84" rx="6" fill="rgba(136,19,55,.25)" stroke="#fb7185"/>
+    <text x="865" y="313" class="name" text-anchor="middle">SQL Safety Gate</text>
+    <text x="865" y="333" class="detail" text-anchor="middle">AST · dialect · read-only · scan estimate</text>
+  </g>
+  <g>
+    <rect x="730" y="400" width="270" height="84" rx="6" fill="#020617"/>
+    <rect x="730" y="400" width="270" height="84" rx="6" fill="rgba(6,78,59,.3)" stroke="#34d399"/>
+    <text x="865" y="430" class="name" text-anchor="middle">Result Validator</text>
+    <text x="865" y="450" class="detail" text-anchor="middle">grain · joins · nulls · totals · reconcile</text>
+  </g>
+  <g>
+    <rect x="730" y="517" width="270" height="135" rx="6" fill="#020617"/>
+    <rect x="730" y="517" width="270" height="135" rx="6" fill="rgba(6,78,59,.3)" stroke="#34d399"/>
+    <text x="865" y="547" class="name" text-anchor="middle">Artifact Publisher</text>
+    <text x="865" y="570" class="detail" text-anchor="middle">immutable typed result</text>
+    <text x="865" y="587" class="detail" text-anchor="middle">Chart · Table · Metrics · SQL</text>
+    <text x="865" y="604" class="detail" text-anchor="middle">Method · Sources · Lineage</text>
+    <text x="865" y="628" class="label" text-anchor="middle">validated catalog renderer</text>
+  </g>
+
+  <!-- Context and data -->
+  <g>
+    <rect x="1080" y="130" width="300" height="120" rx="6" fill="#020617"/>
+    <rect x="1080" y="130" width="300" height="120" rx="6" fill="rgba(76,29,149,.32)" stroke="#a78bfa" stroke-width="1.5"/>
+    <text x="1230" y="160" class="name" text-anchor="middle">Warehouse + Lakehouse</text>
+    <text x="1230" y="182" class="detail" text-anchor="middle">permission passthrough · RLS · audit</text>
+    <text x="1230" y="199" class="detail" text-anchor="middle">BigQuery · Snowflake · Postgres · files</text>
+  </g>
+  <g>
+    <rect x="1080" y="283" width="300" height="84" rx="6" fill="#020617"/>
+    <rect x="1080" y="283" width="300" height="84" rx="6" fill="rgba(76,29,149,.23)" stroke="#a78bfa"/>
+    <text x="1230" y="313" class="name" text-anchor="middle">Semantic + Metric Layer</text>
+    <text x="1230" y="333" class="detail" text-anchor="middle">grain · dimensions · owners · freshness</text>
+  </g>
+  <g>
+    <rect x="1080" y="400" width="300" height="84" rx="6" fill="#020617"/>
+    <rect x="1080" y="400" width="300" height="84" rx="6" fill="rgba(76,29,149,.23)" stroke="#a78bfa"/>
+    <text x="1230" y="430" class="name" text-anchor="middle">Knowledge + Query History</text>
+    <text x="1230" y="450" class="detail" text-anchor="middle">docs · code · annotations · lineage</text>
+  </g>
+  <g>
+    <rect x="1080" y="517" width="300" height="135" rx="6" fill="#020617"/>
+    <rect x="1080" y="517" width="300" height="135" rx="6" fill="rgba(76,29,149,.23)" stroke="#a78bfa"/>
+    <text x="1230" y="547" class="name" text-anchor="middle">Scoped Memory</text>
+    <text x="1230" y="570" class="detail" text-anchor="middle">global · workspace · user · run</text>
+    <text x="1230" y="587" class="detail" text-anchor="middle">source · owner · expiry · revoke</text>
+    <text x="1230" y="618" class="label" text-anchor="middle">save only verified or approved facts</text>
+  </g>
+
+  <!-- Evidence plane -->
+  <rect x="30" y="732" width="1380" height="170" rx="8" fill="#020617" stroke="#34d399" stroke-dasharray="8 4"/>
+  <text x="46" y="753" fill="#34d399" class="region-title">EVIDENCE + EVALUATION PLANE</text>
+
+  <path d="M170 790H370" stroke="#34d399" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M510 790H710" stroke="#34d399" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M850 790H1050" stroke="#34d399" fill="none" marker-end="url(#arrow-slate)"/>
+  <path d="M1190 830V874H505V822" stroke="#64748b" stroke-dasharray="5 4" fill="none" marker-end="url(#arrow-slate)"/>
+
+  <g>
+    <rect x="60" y="770" width="220" height="90" rx="6" fill="#020617"/>
+    <rect x="60" y="770" width="220" height="90" rx="6" fill="rgba(6,78,59,.28)" stroke="#34d399"/>
+    <text x="170" y="801" class="name" text-anchor="middle">Evidence Ledger</text>
+    <text x="170" y="821" class="detail" text-anchor="middle">dataset/version · query hash · rows</text>
+  </g>
+  <g>
+    <rect x="400" y="770" width="220" height="90" rx="6" fill="#020617"/>
+    <rect x="400" y="770" width="220" height="90" rx="6" fill="rgba(6,78,59,.28)" stroke="#34d399"/>
+    <text x="510" y="801" class="name" text-anchor="middle">Claim Citations</text>
+    <text x="510" y="821" class="detail" text-anchor="middle">coverage · support · source quality</text>
+  </g>
+  <g>
+    <rect x="740" y="770" width="220" height="90" rx="6" fill="#020617"/>
+    <rect x="740" y="770" width="220" height="90" rx="6" fill="rgba(6,78,59,.28)" stroke="#34d399"/>
+    <text x="850" y="801" class="name" text-anchor="middle">Trace Store</text>
+    <text x="850" y="821" class="detail" text-anchor="middle">model · tools · approvals · cost · latency</text>
+  </g>
+  <g>
+    <rect x="1080" y="770" width="220" height="90" rx="6" fill="#020617"/>
+    <rect x="1080" y="770" width="220" height="90" rx="6" fill="rgba(120,53,15,.28)" stroke="#fbbf24"/>
+    <text x="1190" y="801" class="name" text-anchor="middle">Outcome Evals</text>
+    <text x="1190" y="821" class="detail" text-anchor="middle">result match · safety · pass^k · regression</text>
+  </g>
+
+  <text x="1388" y="922" class="small" text-anchor="end">Data Elements · architecture reference v1</text>
+</svg>

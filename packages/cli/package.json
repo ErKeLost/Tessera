@@ -1,0 +1,36 @@
+{
+  "name": "data-elements",
+  "version": "0.1.0",
+  "description": "Install editable Data Elements components and launch the local Tessera Studio.",
+  "license": "MIT",
+  "homepage": "https://data-elements.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/data-elements/data-elements.git",
+    "directory": "packages/cli"
+  },
+  "bin": {
+    "data-elements": "index.js",
+    "tessera": "index.js"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "@tessera/studio": "workspace:*"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.18.1"
+  },
+  "scripts": {
+    "lint": "node --check index.js",
+    "prepack": "node --check index.js",
+    "test": "bun test index.test.ts",
+    "typecheck": "node --check index.js"
+  }
+}

@@ -1,0 +1,86 @@
+---
+title: Anomaly Artifact
+description: Review prioritized deviations with expected values, explanations, and structured next steps.
+---
+
+Anomaly Artifact is for exceptions that deserve attention. The agent supplies
+validated observations and explanations; severity controls presentation but
+never grants the model arbitrary visual styling.
+
+<ComponentPreview
+  filename="anomaly-artifact-example.tsx"
+  code={`import { AnomalyArtifact } from "@/components/data-elements/anomaly-artifact"
+
+export function RevenueAnomalies() {
+  return (
+    <AnomalyArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "anomaly",
+        id: "revenue-anomalies",
+        title: "Revenue anomalies",
+        description: "Prioritized deviations from the expected baseline.",
+        format: "currency",
+        currency: "USD",
+        summary: "Three material changes require review.",
+        anomalies: [
+          {
+            id: "renewals",
+            label: "Enterprise renewals",
+            timestamp: "2026-08-12T08:00:00.000Z",
+            severity: "high",
+            actual: 184200,
+            expected: 126000,
+            deviation: 46.2,
+            explanation: "Two renewals landed earlier than modeled.",
+          },
+        ],
+        nextStep: "Review enterprise renewal timing",
+      }}
+    />
+  )
+}`}
+>
+  <AnomalyDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="anomaly-artifact" />
+
+## Usage
+
+Use `low`, `medium`, and `high` severity only for prioritization. Keep the
+numeric `actual`, `expected`, and signed percentage `deviation` explicit so the
+surface remains auditable.
+
+<CodeExample
+  filename="components/anomaly-review.tsx"
+  code={`"use client"
+
+import { AnomalyArtifact } from "@/components/data-elements/anomaly-artifact"
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+
+export function AnomalyReview({ artifact }) {
+  return (
+    <DataElementsProvider onAction={(event) => openInvestigation(event)}>
+      <AnomalyArtifact artifact={artifact} locale="en-US" />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="AnomalyArtifact"
+  properties={[
+    { name: "artifact", type: "AnomalyArtifactData", required: true, description: "One to one hundred anomalies with severity, expected value, deviation, and optional explanation." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for timestamps and numeric values." },
+  ]}
+/>
+
+| Action | Payload |
+| --- | --- |
+| `anomaly-select` | `{ anomalyId }` |
+| `anomaly-next-step` | `{ nextStep }` |

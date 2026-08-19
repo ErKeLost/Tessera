@@ -1,0 +1,87 @@
+---
+title: Metric Artifact
+description: Present high-signal KPIs as a compact, interactive operational snapshot.
+---
+
+Use Metric Artifact when a small set of values is the answer. Each card can
+emit a typed selection event for drill-down without coupling the visual
+primitive to data access.
+
+<ComponentPreview
+  code={`import { MetricArtifact } from "@/components/data-elements/metric-artifact"
+
+export function WorkspaceHealth() {
+  return (
+    <MetricArtifact
+      artifact={{
+        protocolVersion: "1.0",
+        kind: "metric",
+        id: "workspace-health",
+        title: "Workspace health",
+        description: "A compact operational snapshot.",
+        metrics: [
+          {
+            id: "revenue",
+            label: "Monthly revenue",
+            value: 128400,
+            format: "currency",
+            currency: "USD",
+            change: 12.4,
+            changeLabel: "vs previous month",
+          },
+        ],
+        footnote: "Updated from approved sources.",
+      }}
+    />
+  )
+}`}
+>
+  <MetricsDemo />
+</ComponentPreview>
+
+## Installation
+
+<InstallCommand name="metric-artifact" />
+
+## Usage
+
+Keep the artifact focused: use one to twelve related metrics with explicit
+formatting and optional change context.
+
+<CodeExample
+  filename="components/kpi-snapshot.tsx"
+  code={`"use client"
+
+import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { MetricArtifact } from "@/components/data-elements/metric-artifact"
+
+export function KpiSnapshot({ artifact }) {
+  return (
+    <DataElementsProvider
+      onAction={({ payload }) => openMetricDetail(payload.metricId)}
+    >
+      <MetricArtifact artifact={artifact} locale="en-US" />
+    </DataElementsProvider>
+  )
+}`}
+/>
+
+## API Reference
+
+<ApiReference
+  name="MetricArtifact"
+  properties={[
+    { name: "artifact", type: "MetricArtifactData", required: true, description: "One to twelve validated KPI definitions and optional snapshot footnote." },
+    { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for currency, compact number, and percent formatting." },
+  ]}
+/>
+
+### Metric fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `format` | `number \| compact \| currency \| percent` | Controls deterministic value formatting. |
+| `change` | `number` | Signed percentage change displayed beneath the value. |
+| `sentiment` | `positive \| negative \| neutral` | Optional semantic direction when numeric sign alone is insufficient. |
+
+Selecting a card emits `metric-select` with `{ metricId }`.

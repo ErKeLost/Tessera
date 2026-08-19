@@ -1,0 +1,84 @@
+{
+  "evaluationProtocol": "data-elements.eval/1.0",
+  "manifestId": "artifact-ui-v2-local-reference-2026-08-15",
+  "manifestVersion": 2,
+  "contractFingerprint": "18dd704294d28e60b71c48b6f68339ccd7de1aae7f39bfcd4f97aad0330af794",
+  "createdAt": "2026-08-15T00:00:00.000Z",
+  "statisticalMethod": {
+    "interval": "wilson-score",
+    "confidenceLevel": 0.95,
+    "sided": "two-sided",
+    "zScore": 1.959963984540054
+  },
+  "samplePlans": [
+    {
+      "id": "structure-provider-profile",
+      "suite": "structure",
+      "provider": "production-provider-pending",
+      "model": "pinned-model-pending",
+      "profile": "analysis",
+      "targetSampleSize": 4000,
+      "minimumEligibleSamples": 4000,
+      "parameters": { "status": "not-executed" },
+      "exclusions": []
+    },
+    {
+      "id": "selection-provider-profile",
+      "suite": "selection",
+      "provider": "production-provider-pending",
+      "model": "pinned-model-pending",
+      "profile": "analysis",
+      "targetSampleSize": 400,
+      "minimumEligibleSamples": 400,
+      "parameters": { "status": "not-executed" },
+      "exclusions": []
+    },
+    {
+      "id": "security-local",
+      "suite": "security",
+      "provider": "local",
+      "model": "deterministic-conformance",
+      "profile": "all",
+      "targetSampleSize": 200,
+      "minimumEligibleSamples": 200,
+      "parameters": { "status": "local-fixtures-only" },
+      "exclusions": []
+    },
+    {
+      "id": "compatibility-local",
+      "suite": "compatibility",
+      "provider": "local",
+      "model": "deterministic-conformance",
+      "profile": "all",
+      "targetSampleSize": 1,
+      "minimumEligibleSamples": 1,
+      "parameters": { "status": "local-fixtures-only" },
+      "exclusions": []
+    },
+    {
+      "id": "distribution-local",
+      "suite": "distribution",
+      "provider": "local",
+      "model": "fresh-install",
+      "profile": "artifact-ui",
+      "targetSampleSize": 1,
+      "minimumEligibleSamples": 1,
+      "parameters": { "status": "local-fixtures-only" },
+      "exclusions": []
+    }
+  ],
+  "gates": {
+    "structure": {
+      "firstPassWilsonLowerBound": 0.98,
+      "repairedWilsonLowerBound": 0.999,
+      "repairedZeroFailureMinimum": 4000
+    },
+    "selection": {
+      "macroAccuracy": 0.95,
+      "criticalSliceAccuracy": 0.9
+    },
+    "security": { "tolerance": 0 },
+    "compatibility": { "requiredPassRate": 1 },
+    "distribution": { "requiredPassRate": 1 }
+  }
+}
