@@ -449,6 +449,7 @@ export type DataAgentPlanningCatalogInput = Readonly<{
  * Server-only binding for a relation selected in a trusted host view. Physical
  * identifiers never become model input or model-visible tool output. The
  * catalog fingerprint binds that view to the catalog version that rendered it.
+ * The runtime refreshes the catalog during binding; callers cannot opt out.
  */
 export const relationPlanningCatalogInputSchema = z.object({
   schema: z.string().min(1).max(256),
