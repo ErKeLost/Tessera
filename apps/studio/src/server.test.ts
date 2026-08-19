@@ -367,7 +367,7 @@ describe("Tessera Studio Hono app", () => {
       body: JSON.stringify({ message: "How are orders today?", threadId: "thread-1" }),
     }));
     const payload = await response.json() as {
-      run: { id: string; threadId: string; message: string; evidence: Array<{ label: string }> };
+      run: { id: string; threadId: string; message: string; evidence: Array<{ queryId: string; label: string }> };
     };
 
     expect(response.status).toBe(200);

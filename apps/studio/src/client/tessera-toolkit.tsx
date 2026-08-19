@@ -11,7 +11,17 @@ import { AgentActivity } from "./components/agent-activity";
 import { ToolCall } from "./components/elements/tool-call";
 
 type SafeToolResult = Record<string, unknown>;
-type TesseraToolKind = "catalog" | "probe" | "analysis";
+type TesseraToolKind = "context" | "catalog" | "probe" | "analysis";
+
+const CurrentContextTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+  <TesseraToolCall
+    {...props}
+    kind="context"
+    label="Reading selected data context"
+    completeLabel="Read selected data context"
+    detail={currentContextDetail(props.result)}
+  />
+);
 
 const CatalogSearchTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
@@ -111,9 +121,19 @@ function toolChip(kind: TesseraToolKind): string {
 }
 
 function toolRequest(kind: TesseraToolKind): string {
+  if (kind === "context") return "Read server-bound selected data context";
   if (kind === "catalog") return "Read governed catalog metadata";
   if (kind === "probe") return "Check bounded data signals";
   return "Run a governed read-only analysis";
+}
+
+function currentContextDetail(result: SafeToolResult | undefined): string {
+  if (!result) return "Preparing the selected data context";
+  if (result.status === "blocked") return "The selected data context is no longer available";
+  const count = safePositiveInteger(result.entityCount);
+  return count === undefined
+    ? "Selected data context is ready"
+    : `${count} selected ${count === 1 ? "entity is" : "entities are"} ready`;
 }
 
 function catalogDetail(result: SafeToolResult | undefined): string {
@@ -159,6 +179,10 @@ function safePositiveInteger(value: unknown): number | undefined {
  * its arguments and outputs to the browser.
  */
 export const tesseraStudioToolkit: Toolkit = defineToolkit({
+  inspect_current_context: {
+    type: "backend" as const,
+    render: CurrentContextTool,
+  },
   inspect_catalog: {
     type: "backend" as const,
     render: CatalogSearchTool,

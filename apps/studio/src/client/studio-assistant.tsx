@@ -31,6 +31,7 @@ import type {
   TesseraExecutionTraceData,
   TesseraUIMessage,
 } from "../protocol";
+import type { StudioAgentPageContext } from "./layout/studio-route-context";
 import {
   Conversation,
   ConversationContent,
@@ -85,6 +86,7 @@ export function StudioAssistant({
   onDatabaseSettingsSaved,
   onThreadActivity,
   threadId,
+  workspaceContext,
 }: {
   initialMessages: readonly TesseraUIMessage[];
   initialPrompt?: string;
@@ -93,7 +95,12 @@ export function StudioAssistant({
   onDatabaseSettingsSaved?(): void;
   onThreadActivity?(): void;
   threadId: string;
+  workspaceContext?: StudioAgentPageContext;
 }) {
+  // The transport must remain stable while the selected table changes, but
+  // each submitted turn must use the latest non-sensitive page signal.
+  const workspaceContextRef = useRef<StudioAgentPageContext | undefined>(workspaceContext);
+  workspaceContextRef.current = workspaceContext;
   const transport = useMemo(
     () =>
       new AssistantChatTransport<TesseraUIMessage>({
@@ -108,6 +115,7 @@ export function StudioAssistant({
           if (!message || message.role !== "user") {
             throw new Error("Tessera can only submit the current user message.");
           }
+          const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
           return {
             headers: { "Content-Type": "application/json" },
             body: {
@@ -117,6 +125,7 @@ export function StudioAssistant({
               messages: [message],
               threadId,
               trigger,
+              ...(currentWorkspaceContext === undefined ? {} : { workspaceContext: currentWorkspaceContext }),
             },
           };
         },
@@ -147,6 +156,24 @@ export function StudioAssistant({
       />
     </AssistantRuntimeProvider>
   );
+}
+
+/** Allowlist the only browser page signals that may reach the chat endpoint. */
+function chatWorkspaceContext(context: StudioAgentPageContext | undefined) {
+  if (!context) return undefined;
+  return {
+    hasLocalFilter: context.hasLocalFilter,
+    view: context.view,
+    ...(context.currentRelation === undefined
+      ? {}
+      : {
+        currentRelation: {
+          catalogFingerprint: context.currentRelation.catalogFingerprint,
+          schema: context.currentRelation.schema,
+          table: context.currentRelation.table,
+        },
+      }),
+  };
 }
 
 function StudioConversation({

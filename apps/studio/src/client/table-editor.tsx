@@ -7,15 +7,21 @@ import {
   CopyIcon,
   DatabaseIcon,
   EyeIcon,
+  FilterIcon,
+  FileCode2Icon,
   KeyRoundIcon,
   LoaderCircleIcon,
+  MoreHorizontalIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
   SearchIcon,
   ShieldCheckIcon,
+  ShieldAlertIcon,
   Table2Icon,
   Trash2Icon,
+  UserRoundIcon,
+  ArrowUpDownIcon,
   XIcon,
 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -43,8 +49,11 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { Input } from "./components/ui/input";
@@ -140,6 +149,19 @@ type MutationFeedback = Readonly<{
   tone: "error" | "notice" | "success";
 }>;
 
+type SortDirection = "asc" | "desc";
+type TableSort = Readonly<{ column: string; direction: SortDirection }>;
+type TableFilterOperator = "contains" | "equals" | "not_equals" | "gt" | "gte" | "lt" | "lte" | "is_null" | "is_not_null";
+type TableFilter = Readonly<{ column: string; operator: TableFilterOperator; value: string }>;
+type PolicyCommand = "ALL" | "SELECT" | "INSERT" | "UPDATE" | "DELETE";
+type PolicyDraft = Readonly<{
+  check: string;
+  command: PolicyCommand;
+  name: string;
+  role: string;
+  using: string;
+}>;
+
 type PendingApproval = Readonly<{
   action: StudioDatabaseAction;
   effect: StudioDatabaseActionEffect;
@@ -200,6 +222,11 @@ export function TableEditor({
   );
   const [tableSearch, setTableSearch] = useState("");
   const [rowFilter, setRowFilter] = useState("");
+  const [tableFilters, setTableFilters] = useState<TableFilter[]>([]);
+  const [tableSort, setTableSort] = useState<TableSort>();
+  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
+  const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
+  const [activeRole, setActiveRole] = useState("postgres");
   const [selectedSchema, setSelectedSchema] = useState<string>();
   const [selectedTableKey, setSelectedTableKey] = useState<string>();
   const [openTableKeys, setOpenTableKeys] = useState<string[]>([]);
@@ -248,6 +275,10 @@ export function TableEditor({
     const restored = readPersistedTableEditorState(storageKey);
     setTableSearch(restored?.tableSearch ?? "");
     setRowFilter("");
+    setTableFilters([]);
+    setTableSort(undefined);
+    setFilterDialogOpen(false);
+    setPolicyDialogOpen(false);
     setSelectedSchema(restored?.selectedSchema);
     setSelectedTableKey(restored?.selectedTableKey);
     setOpenTableKeys(restored?.openTableKeys ?? []);
@@ -363,6 +394,8 @@ export function TableEditor({
     setOpenTableKeys((keys) => keys.includes(key) ? keys : [...keys, key]);
     setView("data");
     setRowFilter("");
+    setTableFilters([]);
+    setTableSort(undefined);
     setPage(1);
     setSelectedRows(new Set());
   }, []);
@@ -407,18 +440,25 @@ export function TableEditor({
   const filteredRows = useMemo<PreviewRow[]>(() => {
     const rows = preview?.rows ?? [];
     const normalized = rowFilter.trim().toLocaleLowerCase("en-US");
-    return rows.flatMap((row, sourceIndex) => {
+    const matchingRows = rows.flatMap((row, sourceIndex) => {
       if (normalized && !columns.some((column) => displayValue(row[column.name]).toLocaleLowerCase("en-US").includes(normalized))) {
         return [];
       }
+      if (tableFilters.some((filter) => !matchesTableFilter(row[filter.column], filter))) return [];
       return [{ row, sourceIndex }];
     });
-  }, [columns, preview?.rows, rowFilter]);
+    if (!tableSort) return matchingRows;
+    return matchingRows.toSorted((left, right) => {
+      const comparison = comparePreviewValues(left.row[tableSort.column], right.row[tableSort.column]);
+      return tableSort.direction === "asc" ? comparison : comparison * -1;
+    });
+  }, [columns, preview?.rows, rowFilter, tableFilters, tableSort]);
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
   const visibleRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
   const selectedTableDisplayName = selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "Table Editor";
+  const hasQueryControls = Boolean(rowFilter.trim()) || tableFilters.length > 0 || tableSort !== undefined;
   const selectionIncludesPage = selectedTable !== undefined
     && visibleRows.length > 0
     && visibleRows.every(({ row, sourceIndex }) => selectedRows.has(stableRowKey(selectedTable, row, sourceIndex)));
@@ -482,6 +522,16 @@ export function TableEditor({
       // Clipboard access can be denied by the browser; the grid remains usable.
     }
   }, [selectedRows, selectedTable, visibleRows]);
+
+  const copyTableReference = useCallback(async () => {
+    if (!selectedTable || typeof navigator === "undefined" || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(`${selectedTable.schema}.${selectedTable.name}`);
+      setMutationFeedback({ message: `Copied ${selectedTable.schema}.${selectedTable.name}.`, tone: "success" });
+    } catch {
+      setMutationFeedback({ message: "Clipboard access was denied by the browser.", tone: "error" });
+    }
+  }, [selectedTable]);
 
   const togglePageSelection = () => {
     if (!selectedTable) return;
@@ -773,11 +823,99 @@ export function TableEditor({
                 setPage(1);
                 setSelectedRows(new Set());
               }}
-              placeholder="Filter by value..."
-            value={rowFilter}
-          />
+              placeholder="Filter rows..."
+              value={rowFilter}
+            />
           </label>
           <div className="table-editor-toolbar-actions">
+            <Button
+              aria-label="Add table filters"
+              className={cx("table-editor-query-button", tableFilters.length > 0 && "is-active")}
+              disabled={!selectedTable}
+              onClick={() => setFilterDialogOpen(true)}
+              size="sm"
+              title={tableFilters.length ? `${tableFilters.length} filters applied` : "Filter rows"}
+              type="button"
+              variant="outline"
+            >
+              <FilterIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+              <span>Filter{tableFilters.length ? ` ${tableFilters.length}` : ""}</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  aria-label="Sort table rows"
+                  className={cx("table-editor-query-button", tableSort && "is-active")}
+                  disabled={!selectedTable}
+                  size="sm"
+                  title={tableSort ? `Sorted by ${tableSort.column} ${tableSort.direction}` : "Sort rows"}
+                  type="button"
+                  variant="outline"
+                >
+                  <ArrowUpDownIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                  <span>{tableSort ? `Sort: ${tableSort.column}` : "Sort"}</span>
+                  <ChevronDownIcon aria-hidden="true" size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
+                <DropdownMenuLabel>Sort rows</DropdownMenuLabel>
+                <DropdownMenuItem disabled={!tableSort} onSelect={() => setTableSort(undefined)}>
+                  <XIcon aria-hidden="true" size={14} />
+                  Clear sort
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                {(columns ?? []).map((column) => {
+                  const active = tableSort?.column === column.name;
+                  const direction = active ? tableSort.direction : "asc";
+                  return (
+                    <DropdownMenuItem
+                      key={column.name}
+                      onSelect={() => {
+                        setTableSort({ column: column.name, direction: active && direction === "asc" ? "desc" : "asc" });
+                        setPage(1);
+                        setSelectedRows(new Set());
+                      }}
+                    >
+                      {active ? (direction === "asc" ? <ChevronDownIcon aria-hidden="true" size={14} /> : <ChevronDownIcon aria-hidden="true" size={14} className="table-editor-sort-desc" />) : <span className="table-editor-menu-icon-spacer" />}
+                      <span>{column.name}</span>
+                      {active ? <span className="table-editor-menu-meta">{direction === "asc" ? "A-Z" : "Z-A"}</span> : null}
+                    </DropdownMenuItem>
+                  );
+                })}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button
+              aria-label="Add RLS policy"
+              className="table-editor-query-button table-editor-policy-button"
+              disabled={!selectedTable || connection?.dialect !== "postgres"}
+              onClick={() => setPolicyDialogOpen(true)}
+              size="sm"
+              title={connection?.dialect === "postgres" ? "Create an RLS policy" : "RLS policies are only available for PostgreSQL"}
+              type="button"
+              variant="outline"
+            >
+              <ShieldAlertIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+              <span>Add RLS policy</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button aria-label="Choose database role" className="table-editor-role-button" size="sm" title="Run as role" type="button" variant="outline">
+                  <UserRoundIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                  <span>{activeRole}</span>
+                  <ChevronDownIcon aria-hidden="true" size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
+                <DropdownMenuLabel>Run as role</DropdownMenuLabel>
+                <DropdownMenuRadioGroup onValueChange={setActiveRole} value={activeRole}>
+                  {["postgres", "authenticated", "anon", "service_role"].map((role) => (
+                    <DropdownMenuRadioItem key={role} value={role}>{role}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSeparator />
+                <p className="table-editor-menu-note">Role context is shown in the editor. Database writes remain governed by Tessera permissions.</p>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <span aria-label={writeStateDescription} className="table-editor-write-state" title={writeStateDescription}>
               {writeCapabilities.status === "loading" ? <LoaderCircleIcon aria-hidden="true" className="spin" size={14} /> : <ShieldCheckIcon aria-hidden="true" size={14} strokeWidth={1.8} />}
               <span>{writeStateLabel}</span>
@@ -824,6 +962,37 @@ export function TableEditor({
             >
               <RefreshCwIcon aria-hidden="true" className={refreshingCatalog ? "spin" : undefined} size={15} />
             </TooltipIconButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button aria-label="More table actions" className="table-editor-more-button" size="sm" title="More table actions" type="button" variant="outline">
+                  <MoreHorizontalIcon aria-hidden="true" size={16} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
+                <DropdownMenuLabel>{selectedTableDisplayName}</DropdownMenuLabel>
+                <DropdownMenuItem disabled={!selectedTable} onSelect={() => void copyTableReference()}>
+                  <CopyIcon aria-hidden="true" size={14} />
+                  Copy table reference
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!selectedTable} onSelect={() => setView("definition")}>
+                  <FileCode2Icon aria-hidden="true" size={14} />
+                  Open definition
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!selectedTable} onSelect={() => selectedTable && void loadPreview(selectedTable, true)}>
+                  <RefreshCwIcon aria-hidden="true" size={14} />
+                  Refresh preview
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem disabled={!hasQueryControls} onSelect={() => { setRowFilter(""); setTableFilters([]); setTableSort(undefined); setPage(1); setSelectedRows(new Set()); }}>
+                  <XIcon aria-hidden="true" size={14} />
+                  Clear filters and sort
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={refreshingCatalog} onSelect={onRefreshCatalog}>
+                  <DatabaseIcon aria-hidden="true" size={14} />
+                  Refresh catalog
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 
@@ -887,6 +1056,19 @@ export function TableEditor({
           onInsert={submitInsert}
           onUpdate={submitUpdate}
         />
+        <TableFilterDialog
+          filters={tableFilters}
+          onApply={(nextFilters) => {
+            setTableFilters(nextFilters);
+            setFilterDialogOpen(false);
+            setPage(1);
+            setSelectedRows(new Set());
+          }}
+          onClose={() => setFilterDialogOpen(false)}
+          open={filterDialogOpen}
+          table={selectedTable}
+        />
+        <RlsPolicyDialog onClose={() => setPolicyDialogOpen(false)} open={policyDialogOpen} table={selectedTable} />
       </section>
     </section>
   );

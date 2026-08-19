@@ -7,6 +7,7 @@ import {
   analysisToolRejection,
   buildDataCopilotInstructions,
   compactDescribeDataForModel,
+  compactInspectCurrentContextForModel,
   compactProbeDataForModel,
   createTesseraStudioAgent,
   MAX_DISCOVERY_PROBES_PER_TURN,
@@ -317,6 +318,125 @@ describe("Tessera Agent vNext public boundary", () => {
       });
       expect(JSON.stringify(memory.messages)).toContain("Remember the stream marker.");
       expect(JSON.stringify(memory.messages)).toContain("A streamed Tessera response.");
+    } finally {
+      await session.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("binds inspected current context as a planning scope without exposing server references to the model", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-current-context-"));
+    const session = createTesseraSessionMemory({ rootDirectory });
+    const current = planningScope({ tokenPart: "c", entities: [userEntity] });
+    const omitted = { entities: 0, fields: 0, metrics: 0, relationships: 0 } as const;
+    const describeCapabilities: string[] = [];
+    const dataAgent = {
+      connectorId: "test",
+      async describePlanningCatalog(input: { capability: { token: string }; entityIds: readonly string[] }) {
+        describeCapabilities.push(input.capability.token);
+        return {
+          capability: current.capability,
+          semanticCatalog: current.catalog,
+          truncated: false,
+          omitted,
+        };
+      },
+    } as unknown as DataAgent;
+    const toolTurns = [
+      { toolName: "inspect_current_context", input: {} },
+      { toolName: "describe_data", input: { entityIds: ["ent_0123456789abcdef"] } },
+    ] as const;
+    let modelTurn = 0;
+    const model = {
+      specificationVersion: "v2",
+      provider: "tessera-test",
+      modelId: "current-context-test",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("Tessera must use Agent.stream for every model turn.");
+      },
+      async doStream() {
+        const tool = toolTurns[modelTurn++];
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (tool) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: `call-${modelTurn}`,
+                  toolName: tool.toolName,
+                  input: JSON.stringify(tool.input),
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-1" });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The selected data definition is ready." });
+                controller.enqueue({ type: "text-end", id: "text-1" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const llm: TesseraLlmConfig = {
+      model: model as unknown as string,
+      headers: {},
+      temperature: 0,
+      maxOutputTokens: 256,
+      maxSteps: 5,
+      maxRetries: 0,
+    };
+
+    try {
+      await session.createThread({ id: "thread-current-context", resourceId: "local-studio" });
+      const agent = createTesseraStudioAgent({ dataAgent, memory: session.memory, llm });
+      const run = await agent.run({
+        runId: "run-current-context",
+        threadId: "thread-current-context",
+        message: "Describe this table.",
+        signal: new AbortController().signal,
+        turnContext: {
+          workspace: { hasLocalFilter: true, view: "definition" },
+          currentRelation: {
+            capability: current.capability,
+            semanticCatalog: current.catalog,
+            truncated: false,
+            omitted,
+          },
+        },
+      });
+
+      expect(run.message).toBe("The selected data definition is ready.");
+      expect(describeCapabilities).toEqual([current.capability.token]);
+      expect(modelTurn).toBe(3);
+
+      const modelOutput = compactInspectCurrentContextForModel({
+        status: "completed",
+        entityCount: current.catalog.entities.length,
+        truncated: false,
+        omitted,
+        catalog: current.catalog,
+      });
+      const serialized = JSON.stringify(modelOutput);
+      expect(serialized).not.toContain("catalogFingerprint");
+      expect(serialized).not.toContain(semanticFingerprint);
+      expect(serialized).not.toContain(current.capability.token);
+      expect(serialized).not.toContain("cap_");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });

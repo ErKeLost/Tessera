@@ -15,3 +15,7 @@ registry/generated
 .env.*
 !.env.example
 vendor
+
+# Local-only agent skills
+.agents/skills/beui/
+.baoyu-skills/baoyu-translate/

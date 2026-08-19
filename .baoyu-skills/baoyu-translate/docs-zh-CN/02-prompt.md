@@ -1,3 +1,0 @@
-# Translation instructions
-
-Translate the Artifact Agent documentation from English to Simplified Chinese for developers and academic readers. Use precise, restrained technical prose. Preserve MDX structure, frontmatter keys, component tags, props, code blocks, package names, identifiers, commands, URLs, and numerical values exactly. Translate frontmatter values, headings, paragraphs, table prose, accessibility-facing descriptions, and navigation metadata. Keep the product name `Artifact Agent` and protocol term `Artifact` in English when they refer to named APIs or schema kinds. Prefer established terms such as AI 智能体, 声明式载荷, 信任边界, 溯源, 护栏, 运行控制器, 结构化事件, and 渲染器. Do not introduce explanations that are absent from the source.
