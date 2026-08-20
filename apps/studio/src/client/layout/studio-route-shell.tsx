@@ -1,11 +1,13 @@
 import {
   ChevronDownIcon,
+  GripVerticalIcon,
   HistoryIcon,
   PlusIcon,
   Settings2Icon,
   Table2Icon,
 } from "lucide-react";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Group, Panel, Separator, type PanelImperativeHandle } from "react-resizable-panels";
 import { publicError } from "../api/studio-api";
@@ -21,8 +23,11 @@ import { StudioHistoryMenu } from "../studio-history-menu";
 import { StudioSettingsDialog, type StudioSettingsTab } from "../studio-settings";
 import { StudioThemePicker } from "../studio-theme";
 import { TooltipIconButton } from "../components/assistant-ui/tooltip-icon-button";
-import { StudioDatabasePanel } from "../components/database/studio-database-panel";
-import type { StudioRouteContext } from "./studio-route-context";
+import { RouteLoading } from "../routes/route-state";
+import type { TableEditorAgentPageContext } from "../table-editor";
+import type { StudioAgentPageContext, StudioRouteContext } from "./studio-route-context";
+
+const TableEditor = lazy(() => import("../table-editor").then(({ TableEditor: Editor }) => ({ default: Editor })));
 
 export function StudioRouteShell() {
   const location = useLocation();
@@ -36,26 +41,52 @@ export function StudioRouteShell() {
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
+  const [agentPageContext, setAgentPageContext] = useState<StudioAgentPageContext>();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<StudioSettingsTab>("database");
-  const databasePanelRef = useRef<PanelImperativeHandle | null>(null);
-  const databasePanelInitialized = useRef(false);
+  const databasePanelRef = useRef<PanelImperativeHandle>(null);
+  const databaseSize = useMotionValue(0);
+  const lastDatabaseSizeRef = useRef(42);
+  const reduceMotion = useReducedMotion() ?? false;
 
-  useLayoutEffect(() => {
-    const panel = databasePanelRef.current;
-    if (!panel) return;
-    if (!databasePanelInitialized.current) {
-      databasePanelInitialized.current = true;
-      if (!databaseOpen) panel.collapse();
-      return;
-    }
-    if (databaseOpen) panel.expand();
-    else panel.collapse();
+  useMotionValueEvent(databaseSize, "change", (size) => {
+    databasePanelRef.current?.resize(`${size}%`);
+  });
+
+  useEffect(() => {
+    const targetSize = databaseOpen ? lastDatabaseSizeRef.current : 0;
+    const controls = animate(databaseSize, targetSize, {
+      duration: reduceMotion ? 0 : 0.38,
+      ease: [0.22, 1, 0.36, 1],
+    });
+    return () => controls.stop();
+  }, [databaseOpen, databaseSize, reduceMotion]);
+
+  useEffect(() => {
+    if (!databaseOpen) setAgentPageContext(undefined);
   }, [databaseOpen]);
 
   const openSettings = useCallback((tab: StudioSettingsTab) => {
     setSettingsTab(tab);
     setSettingsOpen(true);
+  }, []);
+
+  const onAgentPageContextChange = useCallback((context: TableEditorAgentPageContext | undefined) => {
+    if (!context) {
+      setAgentPageContext(undefined);
+      return;
+    }
+    setAgentPageContext({
+      hasLocalFilter: context.filterActive,
+      view: context.view,
+      ...(context.schema && context.table ? {
+        currentRelation: {
+          catalogFingerprint: context.catalogFingerprint,
+          schema: context.schema,
+          table: context.table,
+        },
+      } : {}),
+    });
   }, []);
 
   const createThread = useCallback(async () => {
@@ -85,6 +116,7 @@ export function StudioRouteShell() {
   const routeContext: StudioRouteContext = {
     activeThread,
     activeThreadId,
+    agentPageContext,
     openSettings,
     refreshWorkspace,
     workspace,
@@ -144,45 +176,62 @@ export function StudioRouteShell() {
       </header>
       <div className="studio-minimal-route">
         <Group
-          className="studio-workspace-panels"
+          className="studio-database-workbench"
           data-database-open={databaseOpen || undefined}
-          id="studio-workspace-panels"
+          id="studio-database-workbench"
           orientation="horizontal"
           resizeTargetMinimumSize={{ coarse: 28, fine: 12 }}
         >
-          <Panel className="studio-ai-panel" id="studio-chat-panel" minSize="280px">
-            <Outlet context={routeContext} />
-          </Panel>
-          <Separator
-            aria-label="Resize database explorer"
-            className="studio-database-resize-handle"
-            disabled={!databaseOpen}
-            id="studio-database-resize-handle"
-          />
           <Panel
-            className="studio-database-panel-host"
-            collapsedSize="0px"
+            className="studio-database-panel"
+            collapsedSize="0%"
             collapsible
-            defaultSize="42%"
+            defaultSize="0%"
             id="studio-database-panel"
-            maxSize="68%"
-            minSize="25%"
+            minSize="0%"
             onResize={(size) => {
-              const nextOpen = size.inPixels > 48;
-              setDatabaseOpen((current) => current === nextOpen ? current : nextOpen);
+              if (databaseOpen && size.asPercentage >= 44) lastDatabaseSizeRef.current = size.asPercentage;
             }}
             panelRef={databasePanelRef}
           >
-            <StudioDatabasePanel
-              catalog={workspace.catalog.data}
-              catalogError={workspace.catalog.error ? publicError(workspace.catalog.error) : undefined}
-              connection={workspace.connection.data}
-              connectionError={workspace.connection.error ? publicError(workspace.connection.error) : undefined}
-              onClose={() => setDatabaseOpen(false)}
-              onRefresh={() => { void refreshWorkspace(); }}
-              open={databaseOpen}
-              refreshing={workspace.catalog.isFetching}
-            />
+            <AnimatePresence initial={false}>
+              {databaseOpen ? (
+                <motion.div
+                  animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, filter: "blur(0px)" }}
+                  className="studio-database-panel-content"
+                  exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -18, filter: "blur(2px)" }}
+                  initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -18, filter: "blur(2px)" }}
+                  transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
+                >
+                  <Suspense fallback={<RouteLoading label="Loading data explorer" />}>
+                    <TableEditor
+                      catalog={workspace.catalog.data}
+                      catalogError={workspace.catalog.error ? publicError(workspace.catalog.error) : undefined}
+                      connection={workspace.connection.data}
+                      connectionError={workspace.connection.error ? publicError(workspace.connection.error) : undefined}
+                      onAgentPageContextChange={onAgentPageContextChange}
+                      onClose={() => setDatabaseOpen(false)}
+                      onRefreshCatalog={() => { void refreshWorkspace(); }}
+                      refreshingCatalog={workspace.catalog.isFetching}
+                    />
+                  </Suspense>
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </Panel>
+          <Separator
+            aria-label="Resize database explorer"
+            className="studio-workspace-resize-handle"
+            disabled={!databaseOpen}
+          >
+            <span aria-hidden="true" className="studio-workspace-resize-grip">
+              <GripVerticalIcon size={12} strokeWidth={1.8} />
+            </span>
+          </Separator>
+          <Panel className="studio-assistant-panel" defaultSize="100%" id="studio-chat-panel" minSize="0%">
+            <div className="studio-ai-panel">
+              <Outlet context={routeContext} />
+            </div>
           </Panel>
         </Group>
       </div>

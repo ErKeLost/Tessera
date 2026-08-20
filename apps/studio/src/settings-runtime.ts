@@ -36,6 +36,7 @@ import { createTesseraStudioAgent } from "./agent";
 import { createTesseraSessionMemory, type TesseraSessionMemory } from "./session-memory";
 import {
   defineTesseraConfig,
+  getTesseraProviderBaseUrl,
   inferTesseraDatabaseDialect,
   isTesseraLlmConfigured,
   resolveTesseraLlmConfig,
@@ -160,6 +161,7 @@ export class TesseraSettingsRuntimeError extends Error {
     readonly code:
       | "connection_unavailable"
       | "invalid_settings"
+      | "model_unavailable"
       | "runtime_closed"
       | "runtime_unavailable"
       | "settings_persist_failed"
@@ -294,6 +296,7 @@ export function createTesseraStudioSettingsSnapshot(
   const llm = resolveTesseraLlmConfig(config);
   const [provider, ...modelSegments] = llm.model.split("/");
   const model = modelSegments.join("/");
+  const effectiveBaseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider);
   const snapshot = {
     database: {
       dialect: config.database.dialect,
@@ -304,7 +307,7 @@ export function createTesseraStudioSettingsSnapshot(
       provider: provider?.toLocaleLowerCase("en-US") || "openrouter",
       model: model || llm.model,
       reasoningEffort: llm.reasoningEffort ?? "default",
-      ...(llm.baseUrl === undefined ? {} : { baseUrl: llm.baseUrl }),
+      ...(effectiveBaseUrl === undefined ? {} : { baseUrl: effectiveBaseUrl }),
       apiKeyConfigured: Boolean(llm.apiKey) || hasEnvironmentProviderKey(provider),
     },
     limits: {
@@ -366,6 +369,11 @@ export type TesseraSettingsConnectionSnapshot = Readonly<{
 export type TesseraSettingsValidationResult = Readonly<{
   settings: TesseraStudioSettingsSnapshot;
   connection: TesseraSettingsConnectionSnapshot;
+}>;
+
+export type TesseraSettingsModelValidationResult = Readonly<{
+  settings: TesseraStudioSettingsSnapshot;
+  model: Readonly<{ connected: true; provider: "openrouter" }>;
 }>;
 
 export type TesseraRuntimeManagerOptions = Readonly<{
@@ -666,6 +674,22 @@ export class TesseraStudioRuntimeManager {
     }
   }
 
+  /** Sends a minimal request to the selected provider without rotating the active runtime. */
+  async testModel(
+    candidateInput: unknown,
+    options: Readonly<{ signal?: AbortSignal }> = {},
+  ): Promise<TesseraSettingsModelValidationResult> {
+    if (this.#closed) {
+      throw new TesseraSettingsRuntimeError("runtime_closed", "Tessera Studio is shutting down.");
+    }
+    const state = normalizeTesseraStudioSettings(this.#current.config, candidateInput);
+    await assessOpenRouterModel(state.config, options.signal);
+    return Object.freeze({
+      settings: createTesseraStudioSettingsSnapshot(state.config, state.accessMode),
+      model: Object.freeze({ connected: true, provider: "openrouter" as const }),
+    });
+  }
+
   /**
    * Replaces the active generation only after the candidate is built and,
    * by default, confirmed to reach its database. The old generation remains
@@ -854,6 +878,50 @@ async function assessRuntime(connector: DatabaseConnector, signal?: AbortSignal)
   }
 }
 
+async function assessOpenRouterModel(config: TesseraConfig, signal?: AbortSignal): Promise<void> {
+  const llm = resolveTesseraLlmConfig(config);
+  const [provider, ...modelSegments] = llm.model.split("/");
+  if (provider !== "openrouter" || modelSegments.length < 2) {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenRouter models can be tested here.");
+  }
+  const apiKey = llm.apiKey ?? environmentProviderKey(provider);
+  if (!apiKey) {
+    throw new TesseraSettingsRuntimeError("model_unavailable", "An OpenRouter API key is required to test this model.");
+  }
+
+  const baseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider) ?? "https://openrouter.ai/api/v1";
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      body: JSON.stringify({
+        max_tokens: 16,
+        messages: [{ content: "Reply with OK.", role: "user" }],
+        model: modelSegments.join("/"),
+        stream: false,
+        temperature: 0,
+      }),
+      headers: {
+        ...llm.headers,
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "X-Title": "Tessera Studio connection test",
+      },
+      method: "POST",
+      signal,
+    });
+  } catch {
+    throw new TesseraSettingsRuntimeError("model_unavailable", "Tessera could not reach the selected OpenRouter model.");
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected OpenRouter model rejected the test request.");
+  }
+  const body = await response.json().catch(() => undefined) as { choices?: unknown[] } | undefined;
+  if (!Array.isArray(body?.choices) || body.choices.length === 0) {
+    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected OpenRouter model returned an invalid response.");
+  }
+}
+
 function redactConnectionAssessment(assessment: ConnectionAssessment): TesseraSettingsConnectionSnapshot {
   return Object.freeze({
     connected: assessment.connected,
@@ -954,6 +1022,10 @@ function normalizeBaseUrl(value: string): string | undefined {
 }
 
 function hasEnvironmentProviderKey(provider: string | undefined): boolean {
+  return environmentProviderKey(provider) !== undefined;
+}
+
+function environmentProviderKey(provider: string | undefined): string | undefined {
   const variables: Record<string, readonly string[]> = {
     openrouter: ["OPENROUTER_API_KEY"],
     openai: ["OPENAI_API_KEY"],
@@ -965,8 +1037,11 @@ function hasEnvironmentProviderKey(provider: string | undefined): boolean {
     together: ["TOGETHER_API_KEY", "TOGETHERAI_API_KEY"],
     deepseek: ["DEEPSEEK_API_KEY"],
   };
-  return (variables[provider?.toLocaleLowerCase("en-US") ?? ""] ?? [])
-    .some((name) => Boolean(process.env[name]?.trim()));
+  for (const name of variables[provider?.toLocaleLowerCase("en-US") ?? ""] ?? []) {
+    const value = process.env[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
 }
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {

@@ -169,6 +169,12 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
 };
 
 const PROVIDERS = ["openrouter", "openai", "anthropic", "google", "custom"] as const;
+const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string | undefined>> = {
+  openrouter: "https://openrouter.ai/api/v1",
+  openai: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com/v1",
+  google: "https://generativelanguage.googleapis.com/v1beta",
+};
 const REASONING_EFFORTS = new Set<StudioReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "none"]);
 const EMPTY_MODEL_CATALOG: StudioOpenRouterModelCatalog = { models: [] };
 
@@ -283,6 +289,9 @@ export function StudioSettingsDialog({
     setForm((current) => ({
       ...current,
       provider,
+      baseUrl: current.baseUrl === (DEFAULT_PROVIDER_BASE_URLS[current.provider] ?? "")
+        ? (DEFAULT_PROVIDER_BASE_URLS[provider] ?? "")
+        : current.baseUrl,
       ...(provider === "openrouter" ? {} : { reasoningEffort: "default" as const }),
     }));
     setNotice(undefined);
@@ -313,17 +322,25 @@ export function StudioSettingsDialog({
     setRequestState("testing");
     setNotice(undefined);
     try {
-      const response = await fetch("/api/settings/test", jsonRequest(candidate));
-      if (!response.ok) throw new Error("settings_test_failed");
+      const target = activeTab === "model" ? "model" : "database";
+      const response = await fetch(`/api/settings/test?target=${target}`, jsonRequest(candidate));
+      if (!response.ok) {
+        const failure = await response.json().catch(() => undefined) as unknown;
+        throw new Error(readPublicErrorMessage(failure) ?? "settings_test_failed");
+      }
       const result = await response.json().catch(() => undefined) as unknown;
-      const message = readPublicMessage(result) ?? "Configuration test completed.";
+      const message = readPublicMessage(result) ?? (target === "model"
+        ? "OpenRouter returned a valid model response."
+        : "Database connection verified.");
       setRequestState("success");
       setNotice(message);
-    } catch {
+    } catch (error) {
       setRequestState("error");
-      setNotice("Configuration test did not complete.");
+      setNotice(error instanceof Error && error.message !== "settings_test_failed"
+        ? error.message
+        : "Configuration test did not complete.");
     }
-  }, [candidate]);
+  }, [activeTab, candidate]);
 
   const saveCandidate = useCallback(async () => {
     if (!candidate) {
@@ -402,6 +419,12 @@ export function StudioSettingsDialog({
   }, [busy, onOpenChange]);
 
   const canSave = activeTab === "permissions" ? true : Boolean(candidate);
+  const testTarget = activeTab === "database" ? "database" : activeTab === "model" ? "model" : undefined;
+  const canTest = Boolean(candidate) && (testTarget === "database"
+    ? Boolean(form.databaseUrl.trim() || settings.database.urlConfigured)
+    : testTarget === "model"
+      ? form.provider === "openrouter" && Boolean(form.apiKey.trim() || settings.llm.apiKeyConfigured)
+      : false);
   const settingsForm = (
     <form
       className="grid gap-4"
@@ -541,7 +564,7 @@ export function StudioSettingsDialog({
                     id="settings-base-url"
                     name="baseUrl"
                     onChange={(event) => updateForm("baseUrl", event.target.value)}
-                    placeholder="https://api.example.com/v1"
+                    placeholder={DEFAULT_PROVIDER_BASE_URLS[form.provider] ?? "https://api.example.com/v1"}
                     type="url"
                     value={form.baseUrl}
                   />
@@ -573,10 +596,12 @@ export function StudioSettingsDialog({
       <SettingsNotice notice={notice} state={requestState} />
 
       <DialogFooter>
-        <Button disabled={busy || activeTab === "permissions" || !candidate} onClick={() => void testCandidate()} type="button" variant="outline">
-          {requestState === "testing" ? <ThinkingOrb aria-label="Testing local connection" size={20} state="connecting" theme="auto" /> : null}
-          Test connection
-        </Button>
+        {testTarget ? (
+          <Button disabled={busy || !canTest} onClick={() => void testCandidate()} type="button" variant="outline">
+            {requestState === "testing" ? <ThinkingOrb aria-label={`Testing ${testTarget}`} size={20} state="connecting" theme="auto" /> : null}
+            {testTarget === "model" ? "Test model" : "Test database"}
+          </Button>
+        ) : null}
         <DialogClose asChild>
           <Button disabled={busy} type="button" variant="outline">Cancel</Button>
         </DialogClose>
@@ -733,7 +758,7 @@ function toForm(settings: StudioSettingsSnapshot): SettingsForm {
     model: settings.llm.model,
     reasoningEffort: settings.llm.reasoningEffort,
     apiKey: "",
-    baseUrl: settings.llm.baseUrl ?? "",
+    baseUrl: settings.llm.baseUrl ?? DEFAULT_PROVIDER_BASE_URLS[settings.llm.provider] ?? "",
     maxRows: String(settings.limits.maxRows),
     timeoutMs: String(settings.limits.timeoutMs),
     maxSteps: String(settings.limits.maxSteps),
@@ -834,6 +859,11 @@ function jsonRequest(candidate: StudioSettingsCandidate): RequestInit {
 function readPublicMessage(value: unknown): string | undefined {
   const root = asRecord(value);
   return readShortString(root?.message);
+}
+
+function readPublicErrorMessage(value: unknown): string | undefined {
+  const root = asRecord(value);
+  return readShortString(asRecord(root?.error)?.message);
 }
 
 function readDialect(value: unknown): StudioDatabaseDialect | undefined {

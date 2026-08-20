@@ -253,7 +253,7 @@ describe("Tessera Studio Settings routes", () => {
       })));
       const testBody = await testResponse.text();
       expect(testResponse.status).toBe(200);
-      expect(testBody).toContain("Configuration test completed.");
+      expect(testBody).toContain("Database connection verified.");
       expect(testBody).not.toContain("replacement-database-secret");
       expect(testBody).not.toContain("replacement-provider-secret");
       expect(testBody).not.toContain("private-connector-id");

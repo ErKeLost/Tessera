@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react";
+import { DeepSeek, Grok, Kimi, Qwen, ZAI } from "@lobehub/icons";
 import {
   ActionBarPrimitive,
   AuiConfig,
@@ -16,11 +17,12 @@ import {
 import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import {
   ChartBarIcon,
-  ChevronDownIcon,
+  BotIcon,
   CopyIcon,
   DatabaseIcon,
   FileSearchIcon,
   ListTreeIcon,
+  LoaderCircleIcon,
   PencilIcon,
   ShieldCheckIcon,
   TerminalIcon,
@@ -32,7 +34,15 @@ import type {
   TesseraExecutionTraceData,
   TesseraUIMessage,
 } from "../protocol";
-import type { StudioSettingsTab } from "./studio-settings";
+import {
+  readStudioSettingsSnapshot,
+  type StudioReasoningEffort,
+  type StudioReasoningSelection,
+  type StudioSettingsCandidate,
+  type StudioSettingsSnapshot,
+  type StudioSettingsTab,
+} from "./studio-settings";
+import type { StudioAgentPageContext } from "./layout/studio-route-context";
 import {
   Conversation,
   ConversationContent,
@@ -67,6 +77,12 @@ import {
   type TimelineStep,
 } from "./components/elements/tool-timeline";
 import { Button } from "./components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "./components/motion/select";
 import { tesseraStudioToolkit } from "./tessera-toolkit";
 
 const tesseraStudioAssistantConfig = AuiConfig({
@@ -84,13 +100,19 @@ export function StudioAssistant({
   onOpenSettings,
   onThreadActivity,
   threadId,
+  workspaceContext,
 }: {
   initialMessages: readonly TesseraUIMessage[];
   initialPrompt?: string;
   onOpenSettings(tab: StudioSettingsTab): void;
   onThreadActivity?(): void;
   threadId: string;
+  workspaceContext?: StudioAgentPageContext;
 }) {
+  // The transport stays stable while the table selection changes, while each
+  // submitted turn receives the latest non-sensitive editor context.
+  const workspaceContextRef = useRef<StudioAgentPageContext | undefined>(workspaceContext);
+  workspaceContextRef.current = workspaceContext;
   const transport = useMemo(
     () =>
       new AssistantChatTransport<TesseraUIMessage>({
@@ -105,6 +127,7 @@ export function StudioAssistant({
           if (!message || message.role !== "user") {
             throw new Error("Tessera can only submit the current user message.");
           }
+          const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
           return {
             headers: { "Content-Type": "application/json" },
             body: {
@@ -114,6 +137,7 @@ export function StudioAssistant({
               messages: [message],
               threadId,
               trigger,
+              ...(currentWorkspaceContext === undefined ? {} : { workspaceContext: currentWorkspaceContext }),
             },
           };
         },
@@ -141,6 +165,15 @@ export function StudioAssistant({
       <StudioConversation onOpenSettings={onOpenSettings} />
     </AssistantRuntimeProvider>
   );
+}
+
+function chatWorkspaceContext(context: StudioAgentPageContext | undefined) {
+  if (!context) return undefined;
+  return {
+    ...(context.currentRelation === undefined ? {} : { currentRelation: context.currentRelation }),
+    hasLocalFilter: context.hasLocalFilter,
+    view: context.view,
+  };
 }
 
 function StudioConversation({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
@@ -303,7 +336,7 @@ function MessageError() {
   return (
     <MessagePrimitive.Error>
       <ErrorState
-        detail="The local agent stopped before it could return a verified result."
+        detail="The model request did not complete. Verify the OpenRouter API key and its available usage limit in Settings, then retry."
         onRetry={() => {
           if (retryRef.current?.disabled) return;
           setRetryRequested(true);
@@ -418,16 +451,7 @@ function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettings
 function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
   return (
     <>
-      <button
-        aria-label="Change model"
-        className="studio-composer-setting"
-        onClick={() => onOpenSettings("model")}
-        title="Change model"
-        type="button"
-      >
-        <span>Model</span>
-        <ChevronDownIcon aria-hidden="true" size={13} />
-      </button>
+      <StudioModelPicker />
       <button
         aria-label="Configure permissions"
         className="studio-composer-setting"
@@ -440,6 +464,200 @@ function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: Studio
       </button>
     </>
   );
+}
+
+type OpenRouterModelOption = Readonly<{
+  id: string;
+  name: string;
+  family: string;
+  reasoning?: Readonly<{
+    defaultEffort?: StudioReasoningEffort;
+    supportedEfforts: readonly StudioReasoningEffort[];
+  }>;
+}>;
+
+function StudioModelPicker() {
+  const [models, setModels] = useState<readonly OpenRouterModelOption[]>([]);
+  const [open, setOpen] = useState(false);
+  const [settings, setSettings] = useState<StudioSettingsSnapshot>();
+  const [loading, setLoading] = useState(true);
+  const [savingModel, setSavingModel] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void Promise.all([
+      fetch("/api/settings", { headers: { Accept: "application/json" }, signal: controller.signal }),
+      fetch("/api/settings/models", { headers: { Accept: "application/json" }, signal: controller.signal }),
+    ])
+      .then(async ([settingsResponse, modelsResponse]) => {
+        if (!settingsResponse.ok || !modelsResponse.ok) throw new Error("model_picker_request_failed");
+        const [settingsBody, modelsBody] = await Promise.all([settingsResponse.json(), modelsResponse.json()]);
+        if (controller.signal.aborted) return;
+        setSettings(readStudioSettingsSnapshot(settingsBody));
+        setModels(readOpenRouterModels(modelsBody));
+        setError(undefined);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError("OpenRouter models could not be loaded.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, []);
+
+  const selectedModel = settings?.llm.model;
+  const selectedLabel = models.find((model) => model.id === selectedModel)?.name
+    ?? selectedModel
+    ?? "OpenRouter models";
+
+  const selectModel = async (model: OpenRouterModelOption) => {
+    if (!settings || savingModel) return;
+    setSavingModel(model.id);
+    setError(undefined);
+    const candidate: StudioSettingsCandidate = {
+      database: {
+        accessMode: settings.database.accessMode,
+        dialect: settings.database.dialect,
+      },
+      llm: {
+        model: model.id,
+        provider: "openrouter",
+        reasoningEffort: modelReasoningEffort(model, settings.llm.reasoningEffort),
+      },
+      limits: settings.limits,
+    };
+    try {
+      const response = await fetch("/api/settings", {
+        body: JSON.stringify(candidate),
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        method: "PUT",
+      });
+      if (!response.ok) throw new Error("model_picker_save_failed");
+      setSettings(readStudioSettingsSnapshot(await response.json()));
+      setOpen(false);
+    } catch {
+      setError("The model was not changed. Check workspace settings and try again.");
+      setOpen(true);
+    } finally {
+      setSavingModel(undefined);
+    }
+  };
+
+  return (
+    <Select
+      className="studio-model-picker-root"
+      disabled={Boolean(savingModel)}
+      onOpenChange={setOpen}
+      onValueChange={(modelId) => {
+        const model = models.find((candidate) => candidate.id === modelId);
+        if (model) void selectModel(model);
+      }}
+      open={open}
+      value={selectedModel ?? ""}
+    >
+      <SelectTrigger className="studio-composer-setting studio-model-picker-trigger">
+        <span className="studio-model-picker-current" title={selectedLabel}>
+          <StudioModelBrandIcon family={models.find((model) => model.id === selectedModel)?.family ?? selectedLabel} size={16} />
+          <span className="studio-model-picker-label">{selectedLabel}</span>
+          {loading ? <LoaderCircleIcon aria-label="Loading models" className="spin" size={13} /> : null}
+        </span>
+      </SelectTrigger>
+      <SelectContent className="studio-model-picker-popover">
+        <div className="studio-model-picker-heading">
+          <span>OpenRouter models</span>
+          <span>{models.length || ""}</span>
+        </div>
+        <div className="studio-model-picker-list">
+          {models.map((model) => {
+            const busy = savingModel === model.id;
+            return (
+              <SelectItem
+                className="studio-model-picker-option"
+                disabled={Boolean(savingModel)}
+                key={model.id}
+                value={model.id}
+              >
+                <span aria-hidden="true" className="studio-model-picker-option-icon">
+                  <StudioModelBrandIcon family={model.family} size={20} />
+                </span>
+                <span className="studio-model-picker-option-copy">
+                  <strong>{model.name}</strong>
+                  <small>{model.family}</small>
+                </span>
+                {busy ? <LoaderCircleIcon aria-label="Saving model" className="spin" size={15} /> : null}
+              </SelectItem>
+            );
+          })}
+          {!loading && models.length === 0 ? <p className="studio-model-picker-empty">No OpenRouter models are available.</p> : null}
+        </div>
+        {error ? <p className="studio-model-picker-error" role="status">{error}</p> : null}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function StudioModelBrandIcon({ family, size }: { family: string; size: number }) {
+  const normalized = family.toLocaleLowerCase("en-US");
+  if (normalized.includes("deepseek")) return <DeepSeek.Color size={size} />;
+  if (normalized.includes("qwen")) return <Qwen.Color size={size} />;
+  if (normalized.includes("kimi") || normalized.includes("moonshot")) return <Kimi.Color size={size} />;
+  if (normalized.includes("glm") || normalized.includes("z.ai") || normalized.includes("zhipu")) return <ZAI size={size} />;
+  if (normalized.includes("grok") || normalized.includes("xai")) return <Grok size={size} />;
+  return <BotIcon size={size} strokeWidth={1.8} />;
+}
+
+function readOpenRouterModels(value: unknown): readonly OpenRouterModelOption[] {
+  const root = value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+  const source = Array.isArray(root?.models) ? root.models : [];
+  const seen = new Set<string>();
+  const models: OpenRouterModelOption[] = [];
+  for (const item of source) {
+    const model = item !== null && typeof item === "object" && !Array.isArray(item)
+      ? item as Record<string, unknown>
+      : undefined;
+    const id = readModelText(model?.id);
+    const name = readModelText(model?.name);
+    const family = readModelText(model?.family);
+    if (!id || !name || !family || seen.has(id)) continue;
+    seen.add(id);
+    models.push({ id, name, family, reasoning: readModelReasoning(model?.reasoning) });
+  }
+  return models;
+}
+
+function readModelText(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() && value.length <= 200 ? value.trim() : undefined;
+}
+
+function readModelReasoning(value: unknown): OpenRouterModelOption["reasoning"] {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  const supportedEfforts = Array.isArray(source.supportedEfforts)
+    ? source.supportedEfforts.filter((effort): effort is StudioReasoningEffort => (
+      effort === "minimal" || effort === "low" || effort === "medium" || effort === "high"
+        || effort === "xhigh" || effort === "max" || effort === "none"
+    ))
+    : [];
+  if (supportedEfforts.length === 0) return undefined;
+  const defaultEffort = supportedEfforts.includes(source.defaultEffort as StudioReasoningEffort)
+    ? source.defaultEffort as StudioReasoningEffort
+    : undefined;
+  return { defaultEffort, supportedEfforts };
+}
+
+function modelReasoningEffort(
+  model: OpenRouterModelOption,
+  current: StudioReasoningSelection,
+): StudioReasoningSelection {
+  const supported = model.reasoning?.supportedEfforts;
+  if (!supported?.length) return "default";
+  if (current !== "default" && supported.includes(current)) return current;
+  if (supported.includes("low")) return "low";
+  return model.reasoning?.defaultEffort ?? "default";
 }
 
 function TesseraExecutionTrace({ data }: { data: TesseraExecutionTraceData }) {

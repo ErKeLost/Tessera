@@ -13,7 +13,7 @@ export function StudioChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const threadId = rawThreadId ? decodeURIComponent(rawThreadId) : undefined;
-  const { activeThreadId, openSettings } = useStudioRouteContext();
+  const { activeThreadId, agentPageContext, openSettings } = useStudioRouteContext();
   const messages = useStudioThreadMessagesQuery(threadId);
   const initialPromptRef = useRef(
     (location.state as { initialPrompt?: string } | null)?.initialPrompt,
@@ -40,6 +40,7 @@ export function StudioChatRoute() {
         onOpenSettings={openSettings}
         onThreadActivity={() => { void messages.refetch(); }}
         threadId={threadId}
+        workspaceContext={agentPageContext}
       />
     </section>
   );

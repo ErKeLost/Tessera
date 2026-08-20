@@ -24,6 +24,13 @@ export const DEFAULT_CATALOG_CACHE_TTL_MS = 60_000;
 /** The local default keeps existing OpenRouter setups working without a config migration. */
 export const DEFAULT_TESSERA_LLM_MODEL = "openrouter/qwen/qwen3.8-27b";
 export const DEFAULT_TESSERA_LLM_TEMPERATURE = 0.1;
+/** Documented API roots used when a provider config omits an explicit base URL. */
+export const TESSERA_PROVIDER_BASE_URLS = Object.freeze({
+  openrouter: "https://openrouter.ai/api/v1",
+  openai: "https://api.openai.com/v1",
+  anthropic: "https://api.anthropic.com/v1",
+  google: "https://generativelanguage.googleapis.com/v1beta",
+} as const);
 /** OpenRouter's documented reasoning effort vocabulary, including provider-specific `max`. */
 export const TESSERA_OPENROUTER_REASONING_EFFORTS = [
   "minimal",
@@ -285,6 +292,12 @@ export function resolveTesseraLlmConfig(config: Pick<TesseraConfig, "llm">): Tes
   };
 }
 
+/** Returns the provider's documented API root, or undefined for custom gateways. */
+export function getTesseraProviderBaseUrl(provider: string | undefined): string | undefined {
+  const normalized = provider?.trim().toLocaleLowerCase("en-US") as keyof typeof TESSERA_PROVIDER_BASE_URLS | undefined;
+  return normalized === undefined ? undefined : TESSERA_PROVIDER_BASE_URLS[normalized];
+}
+
 /**
  * Explicit LLM configuration may use any credential source supported by
  * Mastra. The legacy local default intentionally requires OPENROUTER_API_KEY
@@ -441,7 +454,20 @@ export async function loadTesseraConfig(options: LoadTesseraConfigOptions = {}):
   }
 
   try {
-    return { path, config: defineTesseraConfig((await exportedConfig) as TesseraConfigInput) };
+    const resolvedConfig = await exportedConfig;
+    // A generated config often leaves an empty `llm: {}` section as a
+    // placeholder. Treat it the same as an omitted section so Studio can use
+    // its local OpenRouter default or the browser settings flow.
+    const configInput = resolvedConfig !== null
+      && typeof resolvedConfig === "object"
+      && !Array.isArray(resolvedConfig)
+      && "llm" in resolvedConfig
+      && resolvedConfig.llm !== null
+      && typeof resolvedConfig.llm === "object"
+      && Object.keys(resolvedConfig.llm).length === 0
+      ? Object.fromEntries(Object.entries(resolvedConfig).filter(([key]) => key !== "llm"))
+      : resolvedConfig;
+    return { path, config: defineTesseraConfig(configInput as TesseraConfigInput) };
   } catch (error) {
     if (error instanceof TesseraConfigError) throw error;
     throw new TesseraConfigError(`Tessera configuration at ${path} is invalid.`);

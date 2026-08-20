@@ -98,7 +98,8 @@ export async function resolveStudioConfig(arguments_: StudioCommandLine): Promis
     }
     if (arguments_.databaseUrl === undefined
       && arguments_.config.file === undefined
-      && isMissingDefaultConfig(error)) {
+      && !process.env.DATABASE_URL?.trim()
+      && isOptionalDefaultConfigFailure(error)) {
       const databaseUrl = process.env.DATABASE_URL?.trim();
       if (databaseUrl) return createTesseraConfigFromDatabaseUrl(databaseUrl);
       return createUnconfiguredTesseraConfig();
@@ -123,6 +124,19 @@ export function formatStudioStartupNotice(url: string): string {
 
 function isMissingDefaultConfig(error: unknown): boolean {
   return error instanceof TesseraConfigError && error.message.startsWith("Tessera configuration was not found at ");
+}
+
+/**
+ * A conventional project config is optional for Studio. If it is absent or
+ * only contains unresolved environment placeholders, keep the server alive so
+ * the browser settings flow can provide the database and model values.
+ */
+function isOptionalDefaultConfigFailure(error: unknown): boolean {
+  if (isMissingDefaultConfig(error)) return true;
+  if (!(error instanceof TesseraConfigError)) return false;
+  return error.message.startsWith("Tessera configuration could not be loaded from ")
+    || error.message.includes(" is invalid.")
+    || error.message.includes("must export a default config");
 }
 
 if (import.meta.main) {

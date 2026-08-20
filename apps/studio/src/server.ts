@@ -589,12 +589,21 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       const parsedCandidate = parseTesseraStudioSettingsCandidate(candidate);
       await authorizeSettingsChange(context, dependencies, "test");
       await validateStudioReasoningSelection(parsedCandidate, modelCatalog);
+      const target = context.req.query("target");
+      if (target === "model") {
+        const result = await runtime.testModel(parsedCandidate, { signal: context.req.raw.signal });
+        return context.json({
+          settings: result.settings,
+          model: result.model,
+          message: "OpenRouter returned a valid model response.",
+        });
+      }
       const result = await runtime.test(parsedCandidate, { signal: context.req.raw.signal });
       return context.json({
         settings: result.settings,
         connection: result.connection,
         message: result.connection.connected
-          ? "Configuration test completed."
+          ? "Database connection verified."
           : "Tessera could not connect to this database.",
       });
     } catch (error) {
@@ -615,7 +624,14 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
         : "access-mode";
       await authorizeSettingsChange(context, dependencies, kind);
       await validateStudioReasoningSelection(parsedCandidate, modelCatalog);
-      const settings = await runtime.replace(parsedCandidate, { signal: context.req.raw.signal });
+      const current = runtime.getSnapshot();
+      const databaseChanged = parsedCandidate.database.url !== undefined
+        || parsedCandidate.database.dialect !== current.database.dialect
+        || parsedCandidate.database.accessMode !== current.database.accessMode;
+      const settings = await runtime.replace(parsedCandidate, {
+        signal: context.req.raw.signal,
+        verifyConnection: databaseChanged,
+      });
       return context.json({ settings, message: "Settings saved." });
     } catch (error) {
       throw settingsRuntimeHttpError(error);
@@ -1262,6 +1278,8 @@ function settingsRuntimeHttpError(error: unknown): StudioHttpError {
       return new StudioHttpError(400, "invalid_settings", "The Studio settings are invalid.");
     case "connection_unavailable":
       return new StudioHttpError(503, "connection_unavailable", "Tessera could not connect to the requested database.");
+    case "model_unavailable":
+      return new StudioHttpError(503, "model_unavailable", "Tessera could not verify the selected model and credentials.");
     case "runtime_closed":
     case "runtime_unavailable":
       return new StudioHttpError(503, "runtime_unavailable", "The Tessera Studio runtime is not available.");

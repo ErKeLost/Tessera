@@ -16,6 +16,7 @@ import {
   TesseraConfigError,
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
+  getTesseraProviderBaseUrl,
   inferTesseraDatabaseDialect,
   isTesseraLlmConfigured,
   loadTesseraEnvironment,
@@ -29,6 +30,14 @@ import { parseStudioCommandLine, resolveStudioConfig } from "./main";
 const database = { dialect: "postgres" as const, url: "postgresql://readonly:secret@localhost/warehouse" };
 
 describe("Tessera configuration", () => {
+  test("uses documented provider API roots only when no custom base URL is configured", () => {
+    expect(getTesseraProviderBaseUrl("OpenRouter")).toBe("https://openrouter.ai/api/v1");
+    expect(getTesseraProviderBaseUrl("openai")).toBe("https://api.openai.com/v1");
+    expect(getTesseraProviderBaseUrl("anthropic")).toBe("https://api.anthropic.com/v1");
+    expect(getTesseraProviderBaseUrl("google")).toBe("https://generativelanguage.googleapis.com/v1beta");
+    expect(getTesseraProviderBaseUrl("custom")).toBeUndefined();
+  });
+
   test("uses a local listener and a server-side OpenRouter fallback by default", () => {
     const config = defineTesseraConfig({ database });
 
@@ -211,6 +220,7 @@ describe("Tessera configuration", () => {
       await Bun.write(join(directory, TESSERA_CONFIG_FILE), [
         "export default {",
         '  database: { dialect: "postgres", url: "postgresql://readonly:loader-secret@localhost/warehouse" },',
+        "  llm: {},",
         "};",
       ].join("\n"));
 

@@ -266,7 +266,7 @@ export function PromptInput({
         ) : null}
         {leadingAction}
         {footer ? (
-          <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-visible">
             {footer}
           </div>
         ) : null}
