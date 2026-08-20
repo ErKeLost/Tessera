@@ -11,7 +11,7 @@ import { AgentActivity } from "./components/agent-activity";
 import { ToolCall } from "./components/elements/tool-call";
 
 type SafeToolResult = Record<string, unknown>;
-type TesseraToolKind = "context" | "catalog" | "probe" | "analysis";
+type TesseraToolKind = "context" | "catalog" | "schema" | "probe" | "analysis";
 
 const CurrentContextTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
@@ -40,6 +40,16 @@ const CatalogDescriptionTool: ToolCallMessagePartComponent<Record<string, unknow
     label="Reviewing data definitions"
     completeLabel="Reviewed data definitions"
     detail={catalogDescriptionDetail(props.result)}
+  />
+);
+
+const SchemaInspectionTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+  <TesseraToolCall
+    {...props}
+    kind="schema"
+    label="Inspecting database schema"
+    completeLabel="Inspected database schema"
+    detail={schemaDetail(props.result)}
   />
 );
 
@@ -123,6 +133,7 @@ function toolChip(kind: TesseraToolKind): string {
 function toolRequest(kind: TesseraToolKind): string {
   if (kind === "context") return "Read server-bound selected data context";
   if (kind === "catalog") return "Read governed catalog metadata";
+  if (kind === "schema") return "Read bounded physical schema metadata";
   if (kind === "probe") return "Check bounded data signals";
   return "Run a governed read-only analysis";
 }
@@ -152,6 +163,19 @@ function catalogDescriptionDetail(result: SafeToolResult | undefined): string {
   return count === undefined
     ? "Data definition review completed"
     : `${count} ${count === 1 ? "entity was" : "entities were"} reviewed`;
+}
+
+function schemaDetail(result: SafeToolResult | undefined): string {
+  if (!result) return "Reviewing bounded database structure";
+  if (result.status === "blocked") return "The requested schema is not available";
+  const tables = safePositiveInteger(result.tableCount);
+  const columns = safePositiveInteger(result.columnCount);
+  const foreignKeys = safePositiveInteger(result.foreignKeyCount);
+  if (tables === undefined) return "Database schema review completed";
+  const detail = `${tables} ${tables === 1 ? "table" : "tables"}`;
+  const columnDetail = columns === undefined ? "" : `, ${columns} ${columns === 1 ? "column" : "columns"}`;
+  const relationDetail = foreignKeys === undefined ? "" : `, ${foreignKeys} ${foreignKeys === 1 ? "relationship" : "relationships"}`;
+  return `${detail}${columnDetail}${relationDetail} reviewed`;
 }
 
 function probeDetail(result: SafeToolResult | undefined): string {
@@ -186,6 +210,10 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
   inspect_catalog: {
     type: "backend" as const,
     render: CatalogSearchTool,
+  },
+  inspect_schema: {
+    type: "backend" as const,
+    render: SchemaInspectionTool,
   },
   describe_data: {
     type: "backend" as const,

@@ -6,7 +6,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Link, Outlet, useLocation, useNavigate } from "react-router";
+import { Outlet, useLocation, useNavigate } from "react-router";
 import { Group, Panel, Separator, type PanelImperativeHandle } from "react-resizable-panels";
 import { publicError } from "../api/studio-api";
 import { Button } from "../components/motion/button";
@@ -41,7 +41,7 @@ export function StudioRouteShell() {
   const [agentPageContext, setAgentPageContext] = useState<StudioAgentPageContext>();
   const databasePanelRef = useRef<PanelImperativeHandle>(null);
   const databaseSize = useMotionValue(0);
-  const lastDatabaseSizeRef = useRef(68);
+  const lastDatabaseSizeRef = useRef(76);
   const reduceMotion = useReducedMotion() ?? false;
   const isChatRoute = location.pathname.startsWith("/chat/");
 

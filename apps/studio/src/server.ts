@@ -114,6 +114,7 @@ const TESSERA_PUBLIC_STAGES: readonly TesseraDataAgentStage[] = [
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "inspect_current_context",
   "inspect_catalog",
+  "inspect_schema",
   "describe_data",
   "probe_data",
   "run_analysis",
@@ -139,6 +140,21 @@ const TABLE_PREVIEW_MAX_FOREIGN_KEYS = 16;
 const TABLE_PREVIEW_MAX_FOREIGN_KEY_COLUMNS = 8;
 const TABLE_PREVIEW_MAX_OBJECT_ITEMS = 32;
 const TABLE_PREVIEW_MAX_OBJECT_DEPTH = 4;
+
+const tablePreviewFilterSchema = z.object({
+  column: z.string().min(1).max(256),
+  operator: z.enum(["contains", "equals", "not_equals", "gt", "gte", "lt", "lte", "is_null", "is_not_null"]),
+  value: z.string().max(2_000).default(""),
+}).strict();
+
+const tablePreviewQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(TABLE_PREVIEW_MAX_ROWS).default(TABLE_PREVIEW_MAX_ROWS),
+  q: z.string().max(512).default(""),
+  sort: z.string().max(256).optional(),
+  direction: z.enum(["asc", "desc"]).default("asc"),
+  filters: z.string().max(32_000).default("[]"),
+}).strict();
 const DEFAULT_STUDIO_CLIENT_ROOT = fileURLToPath(new URL("../dist/client", import.meta.url));
 /** Bun defaults to 10 seconds; use its maximum global idle allowance for Studio HTTP requests. */
 export const TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS = 255;
@@ -188,7 +204,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["inspect_current_context", "inspect_catalog", "describe_data", "probe_data", "run_analysis"]),
+    tool: z.enum(["inspect_current_context", "inspect_catalog", "inspect_schema", "describe_data", "probe_data", "run_analysis"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -812,22 +828,123 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       throw new StudioHttpError(422, "table_not_previewable", "The selected table does not expose any columns to preview.");
     }
 
+    const rawQuery = context.req.query();
+    const hasTableQuery = Object.keys(rawQuery).length > 0;
+    const dialect = catalog.dialect;
+    const quote = (identifier: string) => quoteTableEditorIdentifier(dialect, identifier);
+    const relationSql = `${quote(table.schema)}.${quote(table.name)}`;
+    if (!hasTableQuery) {
+      let result: DatabaseQueryResult;
+      let countResult: DatabaseQueryResult;
+      try {
+        const [preview, count] = await Promise.all([
+          runtime.dataAgent.previewRelation({
+            schema: table.schema,
+            table: table.name,
+            columns: previewColumns.map((column) => column.name),
+            refresh: false,
+          }, context.req.raw.signal),
+          runtime.connector.query({
+            sql: `SELECT COUNT(*) AS ${quote("__total_count")} FROM ${relationSql}`,
+            parameters: [],
+            purpose: "Tessera table editor row count",
+            maxRows: 1,
+          }, context.req.raw.signal),
+        ]);
+        result = preview.result;
+        countResult = count;
+      } catch {
+        throw new StudioHttpError(503, "table_preview_unavailable", "Tessera could not load a preview for the selected table.");
+      }
+      return context.json(publicTablePreview(table, previewColumns, result, {
+        dialect,
+        totalRowCount: parseCountValue(countResult.rows[0]?.__total_count) ?? result.rowCount,
+        definition: buildTableDefinition(catalog.dialect, table),
+        page: 1,
+        pageSize: TABLE_PREVIEW_MAX_ROWS,
+      }));
+    }
+    const query = parseTablePreviewQuery(rawQuery, previewColumns);
+    const parameters: Array<string | number | boolean> = [];
+    const placeholder = () => dialect === "postgres" ? `$${parameters.length + 1}` : "?";
+    const whereParts: string[] = [];
+
+    if (query.search) {
+      const searchPlaceholder = () => {
+        const token = placeholder();
+        parameters.push(`%${query.search}%`);
+        return token;
+      };
+      const searchParts = previewColumns.map((column) => (
+        dialect === "postgres"
+          ? `CAST(${quote(column.name)} AS text) ILIKE ${searchPlaceholder()}`
+          : `CAST(${quote(column.name)} AS CHAR) LIKE ${searchPlaceholder()}`
+      ));
+      if (searchParts.length) whereParts.push(`(${searchParts.join(" OR ")})`);
+    }
+
+    for (const filter of query.filters) {
+      const column = previewColumns.find((candidate) => candidate.name === filter.column);
+      if (!column) continue;
+      const identifier = quote(column.name);
+      if (filter.operator === "is_null") {
+        whereParts.push(`${identifier} IS NULL`);
+        continue;
+      }
+      if (filter.operator === "is_not_null") {
+        whereParts.push(`${identifier} IS NOT NULL`);
+        continue;
+      }
+      const token = placeholder();
+      parameters.push(filter.operator === "contains"
+        ? `%${filter.value}%`
+        : coercePreviewParameter(filter.value, column.dataType));
+      if (filter.operator === "contains") {
+        whereParts.push(`${dialect === "postgres" ? `CAST(${identifier} AS text) ILIKE ${token}` : `CAST(${identifier} AS CHAR) LIKE ${token}`}`);
+      } else {
+        const operator = filter.operator === "equals" ? "="
+          : filter.operator === "not_equals" ? "<>"
+            : filter.operator === "gt" ? ">"
+              : filter.operator === "gte" ? ">="
+                : filter.operator === "lt" ? "<" : "<=";
+        whereParts.push(`${identifier} ${operator} ${token}`);
+      }
+    }
+
+    const whereSql = whereParts.length ? ` WHERE ${whereParts.join(" AND ")}` : "";
+    const countSql = `SELECT COUNT(*) AS ${quote("__total_count")} FROM ${relationSql}${whereSql}`;
+    const nullOrdering = dialect === "postgres" ? ` NULLS ${query.direction === "desc" ? "FIRST" : "LAST"}` : "";
+    const selectSql = `SELECT ${previewColumns.map((column) => quote(column.name)).join(", ")} FROM ${relationSql}${whereSql}`
+      + (query.sort ? ` ORDER BY ${quote(query.sort)} ${query.direction === "desc" ? "DESC" : "ASC"}${nullOrdering}` : "")
+      + ` LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}`;
+
     let result: DatabaseQueryResult;
+    let countResult: DatabaseQueryResult;
     try {
-      result = (await runtime.dataAgent.previewRelation({
-        schema: table.schema,
-        table: table.name,
-        columns: previewColumns.map((column) => column.name),
-        // The route already resolved this relation through the governed cache.
-        // Re-scanning on every table click would turn navigation into a full
-        // catalog operation; an explicit catalog refresh remains available.
-        refresh: false,
-      }, context.req.raw.signal)).result;
+      countResult = await runtime.connector.query({
+        sql: countSql,
+        parameters,
+        purpose: "Tessera table editor row count",
+        maxRows: 1,
+      }, context.req.raw.signal);
+      result = await runtime.connector.query({
+        sql: selectSql,
+        parameters,
+        purpose: "Tessera table editor preview",
+        maxRows: query.pageSize,
+      }, context.req.raw.signal);
     } catch {
       throw new StudioHttpError(503, "table_preview_unavailable", "Tessera could not load a preview for the selected table.");
     }
 
-    return context.json(publicTablePreview(table, previewColumns, result));
+    const totalRowCount = parseCountValue(countResult.rows[0]?.__total_count) ?? 0;
+    return context.json(publicTablePreview(table, previewColumns, result, {
+      dialect,
+      totalRowCount,
+      definition: buildTableDefinition(catalog.dialect, table),
+      page: query.page,
+      pageSize: query.pageSize,
+    }));
   }));
 
   app.post("/api/runs", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
@@ -2157,7 +2274,7 @@ function findCatalogTable(
 function publicTable(
   table: DatabaseTable,
   columns: readonly DatabaseTable["columns"][number][] = table.columns,
-  options: Readonly<{ maxForeignKeys?: number; maxForeignKeyColumns?: number }> = {},
+  options: Readonly<{ includeColumnMetadata?: boolean; maxForeignKeys?: number; maxForeignKeyColumns?: number }> = {},
 ): Record<string, unknown> {
   const maxForeignKeys = options.maxForeignKeys ?? table.foreignKeys.length;
   const maxForeignKeyColumns = options.maxForeignKeyColumns ?? Number.MAX_SAFE_INTEGER;
@@ -2166,7 +2283,7 @@ function publicTable(
     name: table.name,
     kind: table.kind,
     ...(table.estimatedRows === undefined ? {} : { estimatedRows: table.estimatedRows }),
-    columns: columns.map(publicTableColumn),
+    columns: columns.map((column) => publicTableColumn(column, options.includeColumnMetadata === true)),
     primaryKey: [...table.primaryKey],
     foreignKeys: table.foreignKeys.slice(0, maxForeignKeys).map((foreignKey) => ({
       name: foreignKey.name,
@@ -2178,12 +2295,14 @@ function publicTable(
   };
 }
 
-function publicTableColumn(column: DatabaseTable["columns"][number]): Record<string, unknown> {
+function publicTableColumn(column: DatabaseTable["columns"][number], includeMetadata = false): Record<string, unknown> {
   return {
     name: column.name,
     dataType: column.dataType,
     nullable: column.nullable,
     ordinal: column.ordinal,
+    ...(includeMetadata && column.defaultValue !== undefined ? { defaultValue: column.defaultValue } : {}),
+    ...(includeMetadata && column.comment !== undefined ? { comment: column.comment } : {}),
   };
 }
 
@@ -2193,6 +2312,13 @@ function publicTablePreview(
   table: DatabaseTable,
   columns: readonly DatabaseTable["columns"][number][],
   result: DatabaseQueryResult,
+  options: Readonly<{
+    definition: string;
+    dialect: DatabaseCatalog["dialect"];
+    page: number;
+    pageSize: number;
+    totalRowCount: number;
+  }>,
 ): Record<string, unknown> {
   let remainingCharacters = TABLE_PREVIEW_MAX_RESPONSE_CHARS;
   let responseBudgetExceeded = false;
@@ -2223,15 +2349,97 @@ function publicTablePreview(
       maxForeignKeys: TABLE_PREVIEW_MAX_FOREIGN_KEYS,
       maxForeignKeyColumns: TABLE_PREVIEW_MAX_FOREIGN_KEY_COLUMNS,
     }),
-    columns: columns.map(publicTableColumn),
+    columns: columns.map((column) => publicTableColumn(column)),
     rows,
     rowCount: rows.length,
-    truncated: result.truncated
-      || result.rowCount > rows.length
-      || result.rows.length > rows.length
-      || responseBudgetExceeded,
+    totalRowCount: options.totalRowCount,
+    page: options.page,
+    pageSize: options.pageSize,
+    definition: options.definition,
+    truncated: result.truncated || result.rows.length > TABLE_PREVIEW_MAX_ROWS || responseBudgetExceeded,
     durationMs: publicPreviewDuration(result.durationMs),
   };
+}
+
+function parseTablePreviewQuery(
+  raw: Record<string, string | undefined>,
+  columns: readonly DatabaseTable["columns"][number][],
+): {
+  direction: "asc" | "desc";
+  filters: Array<z.infer<typeof tablePreviewFilterSchema>>;
+  page: number;
+  pageSize: number;
+  search: string;
+  sort?: string;
+} {
+  const parsed = tablePreviewQuerySchema.safeParse(raw);
+  if (!parsed.success) throw new StudioHttpError(400, "invalid_table_query", "The table query is invalid.");
+  let filters: Array<z.infer<typeof tablePreviewFilterSchema>> = [];
+  try {
+    const decoded = JSON.parse(parsed.data.filters) as unknown;
+    const result = z.array(tablePreviewFilterSchema).max(32).safeParse(decoded);
+    if (!result.success) throw new Error("invalid filters");
+    filters = result.data;
+  } catch {
+    throw new StudioHttpError(400, "invalid_table_query", "The table filters are invalid.");
+  }
+  const columnNames = new Set(columns.map((column) => column.name));
+  if (parsed.data.sort !== undefined && !columnNames.has(parsed.data.sort)) {
+    throw new StudioHttpError(400, "invalid_table_query", "The selected sort column is not available.");
+  }
+  if (filters.some((filter) => !columnNames.has(filter.column))) {
+    throw new StudioHttpError(400, "invalid_table_query", "A selected filter column is not available.");
+  }
+  return {
+    direction: parsed.data.direction,
+    filters,
+    page: parsed.data.page,
+    pageSize: parsed.data.pageSize,
+    search: parsed.data.q.trim(),
+    ...(parsed.data.sort === undefined ? {} : { sort: parsed.data.sort }),
+  };
+}
+
+function quoteTableEditorIdentifier(dialect: DatabaseCatalog["dialect"], identifier: string): string {
+  return dialect === "postgres"
+    ? `"${identifier.replaceAll('"', '""')}"`
+    : `\`${identifier.replaceAll("`", "``")}\``;
+}
+
+function coercePreviewParameter(value: string, dataType: string): string | number | boolean {
+  if (/\b(bool|boolean)\b/i.test(dataType)) {
+    if (value.toLocaleLowerCase("en-US") === "true") return true;
+    if (value.toLocaleLowerCase("en-US") === "false") return false;
+  }
+  if (/\b(?:smallint|bigint|integer|int\d*|serial|decimal|numeric|real|double precision|float\d*|money)\b/i.test(dataType)) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return value;
+}
+
+function parseCountValue(value: unknown): number | undefined {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : undefined;
+  return numeric !== undefined && Number.isSafeInteger(numeric) && numeric >= 0 ? numeric : undefined;
+}
+
+function buildTableDefinition(dialect: DatabaseCatalog["dialect"], table: DatabaseTable): string {
+  const quote = (identifier: string) => quoteTableEditorIdentifier(dialect, identifier);
+  const relation = `${quote(table.schema)}.${quote(table.name)}`;
+  if (table.kind === "view" || table.kind === "materialized-view") {
+    return `-- ${table.kind} definition\n-- The view query is not exposed by the read-only catalog.\n\nCREATE ${table.kind === "materialized-view" ? "MATERIALIZED " : ""}VIEW ${relation} AS\nSELECT\n  ${table.columns.map((column) => quote(column.name)).join(",\n  ")}\nFROM ${relation};`;
+  }
+  const lines = table.columns
+    .slice()
+    .sort((left, right) => left.ordinal - right.ordinal)
+    .map((column) => `  ${quote(column.name)} ${column.dataType}${column.nullable ? "" : " NOT NULL"}${column.defaultValue ? ` DEFAULT ${column.defaultValue}` : ""}`);
+  if (table.primaryKey?.length) {
+    lines.push(`  CONSTRAINT ${quote(`${table.name}_pkey`)} PRIMARY KEY (${table.primaryKey.map(quote).join(", ")})`);
+  }
+  for (const foreignKey of table.foreignKeys) {
+    lines.push(`  CONSTRAINT ${quote(foreignKey.name)} FOREIGN KEY (${foreignKey.columns.map(quote).join(", ")}) REFERENCES ${quote(foreignKey.referencedSchema)}.${quote(foreignKey.referencedTable)} (${foreignKey.referencedColumns.map(quote).join(", ")})`);
+  }
+  return `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
 }
 
 function publicPreviewValue(value: unknown): PublicPreviewValue {
@@ -2959,6 +3167,7 @@ function publicDataToolId(
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
   if (tool === "inspect_current_context") return { action: "inspect_current_context" };
   if (tool === "inspect_catalog") return { action: "inspect_governed_catalog" };
+  if (tool === "inspect_schema") return { action: "inspect_governed_schema" };
   if (tool === "describe_data") return { action: "describe_governed_catalog" };
   if (tool === "probe_data") return { action: "probe_governed_data" };
   return { action: "run_governed_analysis" };
@@ -2983,6 +3192,40 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
     return {
       status: output?.status === "completed" ? "completed" : "failed",
       ...(tableCount === undefined ? {} : { tableCount }),
+      ...(output?.truncated === true ? { truncated: true } : {}),
+    };
+  }
+  if (tool === "inspect_schema") {
+    const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
+      ? output.status
+      : output?.status === "unavailable"
+        ? "blocked"
+        : "failed";
+    const schema = isRecord(output?.schema) ? output.schema : undefined;
+    const tables = Array.isArray(schema?.tables) ? schema.tables : undefined;
+    const tableCount = boundedPublicInteger(
+      output?.tableCount ?? (tables === undefined ? undefined : tables.length),
+      MAX_PUBLIC_TOOL_COUNT,
+    );
+    const columnCount = boundedPublicInteger(
+      output?.columnCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
+        const record = isRecord(table as unknown) ? table as Record<string, unknown> : undefined;
+        return count + (record && Array.isArray(record.columns) ? record.columns.length : 0);
+      }, 0)),
+      MAX_PUBLIC_TOOL_COUNT,
+    );
+    const foreignKeyCount = boundedPublicInteger(
+      output?.foreignKeyCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
+        const record = isRecord(table as unknown) ? table as Record<string, unknown> : undefined;
+        return count + (record && Array.isArray(record.foreignKeys) ? record.foreignKeys.length : 0);
+      }, 0)),
+      MAX_PUBLIC_TOOL_COUNT,
+    );
+    return {
+      status,
+      ...(tableCount === undefined ? {} : { tableCount }),
+      ...(columnCount === undefined ? {} : { columnCount }),
+      ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
       ...(output?.truncated === true ? { truncated: true } : {}),
     };
   }
@@ -3017,6 +3260,7 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
 function publicToolTitle(tool: TesseraToolName): string {
   if (tool === "inspect_current_context") return "Read selected data context";
   if (tool === "inspect_catalog") return "Inspect data catalog";
+  if (tool === "inspect_schema") return "Inspect database schema";
   if (tool === "describe_data") return "Describe data definitions";
   if (tool === "probe_data") return "Probe governed data";
   return "Run governed analysis";

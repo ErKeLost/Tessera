@@ -104,6 +104,9 @@ export {
   semanticCatalogDefinitionSchema,
   semanticCatalogSchema,
 } from "./contracts";
+// Stable physical-to-semantic id helpers are used by server-side adapters
+// when projecting connector metadata into a model-safe schema view.
+export { entityIdFor, fieldIdFor } from "./semantic";
 export type {
   AnalysisDraft,
   AnalysisPredicate,

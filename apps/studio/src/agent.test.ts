@@ -1,15 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { DataAgentError, semanticCatalogSchema, type AnalysisDraft, type DataAgent } from "@data-elements/data-agent";
+import { DataAgentError, fieldIdFor, semanticCatalogSchema, type AnalysisDraft, type DataAgent } from "@data-elements/data-agent";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   analysisToolRejection,
+  buildDatabaseSchemaInventory,
+  buildDatabaseSchemaContext,
   buildDataCopilotInstructions,
   compactDescribeDataForModel,
   compactInspectCurrentContextForModel,
   compactProbeDataForModel,
+  createSchemaContextProcessor,
   createTesseraStudioAgent,
+  DATABASE_SCHEMA_CONTEXT_LIMITS,
+  formatDatabaseSchemaContext,
+  inspectDatabaseSchema,
   MAX_DISCOVERY_PROBES_PER_TURN,
   modelEvidenceFromResult,
   modelAnalysisToolInputSchema,
@@ -27,7 +33,7 @@ import {
 } from "./agent";
 import type { TesseraLlmConfig } from "./config";
 import type { TesseraDataAgentStage } from "./protocol";
-import type { DatabaseQueryResult } from "@data-elements/database";
+import type { DatabaseCatalog, DatabaseQueryResult } from "@data-elements/database";
 import { createTesseraSessionMemory } from "./session-memory";
 
 function streamOnlyTestModel() {
@@ -131,6 +137,325 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("loads a bounded physical schema context without exposing connection metadata", async () => {
+    const catalog = {
+      connectorId: "secret-connector",
+      dialect: "postgres",
+      databaseName: "secret-database",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "analytics",
+        tables: [{
+          schema: "analytics",
+          name: "orders",
+          kind: "table",
+          comment: "Do not send comments to the model.",
+          estimatedRows: 42,
+          columns: [
+            { name: "id", dataType: "uuid", nullable: false, ordinal: 1, defaultValue: "gen_random_uuid()" },
+            { name: "created_at", dataType: "timestamp with time zone", nullable: false, ordinal: 2 },
+          ],
+          primaryKey: ["id"],
+          foreignKeys: [{
+            name: "orders_customer_id_fkey",
+            columns: ["customer_id"],
+            referencedSchema: "analytics",
+            referencedTable: "customers",
+            referencedColumns: ["id"],
+          }],
+        }],
+      }],
+    } as DatabaseCatalog;
+    const summary = buildDatabaseSchemaContext(catalog);
+    const serialized = JSON.stringify(summary);
+
+    expect(summary.schemas[0]?.name).toBe("analytics");
+    expect(summary.schemas[0]?.tables[0]?.name).toBe("orders");
+    expect(summary.schemas[0]?.tables[0]?.columns.map((column) => column.name)).toEqual(["id", "created_at"]);
+    expect(serialized).not.toContain("orders_customer_id_fkey");
+    expect(serialized).not.toContain("secret-connector");
+    expect(serialized).not.toContain("secret-database");
+    expect(serialized).not.toContain("Do not send comments");
+    expect(serialized).not.toContain("gen_random_uuid");
+    expect(serialized).not.toContain("estimatedRows");
+    expect(formatDatabaseSchemaContext(summary)).toContain("<database_schema>");
+
+    const calls = { inspect: 0 };
+    const processor = createSchemaContextProcessor({
+      async inspectCatalog() {
+        calls.inspect += 1;
+        return { catalog };
+      },
+    });
+    const state: Record<string, unknown> = {};
+    const processLLMRequest = processor.processLLMRequest!;
+    const prompt = [{
+      role: "user" as const,
+      content: [{ type: "text" as const, text: "Show order counts." }],
+    }];
+    const processArgs = {
+      prompt,
+      model: {} as never,
+      stepNumber: 0,
+      steps: [],
+      state,
+      abort: (() => { throw new Error("processor aborted"); }) as never,
+      retryCount: 0,
+    };
+    const firstResult = await processLLMRequest(processArgs);
+    const secondResult = await processLLMRequest(processArgs);
+
+    expect(calls.inspect).toBe(1);
+    expect(firstResult?.prompt).toHaveLength(2);
+    expect(JSON.stringify(firstResult?.prompt)).toContain("analytics");
+    expect(firstResult?.prompt?.[0]?.role).toBe("assistant");
+    expect(firstResult?.prompt?.[1]?.role).toBe("user");
+    expect(secondResult).toBeUndefined();
+
+    const oversizedCatalog = {
+      dialect: "postgres",
+      schemas: [{
+        name: "public",
+        tables: Array.from({ length: DATABASE_SCHEMA_CONTEXT_LIMITS.maxTables + 1 }, (_, index) => ({
+          schema: "public",
+          name: `table_${index}`,
+          kind: "table" as const,
+          columns: [{ name: "id", dataType: "integer", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        })),
+      }],
+    } as Pick<DatabaseCatalog, "dialect" | "schemas">;
+    const oversized = buildDatabaseSchemaContext(oversizedCatalog);
+    expect(oversized.truncated).toBeTrue();
+    expect(oversized.omitted.tables).toBe(1);
+    expect(JSON.stringify(oversized).length).toBeLessThanOrEqual(DATABASE_SCHEMA_CONTEXT_LIMITS.maxCharacters);
+  });
+
+  test("attempts schema inventory only once when the connector is unavailable", async () => {
+    const calls = { inspect: 0 };
+    const processor = createSchemaContextProcessor({
+      async inspectCatalog() {
+        calls.inspect += 1;
+        throw new Error("catalog unavailable");
+      },
+    });
+    const processLLMRequest = processor.processLLMRequest!;
+    const processArgs = {
+      prompt: [{
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "Show order counts." }],
+      }],
+      model: {} as never,
+      stepNumber: 0,
+      steps: [],
+      state: {} as Record<string, unknown>,
+      abort: (() => { throw new Error("processor aborted"); }) as never,
+      retryCount: 0,
+    };
+
+    await expect(processLLMRequest(processArgs)).resolves.toBeUndefined();
+    await expect(processLLMRequest(processArgs)).resolves.toBeUndefined();
+    expect(calls.inspect).toBe(1);
+  });
+
+  test("discovers physical relations progressively and keeps schema expansion bounded", () => {
+    const catalog = {
+      connectorId: "secret-connector",
+      dialect: "postgres",
+      databaseName: "secret-database",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "analytics",
+        tables: [{
+          schema: "analytics",
+          name: "orders",
+          kind: "table",
+          comment: "private comment",
+          estimatedRows: 100,
+          columns: [
+            { name: "id", dataType: "uuid", nullable: false, ordinal: 1, defaultValue: "secret_default()" },
+            { name: "customer_id", dataType: "uuid", nullable: false, ordinal: 2 },
+          ],
+          primaryKey: ["id"],
+          foreignKeys: [{
+            name: "orders_customer_id_fkey",
+            columns: ["customer_id"],
+            referencedSchema: "crm",
+            referencedTable: "customers",
+            referencedColumns: ["id"],
+          }],
+        }],
+      }, {
+        name: "crm",
+        tables: [{
+          schema: "crm",
+          name: "customers",
+          kind: "table",
+          columns: [{ name: "id", dataType: "uuid", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    } as DatabaseCatalog;
+
+    const inventory = buildDatabaseSchemaInventory(catalog);
+    expect(inventory.schemas.map((schema) => schema.name)).toEqual(["analytics", "crm"]);
+    expect(inventory.schemas[0]?.tables).toEqual([{ name: "orders", kind: "table" }]);
+    expect(JSON.stringify(inventory)).not.toContain("customer_id");
+    expect(JSON.stringify(inventory)).not.toContain("secret-connector");
+
+    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" });
+    expect(expanded).toMatchObject({
+      status: "completed",
+      schema: {
+        name: "analytics",
+        tables: [{
+          name: "orders",
+          columns: [{ name: "id", dataType: "uuid", nullable: false }, { name: "customer_id", dataType: "uuid", nullable: false }],
+          primaryKey: ["id"],
+          foreignKeys: [{
+            columns: ["customer_id"],
+            referencedSchema: "crm",
+            referencedTable: "customers",
+            referencedColumns: ["id"],
+          }],
+        }],
+      },
+      tableCount: 1,
+      columnCount: 2,
+      foreignKeyCount: 1,
+      truncated: false,
+    });
+    const expandedJson = JSON.stringify(expanded);
+    expect(expandedJson).not.toContain("orders_customer_id_fkey");
+    expect(expandedJson).not.toContain("secret_default");
+    expect(expandedJson).not.toContain("private comment");
+
+    expect(inspectDatabaseSchema(catalog, { schema: "missing" })).toEqual({
+      status: "blocked",
+      reason: "schema_not_discovered",
+      nextAction: "inspect_schema",
+    });
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "missing" })).toEqual({
+      status: "blocked",
+      reason: "table_not_discovered",
+      nextAction: "inspect_schema",
+    });
+  });
+
+  test("projects schema metadata through semantic exposure and the discovered inventory", () => {
+    const catalog = {
+      connectorId: "secret-connector",
+      dialect: "postgres",
+      databaseName: "secret-database",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "analytics",
+        tables: [{
+          schema: "analytics",
+          name: "orders",
+          kind: "table",
+          columns: [
+            { name: "id", dataType: "uuid", nullable: false, ordinal: 1 },
+            { name: "customer_id", dataType: "uuid", nullable: false, ordinal: 2 },
+            { name: "secret_token", dataType: "text", nullable: false, ordinal: 3 },
+          ],
+          primaryKey: ["id", "secret_token"],
+          foreignKeys: [{
+            name: "orders_customer_fkey",
+            columns: ["customer_id"],
+            referencedSchema: "analytics",
+            referencedTable: "customers",
+            referencedColumns: ["secret_id"],
+          }],
+        }, {
+          schema: "analytics",
+          name: "private_events",
+          kind: "table",
+          columns: [{ name: "secret_id", dataType: "text", nullable: false, ordinal: 1 }],
+          primaryKey: ["secret_id"],
+          foreignKeys: [],
+        }, {
+          schema: "analytics",
+          name: "customers",
+          kind: "table",
+          columns: [{ name: "secret_id", dataType: "uuid", nullable: false, ordinal: 1 }],
+          primaryKey: ["secret_id"],
+          foreignKeys: [],
+        }],
+      }],
+    } as DatabaseCatalog;
+    const semanticCatalog = semanticCatalogSchema.parse({
+      version: "2",
+      ref: {
+        manifestId: "test",
+        revision: "1",
+        fingerprint: semanticFingerprint,
+        catalogFingerprint: semanticFingerprint,
+      },
+      entities: [{
+        id: "ent_0123456789abcdef",
+        label: "Orders",
+        aliases: [],
+        fields: [
+          {
+            id: fieldIdFor(catalog, "analytics", "orders", "id"),
+            label: "Id",
+            aliases: [],
+            type: "string",
+            role: "identifier",
+            exposure: "bounded-values",
+          },
+          {
+            id: fieldIdFor(catalog, "analytics", "orders", "customer_id"),
+            label: "Customer Id",
+            aliases: [],
+            type: "string",
+            role: "identifier",
+            exposure: "bounded-values",
+          },
+        ],
+        metrics: [],
+      }],
+      relationships: [],
+    });
+
+    const inventory = buildDatabaseSchemaInventory(catalog, semanticCatalog);
+    expect(inventory.schemas).toEqual([{
+      name: "analytics",
+      tableCount: 1,
+      tables: [{ name: "orders", kind: "table" }],
+    }]);
+
+    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" }, inventory, semanticCatalog);
+    expect(expanded).toMatchObject({
+      status: "completed",
+      schema: {
+        tables: [{
+          name: "orders",
+          columns: [
+            { name: "id" },
+            { name: "customer_id" },
+          ],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      },
+    });
+    expect(JSON.stringify(expanded)).not.toContain("secret_token");
+    expect(JSON.stringify(expanded)).not.toContain("private_events");
+
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "customers" }, inventory, semanticCatalog)).toEqual({
+      status: "blocked",
+      reason: "table_not_discovered",
+      nextAction: "inspect_schema",
+    });
+  });
+
   test("uses a structured prompt with an explicit trust boundary", () => {
     const instructions = buildDataCopilotInstructions();
 
@@ -318,6 +643,120 @@ describe("Tessera Agent vNext public boundary", () => {
       });
       expect(JSON.stringify(memory.messages)).toContain("Remember the stream marker.");
       expect(JSON.stringify(memory.messages)).toContain("A streamed Tessera response.");
+    } finally {
+      await session.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("loads schema once across the Agent loop and returns inspected metadata to the model", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-schema-loop-"));
+    const session = createTesseraSessionMemory({ rootDirectory });
+    const physicalCatalog = {
+      connectorId: "test-connector",
+      dialect: "postgres",
+      databaseName: "test-database",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "analytics",
+        tables: [{
+          schema: "analytics",
+          name: "orders",
+          kind: "table",
+          columns: [
+            { name: "id", dataType: "uuid", nullable: false, ordinal: 1 },
+            { name: "created_at", dataType: "timestamp with time zone", nullable: false, ordinal: 2 },
+          ],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    } as DatabaseCatalog;
+    const calls = { inspect: 0, streams: 0 };
+    const prompts: string[] = [];
+    const dataAgent = {
+      connectorId: "test-connector",
+      async inspectCatalog() {
+        calls.inspect += 1;
+        return { catalog: physicalCatalog };
+      },
+    } as unknown as DataAgent;
+    let modelTurn = 0;
+    const model = {
+      specificationVersion: "v2",
+      provider: "tessera-test",
+      modelId: "schema-loop-test",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("Tessera must use Agent.stream for every model turn.");
+      },
+      async doStream(options: { prompt?: unknown }) {
+        calls.streams += 1;
+        prompts.push(JSON.stringify(options.prompt));
+        const inspect = modelTurn++ === 0;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (inspect) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "schema-call-1",
+                  toolName: "inspect_schema",
+                  input: JSON.stringify({ schema: "analytics", table: "orders" }),
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-1" });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The orders schema is available." });
+                controller.enqueue({ type: "text-end", id: "text-1" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const llm: TesseraLlmConfig = {
+      model: model as unknown as string,
+      headers: {},
+      temperature: 0,
+      maxOutputTokens: 256,
+      maxSteps: 4,
+      maxRetries: 0,
+    };
+
+    try {
+      await session.createThread({ id: "thread-schema-loop", resourceId: "local-studio" });
+      const agent = createTesseraStudioAgent({ dataAgent, memory: session.memory, llm });
+      const run = await agent.run({
+        runId: "run-schema-loop",
+        threadId: "thread-schema-loop",
+        message: "Describe the orders schema.",
+        signal: new AbortController().signal,
+      });
+
+      expect(run.message).toBe("The orders schema is available.");
+      expect(calls.inspect).toBe(1);
+      expect(calls.streams).toBe(2);
+      expect(prompts[0]).toContain("<database_schema_inventory>");
+      expect(prompts[0]).toContain("orders");
+      expect(prompts[1]).toContain("created_at");
+      expect(prompts[1]).not.toContain("<database_schema_inventory>");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });

@@ -7,6 +7,7 @@ import {
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
 } from "@data-elements/database";
+import { semanticCatalogSchema, type DataAgent } from "@data-elements/data-agent";
 import {
   createStudioApp,
   createStudioCatalogProvider,
@@ -56,6 +57,34 @@ const connectedAssessment: ConnectionAssessment = {
   latencyMs: 4,
   warnings: ["raw connector warning that must not be returned"],
 };
+
+const relationSemanticFingerprint = `sha256:${"b".repeat(64)}`;
+const relationContextCapability = { token: `cap_${"c".repeat(32)}.${"s".repeat(32)}` };
+const relationContextOmitted = { entities: 0, fields: 0, metrics: 0, relationships: 0 } as const;
+const relationContextCatalog = semanticCatalogSchema.parse({
+  version: "2",
+  ref: {
+    manifestId: "test",
+    revision: "1",
+    fingerprint: relationSemanticFingerprint,
+    catalogFingerprint: relationSemanticFingerprint,
+  },
+  entities: [{
+    id: "ent_0123456789abcdef",
+    label: "Orders",
+    aliases: [],
+    fields: [{
+      id: "fld_0123456789abcdef",
+      label: "Order ID",
+      aliases: [],
+      type: "string",
+      role: "identifier",
+      exposure: "bounded-values",
+    }],
+    metrics: [],
+  }],
+  relationships: [],
+});
 
 function createConnector(overrides: Partial<{
   assess(signal?: AbortSignal): Promise<ConnectionAssessment>;
@@ -131,6 +160,16 @@ describe("Tessera Studio Hono app", () => {
       connector: createConnector({
         query: async (query) => {
           requests.push(query);
+          if (query.purpose === "Tessera table editor row count") {
+            return {
+              queryId: "count-secret-id",
+              columns: [{ name: "__total_count" }],
+              rows: [{ __total_count: "137" }],
+              rowCount: 1,
+              truncated: false,
+              durationMs: 2,
+            };
+          }
           return {
             queryId: "query-secret-id",
             columns: [{ name: "id" }, { name: "not_in_catalog" }],
@@ -155,18 +194,25 @@ describe("Tessera Studio Hono app", () => {
       columns: Array<{ name: string }>;
       rows: Array<Record<string, unknown>>;
       rowCount: number;
+      totalRowCount: number;
       truncated: boolean;
       durationMs: number;
     };
 
     expect(response.status).toBe(200);
-    expect(requests).toEqual([{
+    expect(requests).toEqual(expect.arrayContaining([{
       sql: 'SELECT "id"\nFROM "public"."orders"\nLIMIT 100',
       parameters: [],
       purpose: "Tessera relation preview",
       maxRows: 100,
       timeoutMs: 15_000,
-    }]);
+    }, {
+      sql: 'SELECT COUNT(*) AS "__total_count" FROM "public"."orders"',
+      parameters: [],
+      purpose: "Tessera table editor row count",
+      maxRows: 1,
+    }]));
+    expect(requests).toHaveLength(2);
     expect(preview.table.name).toBe("orders");
     expect(preview.table.columns).toEqual([expect.objectContaining({ name: "id" })]);
     expect(preview.table.columns[0]?.defaultValue).toBeUndefined();
@@ -175,10 +221,62 @@ describe("Tessera Studio Hono app", () => {
     expect(preview.rows).toHaveLength(100);
     expect(preview.rows[0]).toEqual({ id: "order-0" });
     expect(preview.rowCount).toBe(100);
+    expect(preview.totalRowCount).toBe(137);
     expect(preview.truncated).toBe(true);
     expect(preview.durationMs).toBe(7);
     expect(JSON.stringify(preview)).not.toContain("query-secret-id");
+    expect(JSON.stringify(preview)).not.toContain("count-secret-id");
     expect(JSON.stringify(preview)).not.toContain("must not reach the browser");
+  });
+
+  test("executes table-editor search, filters, sorting, and pagination against the catalog-bound relation", async () => {
+    const requests: DatabaseQueryRequest[] = [];
+    const app = createStudioApp({
+      connector: createConnector({
+        query: async (query) => {
+          requests.push(query);
+          if (query.purpose === "Tessera table editor row count") {
+            return {
+              queryId: "count-1",
+              columns: [{ name: "__total_count" }],
+              rows: [{ __total_count: "31" }],
+              rowCount: 1,
+              truncated: false,
+              durationMs: 2,
+            };
+          }
+          return {
+            queryId: "preview-1",
+            columns: [{ name: "id" }],
+            rows: [{ id: "order-30" }],
+            rowCount: 1,
+            truncated: false,
+            durationMs: 3,
+          };
+        },
+      }),
+    });
+    const filters = encodeURIComponent(JSON.stringify([{ column: "id", operator: "contains", value: "order" }]));
+    const response = await app.fetch(request(`/api/data/public/orders?page=2&pageSize=25&q=match&sort=id&direction=desc&filters=${filters}`));
+    const preview = await response.json() as { page: number; pageSize: number; rows: Array<{ id: string }>; totalRowCount: number };
+
+    expect(response.status).toBe(200);
+    expect(preview).toMatchObject({ page: 2, pageSize: 25, rows: [{ id: "order-30" }], totalRowCount: 31 });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      parameters: ["%match%", "%order%"],
+      purpose: "Tessera table editor row count",
+      sql: 'SELECT COUNT(*) AS "__total_count" FROM "public"."orders" WHERE (CAST("id" AS text) ILIKE $1) AND CAST("id" AS text) ILIKE $2',
+    });
+    expect(requests[1]).toMatchObject({
+      parameters: ["%match%", "%order%"],
+      purpose: "Tessera table editor preview",
+      sql: 'SELECT "id" FROM "public"."orders" WHERE (CAST("id" AS text) ILIKE $1) AND CAST("id" AS text) ILIKE $2 ORDER BY "id" DESC NULLS FIRST LIMIT 25 OFFSET 25',
+    });
+
+    const invalid = await app.fetch(request("/api/data/public/orders?filters=%5B%7B%22column%22%3A%22missing%22%2C%22operator%22%3A%22equals%22%2C%22value%22%3A%22x%22%7D%5D"));
+    expect(invalid.status).toBe(400);
+    expect(requests).toHaveLength(2);
   });
 
   test("rejects undiscovered table names before the connector is queried", async () => {
@@ -427,6 +525,201 @@ describe("Tessera Studio Hono app", () => {
     expect(body).toContain("Two results are ready.");
     expect(body).not.toContain('"type":"data-tessera-artifact"');
     expect(body).not.toContain("provider-artifact-id");
+  });
+
+  test("binds a valid browser relation only as server-side Agent turn context", async () => {
+    const relationInputs: Array<{ schema: string; table: string; catalogFingerprint: string }> = [];
+    let received: StudioAgentRunInput | undefined;
+    const dataAgent = {
+      connectorId: "test",
+      async inspectRelationPlanningCatalog(input: { schema: string; table: string; catalogFingerprint: string }) {
+        relationInputs.push(input);
+        return {
+          capability: relationContextCapability,
+          semanticCatalog: relationContextCatalog,
+          truncated: false,
+          omitted: relationContextOmitted,
+        };
+      },
+    } as unknown as DataAgent;
+    const app = createStudioApp({
+      connector: createConnector(),
+      dataAgent,
+      agent: {
+        catalogLoading: "data-agent",
+        async run(input) {
+          received = input;
+          return { status: "completed", message: "Selected data context is ready." };
+        },
+      },
+    });
+    const workspaceContext = {
+      currentRelation: { schema: "public", table: "orders", catalogFingerprint: catalog.fingerprint },
+      hasLocalFilter: true,
+      view: "definition",
+    };
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-valid-current-context",
+        threadId: "thread-valid-current-context",
+        trigger: "submit-message",
+        workspaceContext,
+        messages: [{ id: "user-valid-current-context", role: "user", parts: [{ type: "text", text: "Describe this table." }] }],
+      }),
+    }));
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(relationInputs).toEqual([workspaceContext.currentRelation]);
+    expect(received?.turnContext).toEqual({
+      workspace: { hasLocalFilter: true, view: "definition" },
+      currentRelation: {
+        capability: relationContextCapability,
+        semanticCatalog: relationContextCatalog,
+        truncated: false,
+        omitted: relationContextOmitted,
+      },
+    });
+  });
+
+  test("ignores stale and malformed browser relation context without granting a current relation", async () => {
+    let relationBindAttempts = 0;
+    const received: StudioAgentRunInput[] = [];
+    const dataAgent = {
+      connectorId: "test",
+      async inspectRelationPlanningCatalog() {
+        relationBindAttempts += 1;
+        throw new Error("stale relation context must remain private");
+      },
+    } as unknown as DataAgent;
+    const app = createStudioApp({
+      connector: createConnector(),
+      dataAgent,
+      agent: {
+        catalogLoading: "data-agent",
+        async run(input) {
+          received.push(input);
+          return { status: "completed", message: "Ordinary chat still works." };
+        },
+      },
+    });
+
+    const stale = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-stale-current-context",
+        trigger: "submit-message",
+        workspaceContext: {
+          currentRelation: { schema: "public", table: "orders", catalogFingerprint: catalog.fingerprint },
+          hasLocalFilter: true,
+          view: "data",
+        },
+        messages: [{ id: "user-stale-current-context", role: "user", parts: [{ type: "text", text: "Describe this table." }] }],
+      }),
+    }));
+    await stale.text();
+
+    const malformed = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-malformed-current-context",
+        trigger: "submit-message",
+        workspaceContext: {
+          currentRelation: { schema: "public", table: "orders", catalogFingerprint: "not-a-fingerprint" },
+          hasLocalFilter: true,
+          view: "data",
+        },
+        messages: [{ id: "user-malformed-current-context", role: "user", parts: [{ type: "text", text: "Describe this table." }] }],
+      }),
+    }));
+    await malformed.text();
+
+    expect(stale.status).toBe(200);
+    expect(malformed.status).toBe(200);
+    expect(relationBindAttempts).toBe(1);
+    expect(received[0]?.turnContext).toEqual({ workspace: { hasLocalFilter: true, view: "data" } });
+    expect(received[0]?.turnContext?.currentRelation).toBeUndefined();
+    expect(received[1]?.turnContext).toBeUndefined();
+  });
+
+  test("redacts selected-context tool input and output from the public chat stream", async () => {
+    const privateFingerprint = `sha256:${"d".repeat(64)}`;
+    const privateCapability = `cap_${"e".repeat(32)}.${"f".repeat(32)}`;
+    const app = createStudioApp({
+      connector: createConnector(),
+      agent: {
+        async run() {
+          return { status: "completed", message: "Unused fallback." };
+        },
+        streamUI() {
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "provider-message" });
+              controller.enqueue({
+                type: "tool-input-start",
+                toolCallId: "provider-current-context-call",
+                toolName: "inspect_current_context",
+              });
+              controller.enqueue({
+                type: "tool-input-available",
+                toolCallId: "provider-current-context-call",
+                toolName: "inspect_current_context",
+                input: {
+                  schema: "private_schema",
+                  table: "private_orders",
+                  catalogFingerprint: privateFingerprint,
+                  localFilter: "customer-email@example.test",
+                },
+              });
+              controller.enqueue({
+                type: "tool-output-available",
+                toolCallId: "provider-current-context-call",
+                output: {
+                  status: "completed",
+                  entityCount: 1,
+                  truncated: true,
+                  capability: { token: privateCapability },
+                  catalog: {
+                    ref: { fingerprint: privateFingerprint, catalogFingerprint: privateFingerprint },
+                    entities: [{ label: "private_orders" }],
+                  },
+                },
+              });
+              controller.enqueue({ type: "finish", finishReason: "stop" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-public-current-context-tool",
+        trigger: "submit-message",
+        messages: [{ id: "user-public-current-context-tool", role: "user", parts: [{ type: "text", text: "Describe this table." }] }],
+      }),
+    }));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"toolName":"inspect_current_context"');
+    expect(body).toContain('"action":"inspect_current_context"');
+    expect(body).toContain('"status":"completed"');
+    expect(body).toContain('"entityCount":1');
+    expect(body).not.toContain("provider-current-context-call");
+    expect(body).not.toContain("private_schema");
+    expect(body).not.toContain("private_orders");
+    expect(body).not.toContain(privateFingerprint);
+    expect(body).not.toContain(privateCapability);
+    expect(body).not.toContain("customer-email@example.test");
   });
 
   test("streams bounded chat events while keeping tool payloads server-side", async () => {

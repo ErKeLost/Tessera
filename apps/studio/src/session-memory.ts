@@ -295,6 +295,10 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
       parts.push(sanitizeCatalogToolPart(part, context, parts.length));
       continue;
     }
+    if (part.type === "tool-inspect_schema") {
+      parts.push(sanitizeSchemaToolPart(part, context, parts.length));
+      continue;
+    }
     if (part.type === "tool-describe_data") {
       parts.push(sanitizeDescriptionToolPart(part, context, parts.length));
       continue;
@@ -365,6 +369,75 @@ function sanitizeCatalogToolPart(
     },
     providerExecuted: true,
     title: "Inspect data catalog",
+  };
+}
+
+/**
+ * Persists only the terminal summary of physical schema discovery. The raw
+ * schema projection may contain relation and column names, so it never enters
+ * the session transcript.
+ */
+function sanitizeSchemaToolPart(
+  part: Record<string, unknown>,
+  context: SanitizationContext,
+  index: number,
+): TesseraUIMessage["parts"][number] {
+  const input = { action: "inspect_governed_schema" as const };
+  const output = asRecord(part.output);
+  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
+    ? output.status
+    : output?.status === "unavailable"
+      ? "blocked"
+      : "failed";
+  if (part.state !== "output-available" || status === "failed") {
+    return {
+      type: "tool-inspect_schema",
+      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      state: "output-error",
+      input,
+      errorText: HISTORY_TOOL_FAILURE,
+      providerExecuted: true,
+      title: "Inspect database schema",
+    };
+  }
+
+  const schema = asRecord(output?.schema);
+  const tables = Array.isArray(schema?.tables) ? schema.tables : undefined;
+  const tableCount = safeInteger(
+    output?.tableCount ?? (tables === undefined ? undefined : tables.length),
+    0,
+    10_000,
+  );
+  const columnCount = safeInteger(
+    output?.columnCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
+      const record = asRecord(table);
+      return count + (record && Array.isArray(record.columns) ? record.columns.length : 0);
+    }, 0)),
+    0,
+    10_000,
+  );
+  const foreignKeyCount = safeInteger(
+    output?.foreignKeyCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
+      const record = asRecord(table);
+      return count + (record && Array.isArray(record.foreignKeys) ? record.foreignKeys.length : 0);
+    }, 0)),
+    0,
+    10_000,
+  );
+  return {
+    type: "tool-inspect_schema",
+    toolCallId: `${context.messageId}-tool-${index + 1}`,
+    state: "output-available",
+    input,
+    output: {
+      status,
+      ...(tableCount === undefined ? {} : { tableCount }),
+      ...(columnCount === undefined ? {} : { columnCount }),
+      ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
+      ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
+    },
+    providerExecuted: true,
+    title: "Inspect database schema",
   };
 }
 

@@ -12,6 +12,125 @@ Artifact。
 
 ![Tessera Data Agent Studio 架构](/diagrams/tessera-data-agent-studio.svg)
 
+## 使用 Studio
+
+Studio 是一个本地 Web 工作台。你在包含 Tessera 配置的目录中启动它，
+然后用浏览器打开终端输出的地址。数据库连接和模型凭据留在服务端进程中；
+浏览器只会收到 Catalog 摘要、进度、安全叙述和经过验证的结果。
+
+### 1. 准备环境
+
+- Node.js 20.18.1 或更高版本
+- Bun 1.3.14 或更高版本
+- PostgreSQL 或 MySQL 数据库，建议使用只读数据库用户
+- 配置中所选模型供应商的 API Key
+
+### 2. 创建只在服务端使用的配置
+
+在项目目录创建 `tessera.config.ts`，并把密钥放入 `.env`（或启动 Studio
+的服务端环境）：
+
+```bash
+DATABASE_URL=postgresql://readonly:password@127.0.0.1:5432/warehouse
+OPENROUTER_API_KEY=your-server-only-key
+```
+
+```ts
+// tessera.config.ts
+import { defineTesseraConfig } from "@tessera/studio";
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required by Tessera Studio.");
+
+export default defineTesseraConfig({
+  database: {
+    url: databaseUrl,
+    // 可选：只允许指定 Schema 进入 Catalog 发现范围。
+    // schemas: ["analytics"],
+    maxRows: 500,
+    statementTimeoutMs: 15_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+    // 省略 apiKey 时，会从服务端环境读取 OPENROUTER_API_KEY。
+  },
+});
+```
+
+默认模型是 OpenRouter。你也可以填写其他 Mastra 支持的 `provider/model`
+ID，并提供对应的供应商环境变量，或配置 OpenAI 兼容的 `baseUrl`。不要把
+任何密钥放进客户端代码或会暴露给浏览器的环境变量。
+
+### 3. 启动本地 Web 服务
+
+在同一目录执行发布后的 CLI：
+
+```bash
+npx data-elements@latest studio
+```
+
+CLI 会从当前目录向上查找 `tessera.config.ts`，并在
+`http://127.0.0.1:4317` 启动 Studio。临时测试时，也可以直接传入一个
+数据库 URL：
+
+```bash
+npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx data-elements@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
+```
+
+临时 URL 适合测试，但可能出现在 Shell 历史或进程列表中。长期使用时，
+建议采用配置文件和环境变量。需要显式指定配置文件或端口时：
+
+```bash
+npx data-elements@latest studio \
+  --config ./config/tessera.config.ts \
+  --host 127.0.0.1 \
+  --port 4310
+```
+
+### 4. 完成一次分析
+
+1. **连接**：先确认工作台顶部的数据库状态。如果连接缺失或已过期，打开
+   **Settings → Database**，修改 URL 或数据库类型，测试连接后保存。
+2. **查看 Catalog**：进入 **Data explorer** 浏览 Schema、表、字段、键、定义
+   和代表性数据。数据库完成 Schema 迁移后，刷新 Catalog。
+3. **提出问题**：新建一个 Thread，用自然语言描述业务问题。尽量补充时间范围、
+   维度、指标和过滤条件。
+4. **检查运行过程**：答案旁会显示 Catalog 检查、计划、执行、验证和叙述进度。
+   展开运行记录可以查看可公开的证据；原始 SQL 和凭据仍留在服务端。
+5. **完善结果**：在同一个 Thread 中继续追问、澄清歧义，或在调整范围后重试。
+   每次分析执行前都会针对当前 Catalog 重新验证。
+6. **管理历史**：使用 **History** 重新打开、重命名或删除本地分析 Thread。
+   会话历史保存于 Studio 自己的本地 SQLite，与被分析的数据库分离。
+
+### 5. 调整工作台
+
+打开 **Settings** 管理当前工作台：
+
+| 区域 | 用途 |
+| --- | --- |
+| Database | 连接 URL、数据库类型、Schema 范围和读写模式 |
+| Model | 供应商、模型、API Key、Base URL 和推理强度 |
+| Limits | 最大行数、语句超时和 Agent 步数限制 |
+| Permissions | 读取、写入、破坏性操作和未知 SQL 的策略 |
+
+设置由服务端 Runtime 应用。敏感设置可以由宿主的身份认证和管理员策略
+限制。除非有明确且经过审查的需求，否则请保持数据库用户为只读。
+
+## 一次运行中 Agent 做了什么
+
+完整的用户路径可以概括为：
+
+```text
+问题 -> Catalog -> 语义计划 -> 受限只读查询
+    -> 验证 -> 证据 -> Markdown 答案
+```
+
+模型通过语义 ID 提出意图。Data Agent 加载实时 Catalog，检查 Capability
+和授权范围，在服务端编译查询，应用行数和时间限制，验证结果并发布安全响应。
+当前本地 Studio 以 Markdown、紧凑的执行进度和证据呈现响应；连接字符串、供应商
+Key、原始 SQL 和数据库驱动都不会发送到浏览器。
+
 ## Studio 做什么
 
 Studio 让一次运行始终只有一个回答责任主体，同时把足够的进度暴露给用户，使用户能够检查、
@@ -24,7 +143,7 @@ Studio 让一次运行始终只有一个回答责任主体，同时把足够的�
 | 澄清 | 把歧义变成明确问题或已确认的选择 | Agent 可以描述已检查的实体，并执行有限的发现 Probe |
 | 计划 | Runtime 可以审查只读分析意图 | 模型提交带语义 ID 的 `AnalysisDraft`，绝不提交 SQL 或物理名称 |
 | 执行 | 结果、Trace 和证据流入对话 | Data Agent 重新验证范围、绑定 ID、编译 SQL、按限制执行并验证结果 |
-| 发布 | 图表、表格、指标或其他 Artifact 随答案呈现 | Tessera 限制证据、验证结构化 UI 数据并脱敏私有 Runtime 细节 |
+| 发布 | 经过验证的 Markdown 答案和证据随运行结果呈现 | Tessera 限制证据，并在发布前脱敏私有 Runtime 细节 |
 
 默认实现位于 `apps/studio`。受治理的执行边界是 `@data-elements/data-agent`；宿主可以注入 Connector、
 身份提供器、Session Store、模型或兼容的 `StudioAgent`，而不必改变公开协议。

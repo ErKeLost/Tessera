@@ -1,7 +1,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "describe_data" | "probe_data" | "run_analysis";
+export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "inspect_schema" | "describe_data" | "probe_data" | "run_analysis";
 export type TesseraToolState = "started" | "completed" | "blocked" | "failed";
 /**
  * Public lifecycle only. Details such as SQL, catalog identifiers, probe
@@ -28,6 +28,11 @@ export type TesseraInspectCatalogToolInput = Readonly<{
   action: "inspect_governed_catalog";
 }>;
 
+/** A redacted UI input for a server-bound physical schema inspection. */
+export type TesseraInspectSchemaToolInput = Readonly<{
+  action: "inspect_governed_schema";
+}>;
+
 /** A server-bound current-page context. It has no browser-provided payload. */
 export type TesseraInspectCurrentContextToolInput = Readonly<{
   action: "inspect_current_context";
@@ -48,6 +53,19 @@ export type TesseraRunAnalysisToolInput = Readonly<{
 export type TesseraInspectCatalogToolOutput = Readonly<{
   status: "completed" | "failed";
   tableCount?: number;
+  truncated?: boolean;
+}>;
+
+/**
+ * Only bounded counts cross the Studio UI boundary. The model receives the
+ * bounded schema projection directly; physical names are intentionally not
+ * retained in browser transcript data.
+ */
+export type TesseraInspectSchemaToolOutput = Readonly<{
+  status: "completed" | "blocked" | "failed";
+  tableCount?: number;
+  columnCount?: number;
+  foreignKeyCount?: number;
   truncated?: boolean;
 }>;
 
@@ -82,6 +100,10 @@ export type TesseraUITools = {
   inspect_catalog: {
     input: TesseraInspectCatalogToolInput;
     output: TesseraInspectCatalogToolOutput;
+  };
+  inspect_schema: {
+    input: TesseraInspectSchemaToolInput;
+    output: TesseraInspectSchemaToolOutput;
   };
   describe_data: {
     input: TesseraDescribeDataToolInput;

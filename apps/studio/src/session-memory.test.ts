@@ -101,6 +101,34 @@ describe("Tessera Studio UI transcript memory", () => {
             },
             callProviderMetadata: { providerError },
           }, {
+            type: "tool-inspect_schema",
+            toolCallId: "provider-schema-call-id",
+            state: "output-available",
+            input: { schema: "private", table: "customer_rows", token: credential },
+            output: {
+              status: "completed",
+              schema: {
+                name: "private",
+                tables: [{
+                  name: "customer_rows",
+                  columns: [{ name: "secret_token", dataType: "text", nullable: false }],
+                  primaryKey: ["secret_token"],
+                  foreignKeys: [{
+                    name: "customer_rows_owner_fkey",
+                    columns: ["owner_id"],
+                    referencedSchema: "private",
+                    referencedTable: "owners",
+                    referencedColumns: ["id"],
+                  }],
+                }],
+              },
+              tableCount: 1,
+              columnCount: 1,
+              foreignKeyCount: 1,
+              truncated: false,
+            },
+            callProviderMetadata: { providerError },
+          }, {
             type: "tool-probe_data",
             toolCallId: "provider-probe-call-id",
             state: "output-available",
@@ -219,6 +247,18 @@ describe("Tessera Studio UI transcript memory", () => {
         output: { status: "completed", tableCount: 3, truncated: true },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
+        type: "tool-inspect_schema",
+        state: "output-available",
+        input: { action: "inspect_governed_schema" },
+        output: {
+          status: "completed",
+          tableCount: 1,
+          columnCount: 1,
+          foreignKeyCount: 1,
+          truncated: false,
+        },
+      }));
+      expect(assistantParts).toContainEqual(expect.objectContaining({
         type: "tool-probe_data",
         state: "output-available",
         input: { action: "probe_governed_data" },
@@ -239,6 +279,9 @@ describe("Tessera Studio UI transcript memory", () => {
       expect(publicJson).toContain("Revenue increased");
       expect(publicJson).not.toContain(rawSql);
       expect(publicJson).not.toContain(rawRow);
+      expect(publicJson).not.toContain("private.customer_rows");
+      expect(publicJson).not.toContain("secret_token");
+      expect(publicJson).not.toContain("customer_rows_owner_fkey");
       expect(publicJson).not.toContain("data-tessera-artifact");
       expect(publicJson).not.toContain(credential);
       expect(publicJson).not.toContain(providerError);
@@ -254,6 +297,9 @@ describe("Tessera Studio UI transcript memory", () => {
       const restoredJson = JSON.stringify(restored);
       expect(restoredJson).not.toContain(rawSql);
       expect(restoredJson).not.toContain(rawRow);
+      expect(restoredJson).not.toContain("private.customer_rows");
+      expect(restoredJson).not.toContain("secret_token");
+      expect(restoredJson).not.toContain("customer_rows_owner_fkey");
       expect(restoredJson).not.toContain("data-tessera-artifact");
       expect(restoredJson).not.toContain(credential);
       expect(restoredJson).not.toContain(providerError);

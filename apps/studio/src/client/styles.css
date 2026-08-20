@@ -158,6 +158,16 @@
   --studio-muted: var(--muted-foreground);
   --studio-accent-soft: var(--accent);
   --studio-focus-ring: var(--ring);
+
+  /* Keep native and Radix scroll surfaces visually consistent. The inset
+     track and padded thumb preserve content width while still giving the
+     scrollbar a deliberate, tactile presence. */
+  --ui-scrollbar-size: 10px;
+  --ui-scrollbar-track: transparent;
+  --ui-scrollbar-thumb: color-mix(in oklab, var(--foreground) 30%, transparent);
+  --ui-scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 44%, transparent);
+  --ui-scrollbar-thumb-active: color-mix(in oklab, var(--foreground) 58%, transparent);
+  --ui-scrollbar-thumb-border: color-mix(in oklab, var(--background) 88%, transparent);
 }
 
 *,
@@ -185,6 +195,79 @@ body {
 button,
 input,
 textarea { font: inherit; }
+
+/* Shared scrollbar language for every native overflow surface. Components
+   that intentionally hide their scrollbar opt out with .scrollbar-hide or
+   the existing utility selectors on the element itself. */
+* {
+  scrollbar-color: var(--ui-scrollbar-thumb) var(--ui-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: var(--ui-scrollbar-size);
+  height: var(--ui-scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-track);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-thumb);
+  background-clip: padding-box;
+  transition: background-color 140ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--ui-scrollbar-thumb-active);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-button { width: 0; height: 0; }
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+/* Radix owns the scrollbar DOM for ScrollArea, so native pseudo-elements do
+   not apply to these tracks and thumbs. */
+[data-slot="scroll-area-scrollbar"] {
+  border-color: transparent !important;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-track) !important;
+  padding: 2px;
+}
+
+[data-slot="scroll-area-thumb"] {
+  border: 1px solid var(--ui-scrollbar-thumb-border);
+  border-radius: 999px;
+  background: var(--ui-scrollbar-thumb) !important;
+  transition: background-color 140ms ease;
+}
+
+[data-slot="scroll-area-thumb"]:hover {
+  background: var(--ui-scrollbar-thumb-hover) !important;
+}
+
+[data-slot="scroll-area-thumb"]:active {
+  background: var(--ui-scrollbar-thumb-active) !important;
+}
 
 button:not([data-slot]):focus-visible,
 input:not([data-slot]):focus-visible,
@@ -395,13 +478,7 @@ button:disabled { cursor: not-allowed; }
 .tessera-conversation > div {
   min-height: 0;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklab, var(--foreground) 24%, transparent) transparent;
 }
-.tessera-conversation > div::-webkit-scrollbar { width: 8px; }
-.tessera-conversation > div::-webkit-scrollbar-track { background: transparent; }
-.tessera-conversation > div::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: color-mix(in oklab, var(--foreground) 22%, transparent); background-clip: padding-box; }
-.tessera-conversation > div::-webkit-scrollbar-thumb:hover { background: color-mix(in oklab, var(--foreground) 38%, transparent); background-clip: padding-box; }
 
 .tessera-conversation-content {
   /* Keep the conversation and composer on one readable axis. A wide canvas
@@ -651,7 +728,7 @@ body { color: var(--tessera-ink); }
 .studio-beui-sidebar [data-slot="sidebar-menu-button"] [data-slot="sidebar-menu-button"] { color: var(--tessera-ink-soft); }
 .studio-session-group { min-height: 0; }
 .studio-session-group [data-slot="sidebar-group-content"] { min-height: 0; }
-.studio-session-group .studio-session-list { min-height: 0; overflow: auto; }
+.studio-session-group .studio-session-list { min-height: 0; overflow: auto; scrollbar-gutter: stable; }
 .studio-session-group .aui_thread-list-root { gap: 5px; }
 .studio-session-group [data-slot="aui_thread-list-new"] { border-color: var(--tessera-line); background: var(--tessera-glass-light); color: var(--tessera-ink); }
 .studio-session-group [data-slot="aui_thread-list-new"]:hover { background: color-mix(in oklab, var(--tessera-blue-500) 18%, transparent); }
@@ -826,8 +903,12 @@ body { color: var(--tessera-ink); }
   position: absolute;
   z-index: 20;
   top: 12px;
+  left: 18px;
   right: 24px;
-  display: block;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   width: auto;
   min-height: 0;
   margin: 0;
@@ -837,29 +918,21 @@ body { color: var(--tessera-ink); }
 }
 
 .studio-minimal-leading,
-.studio-minimal-actions,
-.studio-minimal-brand {
+.studio-minimal-actions {
   display: flex;
   min-width: 0;
   align-items: center;
 }
 
 .studio-minimal-leading { gap: 10px; }
-.studio-minimal-brand { gap: 9px; color: inherit; font-size: 14px; text-decoration: none; }
-.studio-minimal-brand strong { font-weight: 650; }
-.studio-minimal-logo { display: block; width: 28px; height: 28px; object-fit: contain; }
-.studio-minimal-separator { color: color-mix(in oklab, var(--muted-foreground) 60%, transparent); font-size: 18px; }
-.studio-minimal-workspace { color: var(--muted-foreground); font-size: 14px; }
 .studio-minimal-actions {
   flex: none;
   gap: 3px;
   padding: 4px;
-  border: 1px solid color-mix(in oklab, var(--border) 86%, transparent);
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: color-mix(in oklab, var(--background) 84%, transparent);
-  box-shadow: 0 6px 18px color-mix(in oklab, var(--foreground) 5%, transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  background: var(--background);
+  box-shadow: none;
   pointer-events: auto;
 }
 
@@ -901,7 +974,7 @@ body { color: var(--tessera-ink); }
 }
 
 .studio-history-menu { overflow: hidden; border-radius: inherit; }
-.studio-history-items { display: grid; gap: 1px; max-height: min(48dvh, 304px); padding: 6px; overflow: auto; }
+.studio-history-items { display: grid; gap: 1px; max-height: min(48dvh, 304px); padding: 6px; overflow: auto; scrollbar-gutter: stable; }
 .studio-history-item { position: relative; min-width: 0; border-radius: 8px; }
 .studio-history-item:hover,
 .studio-history-item:focus-within { background: var(--accent); }
@@ -1053,11 +1126,7 @@ body { color: var(--tessera-ink); }
 .tessera-conversation-scroll { bottom: 14px !important; }
 
 @media (max-width: 640px) {
-  .studio-minimal-header { top: 10px; right: 12px; }
-  .studio-minimal-logo { width: 26px; height: 26px; }
-  .studio-minimal-brand strong,
-  .studio-minimal-separator,
-  .studio-minimal-workspace { display: none; }
+  .studio-minimal-header { top: 10px; left: 12px; right: 12px; }
   .studio-minimal-actions { gap: 2px; padding: 3px; border-radius: 10px; }
   .studio-history-trigger { width: 36px; padding: 0 !important; }
   .studio-history-trigger span,

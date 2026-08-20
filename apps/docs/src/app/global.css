@@ -94,6 +94,12 @@
   --color-fd-accent: var(--accent);
   --color-fd-accent-foreground: var(--accent-foreground);
   --color-fd-ring: var(--ring);
+  --ui-scrollbar-size: 10px;
+  --ui-scrollbar-track: transparent;
+  --ui-scrollbar-thumb: color-mix(in oklab, var(--foreground) 30%, transparent);
+  --ui-scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 44%, transparent);
+  --ui-scrollbar-thumb-active: color-mix(in oklab, var(--foreground) 58%, transparent);
+  --ui-scrollbar-thumb-border: color-mix(in oklab, var(--background) 88%, transparent);
 }
 
 .dark {
@@ -133,6 +139,74 @@
 html { color-scheme: light; scrollbar-gutter: stable; }
 html.dark { color-scheme: dark; }
 html > body[data-scroll-locked] { margin-right: 0 !important; --removed-body-scroll-bar-size: 0 !important; }
+
+* {
+  scrollbar-color: var(--ui-scrollbar-thumb) var(--ui-scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: var(--ui-scrollbar-size);
+  height: var(--ui-scrollbar-size);
+}
+
+*::-webkit-scrollbar-track {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-track);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb {
+  min-height: 42px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-thumb);
+  background-clip: padding-box;
+  transition: background-color 140ms ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--ui-scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:active {
+  background: var(--ui-scrollbar-thumb-active);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner { background: transparent; }
+*::-webkit-scrollbar-button { width: 0; height: 0; }
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar { display: none; }
+
+[data-slot="scroll-area-scrollbar"] {
+  border-color: transparent !important;
+  border-radius: 999px;
+  background: var(--ui-scrollbar-track) !important;
+  padding: 2px;
+}
+
+[data-slot="scroll-area-thumb"] {
+  border: 1px solid var(--ui-scrollbar-thumb-border);
+  border-radius: 999px;
+  background: var(--ui-scrollbar-thumb) !important;
+  transition: background-color 140ms ease;
+}
+
+[data-slot="scroll-area-thumb"]:hover {
+  background: var(--ui-scrollbar-thumb-hover) !important;
+}
+
+[data-slot="scroll-area-thumb"]:active {
+  background: var(--ui-scrollbar-thumb-active) !important;
+}
 
 @layer base {
   * { border-color: var(--border); }

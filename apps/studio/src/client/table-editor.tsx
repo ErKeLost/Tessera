@@ -1,6 +1,6 @@
 import {
-  CircleAlertIcon,
   CheckIcon,
+  CircleAlertIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -17,14 +17,12 @@ import {
   RefreshCwIcon,
   SearchIcon,
   ShieldCheckIcon,
-  ShieldAlertIcon,
   Table2Icon,
   Trash2Icon,
-  UserRoundIcon,
   ArrowUpDownIcon,
   XIcon,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   approveStudioDatabaseAction,
   fetchStudioDatabaseActionCapabilities,
@@ -57,7 +55,16 @@ import {
   DropdownMenuTrigger,
 } from "./components/ui/dropdown-menu";
 import { Input } from "./components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "./components/ui/select";
 import { Skeleton } from "./components/ui/skeleton";
+import { Switch } from "./components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import "./table-editor.css";
 import { cx } from "./utils";
@@ -74,7 +81,9 @@ type Connection = {
 };
 
 type CatalogColumn = {
+  comment?: string;
   dataType: string;
+  defaultValue?: string;
   name: string;
   nullable: boolean;
   ordinal?: number;
@@ -127,10 +136,14 @@ type DatabaseActionEnvelope = Pick<
 
 type TablePreview = {
   columns: CatalogColumn[];
+  definition?: string;
   durationMs: number;
+  page?: number;
+  pageSize?: number;
   rowCount: number;
   rows: Array<Record<string, PreviewValue>>;
   table: CatalogTable;
+  totalRowCount?: number;
   truncated: boolean;
 };
 
@@ -153,14 +166,20 @@ type SortDirection = "asc" | "desc";
 type TableSort = Readonly<{ column: string; direction: SortDirection }>;
 type TableFilterOperator = "contains" | "equals" | "not_equals" | "gt" | "gte" | "lt" | "lte" | "is_null" | "is_not_null";
 type TableFilter = Readonly<{ column: string; operator: TableFilterOperator; value: string }>;
-type PolicyCommand = "ALL" | "SELECT" | "INSERT" | "UPDATE" | "DELETE";
-type PolicyDraft = Readonly<{
-  check: string;
-  command: PolicyCommand;
-  name: string;
-  role: string;
-  using: string;
-}>;
+type TableCellPosition = Readonly<{ columnIndex: number; rowIndex: number }>;
+type TableCellSelection = Readonly<{ anchor: TableCellPosition; focus: TableCellPosition }>;
+
+function isCellSelected(position: TableCellPosition, selection: TableCellSelection | undefined): boolean {
+  if (!selection) return false;
+  const minRow = Math.min(selection.anchor.rowIndex, selection.focus.rowIndex);
+  const maxRow = Math.max(selection.anchor.rowIndex, selection.focus.rowIndex);
+  const minColumn = Math.min(selection.anchor.columnIndex, selection.focus.columnIndex);
+  const maxColumn = Math.max(selection.anchor.columnIndex, selection.focus.columnIndex);
+  return position.rowIndex >= minRow
+    && position.rowIndex <= maxRow
+    && position.columnIndex >= minColumn
+    && position.columnIndex <= maxColumn;
+}
 
 type PendingApproval = Readonly<{
   action: StudioDatabaseAction;
@@ -192,7 +211,7 @@ type TableEditorProps = {
   refreshingCatalog: boolean;
 };
 
-const PAGE_SIZE = 25;
+const PAGE_SIZE = 100;
 const TABLE_EDITOR_STORAGE_VERSION = 1;
 
 type PersistedTableEditorState = {
@@ -224,9 +243,9 @@ export function TableEditor({
   const [rowFilter, setRowFilter] = useState("");
   const [tableFilters, setTableFilters] = useState<TableFilter[]>([]);
   const [tableSort, setTableSort] = useState<TableSort>();
-  const [filterDialogOpen, setFilterDialogOpen] = useState(false);
-  const [policyDialogOpen, setPolicyDialogOpen] = useState(false);
-  const [activeRole, setActiveRole] = useState("postgres");
+  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
+  const [filterColumn, setFilterColumn] = useState<string>();
+  const [permissionsPopoverOpen, setPermissionsPopoverOpen] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState<string>();
   const [selectedTableKey, setSelectedTableKey] = useState<string>();
   const [openTableKeys, setOpenTableKeys] = useState<string[]>([]);
@@ -234,6 +253,8 @@ export function TableEditor({
   const [view, setView] = useState<"data" | "definition">("data");
   const [page, setPage] = useState(1);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
+  const [cellSelection, setCellSelection] = useState<TableCellSelection>();
+  const previewRequestIds = useRef<Record<string, number>>({});
   const [copiedColumn, setCopiedColumn] = useState<string>();
   const [writeCapabilities, setWriteCapabilities] = useState<WriteCapabilityState>({ status: "loading" });
   const [mutationDialog, setMutationDialog] = useState<MutationDialogState>();
@@ -277,14 +298,15 @@ export function TableEditor({
     setRowFilter("");
     setTableFilters([]);
     setTableSort(undefined);
-    setFilterDialogOpen(false);
-    setPolicyDialogOpen(false);
+    setFilterPopoverOpen(false);
+    setPermissionsPopoverOpen(false);
     setSelectedSchema(restored?.selectedSchema);
     setSelectedTableKey(restored?.selectedTableKey);
     setOpenTableKeys(restored?.openTableKeys ?? []);
     setView(restored?.view ?? "data");
     setPage(restored?.page ?? 1);
     setSelectedRows(new Set());
+    setCellSelection(undefined);
     setCopiedColumn(undefined);
     setPreviews({});
     setRestoredStorageKey(storageKey);
@@ -346,7 +368,7 @@ export function TableEditor({
     onAgentPageContextChange?.(catalogFingerprint
       ? {
         catalogFingerprint,
-        filterActive: Boolean(rowFilter.trim()),
+        filterActive: Boolean(rowFilter.trim()) || tableFilters.length > 0,
         schema: selectedTable?.schema ?? selectedSchema,
         table: selectedTable?.name,
         view,
@@ -359,34 +381,51 @@ export function TableEditor({
     selectedSchema,
     selectedTable?.name,
     selectedTable?.schema,
+    tableFilters.length,
     view,
   ]);
 
-  const loadPreview = useCallback(async (table: CatalogTable, force = false) => {
+  const loadPreview = useCallback(async (table: CatalogTable, _force = false) => {
     const key = tableKey(table);
-    const current = previews[key];
-    if (!force && (current?.status === "ready" || current?.status === "loading" || current?.status === "error")) return;
-
+    const requestId = (previewRequestIds.current[key] ?? 0) + 1;
+    previewRequestIds.current[key] = requestId;
     setPreviews((values) => ({ ...values, [key]: { status: "loading" } }));
     try {
-      const response = await fetch(`/api/data/${encodeURIComponent(table.schema)}/${encodeURIComponent(table.name)}`);
+      const hasTableQuery = Boolean(rowFilter.trim()) || tableFilters.length > 0 || tableSort !== undefined || page !== 1;
+      const params = hasTableQuery
+        ? new URLSearchParams({
+          filters: JSON.stringify(tableFilters),
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+          q: rowFilter,
+          ...(tableSort ? { direction: tableSort.direction, sort: tableSort.column } : {}),
+        })
+        : undefined;
+      const relationPath = `/api/data/${encodeURIComponent(table.schema)}/${encodeURIComponent(table.name)}`;
+      const response = await fetch(params ? `${relationPath}?${params.toString()}` : relationPath);
       const body = await response.json().catch(() => undefined) as { error?: { message?: string } } | TablePreview | undefined;
       if (!response.ok) {
         const message = body && typeof body === "object" && "error" in body ? body.error?.message : undefined;
         throw new Error(message || "Tessera could not load this table preview.");
       }
+      if (previewRequestIds.current[key] !== requestId) return;
       setPreviews((values) => ({ ...values, [key]: { data: body as TablePreview, status: "ready" } }));
     } catch (error) {
+      if (previewRequestIds.current[key] !== requestId) return;
       setPreviews((values) => ({
         ...values,
         [key]: { error: publicError(error), status: "error" },
       }));
     }
-  }, [previews]);
+  }, [page, rowFilter, tableFilters, tableSort]);
 
   useEffect(() => {
     if (selectedTable) void loadPreview(selectedTable);
   }, [loadPreview, selectedTable]);
+
+  useEffect(() => {
+    setCellSelection(undefined);
+  }, [page, rowFilter, selectedTableKey, tableFilters, tableSort]);
 
   const selectTable = useCallback((table: CatalogTable) => {
     const key = tableKey(table);
@@ -398,6 +437,7 @@ export function TableEditor({
     setTableSort(undefined);
     setPage(1);
     setSelectedRows(new Set());
+    setCellSelection(undefined);
   }, []);
 
   const selectSchema = useCallback((schemaName: string) => {
@@ -412,6 +452,7 @@ export function TableEditor({
     setRowFilter("");
     setPage(1);
     setSelectedRows(new Set());
+    setCellSelection(undefined);
   }, [catalog?.schemas, selectTable]);
 
   const closeTable = useCallback((key: string) => {
@@ -439,29 +480,23 @@ export function TableEditor({
   const columns = preview?.columns ?? selectedTable?.columns ?? [];
   const filteredRows = useMemo<PreviewRow[]>(() => {
     const rows = preview?.rows ?? [];
-    const normalized = rowFilter.trim().toLocaleLowerCase("en-US");
-    const matchingRows = rows.flatMap((row, sourceIndex) => {
-      if (normalized && !columns.some((column) => displayValue(row[column.name]).toLocaleLowerCase("en-US").includes(normalized))) {
-        return [];
-      }
-      if (tableFilters.some((filter) => !matchesTableFilter(row[filter.column], filter))) return [];
-      return [{ row, sourceIndex }];
-    });
-    if (!tableSort) return matchingRows;
-    return matchingRows.toSorted((left, right) => {
-      const comparison = comparePreviewValues(left.row[tableSort.column], right.row[tableSort.column]);
-      return tableSort.direction === "asc" ? comparison : comparison * -1;
-    });
-  }, [columns, preview?.rows, rowFilter, tableFilters, tableSort]);
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+    return rows.map((row, sourceIndex) => ({ row, sourceIndex }));
+  }, [preview?.rows]);
+  const totalRowCount = preview?.totalRowCount ?? preview?.rowCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalRowCount / PAGE_SIZE));
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
-  const visibleRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const visibleRows = filteredRows;
   const selectedTableDisplayName = selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "Table Editor";
   const hasQueryControls = Boolean(rowFilter.trim()) || tableFilters.length > 0 || tableSort !== undefined;
   const selectionIncludesPage = selectedTable !== undefined
     && visibleRows.length > 0
     && visibleRows.every(({ row, sourceIndex }) => selectedRows.has(stableRowKey(selectedTable, row, sourceIndex)));
+  const selectionIncludesSomePageRows = selectedTable !== undefined
+    && visibleRows.some(({ row, sourceIndex }) => selectedRows.has(stableRowKey(selectedTable, row, sourceIndex)));
   const selectedMutationRows = useMemo(
     () => selectedTable === undefined
       ? []
@@ -507,28 +542,23 @@ export function TableEditor({
           : writeCapability?.requiresApproval
             ? "Every database change is reviewed through the active permission policy."
             : "Database writes are available through the active permission policy.";
+  const showMutationStatus = pendingApproval !== undefined || mutationFeedback !== undefined;
 
   const copySelectedColumn = useCallback(async (columnName: string) => {
     if (!selectedTable) return;
     const values = visibleRows
       .filter(({ row, sourceIndex }) => selectedRows.has(stableRowKey(selectedTable, row, sourceIndex)))
       .map(({ row }) => displayValue(row[columnName]));
-    if (!values.length || typeof navigator === "undefined" || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(values.join("\n"));
-      setCopiedColumn(columnName);
-      window.setTimeout(() => setCopiedColumn((current) => current === columnName ? undefined : current), 1800);
-    } catch {
-      // Clipboard access can be denied by the browser; the grid remains usable.
-    }
+    if (!values.length || !await writeTextToClipboard(values.join("\n"))) return;
+    setCopiedColumn(columnName);
+    window.setTimeout(() => setCopiedColumn((current) => current === columnName ? undefined : current), 1800);
   }, [selectedRows, selectedTable, visibleRows]);
 
   const copyTableReference = useCallback(async () => {
-    if (!selectedTable || typeof navigator === "undefined" || !navigator.clipboard) return;
-    try {
-      await navigator.clipboard.writeText(`${selectedTable.schema}.${selectedTable.name}`);
+    if (!selectedTable) return;
+    if (await writeTextToClipboard(`${selectedTable.schema}.${selectedTable.name}`)) {
       setMutationFeedback({ message: `Copied ${selectedTable.schema}.${selectedTable.name}.`, tone: "success" });
-    } catch {
+    } else {
       setMutationFeedback({ message: "Clipboard access was denied by the browser.", tone: "error" });
     }
   }, [selectedTable]);
@@ -550,6 +580,7 @@ export function TableEditor({
     setMutationDialog(undefined);
     setPendingApproval(undefined);
     setSelectedRows(new Set());
+    setCellSelection(undefined);
     const affectedRows = effect.result?.affectedRows;
     setMutationFeedback({
       message: affectedRows === undefined
@@ -783,7 +814,7 @@ export function TableEditor({
         </footer>
       </aside>
 
-      <section className="table-editor-main">
+      <section className={cx("table-editor-main", showMutationStatus && "has-mutation-status")}>
         <nav aria-label="Open tables" className="table-editor-tabs">
           {openTableKeys.map((key) => {
             const table = allTables.find((candidate) => tableKey(candidate) === key);
@@ -822,100 +853,51 @@ export function TableEditor({
                 setRowFilter(event.currentTarget.value);
                 setPage(1);
                 setSelectedRows(new Set());
+                setCellSelection(undefined);
               }}
               placeholder="Filter rows..."
               value={rowFilter}
             />
           </label>
           <div className="table-editor-toolbar-actions">
-            <Button
-              aria-label="Add table filters"
-              className={cx("table-editor-query-button", tableFilters.length > 0 && "is-active")}
-              disabled={!selectedTable}
-              onClick={() => setFilterDialogOpen(true)}
-              size="sm"
-              title={tableFilters.length ? `${tableFilters.length} filters applied` : "Filter rows"}
-              type="button"
-              variant="outline"
-            >
-              <FilterIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-              <span>Filter{tableFilters.length ? ` ${tableFilters.length}` : ""}</span>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  aria-label="Sort table rows"
-                  className={cx("table-editor-query-button", tableSort && "is-active")}
-                  disabled={!selectedTable}
-                  size="sm"
-                  title={tableSort ? `Sorted by ${tableSort.column} ${tableSort.direction}` : "Sort rows"}
-                  type="button"
-                  variant="outline"
-                >
-                  <ArrowUpDownIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-                  <span>{tableSort ? `Sort: ${tableSort.column}` : "Sort"}</span>
-                  <ChevronDownIcon aria-hidden="true" size={12} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
-                <DropdownMenuLabel>Sort rows</DropdownMenuLabel>
-                <DropdownMenuItem disabled={!tableSort} onSelect={() => setTableSort(undefined)}>
-                  <XIcon aria-hidden="true" size={14} />
-                  Clear sort
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                {(columns ?? []).map((column) => {
-                  const active = tableSort?.column === column.name;
-                  const direction = active ? tableSort.direction : "asc";
-                  return (
-                    <DropdownMenuItem
-                      key={column.name}
-                      onSelect={() => {
-                        setTableSort({ column: column.name, direction: active && direction === "asc" ? "desc" : "asc" });
-                        setPage(1);
-                        setSelectedRows(new Set());
-                      }}
-                    >
-                      {active ? (direction === "asc" ? <ChevronDownIcon aria-hidden="true" size={14} /> : <ChevronDownIcon aria-hidden="true" size={14} className="table-editor-sort-desc" />) : <span className="table-editor-menu-icon-spacer" />}
-                      <span>{column.name}</span>
-                      {active ? <span className="table-editor-menu-meta">{direction === "asc" ? "A-Z" : "Z-A"}</span> : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button
-              aria-label="Add RLS policy"
-              className="table-editor-query-button table-editor-policy-button"
-              disabled={!selectedTable || connection?.dialect !== "postgres"}
-              onClick={() => setPolicyDialogOpen(true)}
-              size="sm"
-              title={connection?.dialect === "postgres" ? "Create an RLS policy" : "RLS policies are only available for PostgreSQL"}
-              type="button"
-              variant="outline"
-            >
-              <ShieldAlertIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-              <span>Add RLS policy</span>
-            </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button aria-label="Choose database role" className="table-editor-role-button" size="sm" title="Run as role" type="button" variant="outline">
-                  <UserRoundIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-                  <span>{activeRole}</span>
-                  <ChevronDownIcon aria-hidden="true" size={12} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
-                <DropdownMenuLabel>Run as role</DropdownMenuLabel>
-                <DropdownMenuRadioGroup onValueChange={setActiveRole} value={activeRole}>
-                  {["postgres", "authenticated", "anon", "service_role"].map((role) => (
-                    <DropdownMenuRadioItem key={role} value={role}>{role}</DropdownMenuRadioItem>
-                  ))}
-                </DropdownMenuRadioGroup>
-                <DropdownMenuSeparator />
-                <p className="table-editor-menu-note">Role context is shown in the editor. Database writes remain governed by Tessera permissions.</p>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <TableFilterPopover
+              filters={tableFilters}
+              initialColumn={filterColumn}
+              onApply={(nextFilters) => {
+                setTableFilters(nextFilters);
+                setPage(1);
+                setSelectedRows(new Set());
+                setCellSelection(undefined);
+              }}
+              onOpenChange={(open) => {
+                setFilterPopoverOpen(open);
+                if (!open) setFilterColumn(undefined);
+              }}
+              open={filterPopoverOpen}
+              table={selectedTable}
+            />
+            <TableSortPopover
+              onApply={(nextSort) => {
+                setTableSort(nextSort);
+                setPage(1);
+                setSelectedRows(new Set());
+                setCellSelection(undefined);
+              }}
+              sort={tableSort}
+              table={selectedTable}
+            />
+            <TablePermissionsPopover
+              connection={connection}
+              onOpenChange={setPermissionsPopoverOpen}
+              open={permissionsPopoverOpen}
+              requiresApproval={writeCapability?.requiresApproval === true}
+              table={selectedTable}
+              tableCanMutate={tableCanMutate}
+              tableHasPrimaryKey={tableHasPrimaryKey}
+              writeServiceAvailable={writeServiceAvailable}
+              writeStateDescription={writeStateDescription}
+              writeStateLabel={writeStateLabel}
+            />
             <span aria-label={writeStateDescription} className="table-editor-write-state" title={writeStateDescription}>
               {writeCapabilities.status === "loading" ? <LoaderCircleIcon aria-hidden="true" className="spin" size={14} /> : <ShieldCheckIcon aria-hidden="true" size={14} strokeWidth={1.8} />}
               <span>{writeStateLabel}</span>
@@ -970,6 +952,19 @@ export function TableEditor({
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={6}>
                 <DropdownMenuLabel>{selectedTableDisplayName}</DropdownMenuLabel>
+                <DropdownMenuItem disabled={!selectedTable} onSelect={() => setPermissionsPopoverOpen(true)}>
+                  <ShieldCheckIcon aria-hidden="true" size={14} />
+                  Database permissions
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!canInsert || !selectedTable} onSelect={() => selectedTable && setMutationDialog({ kind: "insert", table: selectedTable })}>
+                  <PlusIcon aria-hidden="true" size={14} />
+                  Add row
+                </DropdownMenuItem>
+                <DropdownMenuItem className="table-editor-delete-menu-item" disabled={!canDelete} onSelect={openDeleteDialog}>
+                  <Trash2Icon aria-hidden="true" size={14} />
+                  Delete selected rows{selectedMutationRows.length ? ` (${selectedMutationRows.length})` : ""}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={!selectedTable} onSelect={() => void copyTableReference()}>
                   <CopyIcon aria-hidden="true" size={14} />
                   Copy table reference
@@ -983,7 +978,7 @@ export function TableEditor({
                   Refresh preview
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={!hasQueryControls} onSelect={() => { setRowFilter(""); setTableFilters([]); setTableSort(undefined); setPage(1); setSelectedRows(new Set()); }}>
+                <DropdownMenuItem disabled={!hasQueryControls} onSelect={() => { setRowFilter(""); setTableFilters([]); setTableSort(undefined); setPage(1); setSelectedRows(new Set()); setCellSelection(undefined); }}>
                   <XIcon aria-hidden="true" size={14} />
                   Clear filters and sort
                 </DropdownMenuItem>
@@ -1006,32 +1001,51 @@ export function TableEditor({
 
         <div className="table-editor-content">
           {!selectedTable ? <TableEditorEmpty title="No table selected" text="Choose a table from the current database catalog." /> : null}
-          {selectedTable && selectedPreview?.status === "loading" ? <TableGridLoading columns={Math.max(columns.length, 4)} /> : null}
+          {selectedTable && selectedPreview?.status === "loading" ? <TableGridLoading columns={columns} showRowActions={Boolean(selectedTable.primaryKey?.length)} /> : null}
           {selectedTable && selectedPreview?.status === "error" ? <TableEditorEmpty title="Preview unavailable" text={selectedPreview.error} /> : null}
-          {selectedTable && (selectedPreview?.status === "idle" || selectedPreview === undefined) ? <TableGridLoading columns={Math.max(columns.length, 4)} /> : null}
+          {selectedTable && (selectedPreview?.status === "idle" || selectedPreview === undefined) ? <TableGridLoading columns={columns} showRowActions={Boolean(selectedTable.primaryKey?.length)} /> : null}
           {selectedTable && preview && view === "data" ? (
             <TableDataGrid
               columns={columns}
               pageStart={pageStart}
               rows={visibleRows}
+              cellSelection={cellSelection}
               selectedRows={selectedRows}
               table={selectedTable}
+              activeFilters={tableFilters}
+              activeSort={tableSort}
               togglePageSelection={togglePageSelection}
               toggleRow={(key) => setSelectedRows((current) => toggleSelectionKey(current, key))}
               allPageRowsSelected={selectionIncludesPage}
+              somePageRowsSelected={selectionIncludesSomePageRows}
+              onCellSelectionChange={setCellSelection}
               copiedColumn={copiedColumn}
               canUpdate={canUpdate}
               onCopyColumn={copySelectedColumn}
+              onFilterColumn={(column) => {
+                setFilterColumn(column);
+                setFilterPopoverOpen(true);
+              }}
+              onSortColumn={(column, direction) => {
+                setTableSort({ column, direction });
+                setPage(1);
+                setSelectedRows(new Set());
+                setCellSelection(undefined);
+              }}
               onEditRow={(row) => selectedTable && setMutationDialog({ kind: "update", row, table: selectedTable })}
               />
           ) : null}
-          {selectedTable && preview && view === "definition" ? <TableDefinition table={preview.table} /> : null}
+          {selectedTable && preview && view === "definition" ? <TableDefinition definition={preview.definition} table={preview.table} /> : null}
         </div>
 
         <footer className="table-editor-footer">
           <div className="table-editor-pagination">
             <span className="table-editor-page-summary">
-              {preview ? `${pageStart + 1}-${Math.min(pageStart + PAGE_SIZE, filteredRows.length)} of ${preview.rowCount}${preview.truncated ? "+" : ""} rows` : "Loading rows"}
+              {preview
+                ? totalRowCount === 0
+                  ? "0 rows"
+                  : `${pageStart + 1}-${Math.min(pageStart + PAGE_SIZE, totalRowCount)} of ${totalRowCount}${preview.truncated ? "+" : ""} rows`
+                : "Loading rows"}
             </span>
             <TooltipIconButton aria-label="Previous page" className="table-editor-pagination-button" disabled={safePage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} tooltip="Previous page" type="button"><ChevronLeftIcon aria-hidden="true" size={15} /></TooltipIconButton>
             <span>Page {safePage}</span>
@@ -1056,80 +1070,130 @@ export function TableEditor({
           onInsert={submitInsert}
           onUpdate={submitUpdate}
         />
-        <TableFilterDialog
-          filters={tableFilters}
-          onApply={(nextFilters) => {
-            setTableFilters(nextFilters);
-            setFilterDialogOpen(false);
-            setPage(1);
-            setSelectedRows(new Set());
-          }}
-          onClose={() => setFilterDialogOpen(false)}
-          open={filterDialogOpen}
-          table={selectedTable}
-        />
-        <RlsPolicyDialog onClose={() => setPolicyDialogOpen(false)} open={policyDialogOpen} table={selectedTable} />
       </section>
     </section>
   );
 }
 
 function TableDataGrid({
+  activeFilters,
+  activeSort,
   allPageRowsSelected,
+  cellSelection,
   canUpdate,
   copiedColumn,
   columns,
+  onCellSelectionChange,
   onCopyColumn,
+  onFilterColumn,
+  onSortColumn,
   onEditRow,
   pageStart,
   rows,
   selectedRows,
+  somePageRowsSelected,
   table,
   togglePageSelection,
   toggleRow,
 }: {
+  activeFilters: TableFilter[];
+  activeSort: TableSort | undefined;
   allPageRowsSelected: boolean;
+  cellSelection: TableCellSelection | undefined;
   canUpdate: boolean;
   copiedColumn?: string;
   columns: CatalogColumn[];
+  onCellSelectionChange: (selection: TableCellSelection) => void;
   pageStart: number;
   rows: PreviewRow[];
   selectedRows: Set<string>;
+  somePageRowsSelected: boolean;
   table: CatalogTable;
   togglePageSelection: () => void;
   toggleRow: (key: string) => void;
   onCopyColumn: (columnName: string) => void;
+  onFilterColumn: (columnName: string) => void;
+  onSortColumn: (columnName: string, direction: SortDirection) => void;
   onEditRow: (row: Record<string, PreviewValue>) => void;
 }) {
   const showRowActions = Boolean(table.primaryKey?.length);
+  const gridRef = useRef<HTMLTableElement>(null);
+  const draggingSelection = useRef(false);
+
+  const copySelectedCells = useCallback(async () => {
+    if (!cellSelection) return;
+    const copiedText = selectedCellsToTsv(columns, rows, cellSelection);
+    if (!copiedText) return;
+    await writeTextToClipboard(copiedText);
+  }, [cellSelection, columns, rows]);
+
+  const selectCell = (position: TableCellPosition, extendSelection: boolean) => {
+    onCellSelectionChange(
+      extendSelection && cellSelection
+        ? { anchor: cellSelection.anchor, focus: position }
+        : { anchor: position, focus: position },
+    );
+  };
+
+  const focusCell = (position: TableCellPosition) => {
+    window.requestAnimationFrame(() => {
+      gridRef.current
+        ?.querySelector<HTMLTableCellElement>(`[data-cell-position="${position.rowIndex}:${position.columnIndex}"]`)
+        ?.focus();
+    });
+  };
+
+  const moveCellFocus = (event: ReactKeyboardEvent<HTMLTableCellElement>, position: TableCellPosition) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLocaleLowerCase("en-US") === "c") {
+      event.preventDefault();
+      void copySelectedCells();
+      return;
+    }
+    const nextPosition = {
+      ArrowDown: { columnIndex: position.columnIndex, rowIndex: Math.min(rows.length - 1, position.rowIndex + 1) },
+      ArrowLeft: { columnIndex: Math.max(0, position.columnIndex - 1), rowIndex: position.rowIndex },
+      ArrowRight: { columnIndex: Math.min(columns.length - 1, position.columnIndex + 1), rowIndex: position.rowIndex },
+      ArrowUp: { columnIndex: position.columnIndex, rowIndex: Math.max(0, position.rowIndex - 1) },
+    }[event.key];
+    if (!nextPosition) return;
+    event.preventDefault();
+    selectCell(nextPosition, event.shiftKey);
+    focusCell(nextPosition);
+  };
 
   return (
     <div className="table-editor-grid-scroll">
-      <table className="table-editor-grid">
+      <table aria-label={`${table.schema}.${table.name} data`} className="table-editor-grid" ref={gridRef} role="grid">
         <colgroup>
           <col className="table-editor-selection-column" />
           {columns.map((column) => <col className="table-editor-data-column" key={column.name} />)}
           {showRowActions ? <col className="table-editor-row-action-column" /> : null}
         </colgroup>
         <thead>
-          <tr>
-            <th className="table-editor-selection-cell">
+          <tr role="row">
+            <th className="table-editor-selection-cell" role="columnheader">
               <Checkbox
                 aria-label="Select visible rows"
-                checked={allPageRowsSelected}
+                checked={allPageRowsSelected ? true : somePageRowsSelected ? "indeterminate" : false}
                 onCheckedChange={togglePageSelection}
               />
             </th>
             {columns.map((column) => {
               const primaryKey = table.primaryKey?.includes(column.name) ?? false;
+              const columnHasFilter = activeFilters.some((filter) => filter.column === column.name);
+              const columnSort = activeSort?.column === column.name ? activeSort.direction : undefined;
               return (
-                <th key={column.name}>
+                <th className={cx((columnHasFilter || columnSort) && "is-query-active")} key={column.name} role="columnheader">
                   <div className="table-editor-column-header">
                     <span className="table-editor-column-name">
                       {primaryKey ? <KeyRoundIcon aria-hidden="true" size={12} strokeWidth={1.8} /> : null}
                       <span>{column.name}</span>
                     </span>
-                    <span className="table-editor-column-type">{compactDataType(column.dataType)}</span>
+                    <span className="table-editor-column-type">
+                      {compactDataType(column.dataType)}
+                      {columnSort ? <span className="table-editor-column-sort-state" title={`Sorted ${columnSort === "asc" ? "ascending" : "descending"}`}>{columnSort === "asc" ? "ASC" : "DESC"}</span> : null}
+                      {columnHasFilter ? <FilterIcon aria-label="Filtered column" className="table-editor-column-filter-state" size={11} strokeWidth={2} /> : null}
+                    </span>
                     <TooltipIconButton
                       aria-label={`Copy selected values from ${column.name}`}
                       className="table-editor-column-copy"
@@ -1140,12 +1204,33 @@ function TableDataGrid({
                     >
                       {copiedColumn === column.name ? <CheckIcon aria-hidden="true" size={12} /> : <CopyIcon aria-hidden="true" size={12} />}
                     </TooltipIconButton>
-                    <ChevronDownIcon aria-hidden="true" className="table-editor-column-menu" size={13} />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button aria-label={`Column actions for ${column.name}`} className="table-editor-column-menu-button" size="icon-xs" type="button" variant="ghost">
+                          <ChevronDownIcon aria-hidden="true" size={13} />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="table-editor-action-menu" sideOffset={4}>
+                        <DropdownMenuLabel>{column.name}{columnSort ? ` · ${columnSort === "asc" ? "ascending" : "descending"}` : ""}</DropdownMenuLabel>
+                        <DropdownMenuItem onSelect={() => onSortColumn(column.name, "asc")}>
+                          <ArrowUpDownIcon aria-hidden="true" size={14} /> Sort ascending
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => onSortColumn(column.name, "desc")}>
+                          <ArrowUpDownIcon aria-hidden="true" className="table-editor-sort-desc" size={14} /> Sort descending
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => onFilterColumn(column.name)}>
+                          <FilterIcon aria-hidden="true" size={14} /> Filter by this column
+                        </DropdownMenuItem>
+                        <DropdownMenuItem disabled={!rows.some(({ row, sourceIndex }) => selectedRows.has(stableRowKey(table, row, sourceIndex)))} onSelect={() => onCopyColumn(column.name)}>
+                          <CopyIcon aria-hidden="true" size={14} /> Copy selected values
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
                 </th>
               );
             })}
-            {showRowActions ? <th aria-label="Row actions" className="table-editor-row-action-header" /> : null}
+            {showRowActions ? <th aria-label="Row actions" className="table-editor-row-action-header" role="columnheader" /> : null}
           </tr>
         </thead>
         <tbody>
@@ -1153,25 +1238,52 @@ function TableDataGrid({
             const selectionKey = stableRowKey(table, row, sourceIndex);
             const rowNumber = pageStart + rowIndex + 1;
             return (
-              <tr className={selectedRows.has(selectionKey) ? "is-selected" : undefined} key={selectionKey}>
-                <td className="table-editor-selection-cell">
+              <tr aria-selected={selectedRows.has(selectionKey)} className={selectedRows.has(selectionKey) ? "is-selected" : undefined} key={selectionKey} role="row">
+                <td className="table-editor-selection-cell" role="gridcell">
                   <Checkbox
                     aria-label={`Select row ${rowNumber}`}
                     checked={selectedRows.has(selectionKey)}
                     onCheckedChange={() => toggleRow(selectionKey)}
                   />
                 </td>
-                {columns.map((column) => {
+                {columns.map((column, columnIndex) => {
                   const value = row[column.name];
                   const formatted = displayValue(value);
+                  const position = { columnIndex, rowIndex };
+                  const cellSelected = isCellSelected(position, cellSelection);
+                  const cellFocused = cellSelection !== undefined
+                    && cellSelection.focus.rowIndex === rowIndex
+                    && cellSelection.focus.columnIndex === columnIndex;
                   return (
-                    <td className={value === null ? "is-null" : undefined} key={column.name} title={formatted}>
+                    <td
+                      aria-selected={cellSelected}
+                      className={cx(value === null && "is-null", cellSelected && "is-cell-selected", cellFocused && "is-cell-focus")}
+                      data-cell-position={`${rowIndex}:${columnIndex}`}
+                      key={column.name}
+                      onFocus={() => {
+                        if (!cellFocused) selectCell(position, false);
+                      }}
+                      onKeyDown={(event) => moveCellFocus(event, position)}
+                      onPointerDown={(event) => {
+                        if (event.button !== 0) return;
+                        draggingSelection.current = true;
+                        event.currentTarget.focus();
+                        selectCell(position, event.shiftKey);
+                      }}
+                      onPointerEnter={(event) => {
+                        if (draggingSelection.current && event.buttons === 1) selectCell(position, true);
+                      }}
+                      onPointerUp={() => { draggingSelection.current = false; }}
+                      role="gridcell"
+                      tabIndex={cellFocused || (!cellSelection && rowIndex === 0 && columnIndex === 0) ? 0 : -1}
+                      title={formatted}
+                    >
                       {value === null ? <span>NULL</span> : formatted || <span className="table-editor-empty-value">EMPTY</span>}
                     </td>
                   );
                 })}
                 {showRowActions ? (
-                  <td className="table-editor-row-action-cell">
+                  <td className="table-editor-row-action-cell" role="gridcell">
                     <TooltipIconButton
                       aria-label={`Edit row ${rowNumber}`}
                       className="table-editor-row-edit"
@@ -1189,7 +1301,7 @@ function TableDataGrid({
           })}
           {!rows.length ? (
             <tr>
-              <td className="table-editor-no-rows" colSpan={columns.length + 1 + (showRowActions ? 1 : 0)}>No rows match this filter.</td>
+              <td className="table-editor-no-rows" colSpan={columns.length + 1 + (showRowActions ? 1 : 0)} role="gridcell">No rows match this filter.</td>
             </tr>
           ) : null}
         </tbody>
@@ -1211,7 +1323,7 @@ function TableMutationStatus({
   onReject: () => void;
   pendingApproval: PendingApproval | undefined;
 }) {
-  if (!pendingApproval && !feedback) return <div aria-hidden="true" className="table-editor-mutation-status" />;
+  if (!pendingApproval && !feedback) return null;
 
   const approval = pendingApproval?.effect.approval;
   const tone = pendingApproval ? "notice" : feedback?.tone;
@@ -1320,6 +1432,317 @@ function TableMutationDialog({
   );
 }
 
+function TableFilterPopover({
+  filters,
+  initialColumn,
+  onApply,
+  onOpenChange,
+  open,
+  table,
+}: {
+  filters: TableFilter[];
+  initialColumn?: string;
+  onApply: (filters: TableFilter[]) => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  table: CatalogTable | undefined;
+}) {
+  const [draftFilters, setDraftFilters] = useState<TableFilter[]>(filters);
+
+  useEffect(() => {
+    if (!open) return;
+    const nextFilters = filters.map((filter) => ({ ...filter }));
+    const isKnownColumn = initialColumn && table?.columns.some((column) => column.name === initialColumn);
+    if (isKnownColumn && !nextFilters.some((filter) => filter.column === initialColumn)) {
+      nextFilters.push({ column: initialColumn, operator: "contains", value: "" });
+    }
+    setDraftFilters(nextFilters);
+  }, [filters, initialColumn, open, table]);
+
+  const updateFilter = (index: number, update: Partial<TableFilter>) => {
+    setDraftFilters((current) => current.map((filter, filterIndex) => filterIndex === index
+      ? { ...filter, ...update }
+      : filter));
+  };
+
+  const addFilter = () => {
+    const column = table?.columns[0]?.name;
+    if (!column) return;
+    setDraftFilters((current) => [...current, { column, operator: "contains", value: "" }]);
+  };
+
+  const apply = () => {
+    const nextFilters = draftFilters.map((filter) => ({
+      ...filter,
+      value: tableFilterNeedsValue(filter.operator) ? filter.value.trim() : "",
+    }));
+    onApply(nextFilters);
+    onOpenChange(false);
+  };
+
+  const filtersValid = draftFilters.every((filter) => filter.column
+    && (!tableFilterNeedsValue(filter.operator) || Boolean(filter.value.trim())));
+  const hasChanges = !tableFiltersEqual(draftFilters, filters);
+  const buttonText = filters.length
+    ? `Filtered by ${filters.length} rule${filters.length === 1 ? "" : "s"}`
+    : "Filter";
+
+  return (
+    <Popover modal={false} onOpenChange={onOpenChange} open={open}>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label="Filter table rows"
+          className={cx("table-editor-query-button", filters.length > 0 && "is-active")}
+          disabled={!table}
+          size="sm"
+          title={filters.length ? `${filters.length} filters applied` : "Filter rows"}
+          type="button"
+          variant="outline"
+        >
+          <FilterIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+          <span>{buttonText}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="table-editor-popover table-editor-filter-popover" side="bottom" sideOffset={6}>
+        <div className="table-editor-popover-body">
+          {draftFilters.map((filter, index) => (
+            <div className="table-editor-popover-row" key={`${filter.column}-${index}`}>
+              <Select onValueChange={(column) => updateFilter(index, { column })} value={filter.column}>
+                <SelectTrigger aria-label={`Filter ${index + 1} column`} className="table-editor-popover-select table-editor-popover-column" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="table-editor-popover-select-content" position="popper">
+                  {table?.columns.map((column) => <SelectItem key={column.name} value={column.name}>{column.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Select
+                onValueChange={(operator) => updateFilter(index, {
+                  operator: operator as TableFilterOperator,
+                  value: tableFilterNeedsValue(operator as TableFilterOperator) ? filter.value : "",
+                })}
+                value={filter.operator}
+              >
+                <SelectTrigger aria-label={`Filter ${index + 1} operator`} className="table-editor-popover-select table-editor-popover-operator" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="table-editor-popover-select-content" position="popper">
+                  {TABLE_FILTER_OPERATORS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              {tableFilterNeedsValue(filter.operator) ? (
+                <Input
+                  aria-label={`Filter ${index + 1} value`}
+                  className="table-editor-popover-value"
+                  onChange={(event) => updateFilter(index, { value: event.currentTarget.value })}
+                  onKeyDown={(event) => { if (event.key === "Enter" && filtersValid && hasChanges) apply(); }}
+                  placeholder="Enter a value"
+                  value={filter.value}
+                />
+              ) : <span className="table-editor-popover-value table-editor-popover-no-value">No value</span>}
+              <Button
+                aria-label={`Remove ${filter.column} filter`}
+                className="table-editor-popover-remove"
+                onClick={() => setDraftFilters((current) => current.filter((_, filterIndex) => filterIndex !== index))}
+                size="icon-xs"
+                title="Remove filter"
+                type="button"
+                variant="ghost"
+              >
+                <XIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+              </Button>
+            </div>
+          ))}
+          {!draftFilters.length ? (
+            <div className="table-editor-popover-empty">
+              <strong>No filters applied to this view</strong>
+              <span>Add a column below to filter the view</span>
+            </div>
+          ) : null}
+        </div>
+        <div className="table-editor-popover-footer">
+          <Button className="table-editor-popover-add" disabled={!table?.columns.length} onClick={addFilter} size="sm" type="button" variant="outline">
+            <PlusIcon aria-hidden="true" size={14} />
+            Add filter
+          </Button>
+          <Button disabled={!filtersValid || !hasChanges} onClick={apply} size="sm" type="button">Apply filter</Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TableSortPopover({
+  onApply,
+  sort,
+  table,
+}: {
+  onApply: (sort: TableSort | undefined) => void;
+  sort: TableSort | undefined;
+  table: CatalogTable | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draftSort, setDraftSort] = useState<TableSort>();
+
+  useEffect(() => {
+    if (open) setDraftSort(sort ? { ...sort } : undefined);
+  }, [open, sort]);
+
+  const hasChanges = !tableSortEqual(draftSort, sort);
+  const buttonText = sort ? "Sorted by 1 rule" : "Sort";
+
+  return (
+    <Popover modal={false} onOpenChange={setOpen} open={open}>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label="Sort table rows"
+          className={cx("table-editor-query-button", sort && "is-active")}
+          disabled={!table}
+          size="sm"
+          title={sort ? `Sorted by ${sort.column} ${sort.direction === "asc" ? "ascending" : "descending"}` : "Sort rows"}
+          type="button"
+          variant="outline"
+        >
+          <ArrowUpDownIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+          <span>{buttonText}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="table-editor-popover table-editor-sort-popover" side="bottom" sideOffset={6}>
+        <div className="table-editor-popover-body">
+          {draftSort ? (
+            <div className="table-editor-sort-row">
+              <div className="table-editor-sort-row-name">
+                <span>{"sort by"}</span>
+                <strong>{draftSort.column}</strong>
+              </div>
+              <div className="table-editor-sort-direction">
+                <span>ascending:</span>
+                <Switch
+                  checked={draftSort.direction === "asc"}
+                  aria-label={`Sort ${draftSort.column} ${draftSort.direction === "asc" ? "ascending" : "descending"}`}
+                  className="table-editor-sort-switch"
+                  onCheckedChange={(checked) => setDraftSort((current) => current ? { ...current, direction: checked ? "asc" : "desc" } : current)}
+                />
+              </div>
+              <Button
+                aria-label={`Remove sort for ${draftSort.column}`}
+                className="table-editor-popover-remove"
+                onClick={() => setDraftSort(undefined)}
+                size="icon-xs"
+                title="Remove sort"
+                type="button"
+                variant="ghost"
+              >
+                <XIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+              </Button>
+            </div>
+          ) : (
+            <div className="table-editor-popover-empty">
+              <strong>No sorts applied to this view</strong>
+              <span>Add a column below to sort the view</span>
+            </div>
+          )}
+        </div>
+        <div className="table-editor-popover-footer">
+          <Select key={draftSort?.column ?? "empty"} onValueChange={(column) => setDraftSort((current) => ({ column, direction: current?.direction ?? "asc" }))}>
+            <SelectTrigger aria-label="Choose a column to sort" className="table-editor-popover-pick-select" size="sm">
+              <SelectValue placeholder={draftSort ? "Change sort column" : "Pick a column to sort by"} />
+            </SelectTrigger>
+            <SelectContent className="table-editor-popover-select-content" position="popper">
+              {table?.columns.map((column) => <SelectItem key={column.name} value={column.name}>{column.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button disabled={!hasChanges} onClick={() => { onApply(draftSort); setOpen(false); }} size="sm" type="button">Apply sorting</Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function TablePermissionsPopover({
+  connection,
+  onOpenChange,
+  open,
+  requiresApproval,
+  table,
+  tableCanMutate,
+  tableHasPrimaryKey,
+  writeServiceAvailable,
+  writeStateDescription,
+  writeStateLabel,
+}: {
+  connection: Connection | undefined;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  requiresApproval: boolean;
+  table: CatalogTable | undefined;
+  tableCanMutate: boolean;
+  tableHasPrimaryKey: boolean;
+  writeServiceAvailable: boolean;
+  writeStateDescription: string | undefined;
+  writeStateLabel: string;
+}) {
+  const connectionCanWrite = connection?.connected === true
+    && connection.readOnlyTransactions === false
+    && connection.credentialCanWrite !== false;
+  const canInsert = writeServiceAvailable && connectionCanWrite && tableCanMutate;
+  const canUpdate = canInsert && tableHasPrimaryKey;
+  const rows = [
+    { label: "Read", state: "Allowed", detail: "Catalog and bounded previews" },
+    { label: "Insert", state: canInsert ? "Available" : "Blocked", detail: canInsert ? "Typed action, policy checked" : "Requires a writable base table" },
+    { label: "Update", state: canUpdate ? "Available" : "Blocked", detail: canUpdate ? "Primary key and policy checked" : "Requires a primary key" },
+    { label: "Delete", state: canUpdate ? "Available" : "Blocked", detail: canUpdate ? "Approval may be required" : "Requires update access" },
+  ] as const;
+
+  return (
+    <Popover modal={false} onOpenChange={onOpenChange} open={open}>
+      <PopoverTrigger asChild>
+        <Button
+          aria-label="Show database permissions"
+          className="table-editor-query-button table-editor-permission-button"
+          disabled={!table}
+          size="icon-sm"
+          title="Database permissions"
+          type="button"
+          variant="outline"
+        >
+          <ShieldCheckIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="table-editor-popover table-editor-permissions-popover" side="bottom" sideOffset={6}>
+        <div className="table-editor-permissions-summary">
+          <header className="table-editor-popover-heading">
+            <strong>Database permissions</strong>
+            <span>{table ? `${table.schema}.${table.name}` : "Choose a table first."}</span>
+          </header>
+          <div className="table-editor-permissions-state">
+            <ShieldCheckIcon aria-hidden="true" size={17} />
+            <div>
+              <strong>{writeStateLabel}</strong>
+              <span>{writeStateDescription ?? "Permission state is unavailable."}</span>
+            </div>
+          </div>
+          <dl className="table-editor-permissions-grid">
+            <div><dt>Connection</dt><dd>{connection?.connected ? connection.dialect : "Unavailable"}</dd></div>
+            <div><dt>Table type</dt><dd>{table?.kind ?? "None selected"}</dd></div>
+            <div><dt>Primary key</dt><dd>{tableHasPrimaryKey ? "Present" : "Missing"}</dd></div>
+            <div><dt>Approval</dt><dd>{requiresApproval ? "Required for writes" : "Policy allows direct writes"}</dd></div>
+          </dl>
+          <div className="table-editor-permission-list">
+            {rows.map((row) => (
+              <div key={row.label}>
+                <span>{row.label}</span>
+                <strong data-state={row.state === "Blocked" ? "blocked" : "available"}>{row.state}</strong>
+                <small>{row.detail}</small>
+              </div>
+            ))}
+          </div>
+          <p className="table-editor-permissions-note">Permission policy is configured in Settings. Every mutation still passes through the typed action and capability broker.</p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 type RowMutationField = Readonly<{
   initialNull: boolean;
   initialValue: string;
@@ -1389,9 +1812,10 @@ function TableRowMutationForm({
           const field = fields[column.name]!;
           const immutable = mode === "update" && primaryKey.has(column.name);
           const nullLabelId = `table-editor-null-${column.name}`;
+          const fieldLabelId = `table-editor-field-label-${column.name}`;
           return (
             <div className={cx("table-editor-row-field", immutable && "is-immutable")} key={column.name}>
-              <label htmlFor={`table-editor-value-${column.name}`}>
+              <label id={fieldLabelId}>
                 <span>{column.name}</span>
                 <code>{compactDataType(column.dataType)}</code>
                 {!column.nullable ? <span className="table-editor-required-mark">required</span> : null}
@@ -1399,17 +1823,25 @@ function TableRowMutationForm({
               {immutable ? (
                 <output className="table-editor-immutable-value">{displayValue(row?.[column.name])}</output>
               ) : isBooleanColumn(column) ? (
-                <select
-                  className="table-editor-field-select"
-                  disabled={busy || field.isNull}
-                  id={`table-editor-value-${column.name}`}
-                  onChange={(event) => updateField(column, { isNull: false, value: event.currentTarget.value })}
-                  value={field.value}
+                <Select
+                  onValueChange={(value) => updateField(column, { isNull: false, value: value === "__database_default__" ? "" : value })}
+                  value={field.value || (mode === "insert" ? "__database_default__" : "false")}
                 >
-                  {mode === "insert" ? <option value="">Use database default</option> : null}
-                  <option value="true">true</option>
-                  <option value="false">false</option>
-                </select>
+                  <SelectTrigger
+                    aria-labelledby={fieldLabelId}
+                    className="table-editor-field-select"
+                    disabled={busy || field.isNull}
+                    id={`table-editor-value-${column.name}`}
+                    size="sm"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent position="popper">
+                    {mode === "insert" ? <SelectItem value="__database_default__">Use database default</SelectItem> : null}
+                    <SelectItem value="true">true</SelectItem>
+                    <SelectItem value="false">false</SelectItem>
+                  </SelectContent>
+                </Select>
               ) : (
                 <Input
                   className="table-editor-field-input"
@@ -1448,63 +1880,72 @@ function TableRowMutationForm({
   );
 }
 
-function TableDefinition({ table }: { table: CatalogTable }) {
+function TableDefinition({ definition, table }: { definition?: string; table: CatalogTable }) {
+  const [copied, setCopied] = useState(false);
+  const sql = definition ?? buildClientTableDefinition(table);
+
+  const copy = async () => {
+    if (!navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(sql);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setCopied(false);
+    }
+  };
+
   return (
     <section className="table-editor-definition">
       <header>
         <div>
-          <p>Table definition</p>
-          <h2>{table.schema}.{table.name}</h2>
+          <p>SQL Definition of <code>{table.schema}.{table.name}</code> <span>(Read only)</span></p>
         </div>
-        <span>{table.kind}</span>
+        <Button className="table-editor-definition-copy" onClick={() => void copy()} size="sm" type="button" variant="outline">
+          {copied ? <CheckIcon aria-hidden="true" size={14} /> : <CopyIcon aria-hidden="true" size={14} />}
+          {copied ? "Copied" : "Copy SQL"}
+        </Button>
       </header>
-      <div className="table-editor-definition-grid">
-        <section>
-          <h3>Columns</h3>
-          <div className="table-editor-definition-list">
-            {table.columns.map((column) => (
-              <div key={column.name}>
-                <span className="table-editor-definition-name">
-                  {table.primaryKey?.includes(column.name) ? <KeyRoundIcon aria-hidden="true" size={13} /> : null}
-                  {column.name}
-                </span>
-                <code>{column.dataType}</code>
-                <span>{column.nullable ? "nullable" : "required"}</span>
-              </div>
-            ))}
-          </div>
-        </section>
-        <section>
-          <h3>Relationships</h3>
-          {table.foreignKeys?.length ? (
-            <div className="table-editor-definition-list">
-              {table.foreignKeys.map((foreignKey) => (
-                <div className="table-editor-relationship" key={foreignKey.name}>
-                  <span>{foreignKey.columns.join(", ")}</span>
-                  <code>{foreignKey.referencedSchema}.{foreignKey.referencedTable} ({foreignKey.referencedColumns.join(", ")})</code>
-                </div>
-              ))}
-            </div>
-          ) : <p className="table-editor-definition-empty">No foreign-key relationships are exposed for this table.</p>}
-        </section>
+      <div className="table-editor-definition-editor" role="region" aria-label="SQL table definition">
+        <div className="table-editor-definition-gutter" aria-hidden="true">
+          {sql.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}
+        </div>
+        <pre><code>{sql}</code></pre>
       </div>
     </section>
   );
 }
 
-function TableGridLoading({ columns }: { columns: number }) {
-  const gridTemplateColumns = `repeat(${Math.max(columns, 4)}, minmax(176px, 1fr))`;
+function TableGridLoading({ columns, showRowActions }: { columns: CatalogColumn[]; showRowActions: boolean }) {
+  const loadingColumns = columns.length
+    ? columns.map((column) => column.name)
+    : Array.from({ length: 5 }, (_, index) => `loading-column-${index}`);
 
   return (
-    <div aria-label="Loading table preview" className="table-editor-grid-loading">
-      <div className="table-editor-grid-loading-header" style={{ gridTemplateColumns }}>
-        {Array.from({ length: columns }, (_, index) => <Skeleton key={index} />)}
-      </div>
-      {Array.from({ length: 12 }, (_, rowIndex) => (
-        <div className="table-editor-grid-loading-row" key={rowIndex} style={{ gridTemplateColumns }}>
-          {Array.from({ length: columns }, (_, columnIndex) => <Skeleton key={columnIndex} />)}
-        </div>
-      ))}
+    <div className="table-editor-grid-scroll">
+      <table aria-busy="true" aria-label="Loading table preview" className="table-editor-grid table-editor-grid-loading">
+        <colgroup>
+          <col className="table-editor-selection-column" />
+          {loadingColumns.map((column) => <col className="table-editor-data-column" key={column} />)}
+          {showRowActions ? <col className="table-editor-row-action-column" /> : null}
+        </colgroup>
+        <thead>
+          <tr>
+            <th className="table-editor-selection-cell"><Skeleton className="table-editor-loading-checkbox" /></th>
+            {loadingColumns.map((column) => <th key={column}><Skeleton /></th>)}
+            {showRowActions ? <th className="table-editor-row-action-header" /> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from({ length: 12 }, (_, rowIndex) => (
+            <tr key={rowIndex}>
+              <td className="table-editor-selection-cell"><Skeleton className="table-editor-loading-checkbox" /></td>
+              {loadingColumns.map((column, columnIndex) => <td key={column}><Skeleton style={{ width: `${48 + ((rowIndex * 17 + columnIndex * 13) % 35)}%` }} /></td>)}
+              {showRowActions ? <td className="table-editor-row-action-cell" /> : null}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -1727,10 +2168,98 @@ function compactDataType(value: string): string {
     .replace(" without time zone", "");
 }
 
+function buildClientTableDefinition(table: CatalogTable): string {
+  const quote = (value: string) => `"${value.replaceAll('"', '""')}"`;
+  const relation = `${quote(table.schema)}.${quote(table.name)}`;
+  const lines = table.columns
+    .slice()
+    .sort((left, right) => (left.ordinal ?? 0) - (right.ordinal ?? 0))
+    .map((column) => `  ${quote(column.name)} ${column.dataType}${column.nullable ? "" : " NOT NULL"}${column.defaultValue ? ` DEFAULT ${column.defaultValue}` : ""}`);
+  if (table.primaryKey?.length) lines.push(`  CONSTRAINT ${quote(`${table.name}_pkey`)} PRIMARY KEY (${table.primaryKey.map(quote).join(", ")})`);
+  for (const foreignKey of table.foreignKeys ?? []) {
+    lines.push(`  CONSTRAINT ${quote(foreignKey.name)} FOREIGN KEY (${foreignKey.columns.map(quote).join(", ")}) REFERENCES ${quote(foreignKey.referencedSchema)}.${quote(foreignKey.referencedTable)} (${foreignKey.referencedColumns.map(quote).join(", ")})`);
+  }
+  return `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
+}
+
+const TABLE_FILTER_OPERATORS: ReadonlyArray<{ label: string; value: TableFilterOperator }> = [
+  { label: "contains", value: "contains" },
+  { label: "equals", value: "equals" },
+  { label: "does not equal", value: "not_equals" },
+  { label: "greater than", value: "gt" },
+  { label: "greater than or equal", value: "gte" },
+  { label: "less than", value: "lt" },
+  { label: "less than or equal", value: "lte" },
+  { label: "is null", value: "is_null" },
+  { label: "is not null", value: "is_not_null" },
+];
+
+function tableFilterNeedsValue(operator: TableFilterOperator): boolean {
+  return operator !== "is_null" && operator !== "is_not_null";
+}
+
+function tableFiltersEqual(left: TableFilter[], right: TableFilter[]): boolean {
+  return left.length === right.length && left.every((filter, index) => {
+    const candidate = right[index];
+    return candidate?.column === filter.column
+      && candidate.operator === filter.operator
+      && candidate.value === filter.value;
+  });
+}
+
+function tableSortEqual(left: TableSort | undefined, right: TableSort | undefined): boolean {
+  return left?.column === right?.column && left?.direction === right?.direction;
+}
+
 function displayValue(value: PreviewValue | undefined): string {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "boolean") return value ? "true" : "false";
   return String(value);
+}
+
+function selectedCellsToTsv(
+  columns: CatalogColumn[],
+  rows: PreviewRow[],
+  selection: TableCellSelection,
+): string {
+  const firstRow = Math.max(0, Math.min(selection.anchor.rowIndex, selection.focus.rowIndex));
+  const lastRow = Math.min(rows.length - 1, Math.max(selection.anchor.rowIndex, selection.focus.rowIndex));
+  const firstColumn = Math.max(0, Math.min(selection.anchor.columnIndex, selection.focus.columnIndex));
+  const lastColumn = Math.min(columns.length - 1, Math.max(selection.anchor.columnIndex, selection.focus.columnIndex));
+  if (firstRow > lastRow || firstColumn > lastColumn) return "";
+
+  return rows
+    .slice(firstRow, lastRow + 1)
+    .map(({ row }) => columns
+      .slice(firstColumn, lastColumn + 1)
+      .map((column) => displayValue(row[column.name]).replaceAll("\t", " ").replace(/\r?\n/g, " "))
+      .join("\t"))
+    .join("\n");
+}
+
+async function writeTextToClipboard(value: string): Promise<boolean> {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return true;
+    } catch {
+      // Fall back to the browser's synchronous clipboard command below.
+    }
+  }
+  if (typeof document === "undefined") return false;
+
+  const clipboardSource = document.createElement("textarea");
+  clipboardSource.value = value;
+  clipboardSource.setAttribute("aria-hidden", "true");
+  clipboardSource.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+  document.body.append(clipboardSource);
+  clipboardSource.focus();
+  clipboardSource.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    clipboardSource.remove();
+  }
 }
 
 function publicError(error: unknown): string {
