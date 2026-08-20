@@ -10,7 +10,8 @@
   ],
   "overrides": {
     "@ai-sdk/react": "4.0.69",
-    "ai": "7.0.66"
+    "ai": "7.0.66",
+    "linkify-it": "6.1.0"
   },
   "scripts": {
     "build": "turbo run build",
