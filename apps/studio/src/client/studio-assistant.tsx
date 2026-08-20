@@ -1,5 +1,4 @@
 import { useChat } from "@ai-sdk/react";
-import { ChatGLM, DeepSeek, Grok, OpenRouter, Qwen } from "@lobehub/icons";
 import {
   ActionBarPrimitive,
   AuiConfig,
@@ -31,7 +30,6 @@ import type {
   TesseraExecutionTraceData,
   TesseraUIMessage,
 } from "../protocol";
-import type { StudioAgentPageContext } from "./layout/studio-route-context";
 import {
   Conversation,
   ConversationContent,
@@ -61,7 +59,6 @@ import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button
 import { AgentActivity } from "./components/agent-activity";
 import { ErrorState } from "./components/elements/error-state";
 import { PromptInput } from "./components/agents/prompt-input";
-import { DatabaseSettingsControl } from "./components/agents/database-settings-control";
 import {
   ToolTimeline,
   type TimelineStep,
@@ -82,25 +79,15 @@ export function StudioAssistant({
   initialMessages,
   initialPrompt,
   isSendDisabled,
-  modelLabel,
-  onDatabaseSettingsSaved,
   onThreadActivity,
   threadId,
-  workspaceContext,
 }: {
   initialMessages: readonly TesseraUIMessage[];
   initialPrompt?: string;
   isSendDisabled: boolean;
-  modelLabel: string;
-  onDatabaseSettingsSaved?(): void;
   onThreadActivity?(): void;
   threadId: string;
-  workspaceContext?: StudioAgentPageContext;
 }) {
-  // The transport must remain stable while the selected table changes, but
-  // each submitted turn must use the latest non-sensitive page signal.
-  const workspaceContextRef = useRef<StudioAgentPageContext | undefined>(workspaceContext);
-  workspaceContextRef.current = workspaceContext;
   const transport = useMemo(
     () =>
       new AssistantChatTransport<TesseraUIMessage>({
@@ -115,7 +102,6 @@ export function StudioAssistant({
           if (!message || message.role !== "user") {
             throw new Error("Tessera can only submit the current user message.");
           }
-          const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
           return {
             headers: { "Content-Type": "application/json" },
             body: {
@@ -125,7 +111,6 @@ export function StudioAssistant({
               messages: [message],
               threadId,
               trigger,
-              ...(currentWorkspaceContext === undefined ? {} : { workspaceContext: currentWorkspaceContext }),
             },
           };
         },
@@ -150,39 +135,12 @@ export function StudioAssistant({
   return (
     <AssistantRuntimeProvider config={tesseraStudioAssistantConfig} runtime={runtime}>
       <TesseraExecutionTraceDataUI />
-      <StudioConversation
-        modelLabel={modelLabel}
-        onDatabaseSettingsSaved={onDatabaseSettingsSaved}
-      />
+      <StudioConversation />
     </AssistantRuntimeProvider>
   );
 }
 
-/** Allowlist the only browser page signals that may reach the chat endpoint. */
-function chatWorkspaceContext(context: StudioAgentPageContext | undefined) {
-  if (!context) return undefined;
-  return {
-    hasLocalFilter: context.hasLocalFilter,
-    view: context.view,
-    ...(context.currentRelation === undefined
-      ? {}
-      : {
-        currentRelation: {
-          catalogFingerprint: context.currentRelation.catalogFingerprint,
-          schema: context.currentRelation.schema,
-          table: context.currentRelation.table,
-        },
-      }),
-  };
-}
-
-function StudioConversation({
-  modelLabel,
-  onDatabaseSettingsSaved,
-}: {
-  modelLabel: string;
-  onDatabaseSettingsSaved?(): void;
-}) {
+function StudioConversation() {
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">
       <ThreadPrimitive.Root className="tessera-thread-root">
@@ -203,10 +161,7 @@ function StudioConversation({
           </Conversation>
         </ThreadPrimitive.Viewport>
         <footer className="tessera-composer-dock">
-          <StudioComposer
-            modelLabel={modelLabel}
-            onDatabaseSettingsSaved={onDatabaseSettingsSaved}
-          />
+          <StudioComposer />
         </footer>
       </ThreadPrimitive.Root>
     </section>
@@ -400,26 +355,11 @@ function StudioEditComposer() {
   );
 }
 
-function StudioComposer({
-  modelLabel,
-  onDatabaseSettingsSaved,
-}: {
-  modelLabel: string;
-  onDatabaseSettingsSaved?(): void;
-}) {
+function StudioComposer() {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const attachmentCount = useAuiState((state) => state.composer.attachments.length);
   const aui = useAui();
   const composer = unstable_useComposerInput();
-  const [selectedModel, setSelectedModel] = useState(modelLabel);
-  const models = [
-    { value: modelLabel, label: modelLabel, icon: modelIcon(modelLabel) },
-    { value: "x-ai/grok-4.6", label: "x-ai/grok-4.6", icon: modelIcon("x-ai/grok-4.6") },
-    { value: "z-ai/glm-5.3", label: "z-ai/glm-5.3", icon: modelIcon("z-ai/glm-5.3") },
-    { value: "qwen/qwen3.8-27b", label: "qwen/qwen3.8-27b", icon: modelIcon("qwen/qwen3.8-27b") },
-    { value: "deepseek/deepseek-v4-pro-0813", label: "deepseek/deepseek-v4-pro-0813", icon: modelIcon("deepseek/deepseek-v4-pro-0813") },
-  ].filter((option, index, options) => options.findIndex((candidate) => candidate.value === option.value) === index);
-  const activeModel = models.find((option) => option.value === selectedModel)?.value ?? models[0]?.value;
   const addAttachments = async (files: File[]) => {
     await Promise.all(files.map(async (file) => {
       try {
@@ -431,45 +371,26 @@ function StudioComposer({
   };
 
   return (
-    <ComposerPrimitive.Root asChild>
+    <ComposerPrimitive.Root>
       <PromptInput
         aria-label="Ask Tessera to analyze your data"
         autoFocus
         className="tessera-composer studio-composer"
         attachments={<ComposerAttachments />}
-        defaultModel={modelLabel}
-        disabled={composer.isDisabled}
+        disabled={composer.isDisabled || !composer.canSend}
         hasAttachments={attachmentCount > 0}
         leadingAction={<ComposerAddAttachment />}
         loading={isRunning}
-        model={activeModel}
-        models={models}
-        onModelChange={setSelectedModel}
         onPasteFiles={addAttachments}
         onDropFiles={addAttachments}
         onStop={() => aui.composer.cancel()}
         onSubmit={() => composer.send()}
         onValueChange={composer.setText}
         placeholder="Ask about your data..."
-        trailingAction={(
-          <DatabaseSettingsControl
-            disabled={composer.isDisabled || isRunning}
-            onSaved={onDatabaseSettingsSaved}
-          />
-        )}
         value={composer.value}
       />
     </ComposerPrimitive.Root>
   );
-}
-
-function modelIcon(model: string) {
-  const normalized = model.toLocaleLowerCase("en-US");
-  if (normalized.includes("deepseek")) return <DeepSeek.Color size={16} />;
-  if (normalized.includes("qwen")) return <Qwen.Color size={16} />;
-  if (normalized.includes("glm") || normalized.includes("z-ai")) return <ChatGLM.Color size={16} />;
-  if (normalized.includes("grok") || normalized.includes("x-ai")) return <Grok size={16} />;
-  return <OpenRouter.Color size={16} />;
 }
 
 function TesseraExecutionTrace({ data }: { data: TesseraExecutionTraceData }) {

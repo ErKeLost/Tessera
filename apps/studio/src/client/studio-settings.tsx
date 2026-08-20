@@ -117,12 +117,9 @@ export type StudioSettingsCandidate = Readonly<{
 }>;
 
 export type StudioSettingsDialogProps = Readonly<{
-  databaseOnly?: boolean;
-  initialTab?: StudioSettingsTab;
   open: boolean;
   onOpenChange(open: boolean): void;
   onSaved?(settings: StudioSettingsSnapshot): void;
-  variant?: "dialog" | "page";
 }>;
 
 type SettingsForm = {
@@ -175,19 +172,16 @@ const REASONING_EFFORTS = new Set<StudioReasoningEffort>(["minimal", "low", "med
 const EMPTY_MODEL_CATALOG: StudioOpenRouterModelCatalog = { models: [] };
 
 export function StudioSettingsDialog({
-  databaseOnly = false,
-  initialTab = "database",
   open,
   onOpenChange,
   onSaved,
-  variant = "dialog",
 }: StudioSettingsDialogProps) {
   const [settings, setSettings] = useState<StudioSettingsSnapshot>(DEFAULT_SETTINGS);
   const [form, setForm] = useState<SettingsForm>(() => toForm(DEFAULT_SETTINGS));
   const [modelCatalog, setModelCatalog] = useState<StudioOpenRouterModelCatalog>(EMPTY_MODEL_CATALOG);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [notice, setNotice] = useState<string>();
-  const [activeTab, setActiveTab] = useState<StudioSettingsTab>(databaseOnly ? "database" : initialTab);
+  const [activeTab, setActiveTab] = useState<StudioSettingsTab>("database");
   const loadAbortRef = useRef<AbortController | null>(null);
   const modelCatalogAbortRef = useRef<AbortController | null>(null);
 
@@ -233,7 +227,7 @@ export function StudioSettingsDialog({
     }
   }, []);
 
-  const visible = variant === "page" || open;
+  const visible = open;
 
   useEffect(() => {
     if (!visible) return;
@@ -244,10 +238,6 @@ export function StudioSettingsDialog({
       modelCatalogAbortRef.current?.abort();
     };
   }, [loadModelCatalog, loadSettings, visible]);
-
-  useEffect(() => {
-    setActiveTab(databaseOnly ? "database" : initialTab);
-  }, [databaseOnly, initialTab]);
 
   const providerOptions = useMemo(() => (
     PROVIDERS.includes(form.provider as (typeof PROVIDERS)[number])
@@ -408,42 +398,29 @@ export function StudioSettingsDialog({
   const canSave = activeTab === "permissions" ? true : Boolean(candidate);
   const settingsForm = (
     <form
-      className={variant === "page" ? "tessera-settings-form" : "grid gap-4"}
+      className="grid gap-4"
       onSubmit={(event) => {
         event.preventDefault();
         void saveCurrentTab();
       }}
     >
-      {variant === "page" ? (
-        <header className="tessera-settings-page-header">
-          <span>{settingsSectionCopy(activeTab).kicker}</span>
-          <h2>{settingsSectionCopy(activeTab).title}</h2>
-          <p>{settingsSectionCopy(activeTab).description}</p>
-        </header>
-      ) : (
-        <DialogHeader>
-          <DialogTitle>{databaseOnly ? "Database connection" : "Settings"}</DialogTitle>
-          <DialogDescription>
-            {databaseOnly
-              ? "Configure the local database connection for this workspace."
-              : "Manage the local database, model, permissions, and execution settings."}
-          </DialogDescription>
-        </DialogHeader>
-      )}
+      <DialogHeader>
+        <DialogTitle>Settings</DialogTitle>
+        <DialogDescription>
+          Manage the local database, model, permissions, and execution settings.
+        </DialogDescription>
+      </DialogHeader>
 
       <Tabs
-        defaultValue={databaseOnly ? "database" : initialTab}
-        key={databaseOnly ? "database" : initialTab}
+        defaultValue="database"
         onValueChange={(value) => setActiveTab(value as StudioSettingsTab)}
       >
-        {variant === "dialog" && !databaseOnly ? (
-          <TabsList className="w-full">
-            <TabsTrigger value="database">Database</TabsTrigger>
-            <TabsTrigger value="model">Model</TabsTrigger>
-            <TabsTrigger value="limits">Limits</TabsTrigger>
-            <TabsTrigger value="permissions">Permissions</TabsTrigger>
-          </TabsList>
-        ) : null}
+        <TabsList className="w-full">
+          <TabsTrigger value="database">Database</TabsTrigger>
+          <TabsTrigger value="model">Model</TabsTrigger>
+          <TabsTrigger value="limits">Limits</TabsTrigger>
+          <TabsTrigger value="permissions">Permissions</TabsTrigger>
+        </TabsList>
 
             <TabsContent value="database">
               <FieldGroup>
@@ -483,7 +460,7 @@ export function StudioSettingsDialog({
               </FieldGroup>
             </TabsContent>
 
-            {!databaseOnly ? <TabsContent value="model">
+            <TabsContent value="model">
               <FieldGroup>
                 <Field>
                   <Label htmlFor="settings-provider">Provider</Label>
@@ -564,17 +541,17 @@ export function StudioSettingsDialog({
                   />
                 </Field>
               </FieldGroup>
-            </TabsContent> : null}
+            </TabsContent>
 
-            {!databaseOnly ? <TabsContent value="limits">
+            <TabsContent value="limits">
               <FieldGroup>
                 <NumberField disabled={busy} id="settings-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => updateForm("maxRows", value)} value={form.maxRows} />
                 <NumberField disabled={busy} id="settings-timeout-ms" label="Timeout (ms)" max={120_000} min={250} onChange={(value) => updateForm("timeoutMs", value)} value={form.timeoutMs} />
                 <NumberField disabled={busy} id="settings-max-steps" label="Maximum steps" max={50} min={3} onChange={(value) => updateForm("maxSteps", value)} value={form.maxSteps} />
               </FieldGroup>
-            </TabsContent> : null}
+            </TabsContent>
 
-            {!databaseOnly ? <TabsContent value="permissions">
+            <TabsContent value="permissions">
               <PermissionSettingsFields
                 disabled={busy}
                 onChange={(permissions) => {
@@ -584,43 +561,26 @@ export function StudioSettingsDialog({
                 }}
                 value={form.permissions}
               />
-            </TabsContent> : null}
+            </TabsContent>
       </Tabs>
 
       <SettingsNotice notice={notice} state={requestState} />
 
-      {variant === "page" ? (
-        <footer className="tessera-settings-page-footer">
-          <Button disabled={busy || activeTab === "permissions" || !candidate} onClick={() => void testCandidate()} type="button" variant="outline">
-            {requestState === "testing" ? <ThinkingOrb aria-label="Testing local connection" size={20} state="connecting" theme="auto" /> : null}
-            Test connection
-          </Button>
-          <Button disabled={busy || !canSave} type="submit">
-            {requestState === "saving" ? <ThinkingOrb aria-label="Saving local settings" size={20} state="composing" theme="auto" /> : null}
-            Save changes
-          </Button>
-        </footer>
-      ) : (
-        <DialogFooter>
-          <Button disabled={busy || activeTab === "permissions" || !candidate} onClick={() => void testCandidate()} type="button" variant="outline">
-            {requestState === "testing" ? <ThinkingOrb aria-label="Testing local connection" size={20} state="connecting" theme="auto" /> : null}
-            Test connection
-          </Button>
-          <DialogClose asChild>
-            <Button disabled={busy} type="button" variant="outline">Cancel</Button>
-          </DialogClose>
-          <Button disabled={busy || !canSave} type="submit">
-            {requestState === "saving" ? <ThinkingOrb aria-label="Saving local settings" size={20} state="composing" theme="auto" /> : null}
-            Save changes
-          </Button>
-        </DialogFooter>
-      )}
+      <DialogFooter>
+        <Button disabled={busy || activeTab === "permissions" || !candidate} onClick={() => void testCandidate()} type="button" variant="outline">
+          {requestState === "testing" ? <ThinkingOrb aria-label="Testing local connection" size={20} state="connecting" theme="auto" /> : null}
+          Test connection
+        </Button>
+        <DialogClose asChild>
+          <Button disabled={busy} type="button" variant="outline">Cancel</Button>
+        </DialogClose>
+        <Button disabled={busy || !canSave} type="submit">
+          {requestState === "saving" ? <ThinkingOrb aria-label="Saving local settings" size={20} state="composing" theme="auto" /> : null}
+          Save changes
+        </Button>
+      </DialogFooter>
     </form>
   );
-
-  if (variant === "page") {
-    return <div className="tessera-settings-page chat-glass-surface">{settingsForm}</div>;
-  }
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
@@ -756,39 +716,6 @@ function SettingsNotice({ notice, state }: { notice: string | undefined; state: 
       <span>{activeNotice}</span>
     </p>
   );
-}
-
-function settingsSectionCopy(tab: StudioSettingsTab): Readonly<{
-  kicker: string;
-  title: string;
-  description: string;
-}> {
-  switch (tab) {
-    case "database":
-      return {
-        kicker: "Connection",
-        title: "Database settings",
-        description: "Configure the local data source and connection mode.",
-      };
-    case "model":
-      return {
-        kicker: "Intelligence",
-        title: "Model settings",
-        description: "Choose the model provider, credentials, and supported reasoning effort.",
-      };
-    case "limits":
-      return {
-        kicker: "Execution",
-        title: "Runtime limits",
-        description: "Bound each analysis by row count, execution time, and agent steps.",
-      };
-    case "permissions":
-      return {
-        kicker: "Governance",
-        title: "Database permissions",
-        description: "Choose which database action classes run, wait for approval, or stay blocked.",
-      };
-  }
 }
 
 function toForm(settings: StudioSettingsSnapshot): SettingsForm {

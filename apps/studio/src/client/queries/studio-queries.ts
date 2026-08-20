@@ -9,7 +9,7 @@ import {
   fetchStudioCatalog,
   fetchStudioConnection,
   fetchStudioMeta,
-  fetchStudioModelLabel,
+  fetchStudioSettingsStatus,
   fetchStudioThreadMessages,
   fetchStudioThreads,
   renameStudioThread,
@@ -19,7 +19,7 @@ export const studioQueryKeys = {
   catalog: ["studio", "catalog"] as const,
   connection: ["studio", "connection"] as const,
   meta: ["studio", "meta"] as const,
-  model: ["studio", "model"] as const,
+  settings: ["studio", "settings"] as const,
   threadMessages: (threadId: string) => ["studio", "threads", threadId, "messages"] as const,
   threads: ["studio", "threads"] as const,
 };
@@ -42,12 +42,15 @@ export function useStudioWorkspaceQueries() {
       queryFn: ({ signal }) => fetchStudioMeta(signal),
       staleTime: Infinity,
     }),
-    model: useQuery({
-      queryKey: studioQueryKeys.model,
-      queryFn: ({ signal }) => fetchStudioModelLabel(signal),
-      staleTime: 60_000,
-    }),
   };
+}
+
+export function useStudioSettingsQuery() {
+  return useQuery({
+    queryKey: studioQueryKeys.settings,
+    queryFn: ({ signal }) => fetchStudioSettingsStatus(signal),
+    staleTime: 30_000,
+  });
 }
 
 export function useStudioThreadsQuery() {
@@ -95,6 +98,5 @@ export function useRefreshStudioWorkspace() {
   return () => Promise.all([
     queryClient.invalidateQueries({ queryKey: studioQueryKeys.connection }),
     queryClient.invalidateQueries({ queryKey: studioQueryKeys.catalog }),
-    queryClient.invalidateQueries({ queryKey: studioQueryKeys.model }),
   ]);
 }

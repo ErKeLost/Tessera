@@ -371,6 +371,8 @@ export type TesseraSettingsValidationResult = Readonly<{
 export type TesseraRuntimeManagerOptions = Readonly<{
   /** Must be normalized with defineTesseraConfig() before it reaches this server-only manager. */
   config: TesseraConfig;
+  /** Marks a local first-run config whose placeholder database URL is not a real connection. */
+  initiallyUnconfigured?: boolean;
   accessMode?: TesseraDatabaseAccessMode;
   factory?: TesseraStudioRuntimeFactory;
   store?: TesseraStudioSettingsStore;
@@ -561,6 +563,7 @@ export class TesseraStudioRuntimeManager {
   readonly #databaseState: DurableStateStorePort | undefined;
   readonly #retired = new Set<RuntimeRecord>();
   #persistedCandidate: TesseraStudioSettingsCandidate | undefined;
+  #unconfigured: boolean;
   #generation = 1;
   #closed = false;
   #operationTail: Promise<void> = Promise.resolve();
@@ -572,12 +575,14 @@ export class TesseraStudioRuntimeManager {
     store: TesseraStudioSettingsStore | undefined,
     persistedCandidate: TesseraStudioSettingsCandidate | undefined,
     databaseState: DurableStateStorePort | undefined,
+    initiallyUnconfigured: boolean,
   ) {
     this.#current = initial;
     this.#factory = factory;
     this.#store = store;
     this.#persistedCandidate = persistedCandidate;
     this.#databaseState = databaseState;
+    this.#unconfigured = initiallyUnconfigured && persistedCandidate?.database.url === undefined;
   }
 
   static async create(options: TesseraRuntimeManagerOptions): Promise<TesseraStudioRuntimeManager> {
@@ -592,12 +597,24 @@ export class TesseraStudioRuntimeManager {
       if (stored !== undefined) state = normalizeTesseraStudioSettings(options.config, stored);
     }
     const initial = await buildRuntimeRecord(factory, 1, state.config, state.accessMode, options.databaseState);
-    return new TesseraStudioRuntimeManager(initial, factory, options.store, stored, options.databaseState);
+    return new TesseraStudioRuntimeManager(
+      initial,
+      factory,
+      options.store,
+      stored,
+      options.databaseState,
+      options.initiallyUnconfigured ?? false,
+    );
   }
 
   /** Returns only the redacted document suitable for GET /api/settings. */
   getSnapshot(): TesseraStudioSettingsSnapshot {
-    return createTesseraStudioSettingsSnapshot(this.#current.config, this.#current.accessMode);
+    const snapshot = createTesseraStudioSettingsSnapshot(this.#current.config, this.#current.accessMode);
+    if (!this.#unconfigured) return snapshot;
+    return Object.freeze({
+      ...snapshot,
+      database: Object.freeze({ ...snapshot.database, urlConfigured: false }),
+    });
   }
 
   /** Acquires the current generation synchronously so a route cannot race a later replacement. */
@@ -687,6 +704,7 @@ export class TesseraStudioRuntimeManager {
       const previous = this.#current;
       this.#generation += 1;
       this.#current = next;
+      if (candidate.database.url !== undefined) this.#unconfigured = false;
       previous.retired = true;
       this.#retired.add(previous);
       await this.#disposeIfUnused(previous);

@@ -3,6 +3,7 @@ import { defineConfig } from "vite";
 
 const clientRoot = fileURLToPath(new URL("./src/client", import.meta.url));
 const clientDist = fileURLToPath(new URL("./dist/client", import.meta.url));
+const publicDirectory = fileURLToPath(new URL("./public", import.meta.url));
 const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 // Studio must render the workspace source during development and production
 // builds. Resolving this package through its published `dist` entry makes the
@@ -15,6 +16,7 @@ const apiTarget = `http://127.0.0.1:${Number.isInteger(apiPort) ? apiPort : 4317
 
 export default defineConfig({
   root: clientRoot,
+  publicDir: publicDirectory,
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [
@@ -50,7 +52,9 @@ export default defineConfig({
         target: apiTarget,
       },
     },
-    strictPort: true,
+    // Let a second local dev session move to the next available client port
+    // instead of failing before the settings-first UI can open.
+    strictPort: false,
   },
   build: {
     emptyOutDir: true,

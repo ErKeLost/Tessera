@@ -14,6 +14,9 @@ export const TESSERA_CONFIG_FILE = "tessera.config.ts";
 export const TESSERA_ENV_FILE = ".env";
 export const DEFAULT_TESSERA_STUDIO_HOST = "127.0.0.1";
 export const DEFAULT_TESSERA_STUDIO_PORT = 4317;
+// A loopback-only placeholder lets the local Studio open its settings UI before
+// a database is configured. It is never persisted or sent to the browser.
+const UNCONFIGURED_TESSERA_DATABASE_URL = "postgresql://127.0.0.1:1/tessera";
 // Schema changes are much less frequent than user turns. Align the Studio
 // default with Data Agent's cache so an active analysis does not rescan every
 // 15 seconds; callers can still set `catalogCacheTtlMs: 0` when they need it.
@@ -323,6 +326,24 @@ export function createTesseraConfigFromDatabaseUrl(
     database: { url },
     ...(studio === undefined ? {} : { studio }),
   });
+}
+
+/**
+ * Creates a local Studio config for the first-run settings flow. Saved local
+ * settings replace this placeholder before any database request is made.
+ */
+export function createUnconfiguredTesseraConfig(
+  studio?: TesseraConfigInput["studio"],
+): TesseraConfig {
+  return defineTesseraConfig({
+    database: { url: UNCONFIGURED_TESSERA_DATABASE_URL },
+    ...(studio === undefined ? {} : { studio }),
+  });
+}
+
+/** True only for the internal first-run config created above. */
+export function isTesseraStudioUnconfigured(config: Pick<TesseraConfig, "database">): boolean {
+  return config.database.url === UNCONFIGURED_TESSERA_DATABASE_URL;
 }
 
 /**

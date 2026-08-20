@@ -1,5 +1,6 @@
 import {
   createTesseraConfigFromDatabaseUrl,
+  createUnconfiguredTesseraConfig,
   TesseraConfigError,
   loadTesseraConfig,
   withTesseraDatabaseUrl,
@@ -10,10 +11,12 @@ import {
   type TesseraStudioOverrides,
 } from "./config";
 import { startTesseraStudioServer } from "./server";
+import chalk from "chalk";
 
 async function main(): Promise<void> {
   const arguments_ = parseStudioCommandLine(process.argv.slice(2));
   const studio = await startTesseraStudioServer(withTesseraStudioOverrides(await resolveStudioConfig(arguments_), arguments_.overrides));
+  console.log(formatStudioStartupNotice(studio.url));
 
   let closing = false;
   const close = async () => {
@@ -98,9 +101,24 @@ export async function resolveStudioConfig(arguments_: StudioCommandLine): Promis
       && isMissingDefaultConfig(error)) {
       const databaseUrl = process.env.DATABASE_URL?.trim();
       if (databaseUrl) return createTesseraConfigFromDatabaseUrl(databaseUrl);
+      return createUnconfiguredTesseraConfig();
     }
     throw error;
   }
+}
+
+/** A compact local terminal surface, separate from structured operational logs. */
+export function formatStudioStartupNotice(url: string): string {
+  const line = chalk.gray("\u2500".repeat(54));
+  return [
+    "",
+    chalk.cyanBright.bold("  Tessera Studio is running"),
+    line,
+    `  ${chalk.greenBright("Local")}  ${chalk.underline.cyanBright(url)}`,
+    `  ${chalk.gray("Open the URL above to configure and use this workspace.")}`,
+    `  ${chalk.gray("Press Ctrl+C to stop the local server.")}`,
+    line,
+  ].join("\n");
 }
 
 function isMissingDefaultConfig(error: unknown): boolean {

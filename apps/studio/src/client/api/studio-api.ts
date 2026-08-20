@@ -68,6 +68,10 @@ export type StudioMeta = Readonly<{
   capabilities: Readonly<{ chat: boolean; artifacts: boolean }>;
 }>;
 
+export type StudioSettingsStatus = Readonly<{
+  database: Readonly<{ urlConfigured: boolean }>;
+}>;
+
 /**
  * Browser-facing typed mutation contract. Read actions continue through the
  * existing Data Agent APIs; the database-actions transport only accepts this
@@ -245,12 +249,14 @@ export async function fetchStudioThreadMessages(threadId: string, signal?: Abort
   return readPublicUiMessages(body);
 }
 
-export async function fetchStudioModelLabel(signal?: AbortSignal): Promise<string> {
+export async function fetchStudioSettingsStatus(signal?: AbortSignal): Promise<StudioSettingsStatus> {
   const body = await requestJson<unknown>("/api/settings", {
     headers: { Accept: "application/json" },
     signal,
   });
-  return readStudioModelLabel(body) ?? "Model";
+  const configured = asRecord(asRecord(asRecord(body)?.settings)?.database)?.urlConfigured;
+  if (typeof configured !== "boolean") throw new Error("settings_response_invalid");
+  return { database: { urlConfigured: configured } };
 }
 
 export function publicError(error: unknown): string {
@@ -303,16 +309,6 @@ function readPublicUiMessages(value: unknown): readonly TesseraUIMessage[] {
   return result;
 }
 
-function readStudioModelLabel(value: unknown): string | undefined {
-  const llm = asRecord(asRecord(value)?.settings)?.llm ?? asRecord(value)?.llm;
-  const provider = readPublicText(asRecord(llm)?.provider, 64);
-  const model = readPublicText(asRecord(llm)?.model, 512);
-  if (!provider || !model) return undefined;
-  const normalizedModel = model.trim().replace(new RegExp(`^${escapeRegExp(provider.trim())}/`, "i"), "");
-  const compact = normalizedModel.length > 24 ? `${normalizedModel.slice(0, 21)}...` : normalizedModel;
-  return compact || provider || "Model";
-}
-
 function readStudioThreadId(value: unknown): string | undefined {
   const id = readPublicText(value, 128);
   return id && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(id) ? id : undefined;
@@ -322,10 +318,6 @@ function readPublicText(value: unknown, maximum: number): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
   return trimmed && trimmed.length <= maximum && !/[\u0000-\u001f\u007f]/.test(trimmed) ? trimmed : undefined;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

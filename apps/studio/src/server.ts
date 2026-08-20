@@ -35,6 +35,7 @@ import { createTesseraStudioAgent } from "./agent";
 import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
+  isTesseraStudioUnconfigured,
   isTesseraLlmConfigured,
   normalizeOrigin,
   resolveTesseraLlmConfig,
@@ -1513,6 +1514,7 @@ export async function startTesseraStudioServer(
       durableState = createTesseraDurableStateStore();
       settingsRuntime = await createTesseraStudioRuntimeManager({
         config,
+        initiallyUnconfigured: isTesseraStudioUnconfigured(config),
         store: createTesseraLocalSettingsStore(),
         databaseState: durableState.state,
       });

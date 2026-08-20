@@ -333,7 +333,9 @@ function createStudioInvocation(command, options = {}) {
     throw new Error("Expected a parsed studio command.");
   }
   const cwd = options.cwd ?? process.cwd();
-  const configPath = command.configPath === undefined && command.databaseUrl !== undefined
+  // Studio can launch its first-run settings UI without a project config or a
+  // database URL. An explicit --config remains strict and must exist.
+  const configPath = command.configPath === undefined
     ? findOptionalTesseraConfig(cwd)
     : resolveStudioConfig(command.configPath, cwd);
   const entry = options.entry ?? resolveStudioEntry(options);

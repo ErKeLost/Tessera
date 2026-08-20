@@ -2,12 +2,10 @@ import {
   ChevronDownIcon,
   HistoryIcon,
   PlusIcon,
-  Table2Icon,
+  Settings2Icon,
 } from "lucide-react";
-import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
-import { Group, Panel, Separator, type PanelImperativeHandle } from "react-resizable-panels";
 import { publicError } from "../api/studio-api";
 import { Button } from "../components/motion/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
@@ -18,13 +16,10 @@ import {
   useStudioWorkspaceQueries,
 } from "../queries/studio-queries";
 import { StudioHistoryMenu } from "../studio-history-menu";
+import { StudioSettingsDialog } from "../studio-settings";
 import { StudioThemePicker } from "../studio-theme";
-import { RouteLoading } from "../routes/route-state";
-import type { TableEditorAgentPageContext } from "../table-editor";
-import { StudioDock } from "./studio-dock";
-import type { StudioAgentPageContext, StudioRouteContext } from "./studio-route-context";
-
-const TableEditor = lazy(() => import("../table-editor").then(({ TableEditor: Editor }) => ({ default: Editor })));
+import { TooltipIconButton } from "../components/assistant-ui/tooltip-icon-button";
+import type { StudioRouteContext } from "./studio-route-context";
 
 export function StudioRouteShell() {
   const location = useLocation();
@@ -37,31 +32,7 @@ export function StudioRouteShell() {
   const activeThreadId = threadId ? decodeURIComponent(threadId) : undefined;
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [databaseOpen, setDatabaseOpen] = useState(false);
-  const [agentPageContext, setAgentPageContext] = useState<StudioAgentPageContext>();
-  const databasePanelRef = useRef<PanelImperativeHandle>(null);
-  const databaseSize = useMotionValue(0);
-  const lastDatabaseSizeRef = useRef(76);
-  const reduceMotion = useReducedMotion() ?? false;
-  const isChatRoute = location.pathname.startsWith("/chat/");
-
-  useMotionValueEvent(databaseSize, "change", (size) => {
-    databasePanelRef.current?.resize(`${size}%`);
-  });
-
-  useEffect(() => {
-    if (!isChatRoute) return;
-    const targetSize = databaseOpen ? lastDatabaseSizeRef.current : 0;
-    const controls = animate(databaseSize, targetSize, {
-      duration: reduceMotion ? 0 : 0.38,
-      ease: [0.22, 1, 0.36, 1],
-    });
-    return () => controls.stop();
-  }, [databaseOpen, databaseSize, isChatRoute, reduceMotion]);
-
-  useEffect(() => {
-    if (!databaseOpen || !isChatRoute) setAgentPageContext(undefined);
-  }, [databaseOpen, isChatRoute]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const createThread = useCallback(async () => {
     try {
@@ -87,39 +58,11 @@ export function StudioRouteShell() {
     navigate(`/chat/${encodeURIComponent(id)}`);
   }, [navigate]);
 
-  const onAgentPageContextChange = useCallback((context: TableEditorAgentPageContext | undefined) => {
-    if (!context) {
-      setAgentPageContext(undefined);
-      return;
-    }
-    setAgentPageContext({
-      hasLocalFilter: context.filterActive,
-      view: context.view,
-      ...(context.schema && context.table ? {
-        currentRelation: {
-          catalogFingerprint: context.catalogFingerprint,
-          schema: context.schema,
-          table: context.table,
-        },
-      } : {}),
-    });
-  }, []);
-
   const routeContext: StudioRouteContext = {
     activeThread,
     activeThreadId,
-    agentPageContext,
     refreshWorkspace,
     workspace,
-  };
-
-  const toggleDatabase = () => {
-    if (!isChatRoute) {
-      setDatabaseOpen(true);
-      navigate("/");
-      return;
-    }
-    setDatabaseOpen((open) => !open);
   };
 
   return (
@@ -153,76 +96,28 @@ export function StudioRouteShell() {
             <PlusIcon aria-hidden="true" size={16} />
             <span>New</span>
           </Button>
-          <button
-            aria-label={databaseOpen ? "Close data explorer" : "Open data explorer"}
-            aria-pressed={databaseOpen}
-            className="studio-header-tool"
-            onClick={toggleDatabase}
-            title={databaseOpen ? "Close data explorer" : "Data explorer"}
+          <TooltipIconButton
+            aria-label="Configure workspace"
+            className="studio-header-tool studio-settings-button"
+            onClick={() => setSettingsOpen(true)}
+            tooltip="Configure workspace"
             type="button"
           >
-            <Table2Icon aria-hidden="true" size={16} />
-          </button>
+            <Settings2Icon aria-hidden="true" size={16} />
+          </TooltipIconButton>
           <StudioThemePicker />
         </nav>
       </header>
       <div className="studio-minimal-route">
-        {isChatRoute ? (
-          <Group
-            className="studio-database-workbench"
-            data-database-open={databaseOpen || undefined}
-            id="studio-database-workbench"
-            orientation="horizontal"
-          >
-            <Panel
-              className="studio-database-panel"
-              collapsible
-              collapsedSize="0%"
-              defaultSize="0%"
-              id="database"
-              minSize="0%"
-              onResize={(size) => {
-                if (databaseOpen && size.asPercentage >= 44) lastDatabaseSizeRef.current = size.asPercentage;
-              }}
-              panelRef={databasePanelRef}
-            >
-              <AnimatePresence initial={false}>
-                {databaseOpen ? (
-                  <motion.div
-                    animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, filter: "blur(0px)" }}
-                    className="studio-database-panel-content"
-                    exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -18, filter: "blur(2px)" }}
-                    initial={reduceMotion ? { opacity: 0 } : { opacity: 0, x: -18, filter: "blur(2px)" }}
-                    transition={reduceMotion ? { duration: 0 } : { duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                  >
-                    <Suspense fallback={<RouteLoading label="Loading data explorer" />}>
-                      <TableEditor
-                        catalog={workspace.catalog.data}
-                        catalogError={workspace.catalog.error ? publicError(workspace.catalog.error) : undefined}
-                        connection={workspace.connection.data}
-                        connectionError={workspace.connection.error ? publicError(workspace.connection.error) : undefined}
-                        onClose={() => setDatabaseOpen(false)}
-                        onAgentPageContextChange={onAgentPageContextChange}
-                        onRefreshCatalog={() => void refreshWorkspace()}
-                        refreshingCatalog={workspace.catalog.isFetching}
-                      />
-                    </Suspense>
-                  </motion.div>
-                ) : null}
-              </AnimatePresence>
-            </Panel>
-            <Separator className="studio-workspace-resize-handle" id="database-ai-separator">
-              <span aria-hidden="true" className="studio-workspace-resize-grip" />
-            </Separator>
-            <Panel className="studio-assistant-panel" defaultSize="100%" id="assistant" minSize="0%">
-              <div className="studio-ai-panel">
-                <Outlet context={routeContext} />
-              </div>
-            </Panel>
-          </Group>
-        ) : <Outlet context={routeContext} />}
+        <div className="studio-ai-panel">
+          <Outlet context={routeContext} />
+        </div>
       </div>
-      {!location.pathname.startsWith("/chat/") && location.pathname !== "/" ? <StudioDock /> : null}
+      <StudioSettingsDialog
+        onOpenChange={setSettingsOpen}
+        onSaved={() => { void refreshWorkspace(); }}
+        open={settingsOpen}
+      />
     </div>
   );
 }
