@@ -123,7 +123,8 @@ export function formatStudioStartupNotice(url: string): string {
 }
 
 function isMissingDefaultConfig(error: unknown): boolean {
-  return error instanceof TesseraConfigError && error.message.startsWith("Tessera configuration was not found at ");
+  return isTesseraConfigError(error)
+    && error.message.startsWith("Tessera configuration was not found at ");
 }
 
 /**
@@ -133,10 +134,20 @@ function isMissingDefaultConfig(error: unknown): boolean {
  */
 function isOptionalDefaultConfigFailure(error: unknown): boolean {
   if (isMissingDefaultConfig(error)) return true;
-  if (!(error instanceof TesseraConfigError)) return false;
+  if (!isTesseraConfigError(error)) return false;
   return error.message.startsWith("Tessera configuration could not be loaded from ")
     || error.message.includes(" is invalid.")
     || error.message.includes("must export a default config");
+}
+
+function isTesseraConfigError(error: unknown): error is TesseraConfigError {
+  // Bundled Studio can load the config chunk through a separate module
+  // instance, so relying on instanceof would reject an otherwise valid empty
+  // first-run configuration.
+  return error instanceof TesseraConfigError
+    || (typeof error === "object" && error !== null
+      && "name" in error && (error as { name?: unknown }).name === "TesseraConfigError"
+      && "message" in error && typeof (error as { message?: unknown }).message === "string");
 }
 
 if (import.meta.main) {

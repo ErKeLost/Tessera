@@ -86,6 +86,9 @@ jobs:
       - name: Build and verify workspace
         run: bun run release:check
 
+      - name: Prepare npm dependency ranges
+        run: bun scripts/prepare-npm-release.ts
+
       - name: Verify Bun publish manifests
         shell: bash
         run: |

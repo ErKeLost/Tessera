@@ -19,6 +19,7 @@ import {
   getTesseraProviderBaseUrl,
   inferTesseraDatabaseDialect,
   isTesseraLlmConfigured,
+  isTesseraStudioUnconfigured,
   loadTesseraEnvironment,
   loadTesseraConfig,
   resolveTesseraLlmConfig,
@@ -286,6 +287,21 @@ describe("Tessera configuration", () => {
 });
 
 describe("Tessera Studio command line", () => {
+  test("starts with an empty local configuration when no project config exists", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "tessera-empty-studio-"));
+    const previousDatabaseUrl = process.env.DATABASE_URL;
+    try {
+      delete process.env.DATABASE_URL;
+      const resolved = await resolveStudioConfig({ config: { cwd: directory }, overrides: {} });
+      expect(isTesseraStudioUnconfigured(resolved)).toBe(true);
+      expect(resolved.studio.host).toBe(DEFAULT_TESSERA_STUDIO_HOST);
+    } finally {
+      if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = previousDatabaseUrl;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   test("accepts a single positional PostgreSQL or MySQL URL plus safe listen overrides", async () => {
     expect(parseStudioCommandLine([
       "--config",

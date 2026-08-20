@@ -35,6 +35,7 @@ import { createTesseraStudioAgent } from "./agent";
 import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
+  DEFAULT_TESSERA_STUDIO_PORT,
   isTesseraStudioUnconfigured,
   isTesseraLlmConfigured,
   normalizeOrigin,
@@ -1538,12 +1539,26 @@ export async function startTesseraStudioServer(
       });
     }
     runtime = createTesseraStudioRuntime(config, { ...options, settingsRuntime, logger });
-    server = Bun.serve({
-      hostname: config.studio.host,
-      port: config.studio.port,
-      idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
-      fetch: createStudioFetchHandler(runtime.app),
-    });
+    const fetch = createStudioFetchHandler(runtime.app);
+    try {
+      server = Bun.serve({
+        hostname: config.studio.host,
+        port: config.studio.port,
+        idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
+        fetch,
+      });
+    } catch (error) {
+      // A second local Studio should still open the empty/settings workspace.
+      // Only the conventional default port falls back; an explicit port keeps
+      // its strict failure semantics so deployment mistakes remain visible.
+      if (!isAddressInUseError(error) || config.studio.port !== DEFAULT_TESSERA_STUDIO_PORT) throw error;
+      server = Bun.serve({
+        hostname: config.studio.host,
+        port: 0,
+        idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
+        fetch,
+      });
+    }
   } catch (error) {
     writeStudioLog(logger, "error", {
       event: "startup",
@@ -1601,6 +1616,14 @@ export async function startTesseraStudioServer(
       });
     },
   };
+}
+
+function isAddressInUseError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? (error as { code?: unknown }).code : undefined;
+  if (code === "EADDRINUSE") return true;
+  const message = "message" in error ? (error as { message?: unknown }).message : undefined;
+  return typeof message === "string" && /address already in use|port .* already in use|EADDRINUSE/i.test(message);
 }
 
 /**
