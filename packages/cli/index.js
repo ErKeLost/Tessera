@@ -307,8 +307,6 @@ function resolveStudioEntry(options = {}) {
     paths: [cliDirectory],
   }));
   for (const specifier of [
-    "@tessera/studio/main",
-    "@tessera/studio/server",
     "@data-elements/studio/main",
     "@data-elements/studio/server",
   ]) {
@@ -316,7 +314,7 @@ function resolveStudioEntry(options = {}) {
       return resolvePackage(specifier);
     } catch {}
   }
-  throw new Error("Could not find the Tessera Studio server. Reinstall data-elements so its @tessera/studio dependency is present, or run this command from a Tessera source checkout.");
+  throw new Error("Could not find the Tessera Studio server. Reinstall data-elements so its @data-elements/studio dependency is present, or run this command from a Tessera source checkout.");
 }
 
 function resolveBunExecutable(processLike = process) {

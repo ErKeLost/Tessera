@@ -19,7 +19,7 @@
     "LICENSE"
   ],
   "dependencies": {
-    "@tessera/studio": "workspace:*"
+    "@data-elements/studio": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
