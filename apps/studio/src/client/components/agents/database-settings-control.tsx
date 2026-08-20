@@ -22,8 +22,15 @@ import {
   MorphPopoverContent,
   MorphPopoverTrigger,
 } from "../motion/popover-morph";
+import { Field, FieldGroup, FieldLabel } from "../ui/field";
 import { Input } from "../ui/input";
-import { Label } from "../ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../ui/select";
 
 type SettingsTab = "connection" | "limits";
 type RequestState = "idle" | "loading" | "testing" | "saving" | "success" | "error";
@@ -79,7 +86,7 @@ export function DatabaseSettingsControl({
       <MorphPopoverContent
         align="end"
         className="studio-database-settings-popover w-[min(23rem,calc(100dvw-1.5rem))] p-0"
-        radius={14}
+        radius={10}
         side="top"
         sideOffset={10}
       >
@@ -184,10 +191,10 @@ function DatabaseSettingsPanel({ onSaved }: { onSaved?(): void }) {
     >
       <header className="studio-database-settings-header">
         <div>
-          <p>Data source</p>
           <h2>Database connection</h2>
+          <p>Configure the connection used for your queries.</p>
         </div>
-        <span className={settings.database.urlConfigured ? "is-configured" : undefined}>
+        <span aria-label={`Database is ${settings.database.urlConfigured ? "configured" : "not configured"}`} className={settings.database.urlConfigured ? "is-configured" : undefined}>
           {settings.database.urlConfigured ? "Configured" : "Not configured"}
         </span>
       </header>
@@ -217,14 +224,16 @@ function DatabaseSettingsPanel({ onSaved }: { onSaved?(): void }) {
       {notice ? <p className={`studio-database-settings-notice is-${requestState}`} role="status">{notice}</p> : null}
 
       <footer className="studio-database-settings-footer">
-        <Button disabled={busy || !candidate} onClick={() => void test()} size="sm" type="button" variant="outline">
-          {requestState === "testing" ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
-          Test
-        </Button>
-        <Button disabled={busy || !candidate} size="sm" type="submit">
-          {requestState === "saving" ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <CheckIcon className="size-3.5" />}
-          Save
-        </Button>
+        <Field className="studio-database-settings-actions" orientation="horizontal">
+          <Button disabled={busy || !candidate} onClick={() => void test()} size="sm" type="button" variant="outline">
+            {requestState === "testing" ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : null}
+            Test connection
+          </Button>
+          <Button disabled={busy || !candidate} size="sm" type="submit">
+            {requestState === "saving" ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <CheckIcon className="size-3.5" />}
+            Save changes
+          </Button>
+        </Field>
       </footer>
     </form>
   );
@@ -268,33 +277,41 @@ function ConnectionFields({
   onChange<Key extends keyof DatabaseSettingsForm>(key: Key, value: DatabaseSettingsForm[Key]): void;
 }) {
   return (
-    <div className="studio-database-settings-fields">
-      <label>
-        <span>Database engine</span>
-        <select disabled={busy} onChange={(event) => onChange("dialect", event.target.value as StudioDatabaseDialect)} value={form.dialect}>
-          <option value="postgres">PostgreSQL</option>
-          <option value="mysql">MySQL</option>
-        </select>
-      </label>
-      <label>
-        <span>Access mode</span>
-        <select disabled={busy} onChange={(event) => onChange("accessMode", event.target.value as StudioDatabaseAccessMode)} value={form.accessMode}>
-          <option value="read-only">Read-only</option>
-          <option value="read-write">Read &amp; write</option>
-        </select>
-      </label>
-      <label className="studio-database-settings-url">
-        <span>Database URL</span>
+    <FieldGroup className="studio-database-settings-fields">
+      <Field>
+        <FieldLabel htmlFor="database-engine">Database engine</FieldLabel>
+        <Select disabled={busy} onValueChange={(value) => onChange("dialect", value as StudioDatabaseDialect)} value={form.dialect}>
+          <SelectTrigger aria-label="Database engine" className="studio-database-settings-select" id="database-engine" size="sm"><SelectValue /></SelectTrigger>
+          <SelectContent className="studio-database-settings-select-content" position="popper">
+            <SelectItem value="postgres">PostgreSQL</SelectItem>
+            <SelectItem value="mysql">MySQL</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field>
+        <FieldLabel htmlFor="database-access-mode">Access mode</FieldLabel>
+        <Select disabled={busy} onValueChange={(value) => onChange("accessMode", value as StudioDatabaseAccessMode)} value={form.accessMode}>
+          <SelectTrigger aria-label="Access mode" className="studio-database-settings-select" id="database-access-mode" size="sm"><SelectValue /></SelectTrigger>
+          <SelectContent className="studio-database-settings-select-content" position="popper">
+            <SelectItem value="read-only">Read-only</SelectItem>
+            <SelectItem value="read-write">Read &amp; write</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+      <Field className="studio-database-settings-url">
+        <FieldLabel htmlFor="database-url">Database URL</FieldLabel>
         <Input
           autoComplete="off"
           disabled={busy}
+          id="database-url"
+          name="database-url"
           onChange={(event) => onChange("databaseUrl", event.target.value)}
           placeholder={configured ? "Configured locally" : "postgres:// or mysql://"}
           type="password"
           value={form.databaseUrl}
         />
-      </label>
-    </div>
+      </Field>
+    </FieldGroup>
   );
 }
 
@@ -308,16 +325,17 @@ function LimitFields({
   onChange<Key extends keyof DatabaseSettingsForm>(key: Key, value: DatabaseSettingsForm[Key]): void;
 }) {
   return (
-    <div className="studio-database-settings-fields">
-      <NumberInput busy={busy} label="Maximum rows" max={10_000} min={1} onChange={(value) => onChange("maxRows", value)} value={form.maxRows} />
-      <NumberInput busy={busy} label="Timeout (ms)" max={120_000} min={250} onChange={(value) => onChange("timeoutMs", value)} value={form.timeoutMs} />
-      <NumberInput busy={busy} label="Maximum steps" max={50} min={3} onChange={(value) => onChange("maxSteps", value)} value={form.maxSteps} />
-    </div>
+    <FieldGroup className="studio-database-settings-fields studio-database-settings-limit-fields">
+      <NumberInput busy={busy} id="database-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => onChange("maxRows", value)} value={form.maxRows} />
+      <NumberInput busy={busy} id="database-timeout" label="Timeout (ms)" max={120_000} min={250} onChange={(value) => onChange("timeoutMs", value)} value={form.timeoutMs} />
+      <NumberInput busy={busy} id="database-max-steps" label="Maximum steps" max={50} min={3} onChange={(value) => onChange("maxSteps", value)} value={form.maxSteps} />
+    </FieldGroup>
   );
 }
 
 function NumberInput({
   busy,
+  id,
   label,
   max,
   min,
@@ -325,6 +343,7 @@ function NumberInput({
   value,
 }: {
   busy: boolean;
+  id: string;
   label: string;
   max: number;
   min: number;
@@ -332,10 +351,10 @@ function NumberInput({
   value: string;
 }) {
   return (
-    <label>
-      <span>{label}</span>
-      <Input disabled={busy} inputMode="numeric" max={max} min={min} onChange={(event) => onChange(event.target.value)} step={1} type="number" value={value} />
-    </label>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Input disabled={busy} id={id} inputMode="numeric" max={max} min={min} name={id} onChange={(event) => onChange(event.target.value)} step={1} type="number" value={value} />
+    </Field>
   );
 }
 

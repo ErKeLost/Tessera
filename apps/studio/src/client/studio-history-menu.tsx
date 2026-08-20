@@ -57,7 +57,6 @@ export function StudioHistoryMenu({
 
   const removeThread = async (thread: StudioThreadSummary) => {
     setMenuThreadId(undefined);
-    if (!window.confirm(`Delete "${thread.title}"? This cannot be undone.`)) return;
     await onDelete(thread.id);
   };
 

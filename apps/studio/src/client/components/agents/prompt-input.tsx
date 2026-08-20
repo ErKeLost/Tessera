@@ -28,6 +28,13 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/motion/select";
+import {
+  Select as StudioSelect,
+  SelectContent as StudioSelectContent,
+  SelectItem as StudioSelectItem,
+  SelectTrigger as StudioSelectTrigger,
+  SelectValue as StudioSelectValue,
+} from "@/components/ui/select";
 import { SPRING_SWAP } from "@/lib/ease";
 import { cn } from "@/lib/utils";
 
@@ -488,49 +495,54 @@ function PermissionControl({
           <ShieldCheck className="size-4" />
         </Button>
       </MorphPopoverTrigger>
-      <MorphPopoverContent side="top" align="end" sideOffset={8} radius={12} className="w-72 p-3">
-        <div className="grid gap-3">
-          <div className="flex items-center justify-between gap-3">
+      <MorphPopoverContent side="top" align="end" sideOffset={8} radius={10} className="studio-permissions-popover p-0">
+        <section className="studio-permissions-panel" aria-label="Database permissions">
+          <header className="studio-permissions-header">
             <div>
-              <p className="text-sm font-medium text-foreground">Database permissions</p>
-              <p className="text-[11px] text-muted-foreground">Datus-style SQL approval policy</p>
+              <p>Data access</p>
+              <h2>Database permissions</h2>
             </div>
-            <select
-              aria-label="Permission profile"
-              className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-foreground/40"
+            <StudioSelect
               disabled={!current || saving}
-              onChange={(event) => setCurrent((previous) => previous && {
+              onValueChange={(profile) => setCurrent((previous) => previous && {
                 ...previous,
-                profile: event.target.value as PromptPermissionProfile,
+                profile: profile as PromptPermissionProfile,
               })}
               value={current?.profile ?? "normal"}
             >
-              {permissionProfiles.map(([profile, label]) => <option key={profile} value={profile}>{label}</option>)}
-            </select>
-          </div>
-          <div className="grid gap-1.5">
+              <StudioSelectTrigger aria-label="Permission profile" className="studio-permissions-profile" size="sm"><StudioSelectValue /></StudioSelectTrigger>
+              <StudioSelectContent className="studio-permissions-select-content" position="popper">
+                {permissionProfiles.map(([profile, label]) => <StudioSelectItem key={profile} value={profile}>{label}</StudioSelectItem>)}
+              </StudioSelectContent>
+            </StudioSelect>
+          </header>
+          <div className="studio-permissions-rules">
             {permissionClasses.map(([key, label]) => (
-              <label className="flex items-center justify-between gap-3 text-xs text-foreground" key={key}>
+              <div className="studio-permissions-rule" key={key}>
                 <span>{label} SQL</span>
-                <select
+                <StudioSelect
                   aria-label={`${label} SQL permission`}
-                  className="h-7 rounded-md border border-border bg-background px-2 text-xs text-foreground outline-none focus:border-foreground/40"
                   disabled={!current || saving}
-                  onChange={(event) => update(key, event.target.value as PromptPermissionLevel)}
+                  onValueChange={(permission) => update(key, permission as PromptPermissionLevel)}
                   value={current?.sqlStatements[key] ?? "ask"}
                 >
-                  <option value="allow">Allow</option>
-                  <option value="ask">Ask</option>
-                  <option value="deny">Deny</option>
-                </select>
-              </label>
+                  <StudioSelectTrigger aria-label={`${label} SQL permission`} className="studio-permissions-rule-select" size="sm"><StudioSelectValue /></StudioSelectTrigger>
+                  <StudioSelectContent className="studio-permissions-select-content" position="popper">
+                    <StudioSelectItem value="allow">Allow</StudioSelectItem>
+                    <StudioSelectItem value="ask">Ask</StudioSelectItem>
+                    <StudioSelectItem value="deny">Deny</StudioSelectItem>
+                  </StudioSelectContent>
+                </StudioSelect>
+              </div>
             ))}
           </div>
-          {notice ? <p className="text-xs text-destructive" role="alert">{notice}</p> : null}
-          <Button disabled={!current || saving} onClick={() => void save()} size="sm" type="button">
-            {saving ? "Saving..." : <><Check className="size-3.5" />Save permissions</>}
-          </Button>
-        </div>
+          {notice ? <p className="studio-permissions-notice" role="alert">{notice}</p> : null}
+          <footer className="studio-permissions-footer">
+            <Button disabled={!current || saving} onClick={() => void save()} size="sm" type="button">
+              {saving ? "Saving..." : <><Check className="size-3.5" />Save permissions</>}
+            </Button>
+          </footer>
+        </section>
       </MorphPopoverContent>
     </MorphPopover>
   );

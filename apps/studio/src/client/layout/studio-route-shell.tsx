@@ -175,6 +175,7 @@ export function StudioRouteShell() {
             orientation="horizontal"
           >
             <Panel
+              className="studio-database-panel"
               collapsible
               collapsedSize="0%"
               defaultSize="0%"
@@ -213,7 +214,7 @@ export function StudioRouteShell() {
             <Separator className="studio-workspace-resize-handle" id="database-ai-separator">
               <span aria-hidden="true" className="studio-workspace-resize-grip" />
             </Separator>
-            <Panel defaultSize="100%" id="assistant" minSize="0%">
+            <Panel className="studio-assistant-panel" defaultSize="100%" id="assistant" minSize="0%">
               <div className="studio-ai-panel">
                 <Outlet context={routeContext} />
               </div>
