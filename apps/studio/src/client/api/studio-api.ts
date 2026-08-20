@@ -63,6 +63,18 @@ export type StudioCatalog = Readonly<{
   schemas: Array<{ name: string; tables: StudioCatalogTable[] }>;
 }>;
 
+export type StudioTablePreview = Readonly<{
+  columns: StudioCatalogColumn[];
+  durationMs: number;
+  page: number;
+  pageSize: number;
+  rowCount: number;
+  rows: Array<Record<string, string | number | boolean | null>>;
+  table: StudioCatalogTable;
+  totalRowCount: number;
+  truncated: boolean;
+}>;
+
 export type StudioMeta = Readonly<{
   protocolVersion: number;
   capabilities: Readonly<{ chat: boolean; artifacts: boolean }>;
@@ -133,6 +145,17 @@ export async function fetchStudioConnection(signal?: AbortSignal): Promise<Studi
 export async function fetchStudioCatalog(options: { refresh?: boolean; signal?: AbortSignal } = {}): Promise<StudioCatalog> {
   const search = options.refresh ? "?refresh=1" : "";
   return (await requestJson<{ catalog: StudioCatalog }>(`/api/catalog${search}`, { signal: options.signal })).catalog;
+}
+
+export function fetchStudioTablePreview(
+  schema: string,
+  table: string,
+  signal?: AbortSignal,
+): Promise<StudioTablePreview> {
+  return requestJson<StudioTablePreview>(
+    `/api/data/${encodeURIComponent(schema)}/${encodeURIComponent(table)}`,
+    { signal },
+  );
 }
 
 export function fetchStudioDatabaseActionCapabilities(signal?: AbortSignal): Promise<StudioDatabaseActionCapabilities> {

@@ -117,6 +117,7 @@ export type StudioSettingsCandidate = Readonly<{
 }>;
 
 export type StudioSettingsDialogProps = Readonly<{
+  initialTab?: StudioSettingsTab;
   open: boolean;
   onOpenChange(open: boolean): void;
   onSaved?(settings: StudioSettingsSnapshot): void;
@@ -172,6 +173,7 @@ const REASONING_EFFORTS = new Set<StudioReasoningEffort>(["minimal", "low", "med
 const EMPTY_MODEL_CATALOG: StudioOpenRouterModelCatalog = { models: [] };
 
 export function StudioSettingsDialog({
+  initialTab = "database",
   open,
   onOpenChange,
   onSaved,
@@ -228,6 +230,10 @@ export function StudioSettingsDialog({
   }, []);
 
   const visible = open;
+
+  useEffect(() => {
+    if (open) setActiveTab(initialTab);
+  }, [initialTab, open]);
 
   useEffect(() => {
     if (!visible) return;
@@ -412,7 +418,7 @@ export function StudioSettingsDialog({
       </DialogHeader>
 
       <Tabs
-        defaultValue="database"
+        value={activeTab}
         onValueChange={(value) => setActiveTab(value as StudioSettingsTab)}
       >
         <TabsList className="w-full">

@@ -1,7 +1,6 @@
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
-import { Alert, AlertDescription } from "../components/ui/alert";
 import { Button } from "../components/motion/button";
 import { publicError } from "../api/studio-api";
 import { useStudioRouteContext } from "../layout/studio-route-context";
@@ -14,7 +13,7 @@ export function StudioChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const threadId = rawThreadId ? decodeURIComponent(rawThreadId) : undefined;
-  const { activeThreadId, workspace } = useStudioRouteContext();
+  const { activeThreadId, openSettings } = useStudioRouteContext();
   const messages = useStudioThreadMessagesQuery(threadId);
   const initialPromptRef = useRef(
     (location.state as { initialPrompt?: string } | null)?.initialPrompt,
@@ -32,24 +31,13 @@ export function StudioChatRoute() {
   if (messages.isLoading) return <RouteLoading label="Loading analysis session" />;
   if (messages.error) return <RouteError message={publicError(messages.error)} />;
 
-  const ready = Boolean(
-    workspace.connection.data?.connected
-    && workspace.catalog.data
-    && workspace.meta.data?.capabilities.chat,
-  );
-
   return (
     <section aria-label="Data analysis conversation" className="studio-chat-route">
-      {workspace.connection.error || workspace.catalog.error ? (
-        <Alert className="studio-connection-notice" role="status">
-          <AlertDescription>{publicError(workspace.connection.error ?? workspace.catalog.error)}</AlertDescription>
-        </Alert>
-      ) : null}
       <StudioAssistant
         initialMessages={messages.data ?? []}
         initialPrompt={initialPromptRef.current}
-        isSendDisabled={!ready}
         key={threadId}
+        onOpenSettings={openSettings}
         onThreadActivity={() => { void messages.refetch(); }}
         threadId={threadId}
       />

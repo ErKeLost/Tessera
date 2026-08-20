@@ -16,11 +16,13 @@ import {
 import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import {
   ChartBarIcon,
+  ChevronDownIcon,
   CopyIcon,
   DatabaseIcon,
   FileSearchIcon,
   ListTreeIcon,
   PencilIcon,
+  ShieldCheckIcon,
   TerminalIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -30,6 +32,7 @@ import type {
   TesseraExecutionTraceData,
   TesseraUIMessage,
 } from "../protocol";
+import type { StudioSettingsTab } from "./studio-settings";
 import {
   Conversation,
   ConversationContent,
@@ -78,13 +81,13 @@ const TesseraExecutionTraceDataUI = makeAssistantDataUI<TesseraExecutionTraceDat
 export function StudioAssistant({
   initialMessages,
   initialPrompt,
-  isSendDisabled,
+  onOpenSettings,
   onThreadActivity,
   threadId,
 }: {
   initialMessages: readonly TesseraUIMessage[];
   initialPrompt?: string;
-  isSendDisabled: boolean;
+  onOpenSettings(tab: StudioSettingsTab): void;
   onThreadActivity?(): void;
   threadId: string;
 }) {
@@ -125,22 +128,22 @@ export function StudioAssistant({
   });
   const initialPromptSent = useRef(false);
   useEffect(() => {
-    if (!initialPrompt || initialMessages.length > 0 || isSendDisabled || initialPromptSent.current) return;
+    if (!initialPrompt || initialMessages.length > 0 || initialPromptSent.current) return;
     initialPromptSent.current = true;
     void chat.sendMessage({ text: initialPrompt });
-  }, [chat, initialMessages.length, initialPrompt, isSendDisabled]);
-  const runtime = useAISDKRuntime<TesseraUIMessage>(chat, { isSendDisabled });
+  }, [chat, initialMessages.length, initialPrompt]);
+  const runtime = useAISDKRuntime<TesseraUIMessage>(chat);
   transport.setRuntime(runtime);
 
   return (
     <AssistantRuntimeProvider config={tesseraStudioAssistantConfig} runtime={runtime}>
       <TesseraExecutionTraceDataUI />
-      <StudioConversation />
+      <StudioConversation onOpenSettings={onOpenSettings} />
     </AssistantRuntimeProvider>
   );
 }
 
-function StudioConversation() {
+function StudioConversation({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">
       <ThreadPrimitive.Root className="tessera-thread-root">
@@ -150,6 +153,7 @@ function StudioConversation() {
         >
           <Conversation className="tessera-conversation">
             <ConversationContent className="tessera-conversation-content">
+              <StudioEmptyState />
               <ThreadPrimitive.Messages>
                 {() => <StudioMessage />}
               </ThreadPrimitive.Messages>
@@ -161,10 +165,27 @@ function StudioConversation() {
           </Conversation>
         </ThreadPrimitive.Viewport>
         <footer className="tessera-composer-dock">
-          <StudioComposer />
+          <StudioComposer onOpenSettings={onOpenSettings} />
         </footer>
       </ThreadPrimitive.Root>
     </section>
+  );
+}
+
+function StudioEmptyState() {
+  const isEmpty = useAuiState((state) => state.thread.messages.length === 0);
+  if (!isEmpty) return null;
+  return (
+    <div className="tessera-empty-state">
+      <div className="tessera-empty-content">
+        <h1>What would you like to analyze?</h1>
+        <div className="tessera-starter-prompts" aria-label="Suggested analyses">
+          <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Show me the structure of this database and its most important tables.">Explore schema</ThreadPrimitive.Suggestion>
+          <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Find the most important trends in this database.">Analyze trends</ThreadPrimitive.Suggestion>
+          <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Check the data for quality issues and unusual values.">Check quality</ThreadPrimitive.Suggestion>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -355,7 +376,7 @@ function StudioEditComposer() {
   );
 }
 
-function StudioComposer() {
+function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const attachmentCount = useAuiState((state) => state.composer.attachments.length);
   const aui = useAui();
@@ -371,13 +392,14 @@ function StudioComposer() {
   };
 
   return (
-    <ComposerPrimitive.Root>
+    <ComposerPrimitive.Root className="tessera-composer-form">
       <PromptInput
         aria-label="Ask Tessera to analyze your data"
         autoFocus
         className="tessera-composer studio-composer"
         attachments={<ComposerAttachments />}
-        disabled={composer.isDisabled || !composer.canSend}
+        disabled={composer.isDisabled}
+        footer={<StudioComposerSettings onOpenSettings={onOpenSettings} />}
         hasAttachments={attachmentCount > 0}
         leadingAction={<ComposerAddAttachment />}
         loading={isRunning}
@@ -390,6 +412,33 @@ function StudioComposer() {
         value={composer.value}
       />
     </ComposerPrimitive.Root>
+  );
+}
+
+function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
+  return (
+    <>
+      <button
+        aria-label="Change model"
+        className="studio-composer-setting"
+        onClick={() => onOpenSettings("model")}
+        title="Change model"
+        type="button"
+      >
+        <span>Model</span>
+        <ChevronDownIcon aria-hidden="true" size={13} />
+      </button>
+      <button
+        aria-label="Configure permissions"
+        className="studio-composer-setting"
+        onClick={() => onOpenSettings("permissions")}
+        title="Configure permissions"
+        type="button"
+      >
+        <ShieldCheckIcon aria-hidden="true" size={14} />
+        <span>Permissions</span>
+      </button>
+    </>
   );
 }
 

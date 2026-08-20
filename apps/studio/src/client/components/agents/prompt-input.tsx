@@ -47,6 +47,7 @@ export interface PromptInputProps extends Omit<
   minRows?: number;
   maxRows?: number;
   leadingAction?: ReactNode;
+  footer?: ReactNode;
   attachments?: ReactNode;
   hasAttachments?: boolean;
   onPasteFiles?: (files: File[]) => void | Promise<void>;
@@ -66,6 +67,7 @@ export function PromptInput({
   minRows = 2,
   maxRows = 8,
   leadingAction,
+  footer,
   attachments,
   hasAttachments = false,
   onPasteFiles,
@@ -263,6 +265,11 @@ export function PromptInput({
           </MorphPopover>
         ) : null}
         {leadingAction}
+        {footer ? (
+          <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+            {footer}
+          </div>
+        ) : null}
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <Button
             type="button"
