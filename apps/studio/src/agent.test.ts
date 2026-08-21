@@ -35,12 +35,10 @@ import {
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
-  toPublicExecutionTraceData,
-  toPublicStageData,
 } from "./agent";
 import { RequestContext } from "@mastra/core/request-context";
 import type { TesseraLlmConfig } from "./config";
-import type { TesseraDataAgentStage } from "./protocol";
+import type { TesseraUIMessageChunk } from "./protocol";
 import type { DatabaseCatalog, DatabaseQueryResult } from "@data-elements/database";
 import { createTesseraSessionMemory } from "./session-memory";
 
@@ -62,6 +60,13 @@ function streamOnlyTestModel() {
           stream: new ReadableStream({
             start(controller) {
               controller.enqueue({ type: "stream-start", warnings: [] });
+              controller.enqueue({ type: "reasoning-start", id: "reasoning-1" });
+              controller.enqueue({
+                type: "reasoning-delta",
+                id: "reasoning-1",
+                delta: "Checked the request against the available context.",
+              });
+              controller.enqueue({ type: "reasoning-end", id: "reasoning-1" });
               controller.enqueue({ type: "text-start", id: "text-1" });
               controller.enqueue({ type: "text-delta", id: "text-1", delta: "A streamed Tessera response." });
               controller.enqueue({ type: "text-end", id: "text-1" });
@@ -873,7 +878,7 @@ describe("Tessera Agent vNext public boundary", () => {
 
   });
 
-  test("uses Agent.stream for a completed run and persists that private turn", async () => {
+  test("streams native reasoning and persists the completed private turn", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-stream-"));
     const session = createTesseraSessionMemory({ rootDirectory });
     const testModel = streamOnlyTestModel();
@@ -893,14 +898,32 @@ describe("Tessera Agent vNext public boundary", () => {
         memory: session.memory,
         llm,
       });
-      const run = await agent.run({
+      const stream = agent.streamUI?.({
         runId: "run-stream",
         threadId: "thread-stream-run",
         message: "Remember the stream marker.",
         signal: new AbortController().signal,
       });
+      if (!stream) throw new Error("Expected the Studio Agent to expose its native UI stream.");
+      const chunks: TesseraUIMessageChunk[] = [];
+      const reader = stream.getReader();
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        chunks.push(next.value);
+      }
 
-      expect(run.message).toBe("A streamed Tessera response.");
+      expect(chunks.map((chunk) => chunk.type)).toEqual(expect.arrayContaining([
+        "reasoning-start",
+        "reasoning-delta",
+        "reasoning-end",
+        "text-start",
+        "text-delta",
+        "text-end",
+        "finish",
+      ]));
+      expect(JSON.stringify(chunks)).toContain("Checked the request against the available context.");
+      expect(JSON.stringify(chunks)).toContain("A streamed Tessera response.");
       expect(testModel.calls.stream).toBe(1);
       const memory = await session.memory.getContext({
         threadId: "thread-stream-run",
@@ -1625,68 +1648,4 @@ describe("Tessera Agent vNext public boundary", () => {
     })).toEqual({ status: "completed", rowCount: 2 });
   });
 
-  test("maps private runtime lifecycle into product stages without details", () => {
-    expect(toPublicStageData("run-5", {
-      type: "stage",
-      requestId: "private-request",
-      stage: "semantic",
-      status: "completed",
-      at: "2026-08-16T10:00:00.000Z",
-      durationMs: 5,
-    })).toEqual({ runId: "run-5", stage: "retrieval", status: "completed", durationMs: 5 });
-
-    expect(toPublicStageData("run-5", {
-      type: "stage",
-      requestId: "private-request",
-      stage: "binding",
-      status: "started",
-      at: "2026-08-16T10:00:00.000Z",
-    })).toEqual({ runId: "run-5", stage: "planning", status: "started" });
-
-    expect(toPublicStageData("run-5", {
-      type: "stage",
-      requestId: "private-request",
-      stage: "probing",
-      status: "skipped",
-      at: "2026-08-16T10:00:00.000Z",
-    })).toBeUndefined();
-  });
-
-  test("keeps a connected canonical timeline when a run has no public probe tool", () => {
-    const stages = new Map<TesseraDataAgentStage, { status: "completed" }>([
-      ["catalog", { status: "completed" as const }],
-      ["retrieval", { status: "completed" as const }],
-      ["planning", { status: "completed" as const }],
-      ["compiling", { status: "completed" as const }],
-      ["executing", { status: "completed" as const }],
-      ["verifying", { status: "completed" as const }],
-      ["publishing", { status: "completed" as const }],
-      ["narrating", { status: "completed" as const }],
-    ]);
-
-    expect(toPublicExecutionTraceData("run-6", stages)).toEqual({
-      runId: "run-6",
-      status: "completed",
-      stages: [
-        { stage: "catalog", status: "completed" },
-        { stage: "retrieval", status: "completed" },
-        { stage: "planning", status: "completed" },
-        { stage: "compiling", status: "completed" },
-        { stage: "executing", status: "completed" },
-        { stage: "verifying", status: "completed" },
-        { stage: "publishing", status: "completed" },
-        { stage: "narrating", status: "completed" },
-      ],
-    });
-  });
-
-  test("treats a published agent result as a completed execution without a narrator stage", () => {
-    const stages = new Map<TesseraDataAgentStage, { status: "completed" }>([
-      ["catalog", { status: "completed" as const }],
-      ["executing", { status: "completed" as const }],
-      ["publishing", { status: "completed" as const }],
-    ]);
-
-    expect(toPublicExecutionTraceData("run-7", stages).status).toBe("completed");
-  });
 });

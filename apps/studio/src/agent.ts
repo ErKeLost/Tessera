@@ -21,7 +21,6 @@ import {
   type AnalysisPredicate,
   type DataAgent,
   type DataAgentRunResult,
-  type DataAgentStageEvent,
   type PlanningCapability,
   type SemanticCatalog,
 } from "@data-elements/data-agent";
@@ -44,13 +43,10 @@ import {
 import { normalizeResultValue } from "./result-value";
 import { tesseraSessionResourceId } from "./session-memory";
 import type {
-  TesseraDataAgentStage,
   TesseraExecuteSqlToolOutput,
-  TesseraExecutionTraceData,
   TesseraListCatalogToolOutput,
   TesseraListDatabaseToolOutput,
   TesseraRunAnalysisToolOutput,
-  TesseraStageData,
   TesseraToolName,
   TesseraUIMessageChunk,
 } from "./protocol";
@@ -1595,7 +1591,6 @@ type CopilotRuntime = {
   schemaInventory?: DatabaseSchemaInventory;
   /** Full semantic snapshot used only to project model-visible physical fields. */
   schemaSemanticCatalog?: SemanticCatalog;
-  stages: Map<TesseraDataAgentStage, Omit<TesseraStageData, "runId" | "stage">>;
 };
 
 /**
@@ -1633,8 +1628,6 @@ export type PlanningCatalogScope = Readonly<{
     relationships: number;
   }>;
 }>;
-
-type StageReporter = (stage: TesseraDataAgentStage, status: TesseraStageData["status"], durationMs?: number) => Promise<void>;
 
 /** The Studio agent owns conversation and presentation, never direct database access. */
 export type TesseraStudioAgentOptions = Readonly<{
@@ -1679,7 +1672,6 @@ function createCopilotRuntime(): CopilotRuntime {
     rejectedAnalysisPlans: new Set(),
     rejectedInvalidAnalysisInputs: 0,
     currentContextInspected: false,
-    stages: new Map(),
   };
 }
 
@@ -1699,10 +1691,9 @@ async function runTesseraAgentTurn(
     appendCopilotOutcome(
       toAISdkV5Stream(output, {
         from: "agent",
+        sendReasoning: true,
         onError: () => "The Tessera Agent could not complete this analysis.",
       }) as ReadableStream<TesseraUIMessageChunk>,
-      input,
-      runtime,
     ),
   );
   const message = safeAssistantNarration(response);
@@ -1729,10 +1720,9 @@ async function streamTesseraAgentTurn(
   const source = appendCopilotOutcome(
     toAISdkV5Stream(output, {
       from: "agent",
+      sendReasoning: true,
       onError: () => "The Tessera Agent could not complete this analysis.",
     }) as ReadableStream<TesseraUIMessageChunk>,
-    input,
-    runtime,
   );
   const activeTools = new Map<string, TesseraToolName>();
   const { aborted, failed, finishReason, response } = await consumeCopilotUIStream(source, async (chunk) => {
@@ -1914,34 +1904,25 @@ function createDataCopilotAgent(context: Readonly<{
     outputSchema: listCatalogOutputSchema,
     execute: async (input, toolContext): Promise<ListCatalogToolOutput> => {
       if (input.mode === "search") {
-        const reportStage = createStageReporter(context.input, context.runtime, toolContext.writer);
-        const startedAt = performance.now();
-        await reportStage("catalog", "started");
-        try {
-          const planningCatalog = await context.dataAgent.inspectPlanningCatalog(
-            { query: input.query },
-            toolContext.abortSignal ?? context.input.signal,
-          );
-          context.runtime.planningScopes.push({
-            capability: planningCatalog.capability,
-            catalog: planningCatalog.semanticCatalog,
-            discovery: "inspect",
-            truncated: planningCatalog.truncated,
-            omitted: planningCatalog.omitted,
-          });
-          await reportStage("catalog", "completed", elapsedMilliseconds(startedAt));
-          return {
-            status: "completed",
-            mode: "search",
-            tableCount: planningCatalog.entityCount,
-            truncated: planningCatalog.truncated,
-            omitted: planningCatalog.omitted,
-            catalog: planningCatalog.semanticCatalog,
-          };
-        } catch (error) {
-          if (!isAbortError(error)) await reportStage("catalog", "failed", elapsedMilliseconds(startedAt));
-          throw error;
-        }
+        const planningCatalog = await context.dataAgent.inspectPlanningCatalog(
+          { query: input.query },
+          toolContext.abortSignal ?? context.input.signal,
+        );
+        context.runtime.planningScopes.push({
+          capability: planningCatalog.capability,
+          catalog: planningCatalog.semanticCatalog,
+          discovery: "inspect",
+          truncated: planningCatalog.truncated,
+          omitted: planningCatalog.omitted,
+        });
+        return {
+          status: "completed",
+          mode: "search",
+          tableCount: planningCatalog.entityCount,
+          truncated: planningCatalog.truncated,
+          omitted: planningCatalog.omitted,
+          catalog: planningCatalog.semanticCatalog,
+        };
       }
 
       const entityIds = input.entityIds!;
@@ -1959,9 +1940,6 @@ function createDataCopilotAgent(context: Readonly<{
       }
       if (capability === undefined) return { ...discoveryScopeRejection(context.runtime), mode: "describe" };
 
-      const reportStage = createStageReporter(context.input, context.runtime, toolContext.writer);
-      const startedAt = performance.now();
-      await reportStage("retrieval", "started");
       try {
         const description = await context.dataAgent.describePlanningCatalog(
           { capability, entityIds },
@@ -1976,7 +1954,6 @@ function createDataCopilotAgent(context: Readonly<{
           truncated: description.truncated,
           omitted: description.omitted,
         });
-        await reportStage("retrieval", "completed", elapsedMilliseconds(startedAt));
         return {
           status: "completed",
           mode: "describe",
@@ -1987,7 +1964,6 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
-        await reportStage("retrieval", "failed", elapsedMilliseconds(startedAt));
         return { ...discoveryToolRejection(error), mode: "describe" };
       }
     },
@@ -2010,16 +1986,12 @@ function createDataCopilotAgent(context: Readonly<{
         if (context.permissionContext?.sqlStatements.read !== "allow") {
           return { status: "blocked", mode: "read", reason: "read_not_authorized" };
         }
-        const reportStage = createStageReporter(context.input, context.runtime, toolContext.writer);
-        const startedAt = performance.now();
-        await reportStage("executing", "started");
         try {
           const result = await context.dataAgent.executeReadSql({
             sql: input.sql,
             ...(input.parameters === undefined ? {} : { parameters: input.parameters }),
             purpose: input.purpose,
           }, signal);
-          await reportStage("executing", "completed", elapsedMilliseconds(startedAt));
           return {
             status: "completed",
             mode: "read",
@@ -2033,7 +2005,6 @@ function createDataCopilotAgent(context: Readonly<{
           };
         } catch (error) {
           if (isAbortError(error)) throw error;
-          await reportStage("executing", "failed", elapsedMilliseconds(startedAt));
           return { status: "blocked", mode: "read", reason: "query_rejected" };
         }
       }
@@ -2139,7 +2110,6 @@ function createDataCopilotAgent(context: Readonly<{
         || context.runtime.completedAnalysisPlans.has(planFingerprint)) {
         return { status: "rejected", reason: "duplicate_plan", nextAction: "respond" };
       }
-      const reportStage = createStageReporter(context.input, context.runtime, toolContext.writer);
       try {
         const analysis = await executeGovernedAnalysis({
           input: context.input,
@@ -2147,7 +2117,6 @@ function createDataCopilotAgent(context: Readonly<{
           capability,
           draft,
           signal: toolContext.abortSignal ?? context.input.signal,
-          reportStage,
         });
         context.runtime.completedAnalysisPlans.add(planFingerprint);
         context.runtime.analyses.push(analysis);
@@ -2254,7 +2223,7 @@ Base data answers on verified execution output. Catalog and schema metadata guid
 </evidence_policy>
 
 <response_contract>
-Be direct and concise. Do not narrate hidden reasoning. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
+Be direct and concise. Keep planning in the provider-native reasoning channel when available. Do not emit progress narration as answer text before tool calls. After tool use, return one final answer. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
 </response_contract>
 `;
 }
@@ -2370,7 +2339,6 @@ async function executeGovernedAnalysis(context: Readonly<{
   capability: PlanningCapability;
   draft: AnalysisDraft;
   signal: AbortSignal;
-  reportStage: StageReporter;
 }>): Promise<CompletedAnalysis> {
   const executeDataAgent = createStep({
     id: "execute-governed-data-agent",
@@ -2382,10 +2350,6 @@ async function executeGovernedAnalysis(context: Readonly<{
         capability: context.capability,
         draft: inputData.draft,
         signal: context.signal,
-        onEvent: async (event) => {
-          const stage = toPublicStageData(context.input.runId, event);
-          if (stage) await context.reportStage(stage.stage, stage.status, stage.durationMs);
-        },
       });
       return { draft: inputData.draft, result };
     },
@@ -2397,19 +2361,11 @@ async function executeGovernedAnalysis(context: Readonly<{
     inputSchema: governedAnalysisExecutionSchema,
     outputSchema: governedAnalysisOutputSchema,
     execute: async ({ inputData }) => {
-      await context.reportStage("publishing", "started");
-      const startedAt = performance.now();
-      try {
-        const analysis = completedAnalysisFromResult(
-          inputData.draft,
-          inputData.result as DataAgentRunResult,
-        );
-        await context.reportStage("publishing", "completed", elapsedMilliseconds(startedAt));
-        return { analysis };
-      } catch (error) {
-        if (!isAbortError(error)) await context.reportStage("publishing", "failed", elapsedMilliseconds(startedAt));
-        throw error;
-      }
+      const analysis = completedAnalysisFromResult(
+        inputData.draft,
+        inputData.result as DataAgentRunResult,
+      );
+      return { analysis };
     },
   });
 
@@ -2794,19 +2750,6 @@ function normalizeModelFilter(input: z.output<typeof modelAnalysisFilterSchema>)
   return items.length === 1 ? items[0]! : { kind: input.join, items };
 }
 
-function createStageReporter(input: StudioAgentRunInput, runtime: CopilotRuntime, writer?: { custom(data: unknown): Promise<void> }): StageReporter {
-  return async (stage, status, durationMs) => {
-    const state = { status, ...(durationMs === undefined ? {} : { durationMs: publicStageDuration(durationMs) }) };
-    runtime.stages.set(stage, state);
-    if (!writer) return;
-    await writer.custom({
-      type: "data-tessera-execution",
-      id: `tessera-execution-${input.runId}`,
-      data: toPublicExecutionTraceData(input.runId, runtime.stages),
-    });
-  };
-}
-
 function streamTesseraAgentTurnUI(
   input: StudioAgentRunInput,
   dataAgent: DataAgent,
@@ -2858,10 +2801,9 @@ function streamTesseraAgentTurnUI(
           const source = appendCopilotOutcome(
             toAISdkV5Stream(output, {
               from: "agent",
+              sendReasoning: true,
               onError: () => "The Tessera Agent could not complete this analysis.",
             }) as ReadableStream<TesseraUIMessageChunk>,
-            input,
-            runtime,
             (message) => persistCompletedCopilotTurn(memory, input, message),
           );
           const reader = source.getReader();
@@ -2883,8 +2825,6 @@ function streamTesseraAgentTurnUI(
           }
         } catch (error) {
           if (!cancelled && !controller.signal.aborted) {
-            markRuntimeFailure(runtime);
-            enqueueExecutionTrace(streamController, input, runtime, "failed");
             if (!started) streamController.enqueue({ type: "start", messageId: `tessera-${input.runId}` });
             streamController.enqueue({ type: "error", errorText: "The Tessera Agent could not complete this analysis." });
             streamController.enqueue({ type: "finish", finishReason: "error" });
@@ -2904,15 +2844,12 @@ function streamTesseraAgentTurnUI(
   });
 }
 
-/** Adds run metadata without touching Mastra's one-consumer fullStream. */
+/** Validates a terminal answer without touching Mastra's one-consumer fullStream. */
 function appendCopilotOutcome(
   source: ReadableStream<TesseraUIMessageChunk>,
-  input: StudioAgentRunInput,
-  runtime: CopilotRuntime,
   onAcceptedResponse?: (message: string) => Promise<void>,
 ): ReadableStream<TesseraUIMessageChunk> {
   let terminal = false;
-  let failureReported = false;
   let hasVisibleText = false;
   let response = "";
   return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
@@ -2921,17 +2858,10 @@ function appendCopilotOutcome(
         response += chunk.delta;
         if (hasVisibleCopilotText(chunk.delta)) {
           hasVisibleText = true;
-          if (runtime.stages.size > 0 && !runtime.stages.has("narrating")) {
-            runtime.stages.set("narrating", { status: "started" });
-            enqueueExecutionTrace(streamController, input, runtime);
-          }
         }
       }
 
       if (chunk.type === "error") {
-        reportRuntimeFailure(streamController, input, runtime, () => {
-          failureReported = true;
-        }, failureReported);
         streamController.enqueue(chunk);
         return;
       }
@@ -2944,23 +2874,13 @@ function appendCopilotOutcome(
 
       if (chunk.type === "finish" && !terminal) {
         terminal = true;
-        if (chunk.finishReason !== "stop" || failureReported) {
-          const wasFailureReported = failureReported;
-          reportRuntimeFailure(streamController, input, runtime, () => {
-            failureReported = true;
-          }, failureReported);
-          if (wasFailureReported && chunk.finishReason === "stop") {
-            streamController.enqueue({ type: "finish", finishReason: "error" });
-            return;
-          }
-          if (!wasFailureReported) {
-            streamController.enqueue({
-              type: "error",
-              errorText: chunk.finishReason === "error"
-                ? "The Tessera Agent could not complete this analysis."
-                : "The Tessera Agent stopped before it returned a complete response.",
-            });
-          }
+        if (chunk.finishReason !== "stop") {
+          streamController.enqueue({
+            type: "error",
+            errorText: chunk.finishReason === "error"
+              ? "The Tessera Agent could not complete this analysis."
+              : "The Tessera Agent stopped before it returned a complete response.",
+          });
           // Preserve AI SDK's finish reason so the server can distinguish a
           // length/content-filter/tool-call stop from a normal `stop`.
           streamController.enqueue(chunk);
@@ -2968,9 +2888,6 @@ function appendCopilotOutcome(
         }
 
         if (!hasVisibleText) {
-          reportRuntimeFailure(streamController, input, runtime, () => {
-            failureReported = true;
-          }, failureReported);
           streamController.enqueue({
             type: "error",
             errorText: "The Tessera Agent stopped before it returned a visible response.",
@@ -2981,9 +2898,6 @@ function appendCopilotOutcome(
 
         const message = safeAssistantNarration(response);
         if (!message) {
-          reportRuntimeFailure(streamController, input, runtime, () => {
-            failureReported = true;
-          }, failureReported);
           streamController.enqueue({
             type: "error",
             errorText: "The Tessera Agent stopped before it returned a usable response.",
@@ -2995,9 +2909,6 @@ function appendCopilotOutcome(
         try {
           await onAcceptedResponse?.(message);
         } catch {
-          reportRuntimeFailure(streamController, input, runtime, () => {
-            failureReported = true;
-          }, failureReported);
           streamController.enqueue({
             type: "error",
             errorText: "The Tessera Agent could not save this completed response.",
@@ -3005,27 +2916,12 @@ function appendCopilotOutcome(
           streamController.enqueue({ type: "finish", finishReason: "error" });
           return;
         }
-
-        if (runtime.stages.size > 0) {
-          runtime.stages.set("narrating", { status: "completed" });
-          const trace = toPublicExecutionTraceData(input.runId, runtime.stages);
-          enqueueExecutionTrace(streamController, input, runtime, trace.status === "failed" ? "failed" : "completed");
-        }
-        const evidence = runtime.analyses.map(publicEvidence);
-        streamController.enqueue({
-          type: "data-tessera-run",
-          id: `tessera-run-${input.runId}`,
-          data: { runId: input.runId, threadId: input.threadId, status: "completed", evidence },
-        });
       }
       streamController.enqueue(chunk);
     },
     flush(streamController) {
       if (terminal) return;
       terminal = true;
-      reportRuntimeFailure(streamController, input, runtime, () => {
-        failureReported = true;
-      }, failureReported);
       streamController.enqueue({
         type: "error",
         errorText: "The Tessera Agent stream ended before it returned a terminal response.",
@@ -3033,45 +2929,6 @@ function appendCopilotOutcome(
       streamController.enqueue({ type: "finish", finishReason: "error" });
     },
   }));
-}
-
-function reportRuntimeFailure(
-  streamController: TransformStreamDefaultController<TesseraUIMessageChunk>,
-  input: StudioAgentRunInput,
-  runtime: CopilotRuntime,
-  markReported: () => void,
-  alreadyReported: boolean,
-): void {
-  if (alreadyReported) return;
-  markRuntimeFailure(runtime);
-  enqueueExecutionTrace(streamController, input, runtime, "failed");
-  markReported();
-}
-
-function markRuntimeFailure(runtime: CopilotRuntime): void {
-  const activeStage = [...PUBLIC_STAGE_ORDER]
-    .reverse()
-    .find((stage) => runtime.stages.get(stage)?.status === "started");
-  if (activeStage !== undefined) {
-    runtime.stages.set(activeStage, { status: "failed" });
-    return;
-  }
-  if (runtime.stages.size > 0) runtime.stages.set("narrating", { status: "failed" });
-}
-
-function enqueueExecutionTrace(
-  streamController: TransformStreamDefaultController<TesseraUIMessageChunk> | ReadableStreamDefaultController<TesseraUIMessageChunk>,
-  input: StudioAgentRunInput,
-  runtime: CopilotRuntime,
-  status?: TesseraExecutionTraceData["status"],
-): void {
-  if (runtime.stages.size === 0) return;
-  const trace = toPublicExecutionTraceData(input.runId, runtime.stages);
-  streamController.enqueue({
-    type: "data-tessera-execution",
-    id: `tessera-execution-${input.runId}`,
-    data: status === undefined ? trace : { ...trace, status },
-  });
 }
 
 /** An empty or whitespace-only model turn must never be reported as a completed answer. */
@@ -3180,66 +3037,6 @@ export function publicToolOutput(
     ...(rowCount === undefined ? {} : { rowCount }),
     ...(output.truncated === true ? { truncated: true } : {}),
   };
-}
-
-/** Maps private runtime stages to a product-oriented public timeline. */
-export function toPublicStageData(runId: string, event: DataAgentStageEvent): TesseraStageData | undefined {
-  const stage = publicStageFor(event.stage);
-  const status = publicStageStatusFor(event.status);
-  if (!stage || !status) return undefined;
-  const durationMs = publicStageDuration(event.durationMs);
-  return { runId, stage, status, ...(durationMs === undefined ? {} : { durationMs }) };
-}
-
-const PUBLIC_STAGE_ORDER: readonly TesseraDataAgentStage[] = [
-  "catalog",
-  "retrieval",
-  "planning",
-  "probing",
-  "compiling",
-  "executing",
-  "verifying",
-  "publishing",
-  "narrating",
-];
-
-export function toPublicExecutionTraceData(
-  runId: string,
-  stages: ReadonlyMap<TesseraDataAgentStage, Omit<TesseraStageData, "runId" | "stage">>,
-): TesseraExecutionTraceData {
-  const publicStages = PUBLIC_STAGE_ORDER.flatMap((stage) => {
-    const state = stages.get(stage);
-    return state === undefined ? [] : [{ stage, ...state }];
-  });
-  const terminalStage = stages.get("narrating") ?? stages.get("publishing");
-  const status = publicStages.some((stage) => stage.status === "failed")
-    ? "failed"
-    : terminalStage?.status === "completed"
-      ? "completed"
-      : "running";
-  return { runId, status, stages: publicStages };
-}
-
-function publicStageFor(value: DataAgentStageEvent["stage"]): TesseraDataAgentStage | undefined {
-  switch (value) {
-    case "catalog": return "catalog";
-    case "semantic": return "retrieval";
-    case "binding": return "planning";
-    case "probing": return "probing";
-    case "compiling": return "compiling";
-    case "executing": return "executing";
-    case "verifying": return "verifying";
-  }
-}
-
-function publicStageStatusFor(value: DataAgentStageEvent["status"]): TesseraStageData["status"] | undefined {
-  return value === "started" || value === "completed" || value === "failed" ? value : undefined;
-}
-
-function publicStageDuration(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.min(Math.round(value), 120_000)
-    : undefined;
 }
 
 function completedAnalysisFromResult(draft: AnalysisDraft, result: DataAgentRunResult): CompletedAnalysis {
@@ -3431,10 +3228,6 @@ async function persistCompletedCopilotTurn(
     },
   ];
   await memory.saveMessages({ messages });
-}
-
-function elapsedMilliseconds(startedAt: number): number {
-  return Math.max(0, Math.round(performance.now() - startedAt));
 }
 
 function isAbortError(error: unknown): boolean {

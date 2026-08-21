@@ -51,16 +51,14 @@ import {
   TesseraConfigError,
 } from "./config";
 import {
+  assistantReasoningHoldbackStart,
   assistantTextHoldbackStart,
+  isSafeAssistantReasoningFragment,
   isSafeAssistantTextFragment,
   redactOpaqueAssistantIdentifiers,
 } from "./public-text";
 import type {
-  TesseraDataAgentStage,
-  TesseraDataAgentStageStatus,
-  TesseraEvidence,
   TesseraToolName,
-  TesseraToolState,
   TesseraUIMessage,
   TesseraUIMessageChunk,
 } from "./protocol";
@@ -105,37 +103,12 @@ export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
 const MAX_CHAT_MESSAGE_PARTS = 8;
 const MAX_PUBLIC_TOOL_COUNT = 10_000;
-const MAX_PUBLIC_STAGE_DURATION_MS = 120_000;
-const MAX_PUBLIC_EVIDENCE = 32;
-const MAX_PENDING_PUBLIC_NARRATION_CHARS = 4_096;
-const TESSERA_PUBLIC_STAGES: readonly TesseraDataAgentStage[] = [
-  "catalog",
-  "retrieval",
-  "planning",
-  "probing",
-  "compiling",
-  "executing",
-  "verifying",
-  "publishing",
-  "narrating",
-];
+const MAX_PENDING_PUBLIC_TEXT_CHARS = 4_096;
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "list_database",
   "list_catalog",
   "execute_sql",
   "run_analysis",
-]);
-const TESSERA_PUBLIC_TOOL_STATES = new Set<TesseraToolState>([
-  "started",
-  "completed",
-  "blocked",
-  "failed",
-]);
-const TESSERA_PUBLIC_STAGE_SET = new Set<TesseraDataAgentStage>(TESSERA_PUBLIC_STAGES);
-const TESSERA_PUBLIC_STAGE_STATUSES = new Set<TesseraDataAgentStageStatus>([
-  "started",
-  "completed",
-  "failed",
 ]);
 /** A table browser is intentionally narrower than governed Agent analysis. */
 const TABLE_PREVIEW_MAX_ROWS = 100;
@@ -1168,7 +1141,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       const source = runtime.agent.streamUI?.(agentInput)
         ?? streamLegacyAgentToUI(runtime.agent, agentInput);
       const durableSource = createUIMessageStream<TesseraUIMessage>({
-        execute: ({ writer }) => writer.merge(redactTesseraUiStream(source, { runId, threadId })),
+        execute: ({ writer }) => writer.merge(redactTesseraUiStream(source, { runId })),
         onError: () => "The Tessera Agent could not complete this analysis.",
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
           // `consumeSseStream` below ensures this callback also runs after an
@@ -2147,6 +2120,16 @@ function monitorStudioChatStream(
   let cancelled = false;
   let finishReason: FinishReason | undefined;
   let emittedFirstEvent = false;
+  const activeTools = new Map<string, TesseraToolName>();
+  const logTool = (tool: TesseraToolName, toolState: "started" | "completed" | "blocked" | "failed") => {
+    logAgentEvent(context.logger, toolState === "failed" ? "error" : "info", context.request, context.runId, {
+      event: "stream",
+      stage: "tool",
+      durationMs: elapsedMilliseconds(context.startedAt),
+      tool,
+      toolState,
+    });
+  };
   return {
     source: source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
       transform(chunk, controller) {
@@ -2158,23 +2141,26 @@ function monitorStudioChatStream(
             durationMs: elapsedMilliseconds(context.startedAt),
           });
         }
-        if (chunk.type === "data-tessera-tool") {
-          logAgentEvent(context.logger, chunk.data.state === "failed" ? "error" : "info", context.request, context.runId, {
-            event: "stream",
-            stage: "tool",
-            durationMs: elapsedMilliseconds(context.startedAt),
-            tool: chunk.data.tool,
-            toolState: chunk.data.state,
-          });
+        if (chunk.type === "tool-input-start" || chunk.type === "tool-input-available") {
+          const tool = asTesseraToolName(chunk.toolName);
+          if (tool !== undefined && !activeTools.has(chunk.toolCallId)) {
+            activeTools.set(chunk.toolCallId, tool);
+            logTool(tool, "started");
+          }
         }
-        if (chunk.type === "data-tessera-stage") {
-          logAgentEvent(context.logger, chunk.data.status === "failed" ? "error" : "info", context.request, context.runId, {
-            event: "agent",
-            stage: "analysis_stage",
-            durationMs: elapsedMilliseconds(context.startedAt),
-            agentStage: chunk.data.stage,
-            agentStageStatus: chunk.data.status,
-          });
+        if (chunk.type === "tool-output-available") {
+          const tool = activeTools.get(chunk.toolCallId);
+          if (tool !== undefined) {
+            activeTools.delete(chunk.toolCallId);
+            logTool(tool, publicToolLogState(chunk.output));
+          }
+        }
+        if (chunk.type === "tool-input-error" || chunk.type === "tool-output-error" || chunk.type === "tool-output-denied") {
+          const tool = activeTools.get(chunk.toolCallId);
+          if (tool !== undefined) {
+            activeTools.delete(chunk.toolCallId);
+            logTool(tool, chunk.type === "tool-output-denied" ? "blocked" : "failed");
+          }
         }
         if (chunk.type === "abort") {
           cancelled = true;
@@ -3053,12 +3039,37 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
                 toolEvent += 1;
                 toolId = `tessera-tool-${input.runId}-${toolEvent}`;
                 activeToolIds.set(safe.data.tool, toolId);
+                writer.write({
+                  type: "tool-input-start",
+                  toolCallId: toolId,
+                  toolName: safe.data.tool,
+                  providerExecuted: true,
+                  title: publicToolTitle(safe.data.tool),
+                });
+                writer.write({
+                  type: "tool-input-available",
+                  toolCallId: toolId,
+                  toolName: safe.data.tool,
+                  input: publicToolInput(safe.data.tool),
+                  providerExecuted: true,
+                  title: publicToolTitle(safe.data.tool),
+                });
               }
-              writer.write({
-                type: "data-tessera-tool",
-                id: toolId,
-                data: { runId: input.runId, tool: safe.data.tool, state: safe.data.state },
-              });
+              if (safe.data.state === "failed") {
+                writer.write({
+                  type: "tool-output-error",
+                  toolCallId: toolId,
+                  errorText: "This operation could not be completed.",
+                  providerExecuted: true,
+                });
+              } else if (safe.data.state !== "started") {
+                writer.write({
+                  type: "tool-output-available",
+                  toolCallId: toolId,
+                  output: { status: safe.data.state },
+                  providerExecuted: true,
+                });
+              }
               if (safe.data.state !== "started") activeToolIds.delete(safe.data.tool);
             })
             : await agent.run(input),
@@ -3069,17 +3080,6 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
         }
         finishText();
 
-        const evidence = run.evidence ?? [];
-        writer.write({
-          type: "data-tessera-run",
-          id: `tessera-run-${input.runId}`,
-          data: {
-            runId: input.runId,
-            threadId: input.threadId,
-            status: run.status,
-            evidence,
-          },
-        });
         writer.write({ type: "finish", finishReason: "stop" });
       } catch {
         finishText();
@@ -3139,7 +3139,6 @@ function publicAgentRun(runId: string, threadId: string, run: StudioAgentRun): R
 
 type TesseraPublicStreamContext = Readonly<{
   runId: string;
-  threadId: string;
 }>;
 
 type TesseraPublicToolCall = Readonly<{
@@ -3150,13 +3149,17 @@ type TesseraPublicToolCall = Readonly<{
 type TesseraPublicStreamState = {
   readonly sourceToolCalls: Map<string, TesseraPublicToolCall>;
   readonly sourceTextIds: Map<string, string>;
-  readonly sourceDataToolIds: Map<string, string>;
+  readonly sourceReasoningIds: Map<string, string>;
+  readonly activeReasoningIds: Set<string>;
   /** A text start crosses the boundary only with a safe first delta. */
   readonly startedNarrations: Set<string>;
   readonly pendingNarrations: Map<string, string>;
+  readonly pendingReasoning: Map<string, string>;
+  readonly blockedReasoning: Set<string>;
   /** A rejected narrative makes the rest of this UI message unpublishable. */
   unsafeNarration: boolean;
   nextTextId: number;
+  nextReasoningId: number;
   nextToolId: number;
 };
 
@@ -3173,11 +3176,15 @@ function redactTesseraUiStream(
   const state: TesseraPublicStreamState = {
     sourceToolCalls: new Map(),
     sourceTextIds: new Map(),
-    sourceDataToolIds: new Map(),
+    sourceReasoningIds: new Map(),
+    activeReasoningIds: new Set(),
     startedNarrations: new Set(),
     pendingNarrations: new Map(),
+    pendingReasoning: new Map(),
+    blockedReasoning: new Set(),
     unsafeNarration: false,
     nextTextId: 1,
+    nextReasoningId: 1,
     nextToolId: 1,
   };
   return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
@@ -3229,6 +3236,29 @@ function redactTesseraUiChunk(
       return state.startedNarrations.has(id)
         ? [...flushed, { type: "text-end", id } as TesseraUIMessageChunk]
         : flushed;
+    }
+    case "reasoning-start": {
+      const sourceId = sourceIdentifier(source.id);
+      if (sourceId === undefined || state.sourceReasoningIds.has(sourceId)) return undefined;
+      const id = `tessera-reasoning-${context.runId}-${state.nextReasoningId++}`;
+      state.sourceReasoningIds.set(sourceId, id);
+      state.activeReasoningIds.add(id);
+      return { type: "reasoning-start", id } as TesseraUIMessageChunk;
+    }
+    case "reasoning-delta": {
+      const id = publicExistingReasoningId(source.id, state);
+      return id === undefined ? undefined : publicAssistantReasoningDelta(source.delta, id, state);
+    }
+    case "reasoning-end": {
+      const id = publicExistingReasoningId(source.id, state);
+      if (id === undefined) return undefined;
+      const chunks = [
+        ...flushPublicAssistantReasoning(id, state),
+        { type: "reasoning-end", id } as TesseraUIMessageChunk,
+      ];
+      state.activeReasoningIds.delete(id);
+      state.blockedReasoning.delete(id);
+      return chunks;
     }
     case "tool-input-start": {
       const tool = asTesseraToolName(source.toolName);
@@ -3311,66 +3341,25 @@ function redactTesseraUiChunk(
         ? undefined
         : { type: "tool-output-denied", toolCallId: call.id } as TesseraUIMessageChunk;
     }
-    case "data-tessera-tool": {
-      const data = asRecord(source.data);
-      const tool = asTesseraToolName(data?.tool);
-      const toolState = asTesseraToolState(data?.state);
-      if (tool === undefined || toolState === undefined) return undefined;
-      return {
-        type: "data-tessera-tool",
-        id: publicDataToolId(source.id, context, state),
-        data: { runId: context.runId, tool, state: toolState },
-      } as TesseraUIMessageChunk;
-    }
-    case "data-tessera-stage": {
-      const stage = publicStageData(source.data);
-      return stage === undefined
-        ? undefined
-        : {
-          type: "data-tessera-stage",
-          id: `tessera-stage-${context.runId}-${stage.stage}`,
-          data: { runId: context.runId, ...stage },
-        } as TesseraUIMessageChunk;
-    }
-    case "data-tessera-execution": {
-      const execution = publicExecutionTrace(source.data, context.runId);
-      return execution === undefined
-        ? undefined
-        : {
-          type: "data-tessera-execution",
-          id: `tessera-execution-${context.runId}`,
-          data: execution,
-        } as TesseraUIMessageChunk;
-    }
-    case "data-tessera-artifact":
-      return undefined;
-    case "data-tessera-run": {
-      const data = asRecord(source.data);
-      if (data?.status !== "completed" && data?.status !== "needs_input") return undefined;
-      return {
-        type: "data-tessera-run",
-        id: `tessera-run-${context.runId}`,
-        data: {
-          runId: context.runId,
-          threadId: context.threadId,
-          status: data.status,
-          evidence: publicEvidence(data.evidence, context.runId),
-        },
-      } as TesseraUIMessageChunk;
-    }
     case "start-step":
     case "finish-step":
-      // These are provider iteration markers, not user-visible progress. The
-      // Tessera timeline is driven by explicit tool and execution-stage chunks.
+      // Provider iteration markers do not render content in Assistant UI.
       return undefined;
     case "error":
-      return { type: "error", errorText: "The Tessera Agent could not complete this analysis." } as TesseraUIMessageChunk;
+      return [
+        ...closePublicAssistantReasoning(state),
+        { type: "error", errorText: "The Tessera Agent could not complete this analysis." } as TesseraUIMessageChunk,
+      ];
     case "abort":
-      return { type: "abort" } as TesseraUIMessageChunk;
+      return [
+        ...closePublicAssistantReasoning(state),
+        { type: "abort" } as TesseraUIMessageChunk,
+      ];
     case "finish":
       {
         const finishReason = publicFinishReason(source.finishReason);
         return [
+          ...closePublicAssistantReasoning(state),
           ...flushAllPublicAssistantText(state),
           {
             type: "finish",
@@ -3379,9 +3368,8 @@ function redactTesseraUiChunk(
         ];
       }
     default:
-      // Provider metadata, input deltas, sources, files, reasoning, and custom
-      // chunks can all carry private execution material. They have no public
-      // Tessera UI contract, so the browser never receives them.
+      // Provider metadata, sources, files, and custom data chunks can carry
+      // private execution material and have no Studio UI contract.
       return undefined;
   }
 }
@@ -3398,6 +3386,14 @@ function publicTextId(
   const publicId = `tessera-text-${context.runId}-${state.nextTextId++}`;
   state.sourceTextIds.set(id, publicId);
   return publicId;
+}
+
+function publicExistingReasoningId(
+  sourceId: unknown,
+  state: TesseraPublicStreamState,
+): string | undefined {
+  const id = sourceIdentifier(sourceId);
+  return id === undefined ? undefined : state.sourceReasoningIds.get(id);
 }
 
 function publicToolCall(
@@ -3421,22 +3417,6 @@ function publicExistingToolCall(
 ): TesseraPublicToolCall | undefined {
   const id = sourceIdentifier(sourceId);
   return id === undefined ? undefined : state.sourceToolCalls.get(id);
-}
-
-function publicDataToolId(
-  sourceId: unknown,
-  context: TesseraPublicStreamContext,
-  state: TesseraPublicStreamState,
-): string {
-  const id = sourceIdentifier(sourceId);
-  if (!id) return `tessera-tool-${context.runId}-${state.nextToolId++}`;
-  const toolCall = state.sourceToolCalls.get(id);
-  if (toolCall) return toolCall.id;
-  const existing = state.sourceDataToolIds.get(id);
-  if (existing) return existing;
-  const publicId = `tessera-tool-${context.runId}-${state.nextToolId++}`;
-  state.sourceDataToolIds.set(id, publicId);
-  return publicId;
 }
 
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
@@ -3530,6 +3510,13 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
   };
 }
 
+function publicToolLogState(value: unknown): "completed" | "blocked" | "failed" {
+  const status = isRecord(value) ? value.status : undefined;
+  if (status === "failed") return "failed";
+  if (status === "blocked" || status === "unavailable" || status === "rejected") return "blocked";
+  return "completed";
+}
+
 function publicToolTitle(tool: TesseraToolName): string {
   if (tool === "list_database") return "List database context";
   if (tool === "list_catalog") return "List data catalog";
@@ -3537,80 +3524,9 @@ function publicToolTitle(tool: TesseraToolName): string {
   return "Run governed analysis";
 }
 
-function publicStageData(value: unknown): Readonly<{
-  stage: TesseraDataAgentStage;
-  status: TesseraDataAgentStageStatus;
-  durationMs?: number;
-}> | undefined {
-  const source = asRecord(value);
-  const stage = asTesseraStage(source?.stage);
-  const status = asTesseraStageStatus(source?.status);
-  if (stage === undefined || status === undefined) return undefined;
-  const durationMs = boundedPublicDuration(source?.durationMs);
-  return { stage, status, ...(durationMs === undefined ? {} : { durationMs }) };
-}
-
-function publicExecutionTrace(value: unknown, runId: string): Readonly<{
-  runId: string;
-  status: "running" | "completed" | "failed";
-  stages: readonly Readonly<{
-    stage: TesseraDataAgentStage;
-    status: TesseraDataAgentStageStatus;
-    durationMs?: number;
-  }>[];
-}> | undefined {
-  const source = asRecord(value);
-  if (!source || !Array.isArray(source.stages)) return undefined;
-  const status = source.status === "running" || source.status === "completed" || source.status === "failed"
-    ? source.status
-    : undefined;
-  if (status === undefined) return undefined;
-
-  const stages = new Map<TesseraDataAgentStage, ReturnType<typeof publicStageData>>();
-  for (const stage of source.stages.slice(0, TESSERA_PUBLIC_STAGES.length)) {
-    const safe = publicStageData(stage);
-    if (safe) stages.set(safe.stage, safe);
-  }
-  return {
-    runId,
-    status,
-    stages: TESSERA_PUBLIC_STAGES.flatMap((stage) => {
-      const safe = stages.get(stage);
-      return safe === undefined ? [] : [safe];
-    }),
-  };
-}
-
-function publicEvidence(value: unknown, runId: string): readonly TesseraEvidence[] {
-  if (!Array.isArray(value)) return [];
-  return value.slice(0, MAX_PUBLIC_EVIDENCE).flatMap((entry, index) => (
-    isRecord(entry)
-      ? [{ queryId: `${runId}-evidence-${index + 1}`, label: "Verified result" }]
-      : []
-  ));
-}
-
 function asTesseraToolName(value: unknown): TesseraToolName | undefined {
   return typeof value === "string" && TESSERA_PUBLIC_TOOL_NAMES.has(value as TesseraToolName)
     ? value as TesseraToolName
-    : undefined;
-}
-
-function asTesseraToolState(value: unknown): TesseraToolState | undefined {
-  return typeof value === "string" && TESSERA_PUBLIC_TOOL_STATES.has(value as TesseraToolState)
-    ? value as TesseraToolState
-    : undefined;
-}
-
-function asTesseraStage(value: unknown): TesseraDataAgentStage | undefined {
-  return typeof value === "string" && TESSERA_PUBLIC_STAGE_SET.has(value as TesseraDataAgentStage)
-    ? value as TesseraDataAgentStage
-    : undefined;
-}
-
-function asTesseraStageStatus(value: unknown): TesseraDataAgentStageStatus | undefined {
-  return typeof value === "string" && TESSERA_PUBLIC_STAGE_STATUSES.has(value as TesseraDataAgentStageStatus)
-    ? value as TesseraDataAgentStageStatus
     : undefined;
 }
 
@@ -3641,7 +3557,7 @@ function publicAssistantTextDeltas(
   const delta = boundedPublicText(value, 4_096);
   if (delta === undefined) return [];
   const buffered = `${state.pendingNarrations.get(id) ?? ""}${delta}`;
-  if (!isSafeAssistantTextFragment(buffered) || buffered.length > MAX_PENDING_PUBLIC_NARRATION_CHARS) {
+  if (!isSafeAssistantTextFragment(buffered) || buffered.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
     state.unsafeNarration = true;
     return [{ type: "error", errorText: "The Tessera Agent returned an unsafe response." } as TesseraUIMessageChunk];
   }
@@ -3654,7 +3570,7 @@ function publicAssistantTextDeltas(
   }
   const safePrefix = buffered.slice(0, holdbackStart);
   const pending = buffered.slice(holdbackStart);
-  if (pending.length > MAX_PENDING_PUBLIC_NARRATION_CHARS) {
+  if (pending.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
     state.unsafeNarration = true;
     return [{ type: "error", errorText: "The Tessera Agent returned an unsafe response." } as TesseraUIMessageChunk];
   }
@@ -3691,15 +3607,77 @@ function publicAssistantTextDelta(
   return [...start, { type: "text-delta", id, delta } as TesseraUIMessageChunk];
 }
 
+function publicAssistantReasoningDelta(
+  value: unknown,
+  id: string,
+  state: TesseraPublicStreamState,
+): readonly TesseraUIMessageChunk[] {
+  if (state.blockedReasoning.has(id)) return [];
+  const delta = boundedPublicText(value, 4_096);
+  if (delta === undefined) return [];
+  const buffered = `${state.pendingReasoning.get(id) ?? ""}${delta}`;
+  if (!isSafeAssistantReasoningFragment(buffered) || buffered.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
+    state.pendingReasoning.delete(id);
+    state.blockedReasoning.add(id);
+    return [];
+  }
+  const holdbackStart = assistantReasoningHoldbackStart(buffered);
+  if (holdbackStart === undefined) {
+    state.pendingReasoning.delete(id);
+    return [{
+      type: "reasoning-delta",
+      id,
+      delta: redactOpaqueAssistantIdentifiers(buffered),
+    } as TesseraUIMessageChunk];
+  }
+  const safePrefix = buffered.slice(0, holdbackStart);
+  const pending = buffered.slice(holdbackStart);
+  if (pending.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
+    state.pendingReasoning.delete(id);
+    state.blockedReasoning.add(id);
+    return [];
+  }
+  state.pendingReasoning.set(id, pending);
+  return safePrefix.length === 0
+    ? []
+    : [{
+      type: "reasoning-delta",
+      id,
+      delta: redactOpaqueAssistantIdentifiers(safePrefix),
+    } as TesseraUIMessageChunk];
+}
+
+function flushPublicAssistantReasoning(
+  id: string,
+  state: TesseraPublicStreamState,
+): readonly TesseraUIMessageChunk[] {
+  const pending = state.pendingReasoning.get(id);
+  state.pendingReasoning.delete(id);
+  return state.blockedReasoning.has(id) || pending === undefined || pending.length === 0
+    ? []
+    : [{
+      type: "reasoning-delta",
+      id,
+      delta: redactOpaqueAssistantIdentifiers(pending),
+    } as TesseraUIMessageChunk];
+}
+
+function closePublicAssistantReasoning(
+  state: TesseraPublicStreamState,
+): readonly TesseraUIMessageChunk[] {
+  const chunks: TesseraUIMessageChunk[] = [];
+  for (const id of state.activeReasoningIds) {
+    chunks.push(...flushPublicAssistantReasoning(id, state));
+    chunks.push({ type: "reasoning-end", id });
+    state.blockedReasoning.delete(id);
+  }
+  state.activeReasoningIds.clear();
+  return chunks;
+}
+
 function boundedPublicInteger(value: unknown, maximum: number): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
     ? Math.min(value, maximum)
-    : undefined;
-}
-
-function boundedPublicDuration(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.min(Math.round(value), MAX_PUBLIC_STAGE_DURATION_MS)
     : undefined;
 }
 

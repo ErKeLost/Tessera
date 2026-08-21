@@ -18,6 +18,7 @@ const RAW_FILTER = "private_filter_marker";
 const RAW_DETAIL = "private_stage_detail_marker";
 const RAW_RUN_ID = "provider-run-id-do-not-expose";
 const RAW_THREAD_ID = "provider-thread-id-do-not-expose";
+const SAFE_REASONING = "Checked SELECT count(*) FROM orders against the requested period.";
 
 const catalog = finalizeCatalog({
   connectorId: "test-connector",
@@ -72,6 +73,9 @@ function request(path: string, init?: RequestInit): Request {
 function sourceStream(): ReadableStream<TesseraUIMessageChunk> {
   const chunks: TesseraUIMessageChunk[] = [
     { type: "start", messageId: "provider-message-id" },
+    { type: "reasoning-start", id: "provider-reasoning-id" },
+    { type: "reasoning-delta", id: "provider-reasoning-id", delta: SAFE_REASONING },
+    { type: "reasoning-end", id: "provider-reasoning-id" },
     {
       type: "text-start",
       id: "provider-text-id",
@@ -283,9 +287,12 @@ describe("Studio chat transcript integration", () => {
       expect(sse).toContain('"toolName":"run_analysis"');
       expect(sse).toContain('"action":"run_governed_analysis"');
       expect(sse).toContain('"rowCount":2');
-      expect(sse).toContain('"stage":"executing"');
+      expect(sse).toContain('"type":"reasoning-start"');
+      expect(sse).toContain('"type":"reasoning-delta"');
+      expect(sse).toContain('"type":"reasoning-end"');
+      expect(sse).toContain(SAFE_REASONING);
       expect(sse).not.toContain(RAW_ROW);
-      expect(sse).not.toContain('"type":"data-tessera-artifact"');
+      expect(sse).not.toContain('"type":"data-tessera-');
       for (const marker of [
         RAW_SQL,
         RAW_TOOL_ROW,
@@ -298,6 +305,7 @@ describe("Studio chat transcript integration", () => {
         RAW_THREAD_ID,
         "provider-query-id",
         "provider-tool-id",
+        "provider-reasoning-id",
         "provider-artifact-id",
       ]) {
         expect(sse).not.toContain(marker);
@@ -315,10 +323,12 @@ describe("Studio chat transcript integration", () => {
 
       const assistant = payload.messages[1];
       expect(assistant?.parts.some((part) => JSON.stringify(part).includes("tool-run_analysis"))).toBe(true);
-      expect(assistant?.parts.some((part) => JSON.stringify(part).includes("data-tessera-execution"))).toBe(true);
-      expect(assistant?.parts.some((part) => part.type === "data-tessera-artifact")).toBe(false);
+      expect(assistant?.parts.some((part) => part.type === "reasoning")).toBe(true);
+      expect(assistant?.parts.some((part) => part.type?.startsWith("data-tessera-"))).toBe(false);
 
       const transcriptText = JSON.stringify(payload);
+      expect(transcriptText).toContain(SAFE_REASONING);
+      expect(transcriptText).not.toContain("data-tessera-");
       expect(transcriptText).not.toContain(RAW_ROW);
       for (const marker of [
         RAW_SQL,
@@ -332,6 +342,7 @@ describe("Studio chat transcript integration", () => {
         RAW_THREAD_ID,
         "provider-query-id",
         "provider-tool-id",
+        "provider-reasoning-id",
         "provider-artifact-id",
       ]) {
         expect(transcriptText).not.toContain(marker);

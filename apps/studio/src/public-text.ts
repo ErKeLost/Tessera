@@ -27,6 +27,11 @@ export function isSafeAssistantTextFragment(value: string): boolean {
   return !containsSensitiveText(value) && !containsRawSqlStatement(value);
 }
 
+/** Reasoning may discuss SQL, but it must still never disclose credentials. */
+export function isSafeAssistantReasoningFragment(value: string): boolean {
+  return !containsSensitiveText(value);
+}
+
 export function redactOpaqueAssistantIdentifiers(value: string): string {
   return value.replace(OPAQUE_IDENTIFIER_PATTERN, "[internal identifier]");
 }
@@ -37,11 +42,20 @@ export function redactOpaqueAssistantIdentifiers(value: string): string {
  * unsafe pattern only after its earlier portion was already streamed.
  */
 export function assistantTextHoldbackStart(value: string): number | undefined {
+  return protectedTextHoldbackStart(value, true);
+}
+
+/** Retains split credential and internal-id prefixes without suppressing SQL reasoning. */
+export function assistantReasoningHoldbackStart(value: string): number | undefined {
+  return protectedTextHoldbackStart(value, false);
+}
+
+function protectedTextHoldbackStart(value: string, includeSql: boolean): number | undefined {
   for (let index = 0; index < value.length; index += 1) {
     if (!isWordStart(value, index) && !value.startsWith("-", index)) continue;
     const suffix = value.slice(index);
     if (isPossiblePrivateKeyPrefix(suffix)
-      || isPossibleSqlPrefix(suffix)
+      || (includeSql && isPossibleSqlPrefix(suffix))
       || isPossibleSensitivePrefix(suffix)
       || isPossibleOpaqueIdentifierPrefix(suffix)) {
       return index;

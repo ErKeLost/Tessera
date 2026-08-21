@@ -2,22 +2,6 @@ import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
 export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis";
-export type TesseraToolState = "started" | "completed" | "blocked" | "failed";
-/**
- * Public lifecycle only. Details such as SQL, catalog identifiers, probe
- * arguments, and query output remain on the server.
- */
-export type TesseraDataAgentStage =
-  | "catalog"
-  | "retrieval"
-  | "planning"
-  | "probing"
-  | "compiling"
-  | "executing"
-  | "verifying"
-  | "publishing"
-  | "narrating";
-export type TesseraDataAgentStageStatus = "started" | "completed" | "failed";
 
 /**
  * These are intentionally summaries, rather than the model's raw tool args.
@@ -95,57 +79,8 @@ export type TesseraUITools = {
   };
 };
 
-export type TesseraToolData = Readonly<{
-  runId: string;
-  tool: TesseraToolName;
-  state: TesseraToolState;
-}>;
-
-/**
- * A scrubbed Data Agent lifecycle event. Do not add `detail` here: its source
- * event can contain catalog-derived identifiers and execution metadata.
- */
-export type TesseraStageData = Readonly<{
-  runId: string;
-  stage: TesseraDataAgentStage;
-  status: TesseraDataAgentStageStatus;
-  /** Terminal timing is allowlisted; SQL and stage detail remain server-only. */
-  durationMs?: number;
-}>;
-
-/**
- * A stable, redacted view of the fixed Data Agent workflow. It is updated by
- * id as the run advances so Assistant UI can render one timeline instead of
- * five disconnected status rows.
- */
-export type TesseraExecutionTraceData = Readonly<{
-  runId: string;
-  status: "running" | "completed" | "failed";
-  stages: readonly Readonly<{
-    stage: TesseraDataAgentStage;
-    status: TesseraDataAgentStageStatus;
-    durationMs?: number;
-  }>[];
-}>;
-
-export type TesseraEvidence = Readonly<{
-  queryId: string;
-  label: string;
-}>;
-
-export type TesseraRunData = Readonly<{
-  runId: string;
-  threadId: string;
-  status: "completed" | "needs_input";
-  evidence: readonly TesseraEvidence[];
-}>;
-
-export type TesseraUIData = {
-  "tessera-execution": TesseraExecutionTraceData;
-  "tessera-run": TesseraRunData;
-  "tessera-stage": TesseraStageData;
-  "tessera-tool": TesseraToolData;
-};
+/** Studio uses native reasoning, text, and tool parts only. */
+export type TesseraUIData = Record<never, never>;
 
 export type TesseraUIMessage = UIMessage<unknown, TesseraUIData, TesseraUITools>;
 export type TesseraUIMessageChunk = UIMessageChunk<unknown, TesseraUIData>;

@@ -836,16 +836,17 @@ describe("Tessera Studio Hono app", () => {
     expect(response.headers.get("x-vercel-ai-ui-message-stream")).toBe("v1");
     expect(body).toContain('"type":"start"');
     expect(body).toContain('"type":"text-delta"');
-    expect(body).toContain('"type":"data-tessera-tool"');
-    expect(body).toContain('"tool":"run_analysis"');
-    expect(body).toContain('"type":"data-tessera-run"');
+    expect(body).toContain('"type":"tool-input-start"');
+    expect(body).toContain('"type":"tool-input-available"');
+    expect(body).toContain('"type":"tool-output-available"');
+    expect(body).toContain('"toolName":"run_analysis"');
     expect(body).toContain('"type":"finish"');
+    expect(body).not.toContain('"type":"data-tessera-');
     expect(body).not.toContain("select secret from orders");
 
-    const toolIds = [...body.matchAll(/"id":"(tessera-tool-[^"]+)"/g)].map((match) => match[1]);
-    expect(toolIds).toHaveLength(3);
-    expect(toolIds[0]).toBe(toolIds[1]);
-    expect(toolIds[2]).not.toBe(toolIds[1]);
+    const toolIds = [...body.matchAll(/"toolCallId":"(tessera-tool-[^"]+)"/g)].map((match) => match[1]);
+    expect(toolIds).toHaveLength(6);
+    expect(new Set(toolIds).size).toBe(2);
     expect(info).toEqual(expect.arrayContaining([
       expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "started" }),
       expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "completed" }),
@@ -1183,7 +1184,7 @@ describe("Tessera Studio Hono app", () => {
     expect(JSON.stringify(errors)).not.toContain("model-provider-secret-do-not-log");
   });
 
-  test("logs public Agent stage events with the server-owned run correlation", async () => {
+  test("logs native tool events with the server-owned run correlation", async () => {
     const info: StudioLogEvent[] = [];
     const app = createStudioApp({
       connector: createConnector(),
@@ -1200,14 +1201,20 @@ describe("Tessera Studio Hono app", () => {
             start(controller) {
               controller.enqueue({ type: "start", messageId: "message-1" });
               controller.enqueue({
-                type: "data-tessera-stage",
-                id: "stage-1",
-                data: { runId: "source-run-id-do-not-log", stage: "planning", status: "started" },
+                type: "tool-input-start",
+                toolCallId: "source-tool-id-do-not-log",
+                toolName: "run_analysis",
               });
               controller.enqueue({
-                type: "data-tessera-stage",
-                id: "stage-1",
-                data: { runId: "source-run-id-do-not-log", stage: "planning", status: "completed" },
+                type: "tool-input-available",
+                toolCallId: "source-tool-id-do-not-log",
+                toolName: "run_analysis",
+                input: { rawSql: "source-sql-do-not-log" },
+              } as unknown as TesseraUIMessageChunk);
+              controller.enqueue({
+                type: "tool-output-available",
+                toolCallId: "source-tool-id-do-not-log",
+                output: { status: "completed", rowCount: 2 },
               });
               controller.enqueue({ type: "finish", finishReason: "stop" });
               controller.close();
@@ -1230,21 +1237,22 @@ describe("Tessera Studio Hono app", () => {
 
     expect(info).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        event: "agent",
-        stage: "analysis_stage",
-        agentStage: "planning",
-        agentStageStatus: "started",
+        event: "stream",
+        stage: "tool",
+        tool: "run_analysis",
+        toolState: "started",
       }),
       expect.objectContaining({
-        event: "agent",
-        stage: "analysis_stage",
-        agentStage: "planning",
-        agentStageStatus: "completed",
+        event: "stream",
+        stage: "tool",
+        tool: "run_analysis",
+        toolState: "completed",
       }),
     ]));
     const runIds = [...new Set(info.flatMap((event) => event.runId === undefined ? [] : [event.runId]))];
     expect(runIds).toHaveLength(1);
-    expect(JSON.stringify(info)).not.toContain("source-run-id-do-not-log");
+    expect(JSON.stringify(info)).not.toContain("source-tool-id-do-not-log");
+    expect(JSON.stringify(info)).not.toContain("source-sql-do-not-log");
   });
 
   test("redacts connector and Agent failures", async () => {

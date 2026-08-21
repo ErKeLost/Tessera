@@ -3,7 +3,7 @@
  *
  * Mastra message history is private model context. The browser receives a
  * separate, allowlisted UI transcript stored in thread metadata so tool
- * progress can be restored without replaying raw model messages.
+ * calls and reasoning can be restored without replaying raw model messages.
  */
 import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
@@ -12,12 +12,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type {
-  TesseraDataAgentStage,
-  TesseraDataAgentStageStatus,
-  TesseraEvidence,
-  TesseraUIMessage,
-} from "./protocol";
+import type { TesseraUIMessage } from "./protocol";
 
 const SESSION_DIRECTORY = ".tessera";
 const SESSION_DATABASE_FILE = "memory.db";
@@ -29,27 +24,8 @@ const MAX_UI_PARTS_PER_MESSAGE = 32;
 const MAX_UI_TRANSCRIPT_BYTES = 512 * 1024;
 const MAX_USER_TEXT_LENGTH = 12_000;
 const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
-const MAX_EVIDENCE = 32;
-const MAX_DURATION_MS = 120_000;
+const MAX_REASONING_TEXT_LENGTH = 30_000;
 const HISTORY_TOOL_FAILURE = "This governed tool call did not complete.";
-
-const DATA_AGENT_STAGES = new Set<TesseraDataAgentStage>([
-  "catalog",
-  "retrieval",
-  "planning",
-  "probing",
-  "compiling",
-  "executing",
-  "verifying",
-  "publishing",
-  "narrating",
-]);
-
-const DATA_AGENT_STAGE_STATUSES = new Set<TesseraDataAgentStageStatus>([
-  "started",
-  "completed",
-  "failed",
-]);
 
 export type TesseraSessionThread = Readonly<{
   id: string;
@@ -91,7 +67,6 @@ type StoredUiTranscript = Readonly<{
 
 type SanitizationContext = Readonly<{
   messageId: string;
-  runId: string;
 }>;
 
 /**
@@ -268,14 +243,10 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     return undefined;
   }
   const messageId = `tessera-ui-${randomUUID()}`;
-  const context: SanitizationContext = {
-    messageId,
-    runId: `tessera-history-run-${randomUUID()}`,
-  };
+  const context: SanitizationContext = { messageId };
   const maximumText = source.role === "user" ? MAX_USER_TEXT_LENGTH : MAX_ASSISTANT_TEXT_LENGTH;
   let remainingText = maximumText;
-  let executionSeen = false;
-  let runSeen = false;
+  let remainingReasoning = MAX_REASONING_TEXT_LENGTH;
   const parts: TesseraUIMessage["parts"] = [];
 
   for (const sourcePart of source.parts.slice(0, MAX_UI_PARTS_PER_MESSAGE)) {
@@ -291,6 +262,18 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     }
 
     if (source.role !== "assistant") continue;
+    if (part.type === "reasoning" && typeof part.text === "string" && remainingReasoning > 0) {
+      const text = sanitizeDisplayText(part.text, remainingReasoning);
+      if (!text) continue;
+      remainingReasoning -= text.length;
+      parts.push({
+        type: "reasoning",
+        id: `${messageId}-reasoning-${parts.length + 1}`,
+        text,
+        state: "done",
+      });
+      continue;
+    }
     if (part.type === "tool-list_database") {
       parts.push(sanitizeListDatabaseToolPart(part, context, parts.length));
       continue;
@@ -306,26 +289,6 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     if (part.type === "tool-run_analysis") {
       parts.push(sanitizeAnalysisToolPart(part, context, parts.length));
       continue;
-    }
-    if (part.type === "data-tessera-stage") {
-      const stage = sanitizeStagePart(part, context);
-      if (stage) parts.push(stage);
-      continue;
-    }
-    if (part.type === "data-tessera-execution" && !executionSeen) {
-      const execution = sanitizeExecutionPart(part, context);
-      if (execution) {
-        parts.push(execution);
-        executionSeen = true;
-      }
-      continue;
-    }
-    if (part.type === "data-tessera-run" && !runSeen) {
-      const run = sanitizeRunPart(part, context);
-      if (run) {
-        parts.push(run);
-        runSeen = true;
-      }
     }
   }
 
@@ -508,82 +471,6 @@ function sanitizeAnalysisToolPart(
   };
 }
 
-function sanitizeStagePart(
-  part: Record<string, unknown>,
-  context: SanitizationContext,
-): TesseraUIMessage["parts"][number] | undefined {
-  const data = sanitizeStageData(asRecord(part.data));
-  if (!data) return undefined;
-  return {
-    type: "data-tessera-stage",
-    id: `${context.messageId}-stage-${data.stage}`,
-    data: { runId: context.runId, ...data },
-  };
-}
-
-function sanitizeExecutionPart(
-  part: Record<string, unknown>,
-  context: SanitizationContext,
-): TesseraUIMessage["parts"][number] | undefined {
-  const data = asRecord(part.data);
-  if (!data || !Array.isArray(data.stages)) return undefined;
-  const stages = data.stages.slice(0, DATA_AGENT_STAGES.size).flatMap((stage) => {
-    const sanitized = sanitizeStageData(asRecord(stage));
-    return sanitized === undefined ? [] : [sanitized];
-  });
-  const status = data.status === "completed" ? "completed" : "failed";
-  return {
-    type: "data-tessera-execution",
-    id: `${context.messageId}-execution`,
-    data: { runId: context.runId, status, stages },
-  };
-}
-
-function sanitizeStageData(input: Record<string, unknown> | undefined): Readonly<{
-  stage: TesseraDataAgentStage;
-  status: TesseraDataAgentStageStatus;
-  durationMs?: number;
-}> | undefined {
-  if (!input || !DATA_AGENT_STAGES.has(input.stage as TesseraDataAgentStage)
-    || !DATA_AGENT_STAGE_STATUSES.has(input.status as TesseraDataAgentStageStatus)) {
-    return undefined;
-  }
-  const durationMs = safeDuration(input.durationMs);
-  return {
-    stage: input.stage as TesseraDataAgentStage,
-    status: input.status as TesseraDataAgentStageStatus,
-    ...(durationMs === undefined ? {} : { durationMs }),
-  };
-}
-
-function sanitizeRunPart(
-  part: Record<string, unknown>,
-  context: SanitizationContext,
-): TesseraUIMessage["parts"][number] | undefined {
-  const data = asRecord(part.data);
-  if (!data || (data.status !== "completed" && data.status !== "needs_input")) return undefined;
-  return {
-    type: "data-tessera-run",
-    id: `${context.messageId}-run`,
-    data: {
-      runId: context.runId,
-      threadId: "restored-session",
-      status: data.status,
-      evidence: sanitizeEvidence(data.evidence, context),
-    },
-  };
-}
-
-function sanitizeEvidence(input: unknown, context: SanitizationContext): readonly TesseraEvidence[] {
-  if (!Array.isArray(input)) return [];
-  return input.slice(0, MAX_EVIDENCE).flatMap((value, index) => {
-    const record = asRecord(value);
-    const label = sanitizeDisplayText(record?.label, 512);
-    if (!label) return [];
-    return [{ queryId: `${context.runId}-evidence-${index + 1}`, label }];
-  });
-}
-
 function boundedTranscript(messages: readonly TesseraSessionMessage[]): StoredUiTranscript {
   const bounded = messages.slice(-MAX_UI_MESSAGES);
   while (bounded.length > 0 && jsonByteLength({ version: 1, messages: bounded }) > MAX_UI_TRANSCRIPT_BYTES) {
@@ -622,12 +509,6 @@ function sanitizeDisplayText(value: unknown, maximum: number): string | undefine
 function safeInteger(value: unknown, minimum: number, maximum: number): number | undefined {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= minimum && value <= maximum
     ? value
-    : undefined;
-}
-
-function safeDuration(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.min(Math.round(value), MAX_DURATION_MS)
     : undefined;
 }
 

@@ -64,13 +64,14 @@ function streamingTestModel() {
 }
 
 describe("Tessera Studio UI transcript memory", () => {
-  test("restores allowlisted tool and timeline data while discarding legacy artifact parts", async () => {
+  test("restores native reasoning and tool data while discarding custom data parts", async () => {
     const rootDirectory = temporaryRoot();
     const sessions = createTesseraSessionMemory({ rootDirectory });
     const rawSql = "select raw_secret_value from private.customer_rows";
     const rawRow = "raw-result-row-marker";
     const credential = "sk-or-v1-credential-marker-123456789";
     const providerError = "provider-error-marker-do-not-retain";
+    const safeReasoning = "Compared the verified result with the requested period.";
 
     try {
       await sessions.createThread({ id: "thread-1", resourceId: "resource-1", title: "Orders" });
@@ -87,7 +88,7 @@ describe("Tessera Studio UI transcript memory", () => {
           metadata: { providerError },
           parts: [{ type: "text", text: "Revenue increased during the selected period." }, {
             type: "reasoning",
-            text: providerError,
+            text: safeReasoning,
           }, {
             type: "tool-list_catalog",
             toolCallId: "provider-catalog-call-id",
@@ -285,18 +286,20 @@ describe("Tessera Studio UI transcript memory", () => {
         output: { status: "completed", rowCount: 1, truncated: false },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "data-tessera-execution",
-        data: expect.objectContaining({ status: "completed", stages: expect.any(Array) }),
+        type: "reasoning",
+        text: safeReasoning,
+        state: "done",
       }));
 
       const publicJson = JSON.stringify(messages);
       expect(publicJson).toContain("Revenue increased");
+      expect(publicJson).toContain(safeReasoning);
       expect(publicJson).not.toContain(rawSql);
       expect(publicJson).not.toContain(rawRow);
       expect(publicJson).not.toContain("private.customer_rows");
       expect(publicJson).not.toContain("secret_token");
       expect(publicJson).not.toContain("customer_rows_owner_fkey");
-      expect(publicJson).not.toContain("data-tessera-artifact");
+      expect(publicJson).not.toContain("data-tessera-");
       expect(publicJson).not.toContain(credential);
       expect(publicJson).not.toContain(providerError);
       expect(publicJson).not.toContain("provider-query-id");
@@ -314,7 +317,8 @@ describe("Tessera Studio UI transcript memory", () => {
       expect(restoredJson).not.toContain("private.customer_rows");
       expect(restoredJson).not.toContain("secret_token");
       expect(restoredJson).not.toContain("customer_rows_owner_fkey");
-      expect(restoredJson).not.toContain("data-tessera-artifact");
+      expect(restoredJson).toContain(safeReasoning);
+      expect(restoredJson).not.toContain("data-tessera-");
       expect(restoredJson).not.toContain(credential);
       expect(restoredJson).not.toContain(providerError);
     } finally {
