@@ -51,6 +51,9 @@ export type TesseraExecuteSqlToolOutput = Readonly<{
   truncated?: boolean;
   requestId?: string;
   checkpointId?: string;
+  reason?: string;
+  message?: string;
+  nextAction?: string;
 }>;
 
 export type TesseraRunAnalysisToolOutput = Readonly<{

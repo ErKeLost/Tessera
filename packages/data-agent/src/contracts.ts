@@ -730,5 +730,6 @@ export type DataAgentErrorCode =
   | "invalid_relation_context"
   | "invalid_relation_preview"
   | "compile_failed"
+  | "query_policy_rejected"
   | "query_failed"
   | "query_limit_exceeded";

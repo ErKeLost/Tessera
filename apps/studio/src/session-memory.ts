@@ -413,7 +413,7 @@ function sanitizeExecuteSqlToolPart(
   const input = { action: "execute_sql" as const };
   const output = asRecord(part.output);
   const status = output?.status === "approval_required" ? "approval_required" : sanitizedToolStatus(output?.status);
-  if (part.state !== "output-available" || status === "failed") {
+  if (part.state !== "output-available") {
     return {
       type: "tool-execute_sql",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
@@ -429,6 +429,9 @@ function sanitizeExecuteSqlToolPart(
   const affectedRows = safeInteger(output?.affectedRows, 0, 10_000);
   const requestId = safeOpaqueHandle(output?.requestId);
   const checkpointId = safeOpaqueHandle(output?.checkpointId);
+  const reason = sanitizeDisplayText(output?.reason, 128);
+  const message = sanitizeDisplayText(output?.message, 500);
+  const nextAction = sanitizeDisplayText(output?.nextAction, 64);
   return {
     type: "tool-execute_sql",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
@@ -443,6 +446,9 @@ function sanitizeExecuteSqlToolPart(
       ...(status === "approval_required" && requestId !== undefined && checkpointId !== undefined
         ? { requestId, checkpointId }
         : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
+      ...(nextAction === undefined ? {} : { nextAction }),
     },
     providerExecuted: true,
     title: "Execute SQL",

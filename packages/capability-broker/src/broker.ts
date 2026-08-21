@@ -483,7 +483,7 @@ export class CapabilityBroker {
       if (latest.status === "cancelled") return this.#view(latest, bound.grant, false);
       return this.#finish(latest, "failed", diagnostic(
         error instanceof SchemaContractError ? error.code : "capability.execution-failed",
-        error instanceof SchemaContractError ? error.message : "Capability execution failed.",
+        error instanceof SchemaContractError ? error.message : safeExecutionMessage(error),
       ));
     } finally {
       this.#controllers.delete(operationKey);
@@ -1032,6 +1032,17 @@ function isTerminal(status: EffectStatus): boolean {
 
 function diagnostic(code: string, message: string): Diagnostic {
   return createDiagnostic({ phase: "effect", code, severity: "error", recoverable: false, modelCorrectable: false, message });
+}
+
+/** Preserve useful connector diagnostics without leaking SQL, credentials, or stack details. */
+function safeExecutionMessage(error: unknown): string {
+  if (!(error instanceof Error) || !error.message) return "Capability execution failed.";
+  const message = error.message
+    .replace(/(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?):\/\/[^\s]+/gi, "[connection hidden]")
+    .replace(/\b(password|passwd|secret|token|api[_-]?key)\s*[=:]\s*[^\s,;]+/gi, "$1=[hidden]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return message.length > 500 ? `${message.slice(0, 497)}...` : message || "Capability execution failed.";
 }
 
 function brokerError(code: string, message: string): CapabilityBrokerError {

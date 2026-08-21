@@ -2386,9 +2386,7 @@ function databaseActionEffectResponse(
     ? 202
     : effect.summary.status === "denied"
       ? 403
-      : effect.summary.status === "failed"
-        ? 502
-        : 200;
+      : 200;
   return context.json(effect, status);
 }
 

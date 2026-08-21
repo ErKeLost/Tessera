@@ -1650,6 +1650,21 @@ describe("Tessera Agent vNext public boundary", () => {
       checkpointId: "checkpoint-1",
     });
 
+    expect(publicToolOutput("execute_sql", "failed", {
+      status: "failed",
+      mode: "read",
+      reason: "system_relation_not_allowed",
+      message: "System relations are not available to this Agent.",
+      nextAction: "list_database",
+      sql: "select * from information_schema.tables",
+    })).toEqual({
+      status: "failed",
+      mode: "read",
+      reason: "system_relation_not_allowed",
+      message: "System relations are not available to this Agent.",
+      nextAction: "list_database",
+    });
+
     expect(publicToolOutput("run_analysis", "completed", {
       rowCount: 2,
       evidence: { sampleRows: [{ email: "customer@example.test" }] },

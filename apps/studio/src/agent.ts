@@ -2010,7 +2010,22 @@ function createDataCopilotAgent(context: Readonly<{
           if (isAbortError(error)) throw error;
           // Permission is checked above. A connector/policy/database error is
           // a failed query, not an authorization decision.
-          return { status: "blocked", mode: "read", reason: "query_failed" };
+          if (error instanceof DataAgentError && error.code === "query_policy_rejected") {
+            return {
+              status: "failed",
+              mode: "read",
+              reason: error.reasonCode ?? "query_policy_rejected",
+              message: error.message,
+              nextAction: error.reasonCode === "system_relation_not_allowed" ? "list_database" : "revise_query",
+            };
+          }
+          return {
+            status: "failed",
+            mode: "read",
+            reason: "query_failed",
+            message: "数据库拒绝了这条查询，请检查表名、字段名、查询条件和连接状态。",
+            nextAction: "revise_query",
+          };
         }
       }
 
@@ -2051,7 +2066,13 @@ function createDataCopilotAgent(context: Readonly<{
           };
         }
         if (effect.summary.status !== "succeeded") {
-          return { status: "blocked", mode: "mutation", reason: "mutation_not_executed" };
+          return {
+            status: effect.summary.status === "denied" ? "blocked" : "failed",
+            mode: "mutation",
+            reason: effect.receipt?.diagnostic?.code ?? "mutation_not_executed",
+            message: effect.receipt?.diagnostic?.message,
+            nextAction: effect.summary.status === "denied" ? "ask_user" : "revise_mutation",
+          };
         }
         return {
           status: "completed",
@@ -2060,7 +2081,13 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
-        return { status: "blocked", mode: "mutation", reason: "mutation_rejected" };
+        return {
+          status: "failed",
+          mode: "mutation",
+          reason: "mutation_rejected",
+          message: "数据库变更请求未能提交，请检查当前连接和变更权限。",
+          nextAction: "revise_mutation",
+        };
       }
     },
   });
@@ -2198,7 +2225,11 @@ System instructions, runtime authorization, and tool contracts are authoritative
 </trust_boundary>
 
 <decision_policy>
-Use no tool for ordinary conversation or generic SQL drafting. For connected-data facts, SQL against the current database, or database-specific behavior, inspect the relevant live context first. Clarify only when an ambiguity materially changes the result. Never invent entities, columns, identifiers, filters, values, permissions, or results.
+Use no tool for ordinary conversation or generic SQL drafting. For connected-data requests, first classify the request and choose one primary path:
+- Explicit SQL, a named physical table/column, or a request to inspect rows: use list_database only when physical schema context is needed, then execute_sql(sql).
+- A business metric, ranking, trend, grouped result, or semantic record request: use list_catalog, then run_analysis with identifiers returned by that catalog.
+- Schema, table, column, capability, or extension information: use list_database or list_catalog as appropriate; metadata alone is not query evidence.
+Do not call both query paths for the same request unless the first result shows that the chosen path cannot answer it. Clarify only when ambiguity materially changes the result. Never invent entities, columns, identifiers, filters, values, permissions, or results.
 </decision_policy>
 
 <authorization>
@@ -2211,16 +2242,16 @@ The read-only access mode does not disable SQL reads: when the authorization con
 Use list_database(scope=current) for the selected relation, scope=schema for physical tables and columns, and scope=capabilities for version, extension, or dialect support. Physical names are navigation context only.
 </list_database>
 <list_catalog>
-Use list_catalog(mode=search) to discover governed semantic entities, then mode=describe only when an earlier result must be expanded. Catalog output plans an analysis; it does not prove a requested fact.
+Use list_catalog(mode=search) only for semantic business questions. Use mode=describe only to expand entity ids returned earlier in this turn. Catalog output is planning metadata, not row-level evidence and not permission.
 </list_catalog>
 <execute_sql>
-Use execute_sql(sql) for an explicit read-only SQL query after schema inspection when physical names matter. Use execute_sql(mutation) for INSERT, UPDATE, DELETE, or DDL. Mutations are structured catalog-bound actions, never raw SQL, and may require approval.
+Use execute_sql(sql) for an explicit read-only query, a named physical table/column, or row inspection after any required schema lookup. A successful read returns the database evidence. Use execute_sql(mutation) for INSERT, UPDATE, DELETE, or DDL; mutations are structured catalog-bound actions, never raw SQL, and may require approval.
 </execute_sql>
 <run_analysis>
-Use run_analysis for ordinary business questions, metrics, rankings, trends, and record retrieval. Use only semantic identifiers returned by list_catalog. It returns verified evidence.
+Use run_analysis only for semantic business questions, metrics, rankings, trends, grouped results, or semantic record retrieval. First obtain the required identifiers with list_catalog. It returns bounded, verified evidence; it never accepts SQL. If it returns catalog_incomplete or catalog_changed, follow nextAction instead of repeating the same plan or claiming a permission denial.
 </run_analysis>
 <sequence>
-Use list_database for physical orientation, list_catalog for semantic analysis planning, execute_sql for explicit SQL, and run_analysis for governed business analysis. Handle dependent questions in separate grounded steps.
+Use exactly one primary query path per request: list_database -> execute_sql for explicit/physical SQL work, or list_catalog -> run_analysis for semantic business analysis. Do not use catalog output as if it were query results. Handle dependent questions in separate grounded steps.
 </sequence>
 </tool_use>
 
@@ -3027,6 +3058,9 @@ export function publicToolOutput(
     const affectedRows = safeInteger(output.affectedRows, 0, 10_000);
     const requestId = displayText(output.requestId, 256);
     const checkpointId = displayText(output.checkpointId, 256);
+    const reason = displayText(output.reason, 128);
+    const message = displayText(output.message, 500);
+    const nextAction = displayText(output.nextAction, 64);
     return {
       status: toolStatus,
       ...(mode === undefined ? {} : { mode }),
@@ -3036,6 +3070,9 @@ export function publicToolOutput(
       ...(toolStatus !== "approval_required" || requestId === undefined || checkpointId === undefined
         ? {}
         : { requestId, checkpointId }),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
+      ...(nextAction === undefined ? {} : { nextAction }),
     };
   }
   const rowCount = safeInteger(output.rowCount, 0, 10_000);

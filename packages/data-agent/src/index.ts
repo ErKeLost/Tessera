@@ -161,11 +161,13 @@ export type {
 
 export class DataAgentError extends Error {
   readonly code: DataAgentErrorCode;
+  readonly reasonCode?: string;
 
-  constructor(code: DataAgentErrorCode, message = "The structured data analysis could not be completed.", options?: { cause?: unknown }) {
+  constructor(code: DataAgentErrorCode, message = "The structured data analysis could not be completed.", options?: { cause?: unknown; reasonCode?: string }) {
     super(message, options);
     this.name = "DataAgentError";
     this.code = code;
+    this.reasonCode = options?.reasonCode;
   }
 }
 
@@ -722,6 +724,13 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     } catch (error) {
       if (isAbortError(error)) throw error;
       if (error instanceof DataAgentError) throw error;
+      const diagnostic = safeQueryDiagnostic(error);
+      if (diagnostic !== undefined) {
+        throw new DataAgentError("query_policy_rejected", diagnostic.message, {
+          cause: error,
+          reasonCode: diagnostic.code,
+        });
+      }
       throw new DataAgentError("query_failed", undefined, { cause: error });
     }
   }
@@ -798,6 +807,15 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     executeReadSql,
     runAnalysis,
   });
+}
+
+/** Connector policy messages are authored by this repository and safe to show. */
+function safeQueryDiagnostic(error: unknown): { code: string; message: string } | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const value = error as { code?: unknown; message?: unknown };
+  if (typeof value.code !== "string" || typeof value.message !== "string") return undefined;
+  if (!/^(empty_sql|invalid_sql|multiple_statements|statement_not_allowed|write_statement|locking_clause|invalid_relation|schema_not_allowed|relation_not_found|system_relation_not_allowed|invalid_function|function_schema_not_allowed|function_not_allowed|function_not_allowlisted)$/.test(value.code)) return undefined;
+  return { code: value.code, message: value.message.slice(0, 500) };
 }
 
 function unavailableRelationContext(): DataAgentError {
