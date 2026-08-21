@@ -33,6 +33,15 @@ import {
   type StudioDatabaseActionEffect,
 } from "./api/studio-api";
 import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxTrigger,
+} from "./components/motion/combobox";
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
@@ -212,6 +221,7 @@ type TableEditorProps = {
 };
 
 const PAGE_SIZE = 100;
+const MAX_TABLE_FILTERS = 32;
 const TABLE_EDITOR_STORAGE_VERSION = 1;
 
 type PersistedTableEditorState = {
@@ -240,10 +250,8 @@ export function TableEditor({
     [catalog],
   );
   const [tableSearch, setTableSearch] = useState("");
-  const [rowFilter, setRowFilter] = useState("");
   const [tableFilters, setTableFilters] = useState<TableFilter[]>([]);
   const [tableSort, setTableSort] = useState<TableSort>();
-  const [filterPopoverOpen, setFilterPopoverOpen] = useState(false);
   const [filterColumn, setFilterColumn] = useState<string>();
   const [permissionsPopoverOpen, setPermissionsPopoverOpen] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState<string>();
@@ -295,10 +303,8 @@ export function TableEditor({
   useEffect(() => {
     const restored = readPersistedTableEditorState(storageKey);
     setTableSearch(restored?.tableSearch ?? "");
-    setRowFilter("");
     setTableFilters([]);
     setTableSort(undefined);
-    setFilterPopoverOpen(false);
     setPermissionsPopoverOpen(false);
     setSelectedSchema(restored?.selectedSchema);
     setSelectedTableKey(restored?.selectedTableKey);
@@ -368,7 +374,7 @@ export function TableEditor({
     onAgentPageContextChange?.(catalogFingerprint
       ? {
         catalogFingerprint,
-        filterActive: Boolean(rowFilter.trim()) || tableFilters.length > 0,
+        filterActive: tableFilters.length > 0,
         schema: selectedTable?.schema ?? selectedSchema,
         table: selectedTable?.name,
         view,
@@ -377,7 +383,6 @@ export function TableEditor({
   }, [
     catalogFingerprint,
     onAgentPageContextChange,
-    rowFilter,
     selectedSchema,
     selectedTable?.name,
     selectedTable?.schema,
@@ -391,13 +396,12 @@ export function TableEditor({
     previewRequestIds.current[key] = requestId;
     setPreviews((values) => ({ ...values, [key]: { status: "loading" } }));
     try {
-      const hasTableQuery = Boolean(rowFilter.trim()) || tableFilters.length > 0 || tableSort !== undefined || page !== 1;
+      const hasTableQuery = tableFilters.length > 0 || tableSort !== undefined || page !== 1;
       const params = hasTableQuery
         ? new URLSearchParams({
           filters: JSON.stringify(tableFilters),
           page: String(page),
           pageSize: String(PAGE_SIZE),
-          q: rowFilter,
           ...(tableSort ? { direction: tableSort.direction, sort: tableSort.column } : {}),
         })
         : undefined;
@@ -417,7 +421,7 @@ export function TableEditor({
         [key]: { error: publicError(error), status: "error" },
       }));
     }
-  }, [page, rowFilter, tableFilters, tableSort]);
+  }, [page, tableFilters, tableSort]);
 
   useEffect(() => {
     if (selectedTable) void loadPreview(selectedTable);
@@ -425,14 +429,13 @@ export function TableEditor({
 
   useEffect(() => {
     setCellSelection(undefined);
-  }, [page, rowFilter, selectedTableKey, tableFilters, tableSort]);
+  }, [page, selectedTableKey, tableFilters, tableSort]);
 
   const selectTable = useCallback((table: CatalogTable) => {
     const key = tableKey(table);
     setSelectedTableKey(key);
     setOpenTableKeys((keys) => keys.includes(key) ? keys : [...keys, key]);
     setView("data");
-    setRowFilter("");
     setTableFilters([]);
     setTableSort(undefined);
     setPage(1);
@@ -449,7 +452,8 @@ export function TableEditor({
     }
     setSelectedTableKey(undefined);
     setOpenTableKeys([]);
-    setRowFilter("");
+    setTableFilters([]);
+    setTableSort(undefined);
     setPage(1);
     setSelectedRows(new Set());
     setCellSelection(undefined);
@@ -491,7 +495,7 @@ export function TableEditor({
   const pageStart = (safePage - 1) * PAGE_SIZE;
   const visibleRows = filteredRows;
   const selectedTableDisplayName = selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "Table Editor";
-  const hasQueryControls = Boolean(rowFilter.trim()) || tableFilters.length > 0 || tableSort !== undefined;
+  const hasQueryControls = tableFilters.length > 0 || tableSort !== undefined;
   const selectionIncludesPage = selectedTable !== undefined
     && visibleRows.length > 0
     && visibleRows.every(({ row, sourceIndex }) => selectedRows.has(stableRowKey(selectedTable, row, sourceIndex)));
@@ -842,40 +846,20 @@ export function TableEditor({
         </nav>
 
         <header className="table-editor-toolbar">
-          <label className="table-editor-row-filter">
-            <SearchIcon aria-hidden="true" size={15} />
-            <span className="sr-only">Filter table rows</span>
-            <Input
-              aria-label="Filter table rows"
-              className="table-editor-search-input"
-              disabled={!selectedTable}
-              onChange={(event) => {
-                setRowFilter(event.currentTarget.value);
-                setPage(1);
-                setSelectedRows(new Set());
-                setCellSelection(undefined);
-              }}
-              placeholder="Filter rows..."
-              value={rowFilter}
-            />
-          </label>
+          <TableFilterBar
+            filters={tableFilters}
+            initialColumn={filterColumn}
+            key={selectedTableKey ?? "no-table"}
+            onChange={(nextFilters) => {
+              setTableFilters(nextFilters);
+              setPage(1);
+              setSelectedRows(new Set());
+              setCellSelection(undefined);
+            }}
+            onInitialColumnHandled={() => setFilterColumn(undefined)}
+            table={selectedTable}
+          />
           <div className="table-editor-toolbar-actions">
-            <TableFilterPopover
-              filters={tableFilters}
-              initialColumn={filterColumn}
-              onApply={(nextFilters) => {
-                setTableFilters(nextFilters);
-                setPage(1);
-                setSelectedRows(new Set());
-                setCellSelection(undefined);
-              }}
-              onOpenChange={(open) => {
-                setFilterPopoverOpen(open);
-                if (!open) setFilterColumn(undefined);
-              }}
-              open={filterPopoverOpen}
-              table={selectedTable}
-            />
             <TableSortPopover
               onApply={(nextSort) => {
                 setTableSort(nextSort);
@@ -978,7 +962,7 @@ export function TableEditor({
                   Refresh preview
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem disabled={!hasQueryControls} onSelect={() => { setRowFilter(""); setTableFilters([]); setTableSort(undefined); setPage(1); setSelectedRows(new Set()); setCellSelection(undefined); }}>
+                <DropdownMenuItem disabled={!hasQueryControls} onSelect={() => { setTableFilters([]); setTableSort(undefined); setPage(1); setSelectedRows(new Set()); setCellSelection(undefined); }}>
                   <XIcon aria-hidden="true" size={14} />
                   Clear filters and sort
                 </DropdownMenuItem>
@@ -1024,7 +1008,6 @@ export function TableEditor({
               onCopyColumn={copySelectedColumn}
               onFilterColumn={(column) => {
                 setFilterColumn(column);
-                setFilterPopoverOpen(true);
               }}
               onSortColumn={(column, direction) => {
                 setTableSort({ column, direction });
@@ -1432,142 +1415,209 @@ function TableMutationDialog({
   );
 }
 
-function TableFilterPopover({
+function TableFilterBar({
   filters,
   initialColumn,
-  onApply,
-  onOpenChange,
-  open,
+  onChange,
+  onInitialColumnHandled,
   table,
 }: {
   filters: TableFilter[];
   initialColumn?: string;
-  onApply: (filters: TableFilter[]) => void;
-  onOpenChange: (open: boolean) => void;
-  open: boolean;
+  onChange: (filters: TableFilter[]) => void;
+  onInitialColumnHandled: () => void;
   table: CatalogTable | undefined;
 }) {
-  const [draftFilters, setDraftFilters] = useState<TableFilter[]>(filters);
+  const [draftColumn, setDraftColumn] = useState<string>();
+  const [draftOperator, setDraftOperator] = useState<TableFilterOperator>();
+  const [draftValue, setDraftValue] = useState("");
 
   useEffect(() => {
-    if (!open) return;
-    const nextFilters = filters.map((filter) => ({ ...filter }));
-    const isKnownColumn = initialColumn && table?.columns.some((column) => column.name === initialColumn);
-    if (isKnownColumn && !nextFilters.some((filter) => filter.column === initialColumn)) {
-      nextFilters.push({ column: initialColumn, operator: "contains", value: "" });
+    if (!initialColumn) return;
+    const isKnownColumn = table?.columns.some((column) => column.name === initialColumn);
+    if (isKnownColumn && filters.length < MAX_TABLE_FILTERS) {
+      setDraftColumn(initialColumn);
+      setDraftOperator(undefined);
+      setDraftValue("");
     }
-    setDraftFilters(nextFilters);
-  }, [filters, initialColumn, open, table]);
+    onInitialColumnHandled();
+  }, [filters.length, initialColumn, onInitialColumnHandled, table?.columns]);
 
-  const updateFilter = (index: number, update: Partial<TableFilter>) => {
-    setDraftFilters((current) => current.map((filter, filterIndex) => filterIndex === index
-      ? { ...filter, ...update }
-      : filter));
+  const resetDraft = () => {
+    setDraftColumn(undefined);
+    setDraftOperator(undefined);
+    setDraftValue("");
   };
 
-  const addFilter = () => {
-    const column = table?.columns[0]?.name;
-    if (!column) return;
-    setDraftFilters((current) => [...current, { column, operator: "contains", value: "" }]);
+  const chooseColumn = (column: string) => {
+    setDraftColumn(column);
+    setDraftOperator(undefined);
+    setDraftValue("");
   };
 
-  const apply = () => {
-    const nextFilters = draftFilters.map((filter) => ({
-      ...filter,
-      value: tableFilterNeedsValue(filter.operator) ? filter.value.trim() : "",
-    }));
-    onApply(nextFilters);
-    onOpenChange(false);
+  const commitFilter = (operator: TableFilterOperator, rawValue = "") => {
+    if (!draftColumn || filters.length >= MAX_TABLE_FILTERS) return;
+    const value = tableFilterNeedsValue(operator) ? rawValue.trim() : "";
+    if (tableFilterNeedsValue(operator) && !value) return;
+    onChange([...filters, { column: draftColumn, operator, value }]);
+    resetDraft();
   };
 
-  const filtersValid = draftFilters.every((filter) => filter.column
-    && (!tableFilterNeedsValue(filter.operator) || Boolean(filter.value.trim())));
-  const hasChanges = !tableFiltersEqual(draftFilters, filters);
-  const buttonText = filters.length
-    ? `Filtered by ${filters.length} rule${filters.length === 1 ? "" : "s"}`
-    : "Filter";
+  const chooseOperator = (operator: TableFilterOperator) => {
+    if (!tableFilterNeedsValue(operator)) {
+      commitFilter(operator);
+      return;
+    }
+    setDraftOperator(operator);
+  };
+
+  const selectedColumn = table?.columns.find((column) => column.name === draftColumn);
+  const canAddFilter = Boolean(table?.columns.length) && filters.length < MAX_TABLE_FILTERS;
+  const placeholder = filters.length
+    ? "Add more filters..."
+    : tableFilterPlaceholder(table);
 
   return (
-    <Popover modal={false} onOpenChange={onOpenChange} open={open}>
-      <PopoverTrigger asChild>
-        <Button
-          aria-label="Filter table rows"
-          className={cx("table-editor-query-button", filters.length > 0 && "is-active")}
-          disabled={!table}
-          size="sm"
-          title={filters.length ? `${filters.length} filters applied` : "Filter rows"}
-          type="button"
-          variant="outline"
-        >
-          <FilterIcon aria-hidden="true" size={14} strokeWidth={1.8} />
-          <span>{buttonText}</span>
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="table-editor-popover table-editor-filter-popover" side="bottom" sideOffset={6}>
-        <div className="table-editor-popover-body">
-          {draftFilters.map((filter, index) => (
-            <div className="table-editor-popover-row" key={`${filter.column}-${index}`}>
-              <Select onValueChange={(column) => updateFilter(index, { column })} value={filter.column}>
-                <SelectTrigger aria-label={`Filter ${index + 1} column`} className="table-editor-popover-select table-editor-popover-column" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="table-editor-popover-select-content" position="popper">
-                  {table?.columns.map((column) => <SelectItem key={column.name} value={column.name}>{column.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              <Select
-                onValueChange={(operator) => updateFilter(index, {
-                  operator: operator as TableFilterOperator,
-                  value: tableFilterNeedsValue(operator as TableFilterOperator) ? filter.value : "",
-                })}
-                value={filter.operator}
-              >
-                <SelectTrigger aria-label={`Filter ${index + 1} operator`} className="table-editor-popover-select table-editor-popover-operator" size="sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="table-editor-popover-select-content" position="popper">
-                  {TABLE_FILTER_OPERATORS.map((option) => <SelectItem key={option.value} value={option.value}>{option.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-              {tableFilterNeedsValue(filter.operator) ? (
-                <Input
-                  aria-label={`Filter ${index + 1} value`}
-                  className="table-editor-popover-value"
-                  onChange={(event) => updateFilter(index, { value: event.currentTarget.value })}
-                  onKeyDown={(event) => { if (event.key === "Enter" && filtersValid && hasChanges) apply(); }}
-                  placeholder="Enter a value"
-                  value={filter.value}
-                />
-              ) : <span className="table-editor-popover-value table-editor-popover-no-value">No value</span>}
+    <div aria-label="Table filters" className={cx("table-editor-filter-bar", filters.length > 0 && "has-filters")}>
+      <SearchIcon aria-hidden="true" size={15} />
+      <div className="table-editor-filter-scroll">
+        {filters.map((filter, index) => {
+          const option = tableFilterOperator(filter.operator);
+          const value = tableFilterNeedsValue(filter.operator) ? filter.value : option.label;
+          return (
+            <div
+              className="table-editor-active-filter"
+              key={`${filter.column}-${filter.operator}-${index}`}
+              title={`${filter.column} ${option.label}${filter.value ? ` ${filter.value}` : ""}`}
+            >
+              <strong>{filter.column}</strong>
+              <code>{option.symbol}</code>
+              {tableFilterNeedsValue(filter.operator) ? <span>{value}</span> : null}
               <Button
                 aria-label={`Remove ${filter.column} filter`}
-                className="table-editor-popover-remove"
-                onClick={() => setDraftFilters((current) => current.filter((_, filterIndex) => filterIndex !== index))}
+                onClick={() => onChange(filters.filter((_, filterIndex) => filterIndex !== index))}
                 size="icon-xs"
                 title="Remove filter"
                 type="button"
                 variant="ghost"
               >
-                <XIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+                <XIcon aria-hidden="true" size={12} />
               </Button>
             </div>
-          ))}
-          {!draftFilters.length ? (
-            <div className="table-editor-popover-empty">
-              <strong>No filters applied to this view</strong>
-              <span>Add a column below to filter the view</span>
-            </div>
-          ) : null}
-        </div>
-        <div className="table-editor-popover-footer">
-          <Button className="table-editor-popover-add" disabled={!table?.columns.length} onClick={addFilter} size="sm" type="button" variant="outline">
-            <PlusIcon aria-hidden="true" size={14} />
-            Add filter
-          </Button>
-          <Button disabled={!filtersValid || !hasChanges} onClick={apply} size="sm" type="button">Apply filter</Button>
-        </div>
-      </PopoverContent>
-    </Popover>
+          );
+        })}
+
+        {draftColumn === undefined ? (
+          <Combobox disabled={!canAddFilter} onValueChange={chooseColumn}>
+            <ComboboxTrigger className="table-editor-filter-column-trigger">
+              <ComboboxInput
+                aria-label="Choose a filter column"
+                className="table-editor-filter-column-search"
+                placeholder={canAddFilter ? placeholder : filters.length >= MAX_TABLE_FILTERS ? "Filter limit reached" : "Select a table to filter"}
+                wrapperClassName="table-editor-filter-column-input"
+              />
+            </ComboboxTrigger>
+            <ComboboxContent className="table-editor-filter-column-menu" sideOffset={5}>
+              <ComboboxList ariaLabel="Filter columns" className="table-editor-filter-column-list">
+                {table?.columns.map((column) => (
+                  <ComboboxItem className="table-editor-filter-column-option" key={column.name} keywords={[column.dataType]} textValue={column.name} value={column.name}>
+                    <span>{column.name}</span>
+                    <code>{compactDataType(column.dataType)}</code>
+                  </ComboboxItem>
+                ))}
+                <ComboboxEmpty>No columns match this search.</ComboboxEmpty>
+              </ComboboxList>
+            </ComboboxContent>
+          </Combobox>
+        ) : draftOperator === undefined ? (
+          <Popover
+            modal={false}
+            onOpenChange={(nextOpen) => {
+              if (!nextOpen) resetDraft();
+            }}
+            open
+          >
+            <PopoverTrigger asChild>
+              <Button aria-label={`Choose an operator for ${draftColumn}`} className="table-editor-filter-draft-trigger" size="sm" type="button" variant="ghost">
+                <strong>{draftColumn}</strong>
+                <ChevronDownIcon aria-hidden="true" size={13} />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="table-editor-popover table-editor-filter-operator-menu" side="bottom" sideOffset={5}>
+              {TABLE_FILTER_OPERATOR_GROUPS.map((group) => (
+                <section className="table-editor-filter-operator-group" key={group.label}>
+                  <h3>{group.label}</h3>
+                  {group.operators.map((operator) => (
+                    <Button key={operator.value} onClick={() => chooseOperator(operator.value)} type="button" variant="ghost">
+                      <span>{operator.label}</span>
+                      <code>{operator.symbol}</code>
+                    </Button>
+                  ))}
+                </section>
+              ))}
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <form
+            className="table-editor-filter-value-draft"
+            onSubmit={(event) => {
+              event.preventDefault();
+              commitFilter(draftOperator, draftValue);
+            }}
+          >
+            <span title={selectedColumn?.dataType}>{draftColumn}</span>
+            <Button
+              aria-label={`Change operator for ${draftColumn}`}
+              onClick={() => setDraftOperator(undefined)}
+              size="xs"
+              title={tableFilterOperator(draftOperator).label}
+              type="button"
+              variant="ghost"
+            >
+              {tableFilterOperator(draftOperator).symbol}
+            </Button>
+            {tableFilterNeedsValue(draftOperator) ? (
+              <Input
+                aria-label={`Filter ${draftColumn} value`}
+                autoFocus
+                className="table-editor-filter-value-input"
+                inputMode={selectedColumn && isNumericColumn(selectedColumn) ? "decimal" : undefined}
+                onChange={(event) => setDraftValue(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") resetDraft();
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    commitFilter(draftOperator, event.currentTarget.value);
+                  }
+                }}
+                placeholder="Enter value..."
+                value={draftValue}
+              />
+            ) : null}
+            <Button
+              aria-label="Apply filter"
+              disabled={!draftValue.trim()}
+              size="icon-xs"
+              title="Apply filter"
+              type="submit"
+              variant="ghost"
+            >
+              <SearchIcon aria-hidden="true" size={13} />
+            </Button>
+            <Button
+              aria-label="Cancel filter"
+              onClick={resetDraft}
+              size="icon-xs"
+              title="Cancel filter"
+              type="button"
+              variant="ghost"
+            >
+              <XIcon aria-hidden="true" size={13} />
+            </Button>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -2182,29 +2232,44 @@ function buildClientTableDefinition(table: CatalogTable): string {
   return `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
 }
 
-const TABLE_FILTER_OPERATORS: ReadonlyArray<{ label: string; value: TableFilterOperator }> = [
-  { label: "contains", value: "contains" },
-  { label: "equals", value: "equals" },
-  { label: "does not equal", value: "not_equals" },
-  { label: "greater than", value: "gt" },
-  { label: "greater than or equal", value: "gte" },
-  { label: "less than", value: "lt" },
-  { label: "less than or equal", value: "lte" },
-  { label: "is null", value: "is_null" },
-  { label: "is not null", value: "is_not_null" },
+type TableFilterOperatorOption = Readonly<{
+  label: string;
+  symbol: string;
+  value: TableFilterOperator;
+}>;
+
+const TABLE_FILTER_OPERATORS: readonly TableFilterOperatorOption[] = [
+  { label: "Equals", symbol: "=", value: "equals" },
+  { label: "Not equal", symbol: "<>", value: "not_equals" },
+  { label: "Greater than", symbol: ">", value: "gt" },
+  { label: "Less than", symbol: "<", value: "lt" },
+  { label: "Greater or equal", symbol: ">=", value: "gte" },
+  { label: "Less or equal", symbol: "<=", value: "lte" },
+  { label: "Contains", symbol: "~~", value: "contains" },
+  { label: "Is null", symbol: "NULL", value: "is_null" },
+  { label: "Is not null", symbol: "NOT NULL", value: "is_not_null" },
+] as const;
+
+const TABLE_FILTER_OPERATOR_GROUPS: ReadonlyArray<Readonly<{
+  label: string;
+  operators: readonly TableFilterOperatorOption[];
+}>> = [
+  { label: "Comparison", operators: TABLE_FILTER_OPERATORS.slice(0, 6) },
+  { label: "Pattern matching", operators: TABLE_FILTER_OPERATORS.slice(6, 7) },
+  { label: "Null", operators: TABLE_FILTER_OPERATORS.slice(7) },
 ];
+
+function tableFilterOperator(operator: TableFilterOperator): TableFilterOperatorOption {
+  return TABLE_FILTER_OPERATORS.find((option) => option.value === operator) ?? TABLE_FILTER_OPERATORS[0]!;
+}
+
+function tableFilterPlaceholder(table: CatalogTable | undefined): string {
+  const names = table?.columns.slice(0, 3).map((column) => column.name) ?? [];
+  return names.length ? `Filter by ${names.join(", ")}...` : "Select a table to filter";
+}
 
 function tableFilterNeedsValue(operator: TableFilterOperator): boolean {
   return operator !== "is_null" && operator !== "is_not_null";
-}
-
-function tableFiltersEqual(left: TableFilter[], right: TableFilter[]): boolean {
-  return left.length === right.length && left.every((filter, index) => {
-    const candidate = right[index];
-    return candidate?.column === filter.column
-      && candidate.operator === filter.operator
-      && candidate.value === filter.value;
-  });
 }
 
 function tableSortEqual(left: TableSort | undefined, right: TableSort | undefined): boolean {
