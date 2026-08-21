@@ -958,13 +958,12 @@
   position: relative;
   display: block;
   height: calc(100dvh - 3.5rem);
-  min-height: 40rem;
+  min-height: 0;
   overflow: hidden;
   border: 0;
   border-radius: 0;
   background: #f8fafc;
   box-shadow: none;
-  padding-bottom: clamp(11rem, 18vw, 16rem);
 }
 
 .heroCanvas::before {
@@ -994,7 +993,7 @@
 
 .heroCopy {
   position: absolute;
-  top: clamp(5.5rem, 13vh, 8rem);
+  top: clamp(3rem, 7vh, 4.5rem);
   left: 0;
   z-index: 2;
   display: block;
@@ -1020,7 +1019,7 @@
 
 .heroCopy h1 {
   max-width: 10ch;
-  margin-top: 1.55rem;
+  margin-top: 1rem;
   color: #f8fbfc;
   font-size: clamp(2.85rem, 4.6vw, 4.75rem);
   font-weight: 580;
@@ -1031,6 +1030,7 @@
 
 .heroCopy .heroLead {
   max-width: 31rem;
+  margin-top: .9rem;
   color: rgb(235 244 247 / .76);
   font-size: clamp(.88rem, 1.05vw, .98rem);
   line-height: 1.65;
@@ -1042,6 +1042,10 @@
   min-height: 2.9rem;
   border-radius: 999px;
   padding-inline: 1.15rem;
+}
+
+.heroCopy .heroActions {
+  margin-top: 1rem;
 }
 
 .heroCopy .primaryButton {
@@ -1077,11 +1081,13 @@
   --primary: #17202a;
   --primary-foreground: #f7f9fb;
   position: absolute;
-  top: 48%;
+  top: 37%;
+  bottom: auto;
   left: 50%;
   z-index: 3;
-  width: min(calc(100% - 4rem), 78rem);
-  height: auto;
+  width: auto;
+  height: 63%;
+  aspect-ratio: 1718 / 916;
   overflow: hidden;
   border: 1px solid rgb(255 255 255 / .2);
   border-radius: 1.35rem;
@@ -1105,8 +1111,7 @@
 
 .heroProductPreview {
   position: relative;
-  aspect-ratio: 1718 / 916;
-  height: auto;
+  height: 100%;
   overflow: hidden;
   background: #f7f9fb;
 }
@@ -1253,7 +1258,7 @@
 
 @media (max-width: 900px) {
   .heroCanvas {
-    min-height: 43rem;
+    height: clamp(50rem, calc(100dvh + 10rem), 58rem);
   }
 
   .heroInner {
@@ -1265,7 +1270,7 @@
   }
 
   .heroProductFrame {
-    top: 49%;
+    top: 42%;
     width: calc(100% - 3rem);
   }
 }
@@ -1276,7 +1281,7 @@
   }
 
   .heroCanvas {
-    min-height: 44rem;
+    height: clamp(50rem, calc(100dvh + 10rem), 56rem);
     border-radius: 0;
   }
 
@@ -1304,16 +1309,16 @@
   }
 
   .heroProductFrame {
-    top: 52%;
+    top: 46%;
     width: calc(100% + 1rem);
-    height: 29rem;
+    height: auto;
     border-radius: .9rem;
   }
 }
 
 @media (max-width: 520px) {
   .heroCanvas {
-    min-height: 44rem;
+    height: 50rem;
   }
 
   .heroCopy {
@@ -1337,7 +1342,7 @@
     padding-inline: .75rem;
   }
 
-  .heroProductFrame { top: 54%; }
+  .heroProductFrame { top: 48%; }
 }
 
 /* Reuse the moving image layer inside every major home-page panel. */
@@ -1445,30 +1450,98 @@
   background: #0b111c;
 }
 
-/* The light canvas keeps the artwork on the window side while opening the
- * copy side up for dark type and a light-mode product surface. */
+/* The hero remains a dark, immersive canvas in either site theme. */
 :global(html:not(.dark)) .heroCopy {
-  color: #17202a;
+  color: #f7fafc;
 }
 
 :global(html:not(.dark)) .heroCopy h1 {
-  color: #17202a;
-  text-shadow: 0 5px 28px rgb(255 255 255 / .35);
+  color: #f8fbfc;
+  text-shadow: 0 5px 28px rgb(0 5 8 / .45);
 }
 
 :global(html:not(.dark)) .heroCopy .heroLead {
-  color: rgb(23 32 42 / .76);
-  text-shadow: 0 2px 18px rgb(255 255 255 / .6);
+  color: rgb(235 244 247 / .76);
+  text-shadow: 0 2px 18px rgb(0 5 8 / .55);
 }
 
 :global(html:not(.dark)) .heroCopy .eyebrow {
-  border-color: rgb(23 32 42 / .18);
-  background: rgb(255 255 255 / .48);
-  color: rgb(23 32 42 / .76);
+  border-color: rgb(223 238 244 / .3);
+  background: rgb(9 24 33 / .44);
+  color: rgb(244 249 251 / .86);
 }
 
 :global(html:not(.dark)) .heroCopy .secondaryButton {
-  border-color: rgb(23 32 42 / .2);
-  background: rgb(255 255 255 / .42);
-  color: #17202a;
+  border-color: rgb(235 245 248 / .28);
+  background: rgb(5 18 26 / .38);
+  color: #f5f8fa;
+}
+
+:global(html:not(.dark)) .heroProductDark { opacity: 1; }
+:global(html:not(.dark)) .heroProductLight { opacity: 0; }
+
+:global(html:not(.dark)) .heroProductFrame,
+:global(html:not(.dark)) .heroProductPreview {
+  background: #0c0f13;
+  color: #f4f6f8;
+}
+
+:global(html:not(.dark)) .heroProductChrome {
+  border-bottom-color: rgb(255 255 255 / .1);
+  background: linear-gradient(180deg, rgb(20 25 30 / .78), rgb(14 18 22 / .48));
+  color: rgb(231 238 242 / .58);
+}
+
+:global(html:not(.dark)) .heroProductControls span {
+  border-color: rgb(255 255 255 / .18);
+}
+
+:global(html:not(.dark)) .canvasPanel {
+  background: var(--background);
+  --home-ink: #f8fbfc;
+  --home-muted: rgb(226 232 240 / .82);
+  --home-accent: #f8fbfc;
+  --home-accent-soft: rgb(248 250 252 / .12);
+  color: var(--home-ink);
+}
+
+:global(html:not(.dark)) .sectionBackdrop {
+  display: block;
+}
+
+:global(html:not(.dark)) .sectionBackdrop::after {
+  background: none;
+}
+
+:global(html:not(.dark)) .canvasPanel .installConsole,
+:global(html:not(.dark)) .canvasPanel .protocolList,
+:global(html:not(.dark)) .canvasPanel .packageList,
+:global(html:not(.dark)) .canvasPanel .componentCanvas,
+:global(html:not(.dark)) .canvasPanel .openSourceMark {
+  --home-ink: #111827;
+  --home-muted: rgb(71 85 105 / .82);
+  --home-accent: #111827;
+  color: var(--home-ink);
+}
+
+:global(html:not(.dark)) .manifesto,
+:global(html:not(.dark)) .canvasPanel > .sectionHeading,
+:global(html:not(.dark)) .canvasPanel > .centeredHeading,
+:global(html:not(.dark)) .canvasPanel > .protocolStatement,
+:global(html:not(.dark)) .canvasPanel > div:not(.sectionBackdrop):not(.openSourceMark) > p,
+:global(html:not(.dark)) .openSourceSection > div:not(.openSourceMark) {
+  color: #f8fbfc;
+  text-shadow: 0 2px 14px rgb(0 8 20 / .65);
+}
+
+:global(html:not(.dark)) .canvasPanel > .sectionHeading > p,
+:global(html:not(.dark)) .canvasPanel > .centeredHeading > p,
+:global(html:not(.dark)) .canvasPanel > .protocolStatement > p,
+:global(html:not(.dark)) .openSourceSection > div:not(.openSourceMark) > p {
+  color: rgb(241 245 249 / .86);
+}
+
+:global(html:not(.dark)) .canvasPanel > .sectionHeading .textLink,
+:global(html:not(.dark)) .canvasPanel > .protocolStatement .textLink {
+  color: #f8fbfc;
 }

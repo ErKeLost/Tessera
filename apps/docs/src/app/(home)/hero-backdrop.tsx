@@ -173,11 +173,10 @@ export function HeroBackdrop({ variant = "hero", imageKey = "blue" }: HeroBackdr
       const zoom = reduceMotion ? 1.012 : 1.018 + Math.sin(time * .08) * .0025;
       const focusX = width < 720 ? .73 : variant === "panel" ? .56 : .5;
 
-      context.filter = "saturate(1.025) contrast(1.035) brightness(.94)";
+      const rawCanvas = lightMode && variant === "panel";
+      context.filter = rawCanvas ? "none" : "saturate(1.025) contrast(1.035) brightness(.94)";
       const placement = drawImageCover(context, image, width, height, driftX, driftY, zoom, focusX);
       context.filter = "none";
-
-      if (lightMode) drawLightThemeWash(context, width, height, variant);
 
       if (!reduceMotion) {
         if (variant === "hero") {
@@ -190,8 +189,10 @@ export function HeroBackdrop({ variant = "hero", imageKey = "blue" }: HeroBackdr
         drawParticles(context, particles, height, time, variant, imageKey);
       }
 
-      drawScrim(context, width, height, variant, lightMode);
-      drawVignette(context, width, height, lightMode);
+      if (!rawCanvas) {
+        drawScrim(context, width, height, variant, false);
+        drawVignette(context, width, height, false);
+      }
     }
 
     const resizeObserver = new ResizeObserver(resize);

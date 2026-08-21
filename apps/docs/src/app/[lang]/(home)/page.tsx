@@ -160,10 +160,6 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
                     <span />
                   </div>
                   <span className={styles.heroProductTitle}>Data Elements Studio</span>
-                  <div className={styles.heroProductControls}>
-                    <span />
-                    <span />
-                  </div>
                 </div>
                 <div className={styles.heroProductPreview}>
                   <img
@@ -176,9 +172,9 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
                   <img
                     alt="Data Elements Studio in light theme"
                     className={styles.heroProductLight}
-                    height={918}
-                    src="/images/data-elements-studio-light.png"
-                    width={1713}
+                    height={2304}
+                    src="/images/data-elements-studio-light-hd.png"
+                    width={4096}
                   />
                 </div>
               </div>
@@ -298,7 +294,7 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
           <div className={styles.openSourceActions}>
             <a
               className={styles.primaryButton}
-              href="https://github.com/data-elements/data-elements"
+              href="https://github.com/ErKeLost/Tessera"
               rel="noreferrer"
               target="_blank"
             >
