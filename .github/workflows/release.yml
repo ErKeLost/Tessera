@@ -114,13 +114,28 @@ jobs:
             echo "NPM_TOKEN is not available to this workflow." >&2
             exit 1
           fi
+
+          registry_has_version() {
+            local package_name="$1"
+            local package_version="$2"
+            local encoded_name="${package_name//\//%2f}"
+            local cache_bust
+            cache_bust="$(date +%s%N)"
+            curl --fail --silent --location \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --header "Cache-Control: no-cache" \
+              "https://registry.npmjs.org/${encoded_name}/${package_version}?cache_bust=${cache_bust}" \
+              >/dev/null
+          }
+
           mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
           for package_path in "${packages[@]}"; do
             package_name="$(node -p "require('./$package_path/package.json').name")"
-            published_version=""
-            published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
             publish_confirmed=false
-            if [ "$published_version" = "$RELEASE_VERSION" ]; then
+
+            if registry_has_version "$package_name" "$RELEASE_VERSION"; then
+              echo "$package_name@$RELEASE_VERSION is already available; skipping publish."
               publish_confirmed=true
             fi
 
@@ -133,10 +148,11 @@ jobs:
                 npm publish --access public --ignore-scripts
               ); then
                 publish_confirmed=true
+                echo "npm accepted $package_name@$RELEASE_VERSION."
                 break
               fi
-              published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
-              if [ "$published_version" = "$RELEASE_VERSION" ]; then
+              if registry_has_version "$package_name" "$RELEASE_VERSION"; then
+                echo "$package_name@$RELEASE_VERSION became available after npm returned an error."
                 publish_confirmed=true
                 break
               fi
@@ -144,18 +160,6 @@ jobs:
             done
             if [ "$publish_confirmed" != true ]; then
               echo "npm publish failed for $package_name@$RELEASE_VERSION." >&2
-              exit 1
-            fi
-
-            for verify_attempt in $(seq 1 24); do
-              published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
-              if [ "$published_version" = "$RELEASE_VERSION" ]; then
-                break
-              fi
-              sleep 5
-            done
-            if [ "$published_version" != "$RELEASE_VERSION" ]; then
-              echo "npm registry did not confirm $package_name@$RELEASE_VERSION after publishing." >&2
               exit 1
             fi
           done
@@ -169,11 +173,19 @@ jobs:
           trap 'find "$verify_dir" -depth -delete' EXIT
           cd "$verify_dir"
           npm init --yes >/dev/null
-          for attempt in $(seq 1 12); do
-            if npx --yes "data-elements@$RELEASE_VERSION" studio --help; then
+          for attempt in $(seq 1 60); do
+            cache_bust="$(date +%s%N)"
+            if curl --fail --silent --location \
+              --connect-timeout 10 \
+              --max-time 30 \
+              --header "Cache-Control: no-cache" \
+              "https://registry.npmjs.org/data-elements/${RELEASE_VERSION}?cache_bust=${cache_bust}" \
+              >/dev/null \
+              && npm_config_cache="$verify_dir/npm-cache-$attempt" \
+                npx --yes "data-elements@$RELEASE_VERSION" studio --help; then
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
-          echo "The published CLI did not become installable from npm." >&2
+          echo "The published CLI did not become installable from npm within 10 minutes." >&2
           exit 1
