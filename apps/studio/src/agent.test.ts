@@ -40,7 +40,7 @@ import { RequestContext } from "@mastra/core/request-context";
 import type { TesseraLlmConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
 import type { DatabaseCatalog, DatabaseQueryResult } from "@data-elements/database";
-import { createTesseraSessionMemory } from "./session-memory";
+import { createTesseraSessionMemory, tesseraSessionResourceId } from "./session-memory";
 
 function streamOnlyTestModel() {
   const calls = { stream: 0 };
@@ -1414,9 +1414,13 @@ describe("Tessera Agent vNext public boundary", () => {
       maxSteps: 4,
       maxRetries: 0,
     };
+    const identity = { tenantId: "tenant-a", subject: "alice", roles: ["analyst"] } as const;
 
     try {
-      await session.createThread({ id: "thread-execute-sql", resourceId: "local-studio" });
+      await session.createThread({
+        id: "thread-execute-sql",
+        resourceId: tesseraSessionResourceId(identity),
+      });
       const agent = createTesseraStudioAgent({
         dataAgent,
         databaseActions,
@@ -1433,7 +1437,7 @@ describe("Tessera Agent vNext public boundary", () => {
         threadId: "thread-execute-sql",
         message: "Check the connection, then add order-1.",
         signal: new AbortController().signal,
-        identity: { tenantId: "tenant-a", subject: "alice", roles: ["analyst"] },
+        identity,
       });
 
       expect(run.message).toContain("waiting for approval");

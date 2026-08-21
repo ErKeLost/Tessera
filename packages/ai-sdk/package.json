@@ -23,7 +23,7 @@
     "@data-elements/core": "workspace:*",
     "@data-elements/runtime": "workspace:*",
     "@data-elements/schema": "workspace:*",
-    "ai": "7.0.66",
+    "ai": "7.0.73",
     "zod": "4.4.3"
   },
   "devDependencies": {

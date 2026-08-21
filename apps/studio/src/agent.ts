@@ -1,4 +1,4 @@
-import { toAISdkV5Stream } from "@mastra/ai-sdk";
+import { toAISdkStream } from "@mastra/ai-sdk";
 import { Agent, type MastraDBMessage } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import type { InputProcessor, ProcessLLMRequestArgs } from "@mastra/core/processors";
@@ -1689,9 +1689,10 @@ async function runTesseraAgentTurn(
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
   const { aborted, failed, finishReason, response } = await consumeCopilotUIStream(
     appendCopilotOutcome(
-      toAISdkV5Stream(output, {
+      toAISdkStream(output, {
         from: "agent",
         sendReasoning: true,
+        version: "v7",
         onError: () => "The Tessera Agent could not complete this analysis.",
       }) as ReadableStream<TesseraUIMessageChunk>,
     ),
@@ -1718,9 +1719,10 @@ async function streamTesseraAgentTurn(
   const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, runtime, permissionContext, databaseActions });
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
   const source = appendCopilotOutcome(
-    toAISdkV5Stream(output, {
+    toAISdkStream(output, {
       from: "agent",
       sendReasoning: true,
+      version: "v7",
       onError: () => "The Tessera Agent could not complete this analysis.",
     }) as ReadableStream<TesseraUIMessageChunk>,
   );
@@ -2799,9 +2801,10 @@ function streamTesseraAgentTurnUI(
           });
           const output = await agent.stream(agentUserContent(input), copilotGenerationOptions({ ...input, signal: controller.signal }, llm));
           const source = appendCopilotOutcome(
-            toAISdkV5Stream(output, {
+            toAISdkStream(output, {
               from: "agent",
               sendReasoning: true,
+              version: "v7",
               onError: () => "The Tessera Agent could not complete this analysis.",
             }) as ReadableStream<TesseraUIMessageChunk>,
             (message) => persistCompletedCopilotTurn(memory, input, message),
