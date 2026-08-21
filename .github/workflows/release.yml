@@ -117,13 +117,37 @@ jobs:
           mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
           for package_path in "${packages[@]}"; do
             package_name="$(node -p "require('./$package_path/package.json').name")"
-            (
-              cd "$package_path"
-              npm publish --access public --ignore-scripts
-            )
-
             published_version=""
-            for attempt in $(seq 1 12); do
+            published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
+            publish_confirmed=false
+            if [ "$published_version" = "$RELEASE_VERSION" ]; then
+              publish_confirmed=true
+            fi
+
+            for publish_attempt in $(seq 1 5); do
+              if [ "$publish_confirmed" = true ]; then
+                break
+              fi
+              if (
+                cd "$package_path"
+                npm publish --access public --ignore-scripts
+              ); then
+                publish_confirmed=true
+                break
+              fi
+              published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
+              if [ "$published_version" = "$RELEASE_VERSION" ]; then
+                publish_confirmed=true
+                break
+              fi
+              sleep 20
+            done
+            if [ "$publish_confirmed" != true ]; then
+              echo "npm publish failed for $package_name@$RELEASE_VERSION." >&2
+              exit 1
+            fi
+
+            for verify_attempt in $(seq 1 24); do
               published_version="$(npm view "$package_name@$RELEASE_VERSION" version --registry=https://registry.npmjs.org 2>/dev/null || true)"
               if [ "$published_version" = "$RELEASE_VERSION" ]; then
                 break
