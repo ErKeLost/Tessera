@@ -1,7 +1,15 @@
-import { Database } from "bun:sqlite";
-import type { DurableStateStorePort, DurableStateTransaction } from "@data-elements/runtime";
+import {
+  createClient,
+  type Client,
+  type Transaction,
+} from "@libsql/client";
+import type {
+  DurableStateStorePort,
+  DurableStateTransaction,
+} from "@data-elements/runtime";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 const STATE_DIRECTORY = ".tessera";
 const STATE_DATABASE_FILE = "actions.db";
@@ -9,7 +17,7 @@ const STATE_DATABASE_FILE = "actions.db";
 export type CreateTesseraDurableStateStoreOptions = Readonly<{
   /** Defaults to the Studio project directory. */
   rootDirectory?: string;
-  /** Defaults to `actions.db` inside `.tessera`. */
+  /** Defaults to actions.db inside .tessera. */
   databaseFileName?: string;
 }>;
 
@@ -19,15 +27,17 @@ export type TesseraDurableStateStore = Readonly<{
 }>;
 
 /**
- * Local SQLite state for durable capability grants, effects, and action runs.
- * Values are JSON and every callback is committed as one SQLite transaction.
+ * Cross-runtime local SQLite state for capability grants, effects, and action
+ * runs. The libSQL driver supports both Node 24+ and Bun 1.3+.
  */
 export function createTesseraDurableStateStore(
   options: CreateTesseraDurableStateStoreOptions = {},
 ): TesseraDurableStateStore {
   const rootDirectory = resolve(options.rootDirectory ?? process.cwd());
   const databaseFileName = options.databaseFileName ?? STATE_DATABASE_FILE;
-  if (!isFileName(databaseFileName)) throw new TypeError("Tessera durable state database name must be a file name.");
+  if (!isFileName(databaseFileName)) {
+    throw new TypeError("Tessera durable state database name must be a file name.");
+  }
 
   const directory = join(rootDirectory, STATE_DIRECTORY);
   mkdirSync(directory, { recursive: true });
@@ -44,24 +54,29 @@ type StagedValue =
   | Readonly<{ present: false }>;
 
 class SqliteDurableStateStore implements DurableStateStorePort {
-  readonly #database: Database;
+  readonly #client: Client;
+  readonly #ready: Promise<void>;
   #tail: Promise<void> = Promise.resolve();
   #closed = false;
   #closePromise: Promise<void> | undefined;
 
   constructor(databasePath: string) {
-    this.#database = new Database(databasePath);
-    this.#database.exec(`
-      CREATE TABLE IF NOT EXISTS tessera_durable_state (
-        state_key TEXT PRIMARY KEY NOT NULL,
-        value_json TEXT NOT NULL
-      );
-    `);
+    this.#client = createClient({
+      url: pathToFileURL(databasePath).href,
+      timeout: 5_000,
+    });
+    this.#ready = this.#client.execute(
+      "CREATE TABLE IF NOT EXISTS tessera_durable_state ("
+      + "state_key TEXT PRIMARY KEY NOT NULL,"
+      + "value_json TEXT NOT NULL"
+      + ")",
+    ).then(() => undefined);
   }
 
   async read<T>(key: string): Promise<T | undefined> {
     this.#assertOpen();
-    return this.#readValue<T>(assertStateKey(key));
+    await this.#ready;
+    return this.#readValue<T>(assertStateKey(key), this.#client);
   }
 
   transaction<T>(
@@ -72,20 +87,21 @@ class SqliteDurableStateStore implements DurableStateStorePort {
     const declaredKeys = normalizeKeys(keys);
 
     return this.#enqueue(async () => {
-      let transactionOpen = false;
-      this.#database.exec("BEGIN IMMEDIATE");
-      transactionOpen = true;
-
+      await this.#ready;
+      const databaseTransaction = await this.#client.transaction("write");
       const staged = new Map<string, StagedValue>();
       const transaction: DurableStateTransaction = {
         get: async <T>(key: string): Promise<T | undefined> => {
           const declaredKey = assertDeclaredKey(key, declaredKeys);
           const value = staged.get(declaredKey);
           if (value) return value.present ? deserialize<T>(value.valueJson) : undefined;
-          return this.#readValue<T>(declaredKey);
+          return this.#readValue<T>(declaredKey, databaseTransaction);
         },
         set: async <T>(key: string, value: T): Promise<void> => {
-          staged.set(assertDeclaredKey(key, declaredKeys), { present: true, valueJson: serialize(value) });
+          staged.set(assertDeclaredKey(key, declaredKeys), {
+            present: true,
+            valueJson: serialize(value),
+          });
         },
         delete: async (key: string): Promise<void> => {
           staged.set(assertDeclaredKey(key, declaredKeys), { present: false });
@@ -95,15 +111,27 @@ class SqliteDurableStateStore implements DurableStateStorePort {
       try {
         const result = await operation(transaction);
         for (const [key, value] of staged) {
-          if (value.present) this.#writeValue(key, value.valueJson);
-          else this.#deleteValue(key);
+          if (value.present) {
+            await databaseTransaction.execute({
+              sql: "INSERT INTO tessera_durable_state (state_key, value_json) "
+                + "VALUES (?, ?) ON CONFLICT(state_key) DO UPDATE "
+                + "SET value_json = excluded.value_json",
+              args: [key, value.valueJson],
+            });
+          } else {
+            await databaseTransaction.execute({
+              sql: "DELETE FROM tessera_durable_state WHERE state_key = ?",
+              args: [key],
+            });
+          }
         }
-        this.#database.exec("COMMIT");
-        transactionOpen = false;
+        await databaseTransaction.commit();
         return result;
       } catch (error) {
-        if (transactionOpen) this.#database.exec("ROLLBACK");
+        await databaseTransaction.rollback().catch(() => undefined);
         throw error;
+      } finally {
+        databaseTransaction.close();
       }
     });
   }
@@ -111,30 +139,24 @@ class SqliteDurableStateStore implements DurableStateStorePort {
   close(): Promise<void> {
     if (!this.#closePromise) {
       this.#closed = true;
-      this.#closePromise = this.#tail.then(() => {
-        this.#database.close();
+      this.#closePromise = this.#tail.then(async () => {
+        await this.#ready.catch(() => undefined);
+        this.#client.close();
       });
     }
     return this.#closePromise;
   }
 
-  #readValue<T>(key: string): T | undefined {
-    const row = this.#database.query("SELECT value_json FROM tessera_durable_state WHERE state_key = ?").get(key) as
-      | { value_json: string }
-      | null;
-    return row ? deserialize<T>(row.value_json) : undefined;
-  }
-
-  #writeValue(key: string, valueJson: string): void {
-    this.#database.query(`
-      INSERT INTO tessera_durable_state (state_key, value_json)
-      VALUES (?, ?)
-      ON CONFLICT(state_key) DO UPDATE SET value_json = excluded.value_json
-    `).run(key, valueJson);
-  }
-
-  #deleteValue(key: string): void {
-    this.#database.query("DELETE FROM tessera_durable_state WHERE state_key = ?").run(key);
+  async #readValue<T>(
+    key: string,
+    executor: Pick<Client, "execute"> | Pick<Transaction, "execute">,
+  ): Promise<T | undefined> {
+    const result = await executor.execute({
+      sql: "SELECT value_json FROM tessera_durable_state WHERE state_key = ?",
+      args: [key],
+    });
+    const valueJson = result.rows[0]?.value_json;
+    return typeof valueJson === "string" ? deserialize<T>(valueJson) : undefined;
   }
 
   #enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -149,12 +171,14 @@ class SqliteDurableStateStore implements DurableStateStorePort {
 }
 
 function normalizeKeys(keys: readonly string[]): string[] {
-  if (keys.length === 0) throw new TypeError("A durable transaction must declare at least one state key.");
+  if (keys.length === 0) {
+    throw new TypeError("A durable transaction must declare at least one state key.");
+  }
   return [...new Set(keys.map(assertStateKey))].sort();
 }
 
 function assertStateKey(key: string): string {
-  if (!key || key.length > 1_024 || /[\u0000-\u001f]/.test(key)) {
+  if (!key || key.length > 1_024 || /[\u0000-\u001f]/u.test(key)) {
     throw new TypeError("Durable state keys must be printable strings up to 1024 characters.");
   }
   return key;
@@ -163,14 +187,16 @@ function assertStateKey(key: string): string {
 function assertDeclaredKey(key: string, declaredKeys: readonly string[]): string {
   const declaredKey = assertStateKey(key);
   if (!declaredKeys.includes(declaredKey)) {
-    throw new Error(`State key was not declared for this transaction: ${declaredKey}.`);
+    throw new Error("State key was not declared for this transaction: " + declaredKey + ".");
   }
   return declaredKey;
 }
 
 function serialize(value: unknown): string {
   const valueJson = JSON.stringify(value);
-  if (valueJson === undefined) throw new TypeError("Durable state values must be JSON serializable.");
+  if (valueJson === undefined) {
+    throw new TypeError("Durable state values must be JSON serializable.");
+  }
   return valueJson;
 }
 

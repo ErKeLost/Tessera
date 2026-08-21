@@ -13,7 +13,7 @@ analysis workspace.
 ## Tessera Studio
 
 Start Studio from any directory inside a Tessera project with a configured
-PostgreSQL or MySQL database. The published one-off command is:
+PostgreSQL, MySQL, SQLite, or Turso database. The published one-off command is:
 
 ```bash
 npx data-elements@latest studio
@@ -29,7 +29,7 @@ The command searches upward for `tessera.config.ts`. Keep database connection
 strings and model-provider keys in that server-only config file, normally by
 reading environment variables there.
 
-For an explicit one-off connection, pass one PostgreSQL or MySQL URL as a
+For an explicit one-off connection, pass one supported database URL as a
 positional argument. It overrides `database.url` for that run only. Tessera never
 logs the URL, but it can still appear in your shell history and process
 listings, so a config plus environment variable remains the recommended project
@@ -38,7 +38,13 @@ setup.
 ```bash
 tessera studio postgresql://readonly:password@127.0.0.1:5432/warehouse
 tessera studio mysql://readonly:password@127.0.0.1:3306/warehouse
+tessera studio file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... tessera studio libsql://warehouse-org.turso.io
 ```
+
+SQLite accepts `file:` and `sqlite:` URLs that reference an existing local
+database file. Turso accepts `libsql:` and `turso:` URLs; keep its credential
+outside the URL in `database.authToken` or `TURSO_AUTH_TOKEN`.
 
 Choose a config file or local listener explicitly when needed:
 
@@ -47,8 +53,8 @@ tessera studio --config ./config/tessera.config.ts --host 127.0.0.1 --port 4310
 ```
 
 Studio accepts at most one positional database URL. Only `--config`, `--host`,
-and `--port` are valid options. Studio runs with Bun; the CLI invokes its server
-through an argument array with no shell.
+and `--port` are valid options. The CLI runs the built Studio with the current
+Bun runtime or with Node.js 24+, through an argument array with no shell.
 
 Install the complete editable component catalog:
 
@@ -74,10 +80,10 @@ configured in the host project's `components.json`.
 
 ## Prerequisites
 
-- Node.js 20.18.1 or later
+- Node.js 24 or later
+- Bun 1.3 or later
 - A React project with Tailwind CSS
 - A valid shadcn `components.json` (the shadcn CLI can initialize one when it is missing)
-- Bun 1.3.14 or later for `tessera studio`
 
 The default command installs the `artifact-ui` item. It copies only editable
 React UI source; the browser-safe schema, core, and runtime remain exact-version

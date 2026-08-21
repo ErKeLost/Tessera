@@ -20,6 +20,9 @@ export type CompileDatabaseMutationInput = Readonly<{
  */
 export function compileDatabaseMutation(input: CompileDatabaseMutationInput): DatabaseMutationPlan {
   const catalog = input.catalog;
+  if (catalog.dialect !== "postgres" && catalog.dialect !== "mysql") {
+    throw new TypeError("This database dialect is not supported by the SQL mutation compiler.");
+  }
   const action = assertDatabaseActionCatalogBinding(
     databaseMutationActionSchema.parse(input.action),
     catalog,

@@ -1,6 +1,6 @@
 {
   "name": "@data-elements/studio",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "license": "MIT",
   "homepage": "https://data-elements.dev",
   "repository": {
@@ -8,12 +8,12 @@
     "url": "git+https://github.com/data-elements/data-elements.git",
     "directory": "apps/studio"
   },
-  "description": "Local-first Hono and Bun server for the Tessera database analysis workspace.",
+  "description": "Local-first Hono server for the Tessera database analysis workspace on Node.js and Bun.",
   "type": "module",
   "files": ["dist", "README.md", "LICENSE"],
   "engines": {
-    "bun": ">=1.3.14",
-    "node": ">=20.18.1"
+    "bun": ">=1.3",
+    "node": ">=24"
   },
   "publishConfig": {
     "access": "public"
@@ -48,11 +48,16 @@
     "@data-elements/compiler": "workspace:*",
     "@data-elements/data-agent": "workspace:*",
     "@data-elements/database": "workspace:*",
+    "@data-elements/mongodb": "workspace:*",
     "@data-elements/mysql": "workspace:*",
     "@data-elements/postgres": "workspace:*",
+    "@data-elements/sqlite": "workspace:*",
+    "@data-elements/turso": "workspace:*",
     "@data-elements/runtime": "workspace:*",
     "@data-elements/schema": "workspace:*",
     "@iconify/react": "6.0.2",
+    "@hono/node-server": "^1.19.9",
+    "@libsql/client": "0.17.4",
     "@lobehub/fluent-emoji": "4",
     "@lobehub/icons": "5",
     "@lobehub/ui": "5.32.2",

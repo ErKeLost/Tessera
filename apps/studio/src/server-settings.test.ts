@@ -40,7 +40,7 @@ const baseConfig = defineTesseraConfig({
 });
 
 type RuntimeTracker = {
-  builds: Array<{ dialect: "postgres" | "mysql"; closeCalls: number }>;
+  builds: Array<{ dialect: "postgres" | "mysql" | "sqlite" | "turso" | "mongodb"; closeCalls: number }>;
 };
 
 const modelCatalog: OpenRouterModelCatalogProvider = {
@@ -140,11 +140,11 @@ function createRuntimeFactory(tracker: RuntimeTracker): TesseraStudioRuntimeFact
   };
 }
 
-function createConnector(dialect: "postgres" | "mysql"): DatabaseConnector {
+function createConnector(dialect: "postgres" | "mysql" | "sqlite" | "turso" | "mongodb"): DatabaseConnector {
   const catalog = finalizeCatalog({
     connectorId: `${dialect}:private-connector-id`,
     dialect,
-    databaseName: dialect === "postgres" ? "warehouse" : "analytics",
+    databaseName: dialect === "postgres" ? "warehouse" : dialect === "mysql" ? "analytics" : "documents",
     scannedAt: "2026-08-16T00:00:00.000Z",
     schemas: [],
   });

@@ -16,8 +16,11 @@ import {
   type PlanningCapability,
   type SemanticCatalog,
 } from "@data-elements/data-agent";
+import { createMongoDbConnector } from "@data-elements/mongodb";
 import { createMySqlConnector } from "@data-elements/mysql";
 import { createPostgresConnector } from "@data-elements/postgres";
+import { createSqliteConnector } from "@data-elements/sqlite";
+import { createTursoConnector } from "@data-elements/turso";
 import {
   consumeStream,
   createUIMessageStream,
@@ -26,10 +29,13 @@ import {
 } from "ai";
 import type { FinishReason } from "ai";
 import { createHash, randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Hono, type Context } from "hono";
+import { serve as serveNode } from "@hono/node-server";
+import type { Server as NodeServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import { createTesseraStudioAgent } from "./agent";
 import {
@@ -117,6 +123,7 @@ const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "inspect_current_context",
   "inspect_catalog",
   "inspect_schema",
+  "inspect_database_capabilities",
   "describe_data",
   "probe_data",
   "run_analysis",
@@ -206,7 +213,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["inspect_current_context", "inspect_catalog", "inspect_schema", "describe_data", "probe_data", "run_analysis"]),
+    tool: z.enum(["inspect_current_context", "inspect_catalog", "inspect_schema", "inspect_database_capabilities", "describe_data", "probe_data", "run_analysis"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -336,6 +343,8 @@ export type StudioAgentRunInput = Readonly<{
   catalog?: DatabaseCatalog;
   /** Server-bound transient page context. Never sourced directly from UI text. */
   turnContext?: StudioAgentTurnContext;
+  /** Server-owned transient instructions. Never sourced directly from user or browser text. */
+  runtimeSignals?: readonly string[];
   signal: AbortSignal;
   identity?: StudioIdentity;
 }>;
@@ -433,7 +442,7 @@ export type CreateTesseraStudioRuntimeOptions = Omit<StudioAppDependencies, "con
   dataAgent?: DataAgent;
   /** Shared durable state used by the default governed mutation service. */
   databaseState?: DurableStateStorePort;
-  /** Static runtimes are read-only unless the embedding host opts into writes. */
+  /** Static runtimes expose mutation actions only when the embedding host opts in. */
   accessMode?: TesseraDatabaseAccessMode;
 }>;
 
@@ -862,12 +871,22 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
             columns: previewColumns.map((column) => column.name),
             refresh: false,
           }, context.req.raw.signal),
-          runtime.connector.query({
-            sql: `SELECT COUNT(*) AS ${quote("__total_count")} FROM ${relationSql}`,
-            parameters: [],
-            purpose: "Tessera table editor row count",
-            maxRows: 1,
-          }, context.req.raw.signal),
+          runtime.connector.query(dialect === "mongodb"
+            ? {
+              kind: "mongodb",
+              database: table.schema,
+              collection: table.name,
+              pipeline: [{ $count: "__total_count" }],
+              columns: ["__total_count"],
+              purpose: "Tessera table editor row count",
+              maxRows: 1,
+            }
+            : {
+              sql: `SELECT COUNT(*) AS ${quote("__total_count")} FROM ${relationSql}`,
+              parameters: [],
+              purpose: "Tessera table editor row count",
+              maxRows: 1,
+            }, context.req.raw.signal),
         ]);
         result = preview.result;
         countResult = count;
@@ -883,6 +902,54 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       }));
     }
     const query = parseTablePreviewQuery(rawQuery, previewColumns);
+    if (dialect === "mongodb") {
+      const match = buildMongoTablePreviewMatch(query, previewColumns);
+      const countPipeline: Array<Record<string, unknown>> = [
+        ...(match === undefined ? [] : [{ $match: { $expr: match } }]),
+        { $count: "__total_count" },
+      ];
+      const selectPipeline: Array<Record<string, unknown>> = [
+        ...(match === undefined ? [] : [{ $match: { $expr: match } }]),
+        ...(query.sort ? [{ $sort: { [query.sort]: query.direction === "desc" ? -1 : 1 } }] : []),
+        { $skip: (query.page - 1) * query.pageSize },
+        { $project: {
+          _id: 0,
+          ...Object.fromEntries(previewColumns.map((column) => [column.name, `$${column.name}`])),
+        } },
+        { $limit: query.pageSize },
+      ];
+      try {
+        const [countResult, result] = await Promise.all([
+          runtime.connector.query({
+            kind: "mongodb",
+            database: table.schema,
+            collection: table.name,
+            pipeline: countPipeline,
+            columns: ["__total_count"],
+            purpose: "Tessera table editor row count",
+            maxRows: 1,
+          }, context.req.raw.signal),
+          runtime.connector.query({
+            kind: "mongodb",
+            database: table.schema,
+            collection: table.name,
+            pipeline: selectPipeline,
+            columns: previewColumns.map((column) => column.name),
+            purpose: "Tessera table editor preview",
+            maxRows: query.pageSize,
+          }, context.req.raw.signal),
+        ]);
+        return context.json(publicTablePreview(table, previewColumns, result, {
+          dialect,
+          totalRowCount: parseCountValue(countResult.rows[0]?.__total_count) ?? 0,
+          definition: buildTableDefinition(dialect, table),
+          page: query.page,
+          pageSize: query.pageSize,
+        }));
+      } catch {
+        throw new StudioHttpError(503, "table_preview_unavailable", "Tessera could not load a preview for the selected table.");
+      }
+    }
     const parameters: Array<string | number | boolean> = [];
     const placeholder = () => dialect === "postgres" ? `$${parameters.length + 1}` : "?";
     const whereParts: string[] = [];
@@ -1448,15 +1515,11 @@ export function createTesseraStudioRuntime(
   });
   const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const sessionMemory = createTesseraSessionMemory();
-  const agent = options.agent ?? (isTesseraLlmConfigured(config)
-    ? createTesseraStudioAgent({
-      dataAgent,
-      memory: sessionMemory.memory,
-      llm: resolveTesseraLlmConfig(config),
-    })
-    : undefined);
   const accessMode = options.accessMode ?? "read-only";
   const databaseActions = accessMode !== "read-write"
+    || config.database.dialect === "mongodb"
+    || config.database.dialect === "sqlite"
+    || config.database.dialect === "turso"
     ? undefined
     : options.databaseActions ?? (options.databaseState === undefined
     ? undefined
@@ -1466,6 +1529,18 @@ export function createTesseraStudioRuntime(
       policy: config.database.permissions,
       getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
     }));
+  const agent = options.agent ?? (isTesseraLlmConfigured(config)
+    ? createTesseraStudioAgent({
+      dataAgent,
+      memory: sessionMemory.memory,
+      llm: resolveTesseraLlmConfig(config),
+      permissionContext: {
+        accessMode,
+        databaseActionsAvailable: databaseActions !== undefined,
+        sqlStatements: config.database.permissions.sqlStatements,
+      },
+    })
+    : undefined);
   const app = createStudioApp({
     connector,
     dataAgent,
@@ -1506,6 +1581,18 @@ export function createTesseraDatabaseConnector(config: TesseraConfig): DatabaseC
     maxRows: config.database.maxRows,
     statementTimeoutMs: config.database.statementTimeoutMs,
   };
+  if (config.database.dialect === "sqlite") {
+    return createSqliteConnector(options);
+  }
+  if (config.database.dialect === "turso") {
+    return createTursoConnector({
+      ...options,
+      authToken: config.database.authToken ?? process.env.TURSO_AUTH_TOKEN,
+    });
+  }
+  if (config.database.dialect === "mongodb") {
+    return createMongoDbConnector(options);
+  }
   if (config.database.dialect === "mysql") {
     return createMySqlConnector(options);
   }
@@ -1525,7 +1612,7 @@ export async function startTesseraStudioServer(
   let settingsRuntime: TesseraStudioRuntimeManager | undefined;
   let ownsSettingsRuntime = false;
   let durableState: TesseraDurableStateStore | undefined;
-  let server: ReturnType<typeof Bun.serve> | undefined;
+  let server: StudioListeningServer | undefined;
   try {
     settingsRuntime = options.settingsRuntime;
     if (!settingsRuntime) {
@@ -1541,23 +1628,17 @@ export async function startTesseraStudioServer(
     runtime = createTesseraStudioRuntime(config, { ...options, settingsRuntime, logger });
     const fetch = createStudioFetchHandler(runtime.app);
     try {
-      server = Bun.serve({
-        hostname: config.studio.host,
-        port: config.studio.port,
-        idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
+      server = await startStudioListeningServer(
+        config.studio.host,
+        config.studio.port,
         fetch,
-      });
+      );
     } catch (error) {
       // A second local Studio should still open the empty/settings workspace.
       // Only the conventional default port falls back; an explicit port keeps
       // its strict failure semantics so deployment mistakes remain visible.
       if (!isAddressInUseError(error) || config.studio.port !== DEFAULT_TESSERA_STUDIO_PORT) throw error;
-      server = Bun.serve({
-        hostname: config.studio.host,
-        port: 0,
-        idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
-        fetch,
-      });
+      server = await startStudioListeningServer(config.studio.host, 0, fetch);
     }
   } catch (error) {
     writeStudioLog(logger, "error", {
@@ -1606,7 +1687,7 @@ export async function startTesseraStudioServer(
       if (closed) return;
       closed = true;
       const shutdownAt = performance.now();
-      server.stop();
+      await server.stop();
       await runtime.close();
       await durableState?.close();
       writeStudioLog(logger, "info", {
@@ -1615,6 +1696,88 @@ export async function startTesseraStudioServer(
         durationMs: elapsedMilliseconds(shutdownAt),
       });
     },
+  };
+}
+
+type StudioListeningServer = Readonly<{
+  port: number;
+  stop(): Promise<void>;
+}>;
+
+type StudioRequestTimeoutController = Readonly<{
+  timeout(request: Request, seconds: number): void;
+}>;
+
+type StudioFetch = (
+  request: Request,
+  server: StudioRequestTimeoutController,
+) => Response | Promise<Response>;
+
+type BunServerRuntime = Readonly<{
+  serve(options: Readonly<{
+    hostname: string;
+    port: number;
+    idleTimeout: number;
+    fetch: StudioFetch;
+  }>): Readonly<{
+    port?: number;
+    stop(closeActiveConnections?: boolean): void;
+  }>;
+}>;
+
+async function startStudioListeningServer(
+  hostname: string,
+  port: number,
+  fetch: StudioFetch,
+): Promise<StudioListeningServer> {
+  const bun = (globalThis as typeof globalThis & { Bun?: BunServerRuntime }).Bun;
+  if (bun) {
+    const server = bun.serve({
+      hostname,
+      port,
+      idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
+      fetch,
+    });
+    return {
+      port: server.port ?? port,
+      async stop() {
+        server.stop(true);
+      },
+    };
+  }
+
+  const nodeFetch = (request: Request) => fetch(request, { timeout() {} });
+  const server = await new Promise<NodeServer>((resolveServer, rejectServer) => {
+    const candidate = serveNode({ fetch: nodeFetch, hostname, port }) as NodeServer;
+    const cleanup = () => {
+      candidate.off("error", onError);
+      candidate.off("listening", onListening);
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      rejectServer(error);
+    };
+    const onListening = () => {
+      cleanup();
+      resolveServer(candidate);
+    };
+    candidate.once("error", onError);
+    candidate.once("listening", onListening);
+  });
+  server.keepAliveTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
+  server.requestTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
+  const address = server.address() as AddressInfo | string | null;
+  const listeningPort = typeof address === "object" && address !== null
+    ? address.port
+    : port;
+  return {
+    port: listeningPort,
+    stop: () => new Promise<void>((resolveStop, rejectStop) => {
+      server.close((error) => {
+        if (error) rejectStop(error);
+        else resolveStop();
+      });
+    }),
   };
 }
 
@@ -1645,11 +1808,7 @@ export async function startTesseraStudioFromDatabaseUrl(
   return startTesseraStudioServer(createTesseraConfigFromDatabaseUrl(url), options);
 }
 
-type BunRequestTimeoutController = Readonly<{
-  timeout(request: Request, seconds: number): void;
-}>;
-
-function createStudioFetchHandler(app: Hono<StudioEnv>): (request: Request, server: BunRequestTimeoutController) => Promise<Response> {
+function createStudioFetchHandler(app: Hono<StudioEnv>): StudioFetch {
   return async (request, server) => {
     if (isLongRunningStudioRequest(request)) {
       // Bun's default 10 second idle timer also applies before an LLM emits
@@ -1682,19 +1841,20 @@ async function serveStudioClientAsset(request: Request, clientRoot: string): Pro
   const filePath = await existingFile(target) ?? (fallback ? await existingFile(resolve(clientRoot, "index.html")) : undefined);
   if (!filePath) return undefined;
 
-  const file = Bun.file(filePath);
   const headers = new Headers({
     "Cache-Control": filePath.includes(`${sep}assets${sep}`)
       ? "public, max-age=31536000, immutable"
       : "no-cache",
-    "Content-Type": file.type || contentTypeForPath(filePath),
+    "Content-Type": contentTypeForPath(filePath),
   });
   if (request.method === "HEAD") {
     const metadata = await stat(filePath);
     headers.set("Content-Length", String(metadata.size));
     return new Response(null, { headers });
   }
-  return new Response(file, { headers });
+  const content = new Uint8Array(await readFile(filePath));
+  headers.set("Content-Length", String(content.byteLength));
+  return new Response(content, { headers });
 }
 
 function safeClientAssetPath(clientRoot: string, pathname: string): string | undefined {
@@ -2444,9 +2604,69 @@ function parseTablePreviewQuery(
 }
 
 function quoteTableEditorIdentifier(dialect: DatabaseCatalog["dialect"], identifier: string): string {
-  return dialect === "postgres"
+  if (dialect === "mongodb") return identifier;
+  return dialect === "postgres" || dialect === "sqlite" || dialect === "turso"
     ? `"${identifier.replaceAll('"', '""')}"`
     : `\`${identifier.replaceAll("`", "``")}\``;
+}
+
+function buildMongoTablePreviewMatch(
+  query: ReturnType<typeof parseTablePreviewQuery>,
+  columns: readonly DatabaseTable["columns"][number][],
+): unknown | undefined {
+  const predicates: unknown[] = [];
+  if (query.search) {
+    predicates.push({
+      $or: columns.map((column) => ({
+        $regexMatch: {
+          input: { $convert: { input: `$${column.name}`, to: "string", onError: "", onNull: "" } },
+          regex: escapeMongoRegex(query.search),
+          options: "i",
+        },
+      })),
+    });
+  }
+  for (const filter of query.filters) {
+    const column = columns.find((candidate) => candidate.name === filter.column);
+    if (!column) continue;
+    const expression = `$${column.name}`;
+    if (filter.operator === "is_null" || filter.operator === "is_not_null") {
+      predicates.push({ [filter.operator === "is_null" ? "$eq" : "$ne"]: [expression, null] });
+      continue;
+    }
+    if (filter.operator === "contains") {
+      predicates.push({
+        $regexMatch: {
+          input: { $convert: { input: expression, to: "string", onError: "", onNull: "" } },
+          regex: escapeMongoRegex(filter.value),
+          options: "i",
+        },
+      });
+      continue;
+    }
+    const operator = filter.operator === "equals" ? "$eq"
+      : filter.operator === "not_equals" ? "$ne"
+        : filter.operator === "gt" ? "$gt"
+          : filter.operator === "gte" ? "$gte"
+            : filter.operator === "lt" ? "$lt" : "$lte";
+    predicates.push({ [operator]: [expression, mongoTablePreviewValue(filter.value, column.dataType)] });
+  }
+  if (predicates.length === 0) return undefined;
+  return predicates.length === 1 ? predicates[0] : { $and: predicates };
+}
+
+function mongoTablePreviewValue(value: string, dataType: string): unknown {
+  if (/objectid/iu.test(dataType)) {
+    return { $convert: { input: value, to: "objectId", onError: null, onNull: null } };
+  }
+  if (/(?:timestamp|datetime|\bdate\b)/iu.test(dataType)) {
+    return { $convert: { input: value, to: "date", onError: null, onNull: null } };
+  }
+  return coercePreviewParameter(value, dataType);
+}
+
+function escapeMongoRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
 function coercePreviewParameter(value: string, dataType: string): string | number | boolean {
@@ -2454,7 +2674,7 @@ function coercePreviewParameter(value: string, dataType: string): string | numbe
     if (value.toLocaleLowerCase("en-US") === "true") return true;
     if (value.toLocaleLowerCase("en-US") === "false") return false;
   }
-  if (/\b(?:smallint|bigint|integer|int\d*|serial|decimal|numeric|real|double precision|float\d*|money)\b/i.test(dataType)) {
+  if (/\b(?:smallint|bigint|integer|int\d*|serial|decimal|numeric|real|double(?: precision)?|float\d*|money)\b/i.test(dataType)) {
     const numeric = Number(value);
     if (Number.isFinite(numeric)) return numeric;
   }
@@ -2467,6 +2687,17 @@ function parseCountValue(value: unknown): number | undefined {
 }
 
 function buildTableDefinition(dialect: DatabaseCatalog["dialect"], table: DatabaseTable): string {
+  if (dialect === "mongodb") {
+    return JSON.stringify({
+      database: table.schema,
+      collection: table.name,
+      inferredFields: table.columns.map((column) => ({
+        name: column.name,
+        type: column.dataType,
+        nullable: column.nullable,
+      })),
+    }, null, 2);
+  }
   const quote = (identifier: string) => quoteTableEditorIdentifier(dialect, identifier);
   const relation = `${quote(table.schema)}.${quote(table.name)}`;
   if (table.kind === "view" || table.kind === "materialized-view") {
@@ -3211,6 +3442,7 @@ function publicToolInput(tool: TesseraToolName): Record<string, string> {
   if (tool === "inspect_current_context") return { action: "inspect_current_context" };
   if (tool === "inspect_catalog") return { action: "inspect_governed_catalog" };
   if (tool === "inspect_schema") return { action: "inspect_governed_schema" };
+  if (tool === "inspect_database_capabilities") return { action: "inspect_database_capabilities" };
   if (tool === "describe_data") return { action: "describe_governed_catalog" };
   if (tool === "probe_data") return { action: "probe_governed_data" };
   return { action: "run_governed_analysis" };
@@ -3272,6 +3504,17 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
       ...(output?.truncated === true ? { truncated: true } : {}),
     };
   }
+  if (tool === "inspect_database_capabilities") {
+    const componentCount = Array.isArray(output?.components)
+      ? Math.min(MAX_PUBLIC_TOOL_COUNT, output.components.length)
+      : undefined;
+    return {
+      status: output?.status === "completed" ? "completed" : "blocked",
+      ...(typeof output?.dialect === "string" ? { dialect: output.dialect } : {}),
+      ...(componentCount === undefined ? {} : { componentCount }),
+      ...(output?.truncated === true ? { truncated: true } : {}),
+    };
+  }
 
   // A rejected semantic draft is a completed, terminal tool outcome: the
   // model can revise its plan, but the browser must not present this as a
@@ -3304,6 +3547,7 @@ function publicToolTitle(tool: TesseraToolName): string {
   if (tool === "inspect_current_context") return "Read selected data context";
   if (tool === "inspect_catalog") return "Inspect data catalog";
   if (tool === "inspect_schema") return "Inspect database schema";
+  if (tool === "inspect_database_capabilities") return "Inspect database capabilities";
   if (tool === "describe_data") return "Describe data definitions";
   if (tool === "probe_data") return "Probe governed data";
   return "Run governed analysis";

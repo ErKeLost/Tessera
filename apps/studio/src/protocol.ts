@@ -1,7 +1,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "inspect_schema" | "describe_data" | "probe_data" | "run_analysis";
+export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "inspect_schema" | "inspect_database_capabilities" | "describe_data" | "probe_data" | "run_analysis";
 export type TesseraToolState = "started" | "completed" | "blocked" | "failed";
 /**
  * Public lifecycle only. Details such as SQL, catalog identifiers, probe
@@ -31,6 +31,10 @@ export type TesseraInspectCatalogToolInput = Readonly<{
 /** A redacted UI input for a server-bound physical schema inspection. */
 export type TesseraInspectSchemaToolInput = Readonly<{
   action: "inspect_governed_schema";
+}>;
+
+export type TesseraInspectDatabaseCapabilitiesToolInput = Readonly<{
+  action: "inspect_database_capabilities";
 }>;
 
 /** A server-bound current-page context. It has no browser-provided payload. */
@@ -69,6 +73,13 @@ export type TesseraInspectSchemaToolOutput = Readonly<{
   truncated?: boolean;
 }>;
 
+export type TesseraInspectDatabaseCapabilitiesToolOutput = Readonly<{
+  status: "completed" | "blocked" | "failed";
+  dialect?: string;
+  componentCount?: number;
+  truncated?: boolean;
+}>;
+
 export type TesseraInspectCurrentContextToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
   entityCount?: number;
@@ -104,6 +115,10 @@ export type TesseraUITools = {
   inspect_schema: {
     input: TesseraInspectSchemaToolInput;
     output: TesseraInspectSchemaToolOutput;
+  };
+  inspect_database_capabilities: {
+    input: TesseraInspectDatabaseCapabilitiesToolInput;
+    output: TesseraInspectDatabaseCapabilitiesToolOutput;
   };
   describe_data: {
     input: TesseraDescribeDataToolInput;

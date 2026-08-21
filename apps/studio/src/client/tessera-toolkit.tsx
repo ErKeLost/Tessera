@@ -53,6 +53,16 @@ const SchemaInspectionTool: ToolCallMessagePartComponent<Record<string, unknown>
   />
 );
 
+const DatabaseCapabilitiesTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+  <TesseraToolCall
+    {...props}
+    kind="schema"
+    label="Inspecting database capabilities"
+    completeLabel="Inspected database capabilities"
+    detail={capabilitiesDetail(props.result)}
+  />
+);
+
 const DataProbeTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
     {...props}
@@ -178,6 +188,13 @@ function schemaDetail(result: SafeToolResult | undefined): string {
   return `${detail}${columnDetail}${relationDetail} reviewed`;
 }
 
+function capabilitiesDetail(result: SafeToolResult | undefined): string {
+  if (!result) return "Checking database version and extensions";
+  if (result.status === "blocked") return "Database capabilities are unavailable";
+  const count = safePositiveInteger(result.componentCount);
+  return count === undefined ? "Database capability check completed" : `${count} database capabilities checked`;
+}
+
 function probeDetail(result: SafeToolResult | undefined): string {
   if (!result) return "Checking bounded values and ranges";
   if (result.status === "blocked") return "No governed probe was available for this analysis";
@@ -214,6 +231,10 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
   inspect_schema: {
     type: "backend" as const,
     render: SchemaInspectionTool,
+  },
+  inspect_database_capabilities: {
+    type: "backend" as const,
+    render: DatabaseCapabilitiesTool,
   },
   describe_data: {
     type: "backend" as const,

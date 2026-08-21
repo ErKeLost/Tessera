@@ -647,7 +647,8 @@ function sanitizeDisplayText(value: unknown, maximum: number): string | undefine
   if (typeof value !== "string") return undefined;
   const sanitized = value
     .replace(/```sql\b[\s\S]*?```/gi, "```text\n[SQL omitted from session history]\n```")
-    .replace(/\b(?:postgres(?:ql)?|mysql):\/\/[^\s<>\"'`]+/gi, "[database connection redacted]")
+   .replace(/\b(?:postgres(?:ql)?|mysql|libsql|turso|sqlite|mongodb(?:\+srv)?):\/\/[^\s<>\"'`]+/gi, "[database connection redacted]")
+   .replace(/\bfile:[^\s<>\"'`]+/gi, "[database connection redacted]")
     .replace(/\b(?:sk-or-v1|sk-proj|sk-ant|sk-live|sk-test)-[A-Za-z0-9_-]{8,}\b/g, "[credential redacted]")
     .replace(/\b(Bearer)\s+[A-Za-z0-9._~+\/-]{8,}={0,2}/gi, "$1 [redacted]")
     .replace(/\b((?:api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret)\s*[:=]\s*)[^\s,;]+/gi, "$1[redacted]")

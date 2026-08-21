@@ -1,0 +1,44 @@
+---
+title: 快速开始
+description: 使用受支持的 Runtime 和第一个数据库连接启动 Tessera Studio。
+---
+
+## 环境要求
+
+- Node.js 24 或更高版本，或 Bun 1.3 或更高版本
+- PostgreSQL、MySQL、SQLite 或 Turso
+- 模型供应商 API Key
+
+建议使用只读数据库用户。SQLite 和 Turso 在 Studio 中固定为只读。
+
+## 启动 Studio
+
+在包含 `tessera.config.ts` 的目录执行：
+
+```bash
+npx data-elements@latest studio
+```
+
+CLI 会向上查找配置文件，并在 `http://127.0.0.1:4317` 启动本地工作台。
+
+临时测试可以直接传入一个数据库 URL：
+
+```bash
+npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx data-elements@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
+npx data-elements@latest studio file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... npx data-elements@latest studio libsql://warehouse-org.turso.io
+```
+
+命令行 URL 可能出现在 Shell 历史或进程列表中。长期项目应使用配置文件和环境变量。
+
+## 完成第一次分析
+
+1. 在工作台顶部确认数据库连接。
+2. 打开 **Data explorer** 检查 Catalog。
+3. 新建 Thread 并提出明确的业务问题。
+4. 检查 Catalog、Planning、Execution、Verification 和 Narration 阶段。
+5. 查看答案附带的受限证据。
+
+长期使用请继续阅读[配置](/docs/agent/configuration)，数据库参数请查看
+[数据库连接](/docs/agent/databases)。

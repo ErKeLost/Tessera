@@ -508,8 +508,8 @@ function dataTypeFamily(value: string): DataTypeFamily {
   if (/(?:numeric|decimal|money)/u.test(normalized)) return "decimal";
   if (/(?:smallint|integer|bigint|real|double|float|serial|int|number)/u.test(normalized)) return "number";
   if (/(?:bool|bit)/u.test(normalized)) return "boolean";
-  if (/(?:json|xml)/u.test(normalized)) return "json";
-  return /(char|text|uuid|enum|varchar|citext)/u.test(normalized) ? "string" : "unknown";
+  if (/(?:json|xml|array|object)/u.test(normalized)) return "json";
+  return /(char|text|string|uuid|objectid|enum|varchar|citext)/u.test(normalized) ? "string" : "unknown";
 }
 
 function isNumeric(type: DataTypeFamily): boolean {

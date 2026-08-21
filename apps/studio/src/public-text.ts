@@ -13,7 +13,8 @@ export function containsSensitiveText(value: string): boolean {
     || /\b(?:password|passwd|secret|token|api[_-]?key|authorization|credential)\s*[:=]/iu.test(value)
     // Connection location alone is private infrastructure context. Do not
     // require a password-shaped segment before withholding a DSN.
-    || /\b(?:postgres(?:ql)?|mysql):\/\/\S+/iu.test(value)
+    || /\b(?:postgres(?:ql)?|mysql|libsql|turso|sqlite|mongodb(?:\+srv)?):\/\/\S+/iu.test(value)
+    || /\bfile:[^\s<>"']+/iu.test(value)
     || /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\b/u.test(value);
 }
 
@@ -100,7 +101,7 @@ function isPossibleSensitivePrefix(value: string): boolean {
     || isPossibleBearerPrefix(value, "basic")
     || ["password", "passwd", "secret", "token", "api_key", "api-key", "authorization", "credential"]
       .some((keyword) => isPossibleAssignmentPrefix(value, keyword))
-    || ["postgresql", "postgres", "mysql"].some((keyword) => isPossibleConnectionPrefix(value, keyword))
+    || ["postgresql", "postgres", "mysql", "sqlite", "file", "libsql", "turso", "mongodb", "mongodb+srv"].some((keyword) => isPossibleConnectionPrefix(value, keyword))
     || isPossibleJwtPrefix(value);
 }
 

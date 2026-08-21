@@ -1,0 +1,55 @@
+---
+title: Database Connections
+description: Configure PostgreSQL, MySQL, SQLite, and Turso without mixing their connection contracts.
+---
+
+Studio presents each supported engine as a separate database option. SQLite and
+Turso share SQLite SQL semantics, but they use different connection and
+credential contracts.
+
+| Engine | URL | Credentials | Studio access |
+| --- | --- | --- | --- |
+| PostgreSQL | `postgres://` or `postgresql://` | URL or server environment | Read-only by default; typed writes are policy gated |
+| MySQL | `mysql://` | URL or server environment | Read-only by default; typed writes are policy gated |
+| SQLite | `file:` or `sqlite:` | None | Always read-only |
+| Turso | `libsql:` or `turso:` | Separate auth token | Always read-only |
+
+## SQLite
+
+The URL must reference an existing local database file. Query strings and URL
+fragments are rejected.
+
+```ts
+export default defineTesseraConfig({
+  database: {
+    url: "file:/absolute/path/to/warehouse.db",
+  },
+});
+```
+
+SQLite exposes the `main` schema, uses `?` parameters, and runs every public
+query in a read transaction.
+
+## Turso
+
+Keep the token separate from the URL:
+
+```ts
+export default defineTesseraConfig({
+  database: {
+    url: "libsql://warehouse-org.turso.io",
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+});
+```
+
+When `database.authToken` is omitted, Studio reads `TURSO_AUTH_TOKEN`. URL
+credentials, query strings, and fragments are rejected. HTTPS and WSS are also
+accepted; unencrypted HTTP and WS are limited to loopback development servers.
+
+## Catalog scope and limits
+
+PostgreSQL and MySQL can narrow discovery with `database.schemas`. SQLite and
+Turso expose only `main`. All connectors apply `maxRows`,
+`statementTimeoutMs`, cancellation, and bounded serialization before results
+reach the Agent.

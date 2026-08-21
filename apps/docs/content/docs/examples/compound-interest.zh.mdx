@@ -1,0 +1,21 @@
+---
+title: 复利计算
+description: 让交互式公式探索保持本地执行、确定性和 Catalog 控制。
+---
+
+Calculator Artifact 运行宿主已注册的计算器。Agent 只选择计算器并提供经过验证的
+输入，不会提供可执行公式或浏览器代码。
+
+<ComponentPreview
+  filename="examples/compound-interest.tsx"
+  code={`import { CalculatorArtifact } from "@/components/data-elements/calculator-artifact"
+
+export function CompoundInterest({ artifact }) {
+  return <CalculatorArtifact artifact={artifact} />
+}`}
+>
+  <CalculatorDemo />
+</ComponentPreview>
+
+注册、Provider 接线和 Action 处理请查看
+[Calculator Artifact 组件](/docs/components/calculator-artifact)。

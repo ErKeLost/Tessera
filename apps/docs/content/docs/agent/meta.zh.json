@@ -1,0 +1,6 @@
+{
+  "title": "Agent",
+  "description": "构建并运行受治理的 Tessera 数据智能体。",
+  "root": true,
+  "pages": ["index", "getting-started", "configuration", "databases", "run-workflow", "tool-contract", "architecture"]
+}

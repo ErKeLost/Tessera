@@ -16,6 +16,7 @@ import {
   registryBaseUrl,
   registryUrl,
   resolveBunExecutable,
+  resolveStudioExecutable,
   resolveComponentsDirectory,
   resolveStudioConfig,
   resolveStudioEntry,
@@ -115,7 +116,7 @@ describe("data-elements CLI", () => {
     expect(() => parseCommand(["--unknown"])).toThrow();
   });
 
-  test("parses the Tessera Studio command with an optional PostgreSQL or MySQL URL", () => {
+  test("parses the Tessera Studio command with any supported database URL", () => {
     expect(parseCommand([
       "studio",
       "--config",
@@ -140,10 +141,20 @@ describe("data-elements CLI", () => {
       command: "studio",
       databaseUrl: "mysql://readonly:secret@localhost/warehouse",
     });
+    expect(parseStudioCommand(["mongodb://readonly:secret@localhost/warehouse"])).toEqual({
+      command: "studio",
+      databaseUrl: "mongodb://readonly:secret@localhost/warehouse",
+    });
     expect(() => parseStudioCommand(["--database-url", "postgres://private"]))
       .toThrow("database-url positional");
-    expect(() => parseStudioCommand(["sqlite:///tmp/warehouse.db"]))
-      .toThrow("PostgreSQL or MySQL");
+    expect(parseStudioCommand(["sqlite:///tmp/warehouse.db"])).toEqual({
+      command: "studio",
+      databaseUrl: "sqlite:///tmp/warehouse.db",
+    });
+    expect(parseStudioCommand(["libsql://warehouse-example.turso.io"])).toEqual({
+      command: "studio",
+      databaseUrl: "libsql://warehouse-example.turso.io",
+    });
     expect(() => parseStudioCommand(["postgresql://localhost/warehouse", "mysql://localhost/warehouse"]))
       .toThrow("at most one");
     expect(() => parseStudioCommand(["--port", "0"])).toThrow("1 through 65535");
@@ -241,6 +252,16 @@ describe("data-elements CLI", () => {
       versions: { bun: "1.3.14" },
     })).toBe("/Applications/Bun.app/Contents/MacOS/bun");
     expect(resolveBunExecutable({ env: {}, execPath: "/usr/bin/node", versions: {} })).toBe("bun");
+    expect(resolveStudioExecutable({
+      env: {},
+      execPath: "/usr/local/bin/node",
+      versions: { node: "24.16.0" },
+    })).toBe("/usr/local/bin/node");
+    expect(resolveStudioExecutable({
+      env: {},
+      execPath: "/usr/local/bin/node",
+      versions: { node: "22.22.0" },
+    })).toBe("bun");
   });
 
   test("selects the invoking package manager", () => {

@@ -91,7 +91,7 @@ function createFactory(
 }
 
 function createFakeConnector(
-  dialect: "postgres" | "mysql",
+  dialect: "postgres" | "mysql" | "sqlite" | "turso" | "mongodb",
   databaseUrl: string,
   connected: boolean,
 ): DatabaseConnector {
@@ -212,6 +212,30 @@ describe("Tessera Studio settings runtime", () => {
         url: "mysql://readonly:not-for-error-text@localhost/analytics",
       },
     }))).toThrow("does not match");
+  });
+
+  test("keeps Turso tokens server-only and enforces read-only access", () => {
+    const next = normalizeTesseraStudioSettings(baseConfig, candidate({
+      database: {
+        dialect: "turso",
+        accessMode: "read-only",
+        url: "libsql://warehouse-example.turso.io",
+        authToken: "private-turso-token",
+      },
+    }));
+    expect(next.config.database.dialect).toBe("turso");
+    expect(next.config.database.authToken).toBe("private-turso-token");
+
+    const snapshot = createTesseraStudioSettingsSnapshot(next.config, next.accessMode);
+    expect(snapshot.database.authTokenConfigured).toBe(true);
+    expect(JSON.stringify(snapshot)).not.toContain("private-turso-token");
+    expect(() => normalizeTesseraStudioSettings(baseConfig, candidate({
+      database: {
+        dialect: "turso",
+        accessMode: "read-write",
+        url: "libsql://warehouse-example.turso.io",
+      },
+    }))).toThrow("read-only");
   });
 
   test("keeps an old runtime alive until its acquired lease releases", async () => {

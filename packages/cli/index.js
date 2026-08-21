@@ -33,10 +33,10 @@ Options:
 
 const STUDIO_HELP = `Usage: tessera studio [database-url] [--config <path>] [--host <host>] [--port <port>]
 
-Starts Tessera Studio against a configured PostgreSQL or MySQL database.
+Starts Tessera Studio against PostgreSQL, MySQL, SQLite, Turso/libSQL, or MongoDB.
 
 Options:
-  database-url                          One PostgreSQL or MySQL URL for this run
+  database-url                          One supported database URL for this run
   --config <path>                       Path to a Tessera TypeScript config file
   --host <host>                         Host interface for the local server
   --port <port>                         TCP port from 1 through 65535
@@ -98,12 +98,35 @@ function parseStudioDatabaseUrl(value) {
   try {
     url = new URL(raw);
   } catch {
-    throw new Error("database-url must be a valid PostgreSQL or MySQL connection URL.");
+    throw new Error("database-url must be a valid supported database connection URL.");
   }
-  if (!new Set(["postgres:", "postgresql:", "mysql:"]).has(url.protocol.toLowerCase())) {
-    throw new Error("database-url must use a PostgreSQL or MySQL URL scheme.");
+  const protocol = url.protocol.toLowerCase();
+  if (!new Set([
+    "postgres:",
+    "postgresql:",
+    "mysql:",
+    "file:",
+    "sqlite:",
+    "libsql:",
+    "turso:",
+    "https:",
+    "http:",
+    "wss:",
+    "ws:",
+    "mongodb:",
+    "mongodb+srv:",
+  ]).has(protocol)) {
+    throw new Error("database-url must use a supported database URL scheme.");
   }
-  if (!url.hostname || !url.pathname || url.pathname === "/") {
+  if ((protocol === "file:" || protocol === "sqlite:") && !url.pathname) {
+    throw new Error("SQLite database-url must include a database file.");
+  }
+  if (
+    protocol !== "file:"
+    && protocol !== "sqlite:"
+    && (!url.hostname || (["postgres:", "postgresql:", "mysql:", "mongodb:", "mongodb+srv:"].includes(protocol)
+      && (!url.pathname || url.pathname === "/")))
+  ) {
     throw new Error("database-url must include a host and database name.");
   }
   return raw;
@@ -328,6 +351,24 @@ function resolveBunExecutable(processLike = process) {
   return "bun";
 }
 
+function resolveStudioExecutable(processLike = process) {
+  if (processLike.versions?.bun) return resolveBunExecutable(processLike);
+  const configuredBun = processLike.env?.BUN_EXECUTABLE;
+  if (typeof configuredBun === "string" && configuredBun.trim() !== "" && !configuredBun.includes("\0")) {
+    return configuredBun;
+  }
+  const nodeMajor = Number.parseInt(String(processLike.versions?.node ?? "").split(".")[0] ?? "", 10);
+  if (
+    Number.isInteger(nodeMajor)
+    && nodeMajor >= 24
+    && typeof processLike.execPath === "string"
+    && processLike.execPath.length > 0
+  ) {
+    return processLike.execPath;
+  }
+  return "bun";
+}
+
 function createStudioInvocation(command, options = {}) {
   if (!command || command.command !== "studio") {
     throw new Error("Expected a parsed studio command.");
@@ -339,7 +380,10 @@ function createStudioInvocation(command, options = {}) {
     ? findOptionalTesseraConfig(cwd)
     : resolveStudioConfig(command.configPath, cwd);
   const entry = options.entry ?? resolveStudioEntry(options);
-  const runtime = options.runtime ?? resolveBunExecutable(options.processLike ?? process);
+  const processLike = options.processLike ?? process;
+  const runtime = options.runtime ?? (entry.endsWith(".ts")
+    ? resolveBunExecutable(processLike)
+    : resolveStudioExecutable(processLike));
   const args = [entry];
   if (command.databaseUrl !== undefined) args.push(command.databaseUrl);
   if (configPath !== undefined) args.push("--config", configPath);
@@ -376,7 +420,7 @@ function runStudio(command, options = {}) {
 
   if (spawned.result.error) {
     const message = spawned.result.error.code === "ENOENT"
-      ? "Bun is required to run Tessera Studio. Install Bun from https://bun.sh, then retry."
+      ? "Tessera Studio requires Node.js 24+ or Bun 1.3+."
       : spawned.result.error.message;
     console.error(`tessera: ${message}`);
     return 1;
@@ -779,6 +823,7 @@ module.exports = {
   registryBaseUrl,
   registryUrl,
   resolveBunExecutable,
+  resolveStudioExecutable,
   resolveComponentsDirectory,
   resolveStudioConfig,
   resolveStudioEntry,

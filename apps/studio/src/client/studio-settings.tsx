@@ -40,7 +40,7 @@ import {
 } from "./components/ui/tabs";
 import { ThinkingOrb } from "thinking-orbs";
 
-export type StudioDatabaseDialect = "postgres" | "mysql";
+export type StudioDatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
 export type StudioDatabaseAccessMode = "read-only" | "read-write";
 export type StudioSettingsTab = "database" | "model" | "limits" | "permissions";
 export type StudioReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "none";
@@ -77,6 +77,7 @@ export type StudioSettingsSnapshot = Readonly<{
     dialect: StudioDatabaseDialect;
     accessMode: StudioDatabaseAccessMode;
     urlConfigured: boolean;
+    authTokenConfigured: boolean;
   }>;
   llm: Readonly<{
     provider: string;
@@ -100,6 +101,8 @@ export type StudioSettingsCandidate = Readonly<{
     accessMode: StudioDatabaseAccessMode;
     /** Omitted when the field is blank so a configured server URL is retained. */
     url?: string;
+    /** Omitted when blank so an existing server-side Turso token is retained. */
+    authToken?: string;
   }>;
   llm: Readonly<{
     provider: string;
@@ -127,6 +130,7 @@ type SettingsForm = {
   dialect: StudioDatabaseDialect;
   accessMode: StudioDatabaseAccessMode;
   databaseUrl: string;
+  databaseAuthToken: string;
   provider: string;
   model: string;
   reasoningEffort: StudioReasoningSelection;
@@ -145,6 +149,7 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
     dialect: "postgres",
     accessMode: "read-only",
     urlConfigured: false,
+    authTokenConfigured: false,
   },
   llm: {
     provider: "openrouter",
@@ -360,7 +365,12 @@ export function StudioSettingsDialog({
       const saved = readStudioSettingsSnapshot(body);
       setSettings(saved);
       // Never retain values that might have been supplied as credentials.
-      setForm((current) => ({ ...toForm(saved), databaseUrl: "", apiKey: "" }));
+      setForm((current) => ({
+        ...toForm(saved),
+        databaseUrl: "",
+        databaseAuthToken: "",
+        apiKey: "",
+      }));
       setRequestState("success");
       setNotice(readPublicMessage(body) ?? "Settings saved.");
       onSaved?.(saved);
@@ -411,7 +421,12 @@ export function StudioSettingsDialog({
     if (!nextOpen) {
       loadAbortRef.current?.abort();
       modelCatalogAbortRef.current?.abort();
-      setForm((current) => ({ ...current, databaseUrl: "", apiKey: "" }));
+      setForm((current) => ({
+        ...current,
+        databaseUrl: "",
+        databaseAuthToken: "",
+        apiKey: "",
+      }));
       setRequestState("idle");
       setNotice(undefined);
     }
@@ -453,19 +468,31 @@ export function StudioSettingsDialog({
 
             <TabsContent value="database">
               <FieldGroup>
-                <Field>
-                  <Label htmlFor="settings-dialect">Database engine</Label>
-                  <Select disabled={busy} onValueChange={(value) => updateForm("dialect", value as StudioDatabaseDialect)} value={form.dialect}>
-                    <SelectTrigger className="w-full" id="settings-dialect"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="postgres">PostgreSQL</SelectItem>
-                      <SelectItem value="mysql">MySQL</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
+                {form.dialect !== "mongodb" ? (
+                  <Field>
+                    <Label htmlFor="settings-dialect">Database engine</Label>
+                    <Select
+                      disabled={busy}
+                      onValueChange={(value) => {
+                        const dialect = value as StudioDatabaseDialect;
+                        updateForm("dialect", dialect);
+                        if (isReadOnlyStudioDialect(dialect)) updateForm("accessMode", "read-only");
+                      }}
+                      value={form.dialect}
+                    >
+                      <SelectTrigger className="w-full" id="settings-dialect"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="postgres">PostgreSQL</SelectItem>
+                        <SelectItem value="mysql">MySQL</SelectItem>
+                        <SelectItem value="sqlite">SQLite</SelectItem>
+                        <SelectItem value="turso">Turso</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                ) : null}
                 <Field>
                   <Label htmlFor="settings-access-mode">Access mode</Label>
-                  <Select disabled={busy} onValueChange={(value) => updateForm("accessMode", value as StudioDatabaseAccessMode)} value={form.accessMode}>
+                  <Select disabled={busy || isReadOnlyStudioDialect(form.dialect)} onValueChange={(value) => updateForm("accessMode", value as StudioDatabaseAccessMode)} value={form.accessMode}>
                     <SelectTrigger className="w-full" id="settings-access-mode"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="read-only">Read-only</SelectItem>
@@ -481,11 +508,26 @@ export function StudioSettingsDialog({
                     id="settings-database-url"
                     name="databaseUrl"
                     onChange={(event) => updateForm("databaseUrl", event.target.value)}
-                    placeholder={settings.database.urlConfigured ? "Configured locally" : "postgres:// or mysql://"}
+                    placeholder={settings.database.urlConfigured ? "Configured locally" : databaseUrlPlaceholder(form.dialect)}
                     type="password"
                     value={form.databaseUrl}
                   />
                 </Field>
+                {form.dialect === "turso" ? (
+                  <Field>
+                    <Label htmlFor="settings-database-auth-token">Turso auth token</Label>
+                    <Input
+                      autoComplete="off"
+                      disabled={busy}
+                      id="settings-database-auth-token"
+                      name="databaseAuthToken"
+                      onChange={(event) => updateForm("databaseAuthToken", event.target.value)}
+                      placeholder={settings.database.authTokenConfigured ? "Configured locally" : "Turso auth token"}
+                      type="password"
+                      value={form.databaseAuthToken}
+                    />
+                  </Field>
+                ) : null}
               </FieldGroup>
             </TabsContent>
 
@@ -754,6 +796,7 @@ function toForm(settings: StudioSettingsSnapshot): SettingsForm {
     dialect: settings.database.dialect,
     accessMode: settings.database.accessMode,
     databaseUrl: "",
+    databaseAuthToken: "",
     provider: settings.llm.provider,
     model: settings.llm.model,
     reasoningEffort: settings.llm.reasoningEffort,
@@ -775,6 +818,7 @@ function buildCandidate(form: SettingsForm): StudioSettingsCandidate | undefined
   if (maxRows === undefined || timeoutMs === undefined || maxSteps === undefined || !provider || !model) return undefined;
 
   const databaseUrl = form.databaseUrl.trim();
+  const databaseAuthToken = form.databaseAuthToken.trim();
   const apiKey = form.apiKey.trim();
   const baseUrl = form.baseUrl.trim();
   // The server remains authoritative, but reject obviously unsafe or malformed
@@ -785,6 +829,7 @@ function buildCandidate(form: SettingsForm): StudioSettingsCandidate | undefined
       dialect: form.dialect,
       accessMode: form.accessMode,
       ...(databaseUrl ? { url: databaseUrl } : {}),
+      ...(databaseAuthToken ? { authToken: databaseAuthToken } : {}),
     },
     llm: {
       provider,
@@ -811,6 +856,7 @@ export function readStudioSettingsSnapshot(value: unknown): StudioSettingsSnapsh
       dialect: readDialect(database?.dialect) ?? DEFAULT_SETTINGS.database.dialect,
       accessMode: readAccessMode(database?.accessMode) ?? DEFAULT_SETTINGS.database.accessMode,
       urlConfigured: database?.urlConfigured === true,
+      authTokenConfigured: database?.authTokenConfigured === true,
     },
     llm: {
       provider: readShortString(llm?.provider) ?? DEFAULT_SETTINGS.llm.provider,
@@ -867,7 +913,24 @@ function readPublicErrorMessage(value: unknown): string | undefined {
 }
 
 function readDialect(value: unknown): StudioDatabaseDialect | undefined {
-  return value === "postgres" || value === "mysql" ? value : undefined;
+  return value === "postgres"
+    || value === "mysql"
+    || value === "sqlite"
+    || value === "turso"
+    || value === "mongodb"
+    ? value
+    : undefined;
+}
+
+function isReadOnlyStudioDialect(dialect: StudioDatabaseDialect): boolean {
+  return dialect === "mongodb" || dialect === "sqlite" || dialect === "turso";
+}
+
+function databaseUrlPlaceholder(dialect: StudioDatabaseDialect): string {
+  if (dialect === "sqlite") return "file:/path/to/database.db";
+  if (dialect === "turso") return "libsql://database.turso.io";
+  if (dialect === "mysql") return "mysql://user:password@host/database";
+  return "postgresql://user:password@host/database";
 }
 
 function readAccessMode(value: unknown): StudioDatabaseAccessMode | undefined {

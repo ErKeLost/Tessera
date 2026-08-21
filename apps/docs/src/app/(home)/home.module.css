@@ -946,3 +946,529 @@
 @media (prefers-reduced-motion: reduce) {
   .page *, .page *::before, .page *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Full-viewport image canvas. The global HomeLayout header remains unchanged. */
+.heroShell {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+.heroCanvas {
+  position: relative;
+  display: block;
+  height: calc(100dvh - 3.5rem);
+  min-height: 40rem;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #f8fafc;
+  box-shadow: none;
+  padding-bottom: clamp(11rem, 18vw, 16rem);
+}
+
+.heroCanvas::before {
+  display: none;
+}
+
+.heroBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.heroBackdrop canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.heroInner {
+  position: relative;
+  z-index: 1;
+  width: min(84%, 82rem);
+  height: 100%;
+  margin-inline: auto;
+}
+
+.heroCopy {
+  position: absolute;
+  top: clamp(5.5rem, 13vh, 8rem);
+  left: 0;
+  z-index: 2;
+  display: block;
+  width: min(36rem, calc(100% - 4rem));
+  min-height: 0;
+  padding: 0;
+  color: #f7fafc;
+}
+
+.heroCopy .eyebrow {
+  border: 1px solid rgb(223 238 244 / .3);
+  border-radius: 999px;
+  background: rgb(9 24 33 / .44);
+  padding: .48rem .75rem;
+  color: rgb(244 249 251 / .86);
+  backdrop-filter: blur(16px);
+  box-shadow: inset 0 1px rgb(255 255 255 / .08);
+}
+
+.heroCopy .eyebrow svg {
+  color: #f38b45;
+}
+
+.heroCopy h1 {
+  max-width: 10ch;
+  margin-top: 1.55rem;
+  color: #f8fbfc;
+  font-size: clamp(2.85rem, 4.6vw, 4.75rem);
+  font-weight: 580;
+  letter-spacing: -.055em;
+  line-height: .95;
+  text-shadow: 0 5px 28px rgb(0 5 8 / .45);
+}
+
+.heroCopy .heroLead {
+  max-width: 31rem;
+  color: rgb(235 244 247 / .76);
+  font-size: clamp(.88rem, 1.05vw, .98rem);
+  line-height: 1.65;
+  text-shadow: 0 2px 18px rgb(0 5 8 / .55);
+}
+
+.heroCopy .primaryButton,
+.heroCopy .secondaryButton {
+  min-height: 2.9rem;
+  border-radius: 999px;
+  padding-inline: 1.15rem;
+}
+
+.heroCopy .primaryButton {
+  background: #f6f8f9;
+  color: #0a1116;
+  box-shadow: 0 10px 28px rgb(0 4 7 / .25);
+}
+
+.heroCopy .primaryButton:hover {
+  background: #e4ebee;
+}
+
+.heroCopy .secondaryButton {
+  border-color: rgb(235 245 248 / .28);
+  background: rgb(5 18 26 / .38);
+  color: #f5f8fa;
+  backdrop-filter: blur(14px);
+}
+
+.heroCopy .secondaryButton:hover {
+  border-color: rgb(235 245 248 / .48);
+  background: rgb(224 240 245 / .1);
+}
+
+.heroProductFrame {
+  --background: #f7f9fb;
+  --foreground: #17202a;
+  --card: #ffffff;
+  --card-foreground: #17202a;
+  --muted: #eef2f5;
+  --muted-foreground: #64717d;
+  --border: rgb(15 23 42 / .14);
+  --primary: #17202a;
+  --primary-foreground: #f7f9fb;
+  position: absolute;
+  top: 48%;
+  left: 50%;
+  z-index: 3;
+  width: min(calc(100% - 4rem), 78rem);
+  height: auto;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / .2);
+  border-radius: 1.35rem;
+  background: #f7f9fb;
+  color: #17202a;
+  box-shadow:
+    0 -1px rgb(255 255 255 / .1),
+    0 0 0 7px rgb(203 221 225 / .1),
+    0 0 70px rgb(57 83 98 / .18),
+    0 34px 90px rgb(20 35 48 / .2);
+  transform: translateX(-50%) perspective(1200px) rotateX(1deg);
+  transform-origin: center bottom;
+}
+
+.heroProductPreview,
+.heroProductPreview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.heroProductPreview {
+  position: relative;
+  aspect-ratio: 1718 / 916;
+  height: auto;
+  overflow: hidden;
+  background: #f7f9fb;
+}
+
+.heroProductPreview img {
+  position: absolute;
+  inset: 0;
+  object-fit: contain;
+  object-position: center;
+  transition: opacity 240ms ease;
+}
+
+.heroProductDark { opacity: 0; }
+.heroProductLight { opacity: 1; }
+
+:global(.dark) .heroProductDark { opacity: 1; }
+:global(.dark) .heroProductLight { opacity: 0; }
+
+.heroProductChrome {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: grid;
+  height: 2.35rem;
+  align-items: center;
+  border-bottom: 1px solid rgb(15 23 42 / .12);
+  background: linear-gradient(180deg, rgb(255 255 255 / .92), rgb(239 244 247 / .8));
+  padding-inline: .85rem;
+  color: rgb(30 43 54 / .58);
+  font-family: var(--font-mono);
+  font-size: .58rem;
+  grid-template-columns: 1fr auto 1fr;
+  pointer-events: none;
+  backdrop-filter: blur(14px) saturate(115%);
+}
+
+.heroProductTitle {
+  justify-self: center;
+  letter-spacing: .01em;
+  opacity: .78;
+}
+
+.heroProductLights,
+.heroProductControls {
+  display: flex;
+  align-items: center;
+  gap: .42rem;
+}
+
+.heroProductLights span {
+  width: .65rem;
+  height: .65rem;
+  border-radius: 999px;
+  background: #ff6b5f;
+  box-shadow: inset 0 -1px rgb(0 0 0 / .24);
+}
+
+.heroProductLights span:nth-child(2) { background: #e9b94f; }
+.heroProductLights span:nth-child(3) { background: #63c76a; }
+
+.heroProductControls {
+  justify-content: flex-end;
+}
+
+.heroProductControls span {
+  width: .8rem;
+  height: .8rem;
+  border: 1px solid rgb(15 23 42 / .18);
+  border-radius: 999px;
+}
+
+.heroProductControls span:last-child {
+  border-radius: .18rem;
+}
+
+.heroProductSurface {
+  height: calc(100% - 3rem);
+  border: 0;
+  border-radius: 0;
+  background: #f7f9fb;
+}
+
+:global(.dark) .heroCanvas {
+  background: #020611;
+}
+
+:global(.dark) .heroProductFrame {
+  --background: #0b0e12;
+  --foreground: #f4f6f8;
+  --card: #101318;
+  --card-foreground: #f4f6f8;
+  --muted: #151920;
+  --muted-foreground: #8b949f;
+  --border: rgb(255 255 255 / .1);
+  --primary: #f3f6f8;
+  --primary-foreground: #11151a;
+  background: #0c0f13;
+  color: #f4f6f8;
+  box-shadow:
+    0 -1px rgb(255 255 255 / .1),
+    0 0 0 7px rgb(203 221 225 / .1),
+    0 0 70px rgb(151 193 200 / .24),
+    0 34px 90px rgb(0 3 6 / .62);
+}
+
+:global(.dark) .heroProductPreview,
+:global(.dark) .heroProductSurface {
+  background: #0b0e12;
+}
+
+:global(.dark) .heroProductChrome {
+  border-bottom-color: rgb(255 255 255 / .1);
+  background: linear-gradient(180deg, rgb(20 25 30 / .78), rgb(14 18 22 / .48));
+  color: rgb(231 238 242 / .58);
+}
+
+:global(.dark) .heroProductControls span {
+  border-color: rgb(255 255 255 / .18);
+}
+
+.heroProductFrame .heroChatStage :global(.heroChat) {
+  height: 32rem;
+  min-height: 32rem;
+  grid-template-columns: 12rem minmax(0, 1fr);
+}
+
+.heroProductFrame .heroChatStage :global(.heroChatSidebar) {
+  background: #101319;
+}
+
+.heroProductFrame .heroChatStage :global(.heroChatMain),
+.heroProductFrame .heroChatStage :global(.heroChatConversation) {
+  background: #0b0e12;
+}
+
+.heroProductFrame .heroChatStage :global(.heroChatTopbar),
+.heroProductFrame .heroChatStage :global(.heroChatComposerArea) {
+  background: #11151a;
+}
+
+.manifesto {
+  margin-top: clamp(3rem, 6vw, 5.5rem);
+}
+
+@media (max-width: 900px) {
+  .heroCanvas {
+    min-height: 43rem;
+  }
+
+  .heroInner {
+    width: calc(100% - 3rem);
+  }
+
+  .heroCopy {
+    top: 5.5rem;
+  }
+
+  .heroProductFrame {
+    top: 49%;
+    width: calc(100% - 3rem);
+  }
+}
+
+@media (max-width: 720px) {
+  .heroShell {
+    width: 100%;
+  }
+
+  .heroCanvas {
+    min-height: 44rem;
+    border-radius: 0;
+  }
+
+  .heroInner {
+    width: calc(100% - 3rem);
+  }
+
+  .heroCopy {
+    top: 4.75rem;
+    width: 100%;
+  }
+
+  .heroCopy h1 {
+    max-width: 8ch;
+    font-size: clamp(2.8rem, 14vw, 4rem);
+  }
+
+  .heroCopy .heroLead {
+    max-width: 31rem;
+    font-size: .92rem;
+  }
+
+  .heroCopy .heroMeta {
+    display: none;
+  }
+
+  .heroProductFrame {
+    top: 52%;
+    width: calc(100% + 1rem);
+    height: 29rem;
+    border-radius: .9rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .heroCanvas {
+    min-height: 44rem;
+  }
+
+  .heroCopy {
+    top: 3.75rem;
+  }
+
+  .heroCopy .eyebrow {
+    font-size: .625rem;
+  }
+
+  .heroCopy .heroActions {
+    display: grid;
+    align-items: stretch;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .heroCopy .heroActions .primaryButton,
+  .heroCopy .heroActions .secondaryButton {
+    width: auto;
+    min-width: 0;
+    padding-inline: .75rem;
+  }
+
+  .heroProductFrame { top: 54%; }
+}
+
+/* Reuse the moving image layer inside every major home-page panel. */
+.canvasPanel {
+  --home-bg: #f8fafc;
+  --home-surface: rgb(255 255 255 / .88);
+  --home-subtle: rgb(241 245 249 / .86);
+  --home-ink: #111827;
+  --home-muted: rgb(71 85 105 / .82);
+  --home-line: rgb(15 23 42 / .14);
+  --home-accent: #111827;
+  --home-accent-soft: rgb(15 23 42 / .06);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background: #f8fafc;
+  color: var(--home-ink);
+}
+
+:global(.dark) .canvasPanel {
+  --home-bg: #020611;
+  --home-surface: rgb(8 13 22 / .86);
+  --home-subtle: rgb(20 27 39 / .78);
+  --home-ink: #f7fafc;
+  --home-muted: rgb(226 232 240 / .68);
+  --home-line: rgb(226 232 240 / .16);
+  --home-accent: #f8fafc;
+  --home-accent-soft: rgb(248 250 252 / .08);
+  background: #020611;
+}
+
+.sectionBackdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.sectionBackdrop::after {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / .64), rgb(255 255 255 / .2) 54%, rgb(255 255 255 / .44)),
+    linear-gradient(0deg, rgb(255 255 255 / .34), transparent 55%);
+  content: "";
+}
+
+.sectionBackdrop canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvasPanel > :not(.sectionBackdrop) {
+  position: relative;
+  z-index: 1;
+}
+
+.canvasPanel .installConsole,
+.canvasPanel .protocolList,
+.canvasPanel .packageList,
+.canvasPanel .componentCanvas,
+.canvasPanel .openSourceMark {
+  border-color: var(--home-line);
+  background: rgb(255 255 255 / .78);
+  backdrop-filter: blur(18px);
+  box-shadow: inset 0 1px rgb(255 255 255 / .72);
+}
+
+.canvasPanel .componentRail,
+.canvasPanel .componentWorkspace,
+.canvasPanel .componentSurface,
+.canvasPanel .componentStage {
+  background-color: rgb(248 250 252 / .82);
+}
+
+.canvasPanel .componentFrame {
+  background: #ffffff;
+}
+
+:global(.dark) .sectionBackdrop::after {
+  background:
+    linear-gradient(90deg, rgb(1 5 13 / .2), rgb(1 5 13 / .06) 54%, rgb(1 5 13 / .18)),
+    linear-gradient(0deg, rgb(1 5 13 / .34), transparent 55%);
+}
+
+:global(.dark) .canvasPanel .installConsole,
+:global(.dark) .canvasPanel .protocolList,
+:global(.dark) .canvasPanel .packageList,
+:global(.dark) .canvasPanel .componentCanvas,
+:global(.dark) .canvasPanel .openSourceMark {
+  background: rgb(6 11 19 / .78);
+  box-shadow: inset 0 1px rgb(255 255 255 / .04);
+}
+
+:global(.dark) .canvasPanel .componentRail,
+:global(.dark) .canvasPanel .componentWorkspace,
+:global(.dark) .canvasPanel .componentSurface,
+:global(.dark) .canvasPanel .componentStage {
+  background-color: rgb(7 12 21 / .82);
+}
+
+:global(.dark) .canvasPanel .componentFrame {
+  background: #0b111c;
+}
+
+/* The light canvas keeps the artwork on the window side while opening the
+ * copy side up for dark type and a light-mode product surface. */
+:global(html:not(.dark)) .heroCopy {
+  color: #17202a;
+}
+
+:global(html:not(.dark)) .heroCopy h1 {
+  color: #17202a;
+  text-shadow: 0 5px 28px rgb(255 255 255 / .35);
+}
+
+:global(html:not(.dark)) .heroCopy .heroLead {
+  color: rgb(23 32 42 / .76);
+  text-shadow: 0 2px 18px rgb(255 255 255 / .6);
+}
+
+:global(html:not(.dark)) .heroCopy .eyebrow {
+  border-color: rgb(23 32 42 / .18);
+  background: rgb(255 255 255 / .48);
+  color: rgb(23 32 42 / .76);
+}
+
+:global(html:not(.dark)) .heroCopy .secondaryButton {
+  border-color: rgb(23 32 42 / .2);
+  background: rgb(255 255 255 / .42);
+  color: #17202a;
+}

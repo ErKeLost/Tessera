@@ -1,6 +1,7 @@
 import type {
   CatalogIntrospectionOptions,
   DatabaseCatalog,
+  DatabaseCapabilities,
   DatabaseConnector,
   DatabaseQueryResult,
 } from "@data-elements/database";
@@ -404,16 +405,41 @@ export const compiledResultColumnSchema = z.object({
   type: dataTypeFamilySchema,
 }).strict();
 
-/** Server-only compiler output. Never pass this type to a model or browser. */
-export const compiledQuerySchema = z.object({
+/** Server-only SQL compiler output. Never pass this type to a model or browser. */
+export const compiledSqlQuerySchema = z.object({
   sql: z.string().min(1).max(100_000),
   parameters: z.array(z.union([z.string(), z.number().finite(), z.boolean()])).max(256),
   sourceRelationIds: z.array(z.string().min(1).max(256)).min(1).max(32),
   resultColumns: z.array(compiledResultColumnSchema).min(1).max(32),
 }).strict();
 
+/** Server-only MongoDB aggregation output. */
+export const compiledMongoQuerySchema = z.object({
+  kind: z.literal("mongodb"),
+  database: z.string().min(1).max(256),
+  collection: z.string().min(1).max(256),
+  pipeline: z.array(z.record(z.string(), z.unknown())).max(128),
+  sourceRelationIds: z.array(z.string().min(1).max(256)).min(1).max(32),
+  resultColumns: z.array(compiledResultColumnSchema).min(1).max(32),
+}).strict();
+
+export const compiledQuerySchema = z.union([
+  compiledSqlQuerySchema,
+  compiledMongoQuerySchema,
+]);
+
 export type CompiledResultColumn = z.infer<typeof compiledResultColumnSchema>;
-export type CompiledQuery = z.infer<typeof compiledQuerySchema>;
+export type CompiledSqlQuery = z.infer<typeof compiledSqlQuerySchema> & Readonly<{
+  kind?: never;
+  database?: never;
+  collection?: never;
+  pipeline?: never;
+}>;
+export type CompiledMongoQuery = z.infer<typeof compiledMongoQuerySchema> & Readonly<{
+  sql?: never;
+  parameters?: never;
+}>;
+export type CompiledQuery = CompiledSqlQuery | CompiledMongoQuery;
 
 export type CompileLimits = Readonly<{
   maxRows?: number;
@@ -435,6 +461,11 @@ export type CompileTypedProbeInput = Readonly<{
 }>;
 
 export type DataAgentCatalogInput = Readonly<{ refresh?: boolean }>;
+
+export type DataAgentCapabilitiesSnapshot = Readonly<{
+  capabilities: DatabaseCapabilities;
+  cacheStatus: "hit" | "loaded" | "unavailable";
+}>;
 
 /**
  * Planner-only catalog access. It deliberately returns no physical catalog,
@@ -669,6 +700,7 @@ export type DataAgentOptions = Readonly<{
 
 export type DataAgent = Readonly<{
   readonly connectorId: string;
+  inspectCapabilities(signal?: AbortSignal): Promise<DataAgentCapabilitiesSnapshot>;
   inspectCatalog(input?: DataAgentCatalogInput, signal?: AbortSignal): Promise<DataAgentCatalogSnapshot>;
   inspectPlanningCatalog(input?: DataAgentPlanningCatalogInput, signal?: AbortSignal): Promise<DataAgentPlanningCatalogSnapshot>;
   inspectRelationPlanningCatalog(input: DataAgentRelationPlanningCatalogInput, signal?: AbortSignal): Promise<DataAgentRelationPlanningCatalogSnapshot>;

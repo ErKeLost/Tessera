@@ -1206,19 +1206,30 @@ describe("Tessera Studio Hono app", () => {
 });
 
 describe("Tessera database connector selection", () => {
-  test("selects the configured PostgreSQL or MySQL connector without connecting during construction", async () => {
+  test("selects SQL connectors without connecting during construction", async () => {
     const postgres = createTesseraDatabaseConnector(defineTesseraConfig({
       database: { url: "postgresql://readonly:secret@localhost/warehouse" },
     }));
     const mysql = createTesseraDatabaseConnector(defineTesseraConfig({
       database: { url: "mysql://readonly:secret@localhost/warehouse" },
     }));
+    const sqlite = createTesseraDatabaseConnector(defineTesseraConfig({
+      database: { url: "file::memory:" },
+    }));
+    const turso = createTesseraDatabaseConnector(defineTesseraConfig({
+      database: {
+        url: "libsql://warehouse-example.turso.io",
+        authToken: "server-only-token",
+      },
+    }));
 
     try {
       expect(postgres.dialect).toBe("postgres");
       expect(mysql.dialect).toBe("mysql");
+      expect(sqlite.dialect).toBe("sqlite");
+      expect(turso.dialect).toBe("turso");
     } finally {
-      await Promise.all([postgres.close(), mysql.close()]);
+      await Promise.all([postgres.close(), mysql.close(), sqlite.close(), turso.close()]);
     }
   });
 });

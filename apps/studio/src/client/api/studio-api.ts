@@ -16,7 +16,7 @@ export type StudioThreadSummary = Readonly<{
   updatedAt: string;
 }>;
 
-export type DatabaseDialect = "postgres" | "mysql";
+export type DatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
 
 export type StudioConnection = Readonly<{
   connected: boolean;

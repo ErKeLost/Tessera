@@ -55,7 +55,7 @@ export const TESSERA_AGENT_MODEL = DEFAULT_TESSERA_LLM_MODEL;
 
 const nonEmptyString = z.string().trim().min(1);
 const portSchema = z.number().int().min(1).max(65_535);
-const databaseDialectSchema = z.enum(["postgres", "mysql"]);
+const databaseDialectSchema = z.enum(["postgres", "mysql", "sqlite", "turso", "mongodb"]);
 const explicitDatabaseDialect = Symbol("tessera.explicitDatabaseDialect");
 /**
  * Datus-style policy input. The profile remains the concise default while
@@ -82,6 +82,11 @@ const databaseConfigSchema = z.object({
     // dialect. An explicit dialect is still useful as a configuration guard.
     dialect: databaseDialectSchema.optional(),
     url: nonEmptyString.max(8_192),
+    /** Server-only Turso token. TURSO_AUTH_TOKEN remains the environment fallback. */
+    authToken: nonEmptyString.max(8_192).refine(
+      (value) => !/[\r\n]/u.test(value),
+      "Database credentials cannot contain line breaks.",
+    ).optional(),
     id: nonEmptyString.max(256).optional(),
     /**
      * Optional explicit narrowing. When omitted, the connector discovers every
@@ -310,14 +315,15 @@ export function isTesseraLlmConfigured(config: Pick<TesseraConfig, "llm">): bool
 /**
  * Establishes the connector dialect from a database URL without returning or
  * placing the URL in an error message. PostgreSQL accepts both conventional
- * postgres:// and postgresql:// schemes.
+ * postgres:// and postgresql:// schemes. SQLite accepts file: and sqlite:.
+ * Turso accepts libsql:/turso: plus its HTTP and WebSocket transports.
  */
 export function inferTesseraDatabaseDialect(value: string): TesseraDatabaseDialect {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new TesseraConfigError("Tessera requires a valid PostgreSQL or MySQL database URL.");
+    throw new TesseraConfigError("Tessera requires a valid supported database URL.");
   }
   switch (url.protocol.toLocaleLowerCase("en-US")) {
     case "postgres:":
@@ -325,8 +331,21 @@ export function inferTesseraDatabaseDialect(value: string): TesseraDatabaseDiale
       return "postgres";
     case "mysql:":
       return "mysql";
+    case "file:":
+    case "sqlite:":
+      return "sqlite";
+    case "libsql:":
+    case "turso:":
+    case "https:":
+    case "http:":
+    case "wss:":
+    case "ws:":
+      return "turso";
+    case "mongodb:":
+    case "mongodb+srv:":
+      return "mongodb";
     default:
-      throw new TesseraConfigError("Tessera supports PostgreSQL and MySQL database URLs only.");
+      throw new TesseraConfigError("Tessera supports PostgreSQL, MySQL, SQLite, Turso/libSQL, and MongoDB database URLs only.");
   }
 }
 
@@ -369,7 +388,13 @@ export function withTesseraDatabaseUrl(config: TesseraConfig, url: string): Tess
   if (dialectWasExplicit && config.database.dialect !== dialect) {
     throw new TesseraConfigError("Tessera database.dialect does not match the database URL.");
   }
-  const { dialect: _configuredDialect, permissions, ...database } = config.database;
+  const {
+    dialect: _configuredDialect,
+    permissions,
+    authToken,
+    schemas,
+    ...database
+  } = config.database;
   const { database: _database, ...configBase } = config;
   return defineTesseraConfig({
     ...configBase,
@@ -377,6 +402,8 @@ export function withTesseraDatabaseUrl(config: TesseraConfig, url: string): Tess
       ...database,
       url,
       permissions: databasePolicyConfigInput(permissions),
+      ...(config.database.dialect === dialect && authToken !== undefined ? { authToken } : {}),
+      ...(config.database.dialect === dialect && schemas !== undefined ? { schemas: [...schemas] } : {}),
       ...(dialectWasExplicit ? { dialect } : {}),
     },
     studio: {
@@ -429,7 +456,7 @@ function databasePolicyConfigInput(policy: DatabaseScopedPermissionPolicy) {
 
 /**
  * Loads a conventional `tessera.config.ts` module. The module is evaluated only
- * in the local Bun process and its contents are never logged or sent to a UI.
+ * in the local server process and its contents are never logged or sent to a UI.
  */
 export async function loadTesseraConfig(options: LoadTesseraConfigOptions = {}): Promise<LoadedTesseraConfig> {
   const cwd = options.cwd ?? process.cwd();

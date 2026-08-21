@@ -258,14 +258,16 @@ describe("Tessera configuration", () => {
     }
   });
 
-  test("infers PostgreSQL and MySQL from a URL while rejecting explicit dialect conflicts", () => {
+  test("infers SQL and document database dialects while rejecting explicit conflicts", () => {
     expect(inferTesseraDatabaseDialect("postgres://readonly:secret@localhost/warehouse")).toBe("postgres");
     expect(inferTesseraDatabaseDialect("mysql://readonly:secret@localhost/warehouse")).toBe("mysql");
+    expect(inferTesseraDatabaseDialect("sqlite:///tmp/warehouse.db")).toBe("sqlite");
+    expect(inferTesseraDatabaseDialect("file:/tmp/warehouse.db")).toBe("sqlite");
+    expect(inferTesseraDatabaseDialect("libsql://warehouse-example.turso.io")).toBe("turso");
+    expect(inferTesseraDatabaseDialect("turso://warehouse-example.turso.io")).toBe("turso");
     expect(() => defineTesseraConfig({
       database: { dialect: "postgres", url: "mysql://readonly:secret@localhost/warehouse" },
     })).toThrow("does not match");
-    expect(() => inferTesseraDatabaseDialect("sqlite:///tmp/warehouse.db"))
-      .toThrow("PostgreSQL and MySQL");
   });
 
   test("creates an isolated URL config and keeps a project dialect guard when a URL overrides it", () => {

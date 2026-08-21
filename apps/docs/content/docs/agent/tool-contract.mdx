@@ -1,0 +1,43 @@
+---
+title: Tool Contract and Boundaries
+description: Keep model tools semantic, browser output redacted, and database execution server-owned.
+---
+
+## Model-facing tools
+
+```text
+inspect_current_context  -> server-bound current data context
+inspect_catalog          -> semantic catalog slice for one question
+describe_data            -> bounded detail for inspected entities
+probe_data               -> fixed, bounded discovery probe
+run_analysis             -> read-only analysis from a semantic draft
+```
+
+Tools accept semantic identifiers returned by the current catalog. They do not
+accept SQL, connection strings, credentials, physical relation names, compiler
+output IDs, or arbitrary query limits. A final answer must be grounded in a
+verified `run_analysis` result.
+
+## Trust boundaries
+
+| Boundary | Allowed | Never allowed |
+| --- | --- | --- |
+| Model | Semantic slices, opaque IDs, bounded evidence | SQL, credentials, physical table names |
+| Browser | Redacted lifecycle, safe narration, validated artifacts | Raw tool arguments, private traces, connector access |
+| Studio server | Authentication hooks, orchestration, filtering, persistence | Bypassing host authorization |
+| Data Agent | Live catalog, signed scope, typed draft, bounded result | Caller-supplied SQL or out-of-scope analysis |
+| Write surface | Typed mutation, purpose, idempotency, approval | Implicit writes from read analysis or free-form SQL |
+
+## Implementation map
+
+| Concern | Implementation |
+| --- | --- |
+| Product shell and routes | `apps/studio/src/server.ts` and `apps/studio/src/client` |
+| Default orchestration | `apps/studio/src/agent.ts` |
+| Public stream protocol | `apps/studio/src/protocol.ts` |
+| Catalog, capability, compiler, execution | `packages/data-agent/src` |
+| Database connectors | `packages/postgres`, `packages/mysql`, `packages/sqlite`, `packages/turso` |
+| Session memory | Server-side local SQLite, separate from the analyzed database |
+
+Continue with [Agent Architecture](/docs/agent/architecture) for production
+topology, evidence, SQL safety, and release gates.

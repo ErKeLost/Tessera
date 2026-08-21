@@ -30,8 +30,11 @@ import {
   type DatabaseScopedPermissionPolicy,
   type DatabaseScopedPermissionPolicyInput,
 } from "@data-elements/database";
+import { createMongoDbConnector } from "@data-elements/mongodb";
 import { createMySqlConnector } from "@data-elements/mysql";
 import { createPostgresConnector } from "@data-elements/postgres";
+import { createSqliteConnector } from "@data-elements/sqlite";
+import { createTursoConnector } from "@data-elements/turso";
 import { createTesseraStudioAgent } from "./agent";
 import { createTesseraSessionMemory, type TesseraSessionMemory } from "./session-memory";
 import {
@@ -50,7 +53,7 @@ const SETTINGS_DIRECTORY = ".tessera";
 const SETTINGS_FILE = "settings.json";
 const SETTINGS_STORE_VERSION = 1;
 
-const databaseDialectSchema = z.enum(["postgres", "mysql"]);
+const databaseDialectSchema = z.enum(["postgres", "mysql", "sqlite", "turso", "mongodb"]);
 const accessModeSchema = z.enum(["read-only", "read-write"]);
 const studioReasoningSelectionSchema = z.enum(["default", ...TESSERA_OPENROUTER_REASONING_EFFORTS] as const);
 const safeProviderSchema = z.string().trim().min(1).max(64).regex(
@@ -71,7 +74,7 @@ const databaseUrlSchema = z.string().trim().min(1).max(8_192).superRefine((value
   } catch {
     context.addIssue({
       code: "custom",
-      message: "Expected a PostgreSQL or MySQL database URL.",
+      message: "Expected a PostgreSQL, MySQL, SQLite, Turso/libSQL, or MongoDB database URL.",
     });
   }
 });
@@ -90,6 +93,7 @@ export const tesseraStudioSettingsCandidateSchema = z.object({
     dialect: databaseDialectSchema,
     accessMode: accessModeSchema,
     url: databaseUrlSchema.optional(),
+    authToken: secretSchema.optional(),
   }).strict(),
   llm: z.object({
     provider: safeProviderSchema,
@@ -121,6 +125,7 @@ export const tesseraStudioSettingsSnapshotSchema = z.object({
     dialect: databaseDialectSchema,
     accessMode: accessModeSchema,
     urlConfigured: z.boolean(),
+    authTokenConfigured: z.boolean(),
   }).strict(),
   llm: z.object({
     provider: safeProviderSchema,
@@ -194,6 +199,7 @@ export function parseTesseraStudioSettingsCandidate(value: unknown): TesseraStud
       dialect: parsed.data.database.dialect,
       accessMode: parsed.data.database.accessMode,
       ...(parsed.data.database.url === undefined ? {} : { url: parsed.data.database.url }),
+      ...(parsed.data.database.authToken === undefined ? {} : { authToken: parsed.data.database.authToken }),
     }),
     llm: Object.freeze({
       provider: parsed.data.llm.provider.toLocaleLowerCase("en-US"),
@@ -215,9 +221,9 @@ export function parseTesseraStudioSettingsCandidate(value: unknown): TesseraStud
 /**
  * Merges a candidate into an already-normalized Tessera config. Empty URL/key
  * fields are intentionally absent from the candidate and therefore retain the
- * current server-only values. The Data Agent remains read-only for both
- * access modes; `read-write` is an entitlement for governed actions, not
- * permission for model-generated SQL.
+ * current server-only values. The effective database posture is supplied to
+ * the Agent per turn by its authorization processor; access mode alone never
+ * authorizes model-generated SQL.
  */
 export function normalizeTesseraStudioSettings(
   current: TesseraConfig,
@@ -235,10 +241,16 @@ export function normalizeTesseraStudioSettings(
   if (dialect !== candidate.database.dialect) {
     throw new TesseraSettingsRuntimeError("invalid_settings", "The selected database engine does not match the database URL.");
   }
+  if (isReadOnlyDialect(dialect) && candidate.database.accessMode !== "read-only") {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "This database connector currently supports read-only access only.");
+  }
 
   const existingLlm = resolveTesseraLlmConfig(current);
   const currentProvider = providerFromModelId(existingLlm.model);
   const providerUnchanged = currentProvider === candidate.llm.provider;
+  const databaseUnchanged = current.database.dialect === dialect;
+  const authToken = candidate.database.authToken
+    ?? (databaseUnchanged ? current.database.authToken : undefined);
   const model = normalizeModelId(candidate.llm.provider, candidate.llm.model);
   if (model === undefined) {
     throw new TesseraSettingsRuntimeError("invalid_settings", "Tessera Studio settings are invalid.");
@@ -255,8 +267,11 @@ export function normalizeTesseraStudioSettings(
       database: {
         dialect,
         url: databaseUrl,
+        ...(authToken === undefined ? {} : { authToken }),
         ...(current.database.id === undefined ? {} : { id: current.database.id }),
-        ...(current.database.schemas === undefined ? {} : { schemas: [...current.database.schemas] }),
+        ...(databaseUnchanged && current.database.schemas !== undefined
+          ? { schemas: [...current.database.schemas] }
+          : {}),
         maxRows: candidate.limits.maxRows,
         statementTimeoutMs: candidate.limits.timeoutMs,
         permissions: databasePermissionPolicyInput(
@@ -302,6 +317,8 @@ export function createTesseraStudioSettingsSnapshot(
       dialect: config.database.dialect,
       accessMode,
       urlConfigured: Boolean(config.database.url),
+      authTokenConfigured: Boolean(config.database.authToken)
+        || (config.database.dialect === "turso" && Boolean(process.env.TURSO_AUTH_TOKEN?.trim())),
     },
     llm: {
       provider: provider?.toLocaleLowerCase("en-US") || "openrouter",
@@ -432,14 +449,9 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
           timeoutMs: config.database.statementTimeoutMs,
         },
       });
-      const agent = isTesseraLlmConfigured(config)
-        ? createTesseraStudioAgent({
-          dataAgent,
-          memory: sessionMemory.memory,
-          llm: resolveTesseraLlmConfig(config),
-        })
-        : undefined;
-      const databaseActions = options.accessMode !== "read-write" || options.databaseState === undefined
+      const databaseActions = options.accessMode !== "read-write"
+        || options.databaseState === undefined
+        || isReadOnlyDialect(config.database.dialect)
         ? undefined
         : createTesseraDatabaseActionService({
           connector,
@@ -447,6 +459,18 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
           policy: config.database.permissions,
           getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
         });
+      const agent = isTesseraLlmConfigured(config)
+        ? createTesseraStudioAgent({
+          dataAgent,
+          memory: sessionMemory.memory,
+          llm: resolveTesseraLlmConfig(config),
+          permissionContext: {
+            accessMode: options.accessMode,
+            databaseActionsAvailable: databaseActions !== undefined,
+            sqlStatements: config.database.permissions.sqlStatements,
+          },
+        })
+        : undefined;
       return Object.freeze({
         connector,
         dataAgent,
@@ -811,6 +835,14 @@ function createManagedConnector(config: TesseraConfig): DatabaseConnector {
     maxRows: config.database.maxRows,
     statementTimeoutMs: config.database.statementTimeoutMs,
   };
+  if (config.database.dialect === "sqlite") return createSqliteConnector(options);
+  if (config.database.dialect === "turso") {
+    return createTursoConnector({
+      ...options,
+      authToken: config.database.authToken ?? process.env.TURSO_AUTH_TOKEN,
+    });
+  }
+  if (config.database.dialect === "mongodb") return createMongoDbConnector(options);
   if (config.database.dialect === "mysql") return createMySqlConnector(options);
   return createPostgresConnector({ ...options, applicationName: "tessera-studio" });
 }
@@ -965,6 +997,9 @@ function mergePersistedCandidate(
       ...(next.database.url === undefined && previous?.database.url !== undefined
         ? { url: previous.database.url }
         : {}),
+      ...(next.database.authToken === undefined && previous?.database.authToken !== undefined
+        ? { authToken: previous.database.authToken }
+        : {}),
     },
     llm: {
       ...next.llm,
@@ -980,6 +1015,10 @@ function mergePersistedCandidate(
       ? {}
       : { permissions: next.permissions ?? previous?.permissions }),
   });
+}
+
+function isReadOnlyDialect(dialect: TesseraDatabaseDialect): boolean {
+  return dialect === "mongodb" || dialect === "sqlite" || dialect === "turso";
 }
 
 /**

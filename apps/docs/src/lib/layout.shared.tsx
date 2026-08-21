@@ -28,8 +28,8 @@ export function baseOptions(locale: string): BaseLayoutProps {
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
     links: [
-      { text: chinese ? "文档" : "Docs", url: localizedPath(locale, "/docs"), active: "nested-url" },
-      { text: "Agent", url: localizedPath(locale, "/docs/agent-studio"), active: "nested-url" },
+      { text: chinese ? "文档" : "Docs", url: localizedPath(locale, "/docs") },
+      { text: "Agent", url: localizedPath(locale, "/docs/agent"), active: "nested-url" },
       { text: chinese ? "组件" : "Components", url: localizedPath(locale, "/docs/components"), active: "nested-url" },
       { text: chinese ? "示例" : "Examples", url: localizedPath(locale, "/docs/examples"), active: "nested-url" },
       { text: "Playground", url: "/background" },

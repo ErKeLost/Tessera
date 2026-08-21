@@ -51,6 +51,25 @@ const config = {
   outputFileTracingIncludes: {
     "/r/*": [".registry/**/*"],
   },
+  async redirects() {
+    return [
+      {
+        source: "/:lang/docs/agent-studio",
+        destination: "/:lang/docs/agent",
+        permanent: true,
+      },
+      {
+        source: "/:lang/docs/agent-architecture",
+        destination: "/:lang/docs/agent/architecture",
+        permanent: true,
+      },
+      {
+        source: "/:lang/docs/agent-architecture/:path*",
+        destination: "/:lang/docs/agent/architecture/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

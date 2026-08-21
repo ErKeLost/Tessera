@@ -1,0 +1,22 @@
+---
+title: Query Analysis
+description: Render chart, table, SQL, and source lineage as one inspectable Query Artifact.
+---
+
+Use Query Artifact when a user needs the visual trend and the exact result rows
+in the same answer. SQL and lineage remain inspectable without becoming
+executable browser input.
+
+<ComponentPreview
+  filename="examples/credit-flow.tsx"
+  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+
+export function CreditFlow({ artifact }) {
+  return <QueryArtifact artifact={artifact} defaultView="table" />
+}`}
+>
+  <QueryDemo />
+</ComponentPreview>
+
+See the [Query Artifact component](/docs/components/query-artifact) for its
+schema, provider integration, actions, and accessibility contract.

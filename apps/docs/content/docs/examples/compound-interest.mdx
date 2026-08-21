@@ -1,0 +1,22 @@
+---
+title: Compound Interest
+description: Keep interactive formula exploration local, deterministic, and catalog controlled.
+---
+
+Calculator Artifact runs a host-registered calculator. The Agent selects the
+calculator and provides validated inputs; it never supplies executable formulas
+or browser code.
+
+<ComponentPreview
+  filename="examples/compound-interest.tsx"
+  code={`import { CalculatorArtifact } from "@/components/data-elements/calculator-artifact"
+
+export function CompoundInterest({ artifact }) {
+  return <CalculatorArtifact artifact={artifact} />
+}`}
+>
+  <CalculatorDemo />
+</ComponentPreview>
+
+See the [Calculator Artifact component](/docs/components/calculator-artifact)
+for registration, provider wiring, and action handling.

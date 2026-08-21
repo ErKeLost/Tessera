@@ -1,0 +1,6 @@
+{
+  "title": "Examples",
+  "description": "Complete compositions built from trusted Data Elements components.",
+  "root": true,
+  "pages": ["index", "query-analysis", "workspace-health", "compound-interest"]
+}

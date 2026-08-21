@@ -178,6 +178,64 @@ describe("vNext analysis compiler", () => {
     expect(compiled.resultColumns.map((column) => column.outputId)).toEqual(["out_day", "out_revenue"]);
   });
 
+  test("compiles SQLite SQL for local SQLite and Turso", () => {
+    for (const dialect of ["sqlite", "turso"] as const) {
+      const sqliteCatalog = finalizeCatalog({
+        connectorId: "warehouse-" + dialect,
+        dialect,
+        databaseName: "analytics",
+        scannedAt: "2026-08-16T00:00:00.000Z",
+        schemas: structuredClone(catalog.schemas),
+      });
+      const semanticCatalog = createSemanticCatalog(sqliteCatalog);
+      const sqliteEntityId = entityIdFor(sqliteCatalog, "analytics", "orders");
+      const sqliteCreatedAtId = fieldIdFor(sqliteCatalog, "analytics", "orders", "created_at");
+      const sqliteStatusId = fieldIdFor(sqliteCatalog, "analytics", "orders", "status");
+      const sqliteTotalId = fieldIdFor(sqliteCatalog, "analytics", "orders", "total");
+      const spec = bindAnalysisDraft({
+        catalog: sqliteCatalog,
+        semanticCatalog,
+        draft: {
+          version: "2",
+          primaryEntityId: sqliteEntityId,
+          relationshipIds: [],
+          measures: [{
+            kind: "aggregate",
+            aggregate: "sum",
+            fieldId: sqliteTotalId,
+            outputId: "out_revenue",
+          }],
+          dimensions: [{
+            kind: "time",
+            fieldId: sqliteCreatedAtId,
+            grain: "month",
+            outputId: "out_month",
+          }],
+          filter: {
+            kind: "comparison",
+            fieldId: sqliteStatusId,
+            op: "eq",
+            value: "paid",
+          },
+          orderBy: [{ outputId: "out_month", direction: "asc" }],
+          output: "series",
+          limit: 25,
+        },
+      });
+      const compiled = compileAnalysisSpec({
+        catalog: sqliteCatalog,
+        semanticCatalog,
+        spec,
+      });
+
+      expect(compiled.sql).toContain("strftime('%Y-%m-01', \"t0\".\"created_at\")");
+      expect(compiled.sql).toContain("\"t0\".\"status\" = ?");
+      expect(compiled.sql).not.toContain("$1");
+      expect(compiled.sql).not.toContain(String.fromCharCode(96));
+      expect(compiled.parameters).toEqual(["paid"]);
+    }
+  });
+
   test("compiles an explicitly ordered row-level query without grouping", () => {
     const semanticCatalog = createSemanticCatalog(catalog);
     const spec = bindAnalysisDraft({
@@ -527,5 +585,95 @@ describe("vNext analysis compiler", () => {
       if (spec.mode !== "aggregate") throw new Error("Expected an aggregate spec.");
       expect(spec.measures[0]?.outputId).toBe(measure.outputId);
     }
+  });
+});
+
+describe("MongoDB analysis compiler", () => {
+  const mongoCatalog = finalizeCatalog({
+    connectorId: "mongodb:localhost/analytics",
+    dialect: "mongodb",
+    databaseName: "analytics",
+    scannedAt: "2026-08-20T00:00:00.000Z",
+    schemas: [{
+      name: "analytics",
+      tables: [{
+        schema: "analytics",
+        name: "orders",
+        kind: "collection",
+        columns: [
+          { name: "_id", dataType: "objectId", nullable: false, ordinal: 1 },
+          { name: "createdAt", dataType: "datetime", nullable: false, ordinal: 2 },
+          { name: "status", dataType: "string", nullable: false, ordinal: 3 },
+          { name: "total", dataType: "decimal", nullable: false, ordinal: 4 },
+        ],
+        primaryKey: ["_id"],
+        foreignKeys: [],
+      }],
+    }],
+  });
+  const mongoEntity = entityIdFor(mongoCatalog, "analytics", "orders");
+  const mongoCreatedAt = fieldIdFor(mongoCatalog, "analytics", "orders", "createdAt");
+  const mongoStatus = fieldIdFor(mongoCatalog, "analytics", "orders", "status");
+  const mongoTotal = fieldIdFor(mongoCatalog, "analytics", "orders", "total");
+
+  test("compiles a semantic aggregate to a native read-only pipeline", () => {
+    const semanticCatalog = createSemanticCatalog(mongoCatalog);
+    const spec = bindAnalysisDraft({
+      catalog: mongoCatalog,
+      semanticCatalog,
+      draft: {
+        version: "2",
+        primaryEntityId: mongoEntity,
+        relationshipIds: [],
+        measures: [{ kind: "aggregate", aggregate: "sum", fieldId: mongoTotal, outputId: "out_revenue" }],
+        dimensions: [{ kind: "time", fieldId: mongoCreatedAt, grain: "day", outputId: "out_day" }],
+        filter: { kind: "comparison", fieldId: mongoStatus, op: "eq", value: "paid" },
+        orderBy: [{ outputId: "out_day", direction: "asc" }],
+        output: "series",
+        limit: 50,
+      },
+    });
+    const compiled = compileAnalysisSpec({ catalog: mongoCatalog, semanticCatalog, spec });
+    if (compiled.kind !== "mongodb") throw new Error("Expected a MongoDB compiled query.");
+
+    expect(compiled.database).toBe("analytics");
+    expect(compiled.collection).toBe("orders");
+    expect(compiled.pipeline).toEqual([
+      { $match: { $expr: { $eq: ["$status", "paid"] } } },
+      { $group: {
+        _id: { out_day: { $dateTrunc: { date: "$createdAt", unit: "day" } } },
+        __measure_0: { $sum: "$total" },
+      } },
+      { $project: { _id: 0, out_day: "$_id.out_day", out_revenue: "$__measure_0" } },
+      { $sort: { out_day: 1 } },
+      { $limit: 50 },
+    ]);
+    expect(compiled.resultColumns.map(({ outputId }) => outputId)).toEqual(["out_day", "out_revenue"]);
+  });
+
+  test("compiles typed value-domain probes without SQL", () => {
+    const semanticCatalog = createSemanticCatalog(mongoCatalog);
+    const spec = bindAnalysisDraft({
+      catalog: mongoCatalog,
+      semanticCatalog,
+      draft: {
+        version: "2",
+        primaryEntityId: mongoEntity,
+        relationshipIds: [],
+        measures: [{ kind: "aggregate", aggregate: "count", outputId: "out_count" }],
+        dimensions: [{ kind: "field", fieldId: mongoStatus, outputId: "out_status" }],
+        filter: { kind: "comparison", fieldId: mongoStatus, op: "eq", value: "paid" },
+        orderBy: [{ outputId: "out_count", direction: "desc" }],
+        output: "ranking",
+        limit: 20,
+      },
+    });
+    const plan = planTypedProbes(spec, semanticCatalog);
+    const probe = plan.probes.find((candidate) => candidate.kind === "value-domain");
+    if (!probe) throw new Error("Expected a MongoDB value-domain probe.");
+    const compiled = compileTypedProbe({ catalog: mongoCatalog, semanticCatalog, spec, probe });
+    if (compiled.kind !== "mongodb") throw new Error("Expected a MongoDB compiled query.");
+    expect(JSON.stringify(compiled.pipeline)).toContain("$group");
+    expect(compiled.sql).toBeUndefined();
   });
 });

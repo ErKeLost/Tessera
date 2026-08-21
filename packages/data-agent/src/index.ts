@@ -1,5 +1,10 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { databaseQueryResultSchema, findCatalogTable } from "@data-elements/database";
+import {
+  databaseCapabilitiesSchema,
+  databaseQueryResultSchema,
+  findCatalogTable,
+  type DatabaseDialect,
+} from "@data-elements/database";
 import {
   AnalysisCompilerError,
   bindAnalysisDraft as bindDraft,
@@ -28,6 +33,7 @@ import {
   type CompiledQuery,
   type DataAgent,
   type DataAgentCatalogInput,
+  type DataAgentCapabilitiesSnapshot,
   type DataAgentCatalogSnapshot,
   type DataAgentErrorCode,
   type DataAgentExecution,
@@ -114,6 +120,7 @@ export type {
   CompiledResultColumn,
   DataAgent,
   DataAgentCatalogInput,
+  DataAgentCapabilitiesSnapshot,
   DataAgentCatalogSnapshot,
   DataAgentErrorCode,
   DataAgentExecution,
@@ -177,6 +184,42 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
   let load: Promise<RuntimeCatalogSnapshot> | undefined;
   const capabilitySecret = randomBytes(32);
   const planningCapabilities = new Map<string, PlanningCapabilityRecord>();
+  let cachedCapabilities: { value: DataAgentCapabilitiesSnapshot; expiresAt: number } | undefined;
+  let capabilityLoad: Promise<DataAgentCapabilitiesSnapshot> | undefined;
+
+  async function inspectCapabilities(signal?: AbortSignal): Promise<DataAgentCapabilitiesSnapshot> {
+    throwIfAborted(signal);
+    const cachedValue = cachedCapabilities;
+    if (cachedValue && cachedValue.expiresAt > now().getTime()) {
+      return { capabilities: cachedValue.value.capabilities, cacheStatus: "hit" };
+    }
+    const task = capabilityLoad ?? (capabilityLoad = Promise.resolve().then(async () => {
+      if (options.connector.inspectCapabilities) {
+        const capabilities = await options.connector.inspectCapabilities();
+        return { capabilities: databaseCapabilitiesSchema.parse(capabilities), cacheStatus: "loaded" as const };
+      }
+      return {
+        capabilities: databaseCapabilitiesSchema.parse({
+          kind: "database-capabilities",
+          connectorId: options.connector.id,
+          dialect: options.connector.dialect,
+          availability: "unavailable",
+          components: [],
+          truncated: false,
+          warnings: ["This connector does not expose runtime capability inspection."],
+        }),
+        cacheStatus: "unavailable" as const,
+      };
+    }).then((value) => {
+      cachedCapabilities = { value, expiresAt: now().getTime() + Math.min(ttlMs, 60_000) };
+      capabilityLoad = undefined;
+      return value;
+    }, (error) => {
+      capabilityLoad = undefined;
+      throw toDataAgentError(error);
+    }));
+    return waitForAbort(task, signal);
+  }
 
   async function inspectCatalog(
     input: DataAgentCatalogInput = {},
@@ -576,14 +619,30 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     if (columns.some((column) => column === undefined)) {
       throw new DataAgentError("invalid_relation_preview", "The requested preview column is not readable through this connector.");
     }
-    const quote = (identifier: string) => quotePreviewIdentifier(snapshot.catalog.dialect, identifier);
-    const sql = [
-      `SELECT ${columns.map((column) => quote(column!.name)).join(", ")}`,
-      `FROM ${quote(relation.schema)}.${quote(relation.name)}`,
-      `LIMIT ${DATA_AGENT_RELATION_PREVIEW_LIMIT}`,
-    ].join("\n");
+    const dialect = snapshot.catalog.dialect;
+    const compiled = dialect === "mongodb"
+      ? {
+        kind: "mongodb" as const,
+        database: relation.schema,
+        collection: relation.name,
+        pipeline: [{
+          $project: {
+            _id: 0,
+            ...Object.fromEntries(columns.map((column) => [column!.name, `$${column!.name}`])),
+          },
+        }, { $limit: DATA_AGENT_RELATION_PREVIEW_LIMIT }],
+        resultColumns: columns.map((column) => ({ outputId: column!.name, label: column!.name, type: "unknown" as const })),
+      }
+      : {
+        sql: [
+          `SELECT ${columns.map((column) => quotePreviewIdentifier(dialect, column!.name)).join(", ")}`,
+          `FROM ${quotePreviewIdentifier(dialect, relation.schema)}.${quotePreviewIdentifier(dialect, relation.name)}`,
+          `LIMIT ${DATA_AGENT_RELATION_PREVIEW_LIMIT}`,
+        ].join("\n"),
+        parameters: [],
+      };
     const result = await runConnectorQuery(
-      { sql, parameters: [] },
+      compiled,
       "Tessera relation preview",
       signal,
       DATA_AGENT_RELATION_PREVIEW_LIMIT,
@@ -607,21 +666,35 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
   }
 
   async function runConnectorQuery(
-    compiled: Pick<CompiledQuery, "sql" | "parameters"> & Partial<Pick<CompiledQuery, "resultColumns">>,
+    compiled:
+      | Readonly<{ sql: string; parameters: readonly (string | number | boolean)[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>
+      | Readonly<{ kind: "mongodb"; database: string; collection: string; pipeline: readonly Record<string, unknown>[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>,
     purpose: string,
     signal?: AbortSignal,
     rowLimit = maxRows,
   ) {
     try {
-      // `compiled.sql` is generated solely by compiler.ts. No caller or model
-      // can pass raw SQL through this API.
-      const result = await options.connector.query({
-        sql: compiled.sql,
-        parameters: compiled.parameters,
-        purpose,
-        maxRows: rowLimit,
-        timeoutMs,
-      }, signal);
+      // The executable query is generated solely by compiler.ts or the
+      // catalog-bound preview path. No caller or model can supply it.
+      const request = "sql" in compiled
+        ? {
+          sql: compiled.sql,
+          parameters: [...compiled.parameters],
+          purpose,
+          maxRows: rowLimit,
+          timeoutMs,
+        }
+        : {
+          kind: "mongodb" as const,
+          database: compiled.database,
+          collection: compiled.collection,
+          pipeline: compiled.pipeline.map((stage) => structuredClone(stage)),
+          ...(compiled.resultColumns === undefined ? {} : { columns: compiled.resultColumns.map(({ outputId }) => outputId) }),
+          purpose,
+          maxRows: rowLimit,
+          timeoutMs,
+        };
+      const result = await options.connector.query(request, signal);
       const parsed = databaseQueryResultSchema.safeParse(result);
       if (!parsed.success) throw new DataAgentError("query_failed");
       // Connectors may fetch one sentinel row to compute `truncated` for bounded
@@ -701,6 +774,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
 
   return Object.freeze({
     connectorId: options.connector.id,
+    inspectCapabilities,
     inspectCatalog,
     inspectPlanningCatalog,
     inspectRelationPlanningCatalog,
@@ -789,8 +863,8 @@ function boundedInteger(value: number | undefined, fallback: number, minimum: nu
   return Number.isFinite(candidate) ? Math.max(minimum, Math.min(maximum, Math.floor(candidate))) : fallback;
 }
 
-function quotePreviewIdentifier(dialect: "postgres" | "mysql", identifier: string): string {
-  return dialect === "postgres"
+function quotePreviewIdentifier(dialect: Exclude<DatabaseDialect, "mongodb">, identifier: string): string {
+  return dialect === "postgres" || dialect === "sqlite" || dialect === "turso"
     ? `"${identifier.replaceAll('"', '""')}"`
     : `\`${identifier.replaceAll("`", "``")}\``;
 }

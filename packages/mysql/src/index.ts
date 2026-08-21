@@ -3,12 +3,14 @@ import {
   databaseMutationRequestSchema,
   databaseMutationResultSchema,
   createAbortResilientAsyncCache,
+  databaseCapabilitiesSchema,
   finalizeCatalog,
   validateDatabaseMutationPlan,
   type AbortResilientAsyncCache,
   type CatalogIntrospectionOptions,
   type ConnectionAssessment,
   type DatabaseCatalog,
+  type DatabaseCapabilities,
   type DatabaseConnector,
   type DatabaseMutationExecutor,
   type DatabaseMutationRequest,
@@ -226,6 +228,74 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
     }
   }
 
+  async inspectCapabilities(signal?: AbortSignal): Promise<DatabaseCapabilities> {
+    const result = await this.#withReadOnlyTransaction(signal, async (client) => {
+      const versionRows = await queryRows<{
+        database_name: string | null;
+        server_version: string;
+        version_number: string;
+      }>(client, `
+        SELECT DATABASE() AS database_name, VERSION() AS server_version,
+          CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(VERSION(), '-', 1), '.', 3) AS CHAR) AS version_number
+      `);
+      let plugins: Array<{
+        plugin_name: string;
+        plugin_version: string | null;
+        plugin_status: string | null;
+        plugin_type: string | null;
+      }> = [];
+      let pluginWarning: string | undefined;
+      try {
+        plugins = await queryRows<{
+          plugin_name: string;
+          plugin_version: string | null;
+          plugin_status: string | null;
+          plugin_type: string | null;
+        }>(client, `
+          SELECT PLUGIN_NAME AS plugin_name, PLUGIN_VERSION AS plugin_version,
+            PLUGIN_STATUS AS plugin_status, PLUGIN_TYPE AS plugin_type
+          FROM information_schema.PLUGINS
+          WHERE PLUGIN_STATUS = 'ACTIVE'
+          ORDER BY PLUGIN_NAME
+        `);
+      } catch {
+        pluginWarning = "MySQL module metadata was not available to this credential.";
+      }
+      return { version: versionRows[0], plugins, pluginWarning };
+    });
+    if (!result.version) throw new Error("MySQL did not return a server version.");
+    const version = result.version.version_number.trim();
+    const major = parseVersionMajorMinorPatch(version);
+    const components: DatabaseCapabilities["components"] = [
+      { id: "engine.mysql", kind: "engine", status: "supported", version: result.version.server_version },
+      { id: "sql.cte", kind: "feature", status: majorAtLeast(major, 8, 0, 1) ? "supported" : "unsupported" },
+      { id: "sql.window_functions", kind: "feature", status: majorAtLeast(major, 8, 0, 2) ? "supported" : "unsupported" },
+      { id: "sql.json", kind: "feature", status: majorAtLeast(major, 5, 7, 0) ? "supported" : "unsupported" },
+    ];
+    let truncated = false;
+    for (const plugin of result.plugins) {
+      if (components.length >= 256) { truncated = true; break; }
+      if (!plugin.plugin_name) continue;
+      components.push({
+        id: `module:${plugin.plugin_name}`,
+        kind: "module",
+        status: "installed",
+        ...(plugin.plugin_version ? { version: plugin.plugin_version } : {}),
+      });
+    }
+    return databaseCapabilitiesSchema.parse({
+      kind: "database-capabilities",
+      connectorId: this.id,
+      dialect: "mysql",
+      ...(result.version.database_name ? { databaseName: result.version.database_name } : {}),
+      availability: "available",
+      serverVersion: result.version.server_version,
+      components,
+      truncated,
+      warnings: result.pluginWarning ? [result.pluginWarning] : [],
+    });
+  }
+
   async introspect(
     options: CatalogIntrospectionOptions = {},
     signal?: AbortSignal,
@@ -288,6 +358,7 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
     signal?: AbortSignal,
   ): Promise<DatabaseQueryResult> {
     if (signal?.aborted) throw abortError();
+    if (typeof request.sql !== "string") throw new TypeError("MySQL requires a SQL query request.");
     const maxRows = clampInteger(
       request.maxRows ?? this.#options.maxRows,
       1,
@@ -765,6 +836,17 @@ function uniqueColumnNames(
       name: count === 1 ? column.name : `${column.name}_${count}`,
     };
   });
+}
+
+function parseVersionMajorMinorPatch(value: string): readonly [number, number, number] {
+  const parts = value.match(/^(\d+)\.(\d+)(?:\.(\d+))?/u);
+  return parts ? [Number(parts[1]), Number(parts[2]), Number(parts[3] ?? 0)] : [0, 0, 0];
+}
+
+function majorAtLeast(actual: readonly [number, number, number], major: number, minor: number, patch: number): boolean {
+  if (actual[0] !== major) return actual[0] > major;
+  if (actual[1] !== minor) return actual[1] > minor;
+  return actual[2] >= patch;
 }
 
 function toJsonValue(value: unknown): unknown {

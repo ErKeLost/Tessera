@@ -31,7 +31,7 @@ workspace, verifies Bun's generated publish tarballs contain no `workspace:*`
 range, publishes in dependency order, and runs an
 `npx data-elements@<version> studio --help` smoke check.
 
-After publishing, verify from an empty directory with Bun 1.3.14 or later installed:
+After publishing, verify from an empty directory with Node.js 24+ or Bun 1.3+ installed:
 
 ```bash
 npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse

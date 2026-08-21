@@ -1,0 +1,22 @@
+---
+title: Workspace Health
+description: Present a focused operational snapshot with related Metric Artifacts.
+---
+
+Use Metric Artifact for a focused group of related KPIs. Each metric remains a
+typed object and can emit a follow-up analysis intent through the host action
+boundary.
+
+<ComponentPreview
+  filename="examples/workspace-health.tsx"
+  code={`import { MetricArtifact } from "@/components/data-elements/metric-artifact"
+
+export function WorkspaceHealth({ artifact }) {
+  return <MetricArtifact artifact={artifact} />
+}`}
+>
+  <MetricsDemo />
+</ComponentPreview>
+
+See the [Metric Artifact component](/docs/components/metric-artifact) for the
+full schema and interaction contract.

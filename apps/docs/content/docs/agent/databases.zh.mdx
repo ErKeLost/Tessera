@@ -1,0 +1,51 @@
+---
+title: 数据库连接
+description: 分别配置 PostgreSQL、MySQL、SQLite 和 Turso，不混用连接契约。
+---
+
+Studio 会把每个受支持的引擎作为独立数据库选项。SQLite 和 Turso 共享 SQLite
+SQL 语义，但连接方式和凭据配置不同。
+
+| 引擎 | URL | 凭据 | Studio 访问模式 |
+| --- | --- | --- | --- |
+| PostgreSQL | `postgres://` 或 `postgresql://` | URL 或服务端环境 | 默认只读，类型化写入受策略控制 |
+| MySQL | `mysql://` | URL 或服务端环境 | 默认只读，类型化写入受策略控制 |
+| SQLite | `file:` 或 `sqlite:` | 无 | 固定只读 |
+| Turso | `libsql:` 或 `turso:` | 独立 Auth Token | 固定只读 |
+
+## SQLite
+
+URL 必须指向现有本地数据库文件，不允许 Query String 和 URL Fragment。
+
+```ts
+export default defineTesseraConfig({
+  database: {
+    url: "file:/absolute/path/to/warehouse.db",
+  },
+});
+```
+
+SQLite 只暴露 `main` Schema，使用 `?` 参数，并在只读事务中执行公开查询。
+
+## Turso
+
+Token 必须与 URL 分开：
+
+```ts
+export default defineTesseraConfig({
+  database: {
+    url: "libsql://warehouse-org.turso.io",
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  },
+});
+```
+
+省略 `database.authToken` 时，Studio 会读取 `TURSO_AUTH_TOKEN`。URL 中不允许
+凭据、Query String 或 Fragment。也支持 HTTPS 和 WSS；未加密的 HTTP 与 WS
+只允许连接 Loopback 开发服务。
+
+## Catalog 范围与限制
+
+PostgreSQL 和 MySQL 可以通过 `database.schemas` 收窄发现范围。SQLite 和 Turso
+只暴露 `main`。所有 Connector 都会在结果进入 Agent 前应用 `maxRows`、
+`statementTimeoutMs`、取消信号和受限序列化。

@@ -2,6 +2,7 @@ import {
   catalogStats,
   classifyDatabaseAction,
   createAbortResilientAsyncCache,
+  databaseCapabilitiesSchema,
   databaseMutationRequestSchema,
   databaseMutationResultSchema,
   finalizeCatalog,
@@ -10,6 +11,7 @@ import {
   type CatalogIntrospectionOptions,
   type ConnectionAssessment,
   type DatabaseCatalog,
+  type DatabaseCapabilities,
   type DatabaseConnector,
   type DatabaseMutationExecutor,
   type DatabaseMutationRequest,
@@ -195,6 +197,85 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
     }
   }
 
+  async inspectCapabilities(signal?: AbortSignal): Promise<DatabaseCapabilities> {
+    const result = await this.#withReadOnlyTransaction(signal, async (client) => {
+      const version = await client.query<{
+        database_name: string;
+        server_version: string;
+        version_number: string | number;
+      }>({
+        text: `
+          SELECT
+            current_database() AS database_name,
+            version() AS server_version,
+            current_setting('server_version_num')::int8 AS version_number
+        `,
+      });
+      let extensions: Array<{
+        name: string;
+        schema: string | null;
+        default_version: string | null;
+        installed_version: string | null;
+      }> = [];
+      let extensionWarning: string | undefined;
+      try {
+        const extensionResult = await client.query<{
+          name: string;
+          schema: string | null;
+          default_version: string | null;
+          installed_version: string | null;
+        }>({
+          text: `
+            SELECT
+              available.name,
+              namespace.nspname AS schema,
+              available.default_version,
+              installed.extversion AS installed_version
+            FROM pg_available_extensions() AS available(name, default_version, comment)
+            LEFT JOIN pg_extension AS installed ON installed.extname = available.name
+            LEFT JOIN pg_namespace AS namespace ON namespace.oid = installed.extnamespace
+            ORDER BY available.name
+          `,
+        });
+        extensions = extensionResult.rows;
+      } catch {
+        extensionWarning = "PostgreSQL extension metadata was not available to this credential.";
+      }
+      return { version: version.rows[0], extensions, extensionWarning };
+    });
+    if (!result.version) throw new Error("PostgreSQL did not return a server version.");
+    const versionNumber = Number(result.version.version_number);
+    const components = postgresVersionComponents(Number.isFinite(versionNumber) ? versionNumber : undefined);
+    let truncated = false;
+    for (const extension of result.extensions) {
+      if (components.length >= 256) {
+        truncated = true;
+        break;
+      }
+      if (!extension.name || !extension.default_version) continue;
+      components.push({
+        id: `extension:${extension.name}`,
+        kind: "extension",
+        status: extension.installed_version ? "installed" : "available",
+        ...(extension.installed_version ? { version: extension.installed_version } : {}),
+        defaultVersion: extension.default_version,
+        ...(extension.schema ? { schema: extension.schema } : {}),
+      });
+    }
+    return databaseCapabilitiesSchema.parse({
+      kind: "database-capabilities",
+      connectorId: this.id,
+      dialect: "postgres",
+      databaseName: result.version.database_name,
+      availability: "available",
+      serverVersion: result.version.server_version,
+      ...(Number.isFinite(versionNumber) ? { serverVersionNumber: versionNumber } : {}),
+      components,
+      truncated,
+      warnings: result.extensionWarning ? [result.extensionWarning] : [],
+    });
+  }
+
   async introspect(
     options: CatalogIntrospectionOptions = {},
     signal?: AbortSignal,
@@ -244,6 +325,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
 
   async query(request: DatabaseQueryRequest, signal?: AbortSignal): Promise<DatabaseQueryResult> {
     if (signal?.aborted) throw abortError();
+    if (typeof request.sql !== "string") throw new TypeError("PostgreSQL requires a SQL query request.");
     const parsed = request;
     const maxRows = clampInteger(parsed.maxRows ?? this.#options.maxRows, 1, this.#options.maxRows);
     const timeoutMs = clampInteger(parsed.timeoutMs ?? this.#options.statementTimeoutMs, 250, this.#options.statementTimeoutMs);
@@ -616,6 +698,28 @@ async function queryForeignKeys(client: PoolClient, schemas: readonly string[], 
 async function queryDatabaseName(client: PoolClient): Promise<string> {
   const result = await client.query<{ database_name: string }>("SELECT current_database() AS database_name");
   return result.rows[0]?.database_name ?? "postgres";
+}
+
+function postgresVersionComponents(versionNumber: number | undefined): DatabaseCapabilities["components"] {
+  const components: DatabaseCapabilities["components"] = [{
+    id: "engine.postgres",
+    kind: "engine",
+    status: "supported",
+    ...(versionNumber === undefined ? {} : { version: String(versionNumber) }),
+  }];
+  const supports = (minimum: number) => versionNumber === undefined || versionNumber >= minimum;
+  const features: readonly [string, number][] = [
+    ["sql.cte", 80400],
+    ["sql.window_functions", 80400],
+    ["sql.json", 90200],
+    ["sql.filter_clause", 90400],
+    ["sql.generated_columns", 120000],
+    ["sql.merge", 150000],
+  ];
+  for (const [id, minimum] of features) {
+    components.push({ id, kind: "feature", status: supports(minimum) ? "supported" : "unsupported" });
+  }
+  return components;
 }
 
 function assembleCatalog(

@@ -1,0 +1,41 @@
+{
+  "name": "@data-elements/sqlite",
+  "version": "0.1.6",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "description": "Cross-runtime SQLite connector, catalog introspection, and read-only query policy for Data Elements.",
+  "type": "module",
+  "sideEffects": ["./dist/browser.mjs"],
+  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "browser": {
+    "./dist/index.mjs": "./dist/browser.mjs"
+  },
+  "engines": {
+    "node": ">=24",
+    "bun": ">=1.3"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/database": "workspace:*",
+    "@libsql/client": "0.17.4",
+    "node-sql-parser": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "26.2.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

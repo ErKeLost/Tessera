@@ -1,0 +1,38 @@
+---
+title: Run Workflow
+description: Understand how one question becomes a verified answer and inspectable evidence.
+---
+
+The user-facing path is fixed:
+
+```text
+question -> catalog -> semantic plan -> bounded read-only query
+         -> verification -> evidence -> Markdown answer
+```
+
+| Step | User-visible result | Server responsibility |
+| --- | --- | --- |
+| Connect | The configured database appears in Studio | Keep the connector and credentials server-side |
+| Discover | Relevant entities, fields, metrics, and relationships | Load the live catalog and return a bounded semantic slice |
+| Clarify | Ambiguous terms become explicit choices | Describe inspected entities or run one bounded probe |
+| Plan | A reviewable read-only analysis intent | Accept semantic IDs, never model-generated SQL |
+| Execute | Results and progress stream into the thread | Revalidate scope, compile, execute, and enforce limits |
+| Publish | A Markdown answer with evidence | Redact private details and publish bounded evidence |
+
+## Public lifecycle
+
+The browser receives product stages instead of private tool payloads:
+
+`catalog`, `retrieval`, `planning`, `probing`, `compiling`, `executing`,
+`verifying`, `publishing`, and `narrating`.
+
+Only stage status, bounded durations, safe narration, and evidence references
+cross the browser boundary. SQL, connector metadata, physical catalog names,
+raw tool arguments, and unbounded query output remain on the server.
+
+## Retry and interruption
+
+Each analysis is rebound to the current catalog before execution. A stale
+capability or changed catalog fails closed instead of running an old plan. The
+user can interrupt, retry, clarify, or start a follow-up in the same thread
+without granting the browser direct database access.

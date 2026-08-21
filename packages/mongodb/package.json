@@ -1,0 +1,35 @@
+{
+  "name": "@data-elements/mongodb",
+  "version": "0.1.6",
+  "license": "MIT",
+  "publishConfig": { "access": "public" },
+  "description": "MongoDB connector, collection introspection, and governed read-only aggregation for Data Elements.",
+  "type": "module",
+  "sideEffects": ["./dist/browser.mjs"],
+  "files": ["dist", "README.md"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "browser": {
+    "./dist/index.mjs": "./dist/browser.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@data-elements/database": "workspace:*",
+    "mongodb": "^6.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["bun", "node"],
+    "paths": {
+      "@data-elements/database": ["../database/src/index.ts"],
+      "@data-elements/sqlite": ["../sqlite/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

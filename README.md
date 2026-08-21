@@ -13,7 +13,7 @@ renderer implementation and editable source distribution.
 ## Tessera
 
 **Tessera** is the product built on this runtime: a local-first, governed data
-analysis agent for PostgreSQL and MySQL. By default it inspects every
+analysis agent for PostgreSQL, MySQL, SQLite, and Turso. By default it inspects every
 non-system schema visible to the configured database credential, executes
 bounded read-only analysis, and returns a verified Markdown response with
 compact execution progress and evidence rather than a generated application.
@@ -51,9 +51,16 @@ available to catalog discovery and analysis. Set `database.schemas` only when
 you deliberately want to narrow that scope. This does not bypass native
 database grants, and Agent SQL remains read-only in either case.
 
-Tessera infers `postgres` from `postgres://` / `postgresql://`, and `mysql` from
-`mysql://`. Set `database.dialect` only when you want an explicit guard against
+Tessera infers the database engine from the URL: `postgres://` or
+`postgresql://` for PostgreSQL, `mysql://` for MySQL, `file:` or `sqlite:` for
+SQLite, and `libsql:` or `turso:` for Turso. SQLite and Turso share SQLite SQL
+semantics while keeping their local and remote connection configuration
+separate. Set `database.dialect` only when you want an explicit guard against
 connecting to a URL of the wrong database family.
+
+Turso credentials stay separate from the URL. Set `database.authToken` in the
+server-only config, or omit it and provide `TURSO_AUTH_TOKEN` in the server
+environment.
 
 `DATABASE_URL` and provider credentials remain server-only in the normal
 project configuration. For a one-off local session, `tessera studio <database-url>`
@@ -65,7 +72,12 @@ shell history and process-list caveats still apply.
 tessera studio
 tessera studio postgresql://readonly:password@127.0.0.1:5432/warehouse
 tessera studio mysql://readonly:password@127.0.0.1:3306/warehouse
+tessera studio file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... tessera studio libsql://warehouse-org.turso.io
 ```
+
+Studio and its SQLite/Turso connectors run on Node.js 24 or later and Bun 1.3
+or later.
 
 Host applications can start the same Studio through the library API:
 

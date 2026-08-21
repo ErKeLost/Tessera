@@ -1,4 +1,4 @@
-import { Parser } from "node-sql-parser";
+import NodeSqlParser from "node-sql-parser";
 
 export class MySqlQueryPolicyError extends Error {
   readonly code: string;
@@ -18,7 +18,7 @@ export type ReadOnlySqlPolicy = {
   allowedFunctions?: readonly string[];
 };
 
-const parser = new Parser();
+const parser = new NodeSqlParser.Parser();
 
 const SAFE_FUNCTIONS = new Set([
   "abs",

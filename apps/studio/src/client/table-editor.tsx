@@ -69,7 +69,7 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import "./table-editor.css";
 import { cx } from "./utils";
 
-type DatabaseDialect = "postgres" | "mysql";
+type DatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
 
 type Connection = {
   connected: boolean;

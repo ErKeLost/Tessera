@@ -1,0 +1,60 @@
+---
+title: 配置
+description: 让数据库和模型凭据只留在服务端，并配置 Studio 限制与策略。
+---
+
+在项目目录创建 `tessera.config.ts`，并从服务端环境读取密钥：
+
+```bash
+DATABASE_URL=postgresql://readonly:password@127.0.0.1:5432/warehouse
+OPENROUTER_API_KEY=your-server-only-key
+```
+
+```ts
+import { defineTesseraConfig } from "@data-elements/studio";
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required.");
+
+export default defineTesseraConfig({
+  database: {
+    url: databaseUrl,
+    maxRows: 500,
+    statementTimeoutMs: 15_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+  },
+});
+```
+
+Tessera 会从 URL 推断数据库类型。只有在配置必须拒绝其他数据库类型 URL 时，
+才显式设置 `database.dialect`。
+
+## 模型设置
+
+填写 Mastra 支持的 `provider/model` ID 和对应的供应商环境变量。OpenAI 兼容
+网关可以设置仅服务端可见的 `baseUrl`、`apiKey` 和 Headers。不要使用会暴露给
+浏览器的环境变量。
+
+## 工作台设置
+
+| 区域 | 职责 |
+| --- | --- |
+| Database | URL、数据库类型、Schema 范围和连接测试 |
+| Model | 供应商、模型、API Key、Base URL 和推理强度 |
+| Limits | 最大行数、语句超时和 Agent 步数限制 |
+| Permissions | 读取、写入、破坏性操作和未知操作策略 |
+
+设置由服务端 Runtime 应用，敏感修改可以由宿主 Authentication 和管理员策略限制。
+
+## 监听参数
+
+```bash
+npx data-elements@latest studio \
+  --config ./config/tessera.config.ts \
+  --host 127.0.0.1 \
+  --port 4310
+```
+
+非 Loopback 监听必须在 Studio 配置中显式启用远程访问、Allowed Origins 和身份认证。

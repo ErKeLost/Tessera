@@ -207,6 +207,7 @@ export function compileBoundAnalysis(input: Readonly<{
   maxJoins: number;
 }>): CompiledQuery {
   validateBoundSpec(input.spec, input.catalog, input.semanticCatalog, input.bindings);
+  if (input.catalog.dialect === "mongodb") return compileBoundMongoAnalysis(input);
   if (input.spec.mode === "records") return compileBoundRecords(input);
   return compileBoundAggregateAnalysis(input);
 }
@@ -341,6 +342,364 @@ function compileBoundRecords(input: Readonly<{
   };
 }
 
+type MongoStage = Record<string, unknown>;
+
+function compileBoundMongoAnalysis(input: Readonly<{
+  catalog: DatabaseCatalog;
+  semanticCatalog: SemanticCatalog;
+  bindings: SemanticBindings;
+  spec: AnalysisSpec;
+  maxRows: number;
+  maxJoins: number;
+}>): CompiledQuery {
+  const context = resolveContext(input);
+  if (input.spec.mode === "records") return compileBoundMongoRecords(context, input.maxRows);
+
+  const spec = input.spec;
+  const stages = mongoJoinStages(context);
+  if (spec.filter) stages.push({ $match: { $expr: mongoPredicate(context, spec.filter) } });
+
+  const dimensions = spec.dimensions.map((dimension) => {
+    const field = resolveField(context, dimension.fieldId);
+    if (field.exposure !== "bounded-values") {
+      throw new AnalysisCompilerError("invalid_analysis_spec", "An aggregate-only field cannot be returned as a dimension.");
+    }
+    const expression = dimension.kind === "field"
+      ? mongoFieldExpression(context, field)
+      : mongoTimeBucket(mongoFieldExpression(context, field), dimension.grain, field);
+    return {
+      outputId: dimension.outputId,
+      expression,
+      label: dimension.kind === "field"
+        ? semanticFieldLabel(context.semantic, dimension.fieldId)
+        : `${semanticFieldLabel(context.semantic, dimension.fieldId)} by ${dimension.grain}`,
+      type: dimension.kind === "time"
+        ? (dimension.grain === "hour" ? "timestamp" as const : "date" as const)
+        : field.type,
+    };
+  });
+  const measures = spec.measures.map((measure, index) => mongoMeasure(context, measure, index));
+  const groupId = dimensions.length === 0
+    ? null
+    : Object.fromEntries(dimensions.map(({ outputId, expression }) => [outputId, expression]));
+  stages.push({
+    $group: {
+      _id: groupId,
+      ...Object.fromEntries(measures.map(({ internalName, accumulator }) => [internalName, accumulator])),
+    },
+  });
+  stages.push({
+    $project: {
+      _id: 0,
+      ...Object.fromEntries(dimensions.map(({ outputId }) => [outputId, `$_id.${outputId}`])),
+      ...Object.fromEntries(measures.map(({ outputId, projection }) => [outputId, projection])),
+    },
+  });
+  if (spec.orderBy.length > 0) {
+    stages.push({
+      $sort: Object.fromEntries(spec.orderBy.map(({ outputId, direction }) => [outputId, direction === "desc" ? -1 : 1])),
+    });
+  }
+  const limit = spec.output === "scalar" ? 1 : Math.min(spec.limit, input.maxRows);
+  if (limit < 1) throw new AnalysisCompilerError("query_limit_exceeded", "The analysis result limit is outside the configured budget.");
+  stages.push({ $limit: limit });
+  return mongoQuery(context, stages, [
+    ...dimensions.map(({ outputId, label, type }) => ({ outputId, label, type })),
+    ...measures.map(({ outputId, label, type }) => ({ outputId, label, type })),
+  ]);
+}
+
+function compileBoundMongoRecords(context: ResolvedContext, maxRows: number): CompiledQuery {
+  if (context.spec.mode !== "records") {
+    throw new AnalysisCompilerError("invalid_analysis_spec", "A record query must use records mode.");
+  }
+  const fields = context.spec.fields.map(({ fieldId, outputId }) => {
+    const field = resolveField(context, fieldId);
+    if (field.exposure !== "bounded-values") {
+      throw new AnalysisCompilerError("invalid_analysis_spec", "A record projection can only return a model-visible field.");
+    }
+    return {
+      outputId,
+      expression: mongoFieldExpression(context, field),
+      label: semanticFieldLabel(context.semantic, fieldId),
+      type: field.type,
+    };
+  });
+  const stages = mongoJoinStages(context);
+  if (context.spec.filter) stages.push({ $match: { $expr: mongoPredicate(context, context.spec.filter) } });
+  if (context.spec.orderBy.length > 0) {
+    stages.push({
+      $sort: Object.fromEntries(context.spec.orderBy.map(({ fieldId, direction }) => {
+        const field = resolveField(context, fieldId);
+        if (field.exposure !== "bounded-values") {
+          throw new AnalysisCompilerError("invalid_analysis_spec", "A record ordering field must be model-visible.");
+        }
+        return [mongoFieldPath(context, field), direction === "desc" ? -1 : 1];
+      })),
+    });
+  }
+  stages.push({
+    $project: {
+      _id: 0,
+      ...Object.fromEntries(fields.map(({ outputId, expression }) => [outputId, expression])),
+    },
+  });
+  const limit = Math.min(context.spec.limit, maxRows);
+  if (limit < 1) throw new AnalysisCompilerError("query_limit_exceeded", "The analysis result limit is outside the configured budget.");
+  stages.push({ $limit: limit });
+  return mongoQuery(context, stages, fields.map(({ outputId, label, type }) => ({ outputId, label, type })));
+}
+
+function compileBoundMongoProbe(input: Readonly<{
+  catalog: DatabaseCatalog;
+  semanticCatalog: SemanticCatalog;
+  bindings: SemanticBindings;
+  spec: AnalysisSpec;
+  probe: TypedProbeRequest;
+}>): CompiledQuery {
+  const context = resolveContext({ ...input, maxJoins: Math.max(1, input.spec.relationshipIds.length) });
+  const stages = mongoJoinStages(context);
+  const requireField = (id: FieldId) => resolveField(context, id);
+  switch (input.probe.kind) {
+    case "time-bounds": {
+      const field = requireField(input.probe.fieldId);
+      const expression = mongoFieldExpression(context, field);
+      stages.push({ $group: {
+        _id: null,
+        out_minimum: { $min: expression },
+        out_maximum: { $max: expression },
+        out_null_count: { $sum: { $cond: [{ $eq: [expression, null] }, 1, 0] } },
+      } });
+      stages.push({ $project: { _id: 0, out_minimum: 1, out_maximum: 1, out_null_count: 1 } });
+      return mongoQuery(context, stages, [
+        { outputId: "out_minimum", label: "Minimum", type: field.type },
+        { outputId: "out_maximum", label: "Maximum", type: field.type },
+        { outputId: "out_null_count", label: "Null count", type: "number" },
+      ]);
+    }
+    case "value-domain": {
+      const field = requireField(input.probe.fieldId);
+      const expression = mongoFieldExpression(context, field);
+      const predicates: unknown[] = [{ $ne: [expression, null] }];
+      if (input.probe.candidates?.length) predicates.unshift({ $in: [expression, input.probe.candidates] });
+      stages.push({ $match: { $expr: predicates.length === 1 ? predicates[0] : { $and: predicates } } });
+      stages.push({ $group: { _id: expression, out_count: { $sum: 1 } } });
+      stages.push({ $project: { _id: 0, out_value: "$_id", out_count: 1 } });
+      stages.push({ $sort: { out_count: -1, out_value: 1 } });
+      stages.push({ $limit: input.probe.maxValues });
+      return mongoQuery(context, stages, [
+        { outputId: "out_value", label: "Value", type: field.type },
+        { outputId: "out_count", label: "Count", type: "number" },
+      ]);
+    }
+    case "field-profile": {
+      const fields = input.probe.fieldIds.map(requireField);
+      const group: Record<string, unknown> = { _id: null };
+      const project: Record<string, unknown> = { _id: 0 };
+      const resultColumns: CompiledResultColumn[] = [];
+      fields.forEach((field, index) => {
+        const expression = mongoFieldExpression(context, field);
+        const base = `out_${index}`;
+        group[`${base}_non_null`] = { $sum: { $cond: [{ $ne: [expression, null] }, 1, 0] } };
+        group[`${base}_null`] = { $sum: { $cond: [{ $eq: [expression, null] }, 1, 0] } };
+        group[`${base}_distinct_values`] = { $addToSet: expression };
+        project[`${base}_non_null`] = 1;
+        project[`${base}_null`] = 1;
+        project[`${base}_distinct`] = { $size: { $setDifference: [`$${base}_distinct_values`, [null]] } };
+        const label = semanticFieldLabel(context.semantic, field.id);
+        resultColumns.push(
+          { outputId: `${base}_non_null`, label: `${label} non-null`, type: "number" },
+          { outputId: `${base}_null`, label: `${label} null`, type: "number" },
+          { outputId: `${base}_distinct`, label: `${label} distinct`, type: "number" },
+        );
+        if (isNumeric(field.type) || isTime(field.type)) {
+          group[`${base}_minimum`] = { $min: expression };
+          group[`${base}_maximum`] = { $max: expression };
+          project[`${base}_minimum`] = 1;
+          project[`${base}_maximum`] = 1;
+          resultColumns.push(
+            { outputId: `${base}_minimum`, label: `${label} minimum`, type: field.type },
+            { outputId: `${base}_maximum`, label: `${label} maximum`, type: field.type },
+          );
+        }
+      });
+      stages.push({ $group: group }, { $project: project });
+      return mongoQuery(context, stages, resultColumns);
+    }
+    case "join-coverage": {
+      const relationship = input.bindings.relationships.get(input.probe.relationshipId);
+      const join = relationship && context.joins.find(({ include }) => (
+        include.id === relationship.fromEntityId || include.id === relationship.toEntityId
+      ));
+      if (!relationship || !join) throw new AnalysisCompilerError("invalid_probe", "The requested relationship is not part of the compiled join graph.");
+      const matched = { $and: join.pairs.flatMap(({ left, right }) => [
+        { $ne: [mongoFieldExpression(context, left), null] },
+        { $ne: [mongoFieldExpression(context, right), null] },
+      ]) };
+      stages.push({ $group: {
+        _id: null,
+        out_matched: { $sum: { $cond: [matched, 1, 0] } },
+        out_unmatched: { $sum: { $cond: [matched, 0, 1] } },
+      } });
+      stages.push({ $project: { _id: 0, out_matched: 1, out_unmatched: 1 } });
+      return mongoQuery(context, stages, [
+        { outputId: "out_matched", label: "Matched", type: "number" },
+        { outputId: "out_unmatched", label: "Unmatched", type: "number" },
+      ]);
+    }
+  }
+}
+
+function mongoJoinStages(context: ResolvedContext): MongoStage[] {
+  const stages: MongoStage[] = [];
+  for (const join of context.joins) {
+    if (join.include.schema !== context.primary.schema) {
+      throw new AnalysisCompilerError("compile_failed", "MongoDB joins must stay within one database.");
+    }
+    const variables = Object.fromEntries(join.pairs.map(({ left }, index) => [
+      `local_${index}`,
+      mongoFieldExpression(context, left),
+    ]));
+    const comparisons = join.pairs.map(({ right }, index) => ({
+      $eq: [`$${right.column}`, `$$local_${index}`],
+    }));
+    stages.push({
+      $lookup: {
+        from: join.include.table,
+        let: variables,
+        pipeline: [{ $match: { $expr: comparisons.length === 1 ? comparisons[0] : { $and: comparisons } } }],
+        as: join.alias,
+      },
+    });
+    stages.push({ $unwind: { path: `$${join.alias}`, preserveNullAndEmptyArrays: true } });
+  }
+  return stages;
+}
+
+function mongoMeasure(context: ResolvedContext, measure: Measure, index: number): Readonly<{
+  outputId: OutputId;
+  internalName: string;
+  accumulator: unknown;
+  projection: unknown;
+  label: string;
+  type: DataTypeFamily;
+}> {
+  const metric = measure.kind === "metric" ? resolveMetric(context, measure.metricId) : undefined;
+  const aggregate = metric?.aggregate ?? (measure.kind === "aggregate" ? measure.aggregate : undefined);
+  if (!aggregate) throw new AnalysisCompilerError("compile_failed", "The MongoDB compiler could not resolve a measure.");
+  const fieldId = metric?.fieldId ?? (measure.kind === "aggregate" ? measure.fieldId : undefined);
+  const field = fieldId === undefined ? undefined : resolveField(context, fieldId);
+  if (aggregate !== "count" && !field) throw new AnalysisCompilerError("invalid_analysis_spec", "This aggregate requires a field.");
+  if (["sum", "avg"].includes(aggregate) && field && !isNumeric(field.type)) {
+    throw new AnalysisCompilerError("invalid_analysis_spec", "sum and avg require a numeric field.");
+  }
+  const countField = metric?.aggregate === "count" && metric.entityId !== context.primary.id
+    ? context.bindings.fields.get(fieldIdForColumn(context.bindings, metric.entityId, countMetricPrimaryKeyColumn(context.bindings, metric.entityId)))
+    : field;
+  const expression = countField ? mongoFieldExpression(context, countField) : undefined;
+  const internalName = `__measure_${index}`;
+  let accumulator: unknown;
+  let projection: unknown = `$${internalName}`;
+  if (aggregate === "count") accumulator = expression === undefined ? { $sum: 1 } : { $sum: { $cond: [{ $ne: [expression, null] }, 1, 0] } };
+  else if (aggregate === "count_distinct") {
+    accumulator = { $addToSet: expression };
+    projection = { $size: { $setDifference: [`$${internalName}`, [null]] } };
+  } else accumulator = { [`$${aggregate}`]: expression };
+  return {
+    outputId: measure.outputId,
+    internalName,
+    accumulator,
+    projection,
+    label: measure.kind === "metric" ? metric!.label : aggregateLabel(aggregate, field && semanticFieldLabel(context.semantic, field.id)),
+    type: aggregateResultType(aggregate, field?.type),
+  };
+}
+
+function fieldIdForColumn(bindings: SemanticBindings, entityId: EntityId, column: string): FieldId {
+  const field = [...bindings.fields.values()].find((candidate) => candidate.entityId === entityId && candidate.column === column);
+  if (!field) throw new AnalysisCompilerError("compile_failed", "The MongoDB compiler could not resolve a count field.");
+  return field.id;
+}
+
+function mongoPredicate(context: ResolvedContext, predicate: AnalysisPredicate): unknown {
+  switch (predicate.kind) {
+    case "all": return { $and: predicate.items.map((item) => mongoPredicate(context, item)) };
+    case "any": return { $or: predicate.items.map((item) => mongoPredicate(context, item)) };
+    case "not": return { $not: [mongoPredicate(context, predicate.item)] };
+    case "null": {
+      const expression = mongoFieldExpression(context, resolveField(context, predicate.fieldId));
+      return { [predicate.isNull ? "$eq" : "$ne"]: [expression, null] };
+    }
+    case "comparison": {
+      const field = resolveField(context, predicate.fieldId);
+      validatePredicateValue(predicate, field);
+      const expression = mongoFieldExpression(context, field);
+      const values = asValues(predicate.value).map((value) => mongoPredicateValue(field, value));
+      if (predicate.op === "contains") {
+        return { $regexMatch: {
+          input: { $convert: { input: expression, to: "string", onError: "", onNull: "" } },
+          regex: escapeRegex(String(predicate.value)),
+          options: "i",
+        } };
+      }
+      if (predicate.op === "in") return { $in: [expression, values] };
+      if (predicate.op === "between") return { $and: [{ $gte: [expression, values[0]] }, { $lte: [expression, values[1]] }] };
+      const operator = { eq: "$eq", neq: "$ne", gt: "$gt", gte: "$gte", lt: "$lt", lte: "$lte" }[predicate.op];
+      if (!operator) throw new AnalysisCompilerError("invalid_analysis_spec", "The comparison operator is not supported.");
+      return { [operator]: [expression, values[0]] };
+    }
+  }
+}
+
+function mongoPredicateValue(field: PhysicalField, value: string | number | boolean): unknown {
+  if ((field.type === "date" || field.type === "timestamp") && typeof value === "string") {
+    return { $convert: { input: value, to: "date", onError: null, onNull: null } };
+  }
+  return value;
+}
+
+function mongoTimeBucket(
+  expression: string,
+  grain: Extract<Dimension, { kind: "time" }>["grain"],
+  field: PhysicalField,
+): unknown {
+  if (!isTime(field.type)) throw new AnalysisCompilerError("invalid_analysis_spec", "A time dimension requires a date or timestamp field.");
+  return {
+    $dateTrunc: {
+      date: expression,
+      unit: grain,
+      ...(grain === "week" ? { startOfWeek: "monday" } : {}),
+    },
+  };
+}
+
+function mongoFieldExpression(context: ResolvedContext, field: PhysicalField): string {
+  return `$${mongoFieldPath(context, field)}`;
+}
+
+function mongoFieldPath(context: ResolvedContext, field: PhysicalField): string {
+  return field.entityId === context.primary.id ? field.column : `${aliasFor(context, field.entityId)}.${field.column}`;
+}
+
+function mongoQuery(
+  context: ResolvedContext,
+  pipeline: readonly MongoStage[],
+  resultColumns: readonly CompiledResultColumn[],
+): CompiledQuery {
+  return {
+    kind: "mongodb",
+    database: context.primary.schema,
+    collection: context.primary.table,
+    pipeline: pipeline.map((stage) => structuredClone(stage)),
+    sourceRelationIds: [context.primary.id, ...context.joins.map(({ include }) => include.id)],
+    resultColumns: [...resultColumns],
+  };
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 export function compileBoundProbe(input: Readonly<{
   catalog: DatabaseCatalog;
   semanticCatalog: SemanticCatalog;
@@ -350,6 +709,7 @@ export function compileBoundProbe(input: Readonly<{
 }>): CompiledQuery {
   validateBoundSpec(input.spec, input.catalog, input.semanticCatalog, input.bindings);
   validateProbe(input.spec, input.probe, input.semanticCatalog, input.bindings);
+  if (input.catalog.dialect === "mongodb") return compileBoundMongoProbe(input);
   const context = resolveContext({ ...input, maxJoins: Math.max(1, input.spec.relationshipIds.length) });
   const quote = (value: string) => quoteIdentifier(context.catalog.dialect, value);
   const params = parameterBuilder(context.catalog.dialect);
@@ -453,7 +813,9 @@ export function compileBoundProbe(input: Readonly<{
 
 export function queryFingerprint(compiled: CompiledQuery): string {
   return `query_${createHash("sha256")
-    .update(stableJson({ sql: compiled.sql, parameters: compiled.parameters, sources: compiled.sourceRelationIds }))
+    .update(stableJson("sql" in compiled
+      ? { sql: compiled.sql, parameters: compiled.parameters, sources: compiled.sourceRelationIds }
+      : { database: compiled.database, collection: compiled.collection, pipeline: compiled.pipeline, sources: compiled.sourceRelationIds }))
     .digest("hex")
     .slice(0, 24)}`;
 }
@@ -1191,6 +1553,16 @@ function aggregateExpression(aggregate: Aggregate, field: string | undefined): s
 
 function timeBucket(dialect: DatabaseDialect, expression: string, grain: Extract<Dimension, { kind: "time" }> ["grain"]): string {
   if (dialect === "postgres") return `DATE_TRUNC('${grain}', ${expression})`;
+  if (dialect === "sqlite" || dialect === "turso") {
+    switch (grain) {
+      case "hour": return `strftime('%Y-%m-%d %H:00:00', ${expression})`;
+      case "day": return `date(${expression})`;
+      case "week": return `date(${expression}, '-' || ((cast(strftime('%w', ${expression}) as integer) + 6) % 7) || ' days')`;
+      case "month": return `strftime('%Y-%m-01', ${expression})`;
+      case "quarter": return `strftime('%Y', ${expression}) || '-Q' || ((cast(strftime('%m', ${expression}) as integer) - 1) / 3 + 1)`;
+      case "year": return `strftime('%Y', ${expression})`;
+    }
+  }
   switch (grain) {
     case "hour": return `DATE_FORMAT(${expression}, '%Y-%m-%d %H:00:00')`;
     case "day": return `DATE(${expression})`;
@@ -1202,7 +1574,9 @@ function timeBucket(dialect: DatabaseDialect, expression: string, grain: Extract
 }
 
 function quoteIdentifier(dialect: DatabaseDialect, value: string): string {
-  return dialect === "postgres" ? `"${value.replaceAll('"', '""')}"` : `\`${value.replaceAll("`", "``")}\``;
+  return dialect === "postgres" || dialect === "sqlite" || dialect === "turso"
+    ? `"${value.replaceAll('"', '""')}"`
+    : `\`${value.replaceAll("`", "``")}\``;
 }
 
 function semanticFieldLabel(catalog: SemanticCatalog, id: FieldId): string {

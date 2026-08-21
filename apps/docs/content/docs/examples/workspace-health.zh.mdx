@@ -1,0 +1,21 @@
+---
+title: 工作区健康度
+description: 使用关联的 Metric Artifact 呈现聚焦的运行状态快照。
+---
+
+Metric Artifact 适合展示一组相关 KPI。每个指标都是类型化对象，并可以通过
+宿主 Action Boundary 发出后续分析意图。
+
+<ComponentPreview
+  filename="examples/workspace-health.tsx"
+  code={`import { MetricArtifact } from "@/components/data-elements/metric-artifact"
+
+export function WorkspaceHealth({ artifact }) {
+  return <MetricArtifact artifact={artifact} />
+}`}
+>
+  <MetricsDemo />
+</ComponentPreview>
+
+完整 Schema 和交互契约请查看
+[Metric Artifact 组件](/docs/components/metric-artifact)。

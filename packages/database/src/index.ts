@@ -114,7 +114,7 @@ export {
   type AbortResilientAsyncCache,
 } from "./abort-resilient-cache";
 
-export const databaseDialectSchema = z.enum(["postgres", "mysql"]);
+export const databaseDialectSchema = z.enum(["postgres", "mysql", "sqlite", "turso", "mongodb"]);
 
 export const databaseColumnSchema = z.object({
   name: z.string().min(1).max(256),
@@ -136,7 +136,7 @@ export const databaseForeignKeySchema = z.object({
 export const databaseTableSchema = z.object({
   schema: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
-  kind: z.enum(["table", "view", "materialized-view", "foreign-table", "partitioned-table"]),
+  kind: z.enum(["table", "view", "materialized-view", "foreign-table", "partitioned-table", "collection"]),
   comment: z.string().max(2_000).optional(),
   estimatedRows: z.number().nonnegative().optional(),
   columns: z.array(databaseColumnSchema).max(2_000),
@@ -158,6 +158,31 @@ export const databaseCatalogSchema = z.object({
   schemas: z.array(databaseSchemaSchema).max(1_000),
 }).strict();
 
+/** Runtime database capabilities. Components are advisory planning metadata,
+ * never an authorization grant and never a request to install or modify a
+ * database feature. */
+export const databaseCapabilityComponentSchema = z.object({
+  id: z.string().min(1).max(256),
+  kind: z.enum(["engine", "feature", "extension", "module"]),
+  status: z.enum(["supported", "installed", "available", "unsupported", "unknown"]),
+  version: z.string().min(1).max(256).optional(),
+  defaultVersion: z.string().min(1).max(256).optional(),
+  schema: z.string().min(1).max(256).optional(),
+}).strict();
+
+export const databaseCapabilitiesSchema = z.object({
+  kind: z.literal("database-capabilities"),
+  connectorId: z.string().min(1).max(256),
+  dialect: databaseDialectSchema,
+  databaseName: z.string().min(1).max(256).optional(),
+  availability: z.enum(["available", "unavailable", "not-applicable"]),
+  serverVersion: z.string().min(1).max(256).optional(),
+  serverVersionNumber: z.number().int().nonnegative().optional(),
+  components: z.array(databaseCapabilityComponentSchema).max(256),
+  truncated: z.boolean(),
+  warnings: z.array(z.string().min(1).max(1_000)).max(16),
+}).strict();
+
 export const connectionAssessmentSchema = z.object({
   connectorId: z.string().min(1).max(256),
   dialect: databaseDialectSchema,
@@ -171,7 +196,7 @@ export const connectionAssessmentSchema = z.object({
   warnings: z.array(z.string().min(1).max(1_000)).max(32).default([]),
 }).strict();
 
-export const databaseQueryRequestSchema = z.object({
+export const databaseSqlQueryRequestSchema = z.object({
   sql: z.string().min(1).max(100_000),
   /** Server-only values bound by the connector's database driver. */
   parameters: z.array(z.union([
@@ -183,6 +208,24 @@ export const databaseQueryRequestSchema = z.object({
   maxRows: z.number().int().positive().max(10_000).optional(),
   timeoutMs: z.number().int().positive().max(120_000).optional(),
 }).strict();
+
+/** Server-compiled MongoDB aggregation. This shape is never model-facing. */
+export const databaseMongoQueryRequestSchema = z.object({
+  kind: z.literal("mongodb"),
+  database: z.string().min(1).max(256),
+  collection: z.string().min(1).max(256),
+  pipeline: z.array(z.record(z.string(), z.unknown())).max(128),
+  columns: z.array(z.string().min(1).max(256)).max(2_000).optional(),
+  purpose: z.string().min(1).max(1_000),
+  maxRows: z.number().int().positive().max(10_000).optional(),
+  timeoutMs: z.number().int().positive().max(120_000).optional(),
+}).strict();
+
+/** SQL remains untagged for compatibility with the existing connector API. */
+export const databaseQueryRequestSchema = z.union([
+  databaseSqlQueryRequestSchema,
+  databaseMongoQueryRequestSchema,
+]);
 
 export const databaseQueryResultSchema = z.object({
   queryId: z.string().min(1).max(256),
@@ -202,8 +245,14 @@ export type DatabaseForeignKey = z.infer<typeof databaseForeignKeySchema>;
 export type DatabaseTable = z.infer<typeof databaseTableSchema>;
 export type DatabaseSchema = z.infer<typeof databaseSchemaSchema>;
 export type DatabaseCatalog = z.infer<typeof databaseCatalogSchema>;
+export type DatabaseCapabilityComponent = z.infer<typeof databaseCapabilityComponentSchema>;
+export type DatabaseCapabilities = z.infer<typeof databaseCapabilitiesSchema>;
 export type ConnectionAssessment = z.infer<typeof connectionAssessmentSchema>;
-export type DatabaseQueryRequest = z.infer<typeof databaseQueryRequestSchema>;
+export type DatabaseSqlQueryRequest = z.infer<typeof databaseSqlQueryRequestSchema>;
+export type DatabaseMongoQueryRequest = z.infer<typeof databaseMongoQueryRequestSchema>;
+export type DatabaseQueryRequest =
+  | (DatabaseSqlQueryRequest & Readonly<{ kind?: never; database?: never; collection?: never; pipeline?: never; columns?: never }>)
+  | (DatabaseMongoQueryRequest & Readonly<{ sql?: never; parameters?: never }>);
 export type DatabaseQueryResult = z.infer<typeof databaseQueryResultSchema>;
 
 export type CatalogIntrospectionOptions = {
@@ -218,6 +267,9 @@ export interface DatabaseConnector {
   readonly dialect: DatabaseDialect;
   assess(signal?: AbortSignal): Promise<ConnectionAssessment>;
   introspect(options?: CatalogIntrospectionOptions, signal?: AbortSignal): Promise<DatabaseCatalog>;
+  /** Optional read-only runtime capability probe. Older/custom connectors may
+   * omit it; callers must treat the result as unavailable in that case. */
+  inspectCapabilities?(signal?: AbortSignal): Promise<DatabaseCapabilities>;
   query(request: DatabaseQueryRequest, signal?: AbortSignal): Promise<DatabaseQueryResult>;
   close(): Promise<void>;
 }

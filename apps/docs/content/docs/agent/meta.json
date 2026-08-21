@@ -1,0 +1,6 @@
+{
+  "title": "Agent",
+  "description": "Build and operate the governed Tessera data agent.",
+  "root": true,
+  "pages": ["index", "getting-started", "configuration", "databases", "run-workflow", "tool-contract", "architecture"]
+}

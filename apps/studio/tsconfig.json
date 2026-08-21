@@ -18,8 +18,11 @@
       "@data-elements/observability": ["../../packages/observability/src/index.ts"],
       "@data-elements/devtools": ["../../packages/devtools/src/index.ts"],
       "@data-elements/database": ["../../packages/database/src/index.ts"],
+      "@data-elements/mongodb": ["../../packages/mongodb/src/index.ts"],
       "@data-elements/mysql": ["../../packages/mysql/src/index.ts"],
       "@data-elements/postgres": ["../../packages/postgres/src/index.ts"],
+      "@data-elements/sqlite": ["../../packages/sqlite/src/index.ts"],
+      "@data-elements/turso": ["../../packages/turso/src/index.ts"],
       "@data-elements/data-agent": ["../../packages/data-agent/src/index.ts"],
       "@data-elements/evals": ["../../packages/evals/src/index.ts"],
       "@data-elements/release": ["../../packages/release/src/index.ts"]

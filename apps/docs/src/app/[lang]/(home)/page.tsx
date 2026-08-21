@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { ComponentCanvas } from "@/app/(home)/component-canvas";
-import { HeroChat } from "@/app/(home)/hero-chat";
+import { HeroBackdrop, type PanelImageKey } from "@/app/(home)/hero-backdrop";
 import { InstallCopy } from "@/app/(home)/install-copy";
 import styles from "@/app/(home)/home.module.css";
 import { localizedPath } from "@/lib/i18n";
@@ -28,10 +28,18 @@ const packageNames = [
   "@data-elements/mastra",
 ] as const;
 
+function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
+  return (
+    <div className={styles.sectionBackdrop}>
+      <HeroBackdrop imageKey={imageKey} variant="panel" />
+    </div>
+  );
+}
+
 const copy = {
   en: {
-    eyebrow: "Open-source UI for governed data work",
-    lead: "Composable, inspectable interfaces for AI systems that query, explain, and act on business data.",
+    eyebrow: "Open-source platform for building agents",
+    lead: "A local-first agent platform for data analysis, management, and operations, with multi-database support and extensible tools.",
     getStarted: "Get started",
     browse: "Browse components",
     interactivePreview: "Interactive workspace",
@@ -71,8 +79,8 @@ const copy = {
     packages: ["Artifact protocol", "Catalog and trusted runtime", "Renderers and interactions", "AI SDK adapter", "Mastra adapter"],
   },
   zh: {
-    eyebrow: "面向受治理数据工作的开源 UI",
-    lead: "为能查询、解释和处理业务数据的 AI 系统提供可组合、可检查的界面。",
+    eyebrow: "面向 Agent 构建的开源平台",
+    lead: "完全运行在本地的数据分析、管理与操作 Agent，支持多种数据库和可扩展插件。",
     getStarted: "开始使用",
     browse: "浏览组件",
     interactivePreview: "交互式工作台",
@@ -123,55 +131,69 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
       <main id="main-content">
         <section className={styles.heroShell}>
           <div className={styles.heroCanvas}>
-            <div className={styles.heroCopy}>
-              <p className={styles.eyebrow}>
-                <BracesIcon aria-hidden="true" />
-                {text.eyebrow}
-              </p>
-              <h1>Data Elements</h1>
-              <p className={styles.heroLead}>{text.lead}</p>
-              <div className={styles.heroActions}>
-                <Link className={styles.primaryButton} href={path("/docs")}>
-                  {text.getStarted}
-                  <ArrowRightIcon aria-hidden="true" />
-                </Link>
-                <Link className={styles.secondaryButton} href={path("/docs/components")}>
-                  {text.browse}
-                </Link>
+            <div className={styles.heroBackdrop}>
+              <HeroBackdrop />
+            </div>
+            <div className={styles.heroInner}>
+              <div className={styles.heroCopy}>
+                <p className={styles.eyebrow}>
+                  <BracesIcon aria-hidden="true" />
+                  {text.eyebrow}
+                </p>
+                <h1>Data Elements</h1>
+                <p className={styles.heroLead}>{text.lead}</p>
+                <div className={styles.heroActions}>
+                  <Link className={styles.primaryButton} href={path("/docs")}>
+                    {text.getStarted}
+                    <ArrowRightIcon aria-hidden="true" />
+                  </Link>
+                  <Link className={styles.secondaryButton} href={path("/docs/components")}>
+                    {text.browse}
+                  </Link>
+                </div>
               </div>
-              <div className={styles.heroMeta}>
-                {text.heroMeta.map((item) => <span key={item}>{item}</span>)}
+              <div className={styles.heroProductFrame}>
+                <div className={styles.heroProductChrome} aria-hidden="true">
+                  <div className={styles.heroProductLights}>
+                    <span />
+                    <span />
+                    <span />
+                  </div>
+                  <span className={styles.heroProductTitle}>Data Elements Studio</span>
+                  <div className={styles.heroProductControls}>
+                    <span />
+                    <span />
+                  </div>
+                </div>
+                <div className={styles.heroProductPreview}>
+                  <img
+                    alt="Data Elements Studio in dark theme"
+                    className={styles.heroProductDark}
+                    height={916}
+                    src="/images/data-elements-studio-dark.png"
+                    width={1718}
+                  />
+                  <img
+                    alt="Data Elements Studio in light theme"
+                    className={styles.heroProductLight}
+                    height={918}
+                    src="/images/data-elements-studio-light.png"
+                    width={1713}
+                  />
+                </div>
               </div>
             </div>
           </div>
         </section>
 
-        <section className={styles.workspaceSection}>
-          <header className={styles.workspaceHeading}>
-            <div>
-              <p>{text.workspace}</p>
-              <h2>{text.workspaceTitle}</h2>
-            </div>
-            <span>{text.workspaceDetail}</span>
-          </header>
-          <div className={styles.heroChatStage}>
-            <div className={styles.previewBar}>
-              <div>
-                <span className={styles.previewStatus} />
-                artifact-agent.tsx
-              </div>
-              <span>{text.interactivePreview}</span>
-            </div>
-            <HeroChat />
-          </div>
-        </section>
-
-        <section className={styles.manifesto}>
+        <section className={`${styles.manifesto} ${styles.canvasPanel}`}>
+          <CanvasPanelBackdrop imageKey="indigo" />
           <p>{text.manifesto}</p>
           <span>{text.manifestoDetail}</span>
         </section>
 
-        <section className={styles.installSection} id="install">
+        <section className={`${styles.installSection} ${styles.canvasPanel}`} id="install">
+          <CanvasPanelBackdrop imageKey="cyan" />
           <header className={styles.sectionHeading}>
             <p>{text.install}</p>
             <h2>{text.installTitle}</h2>
@@ -207,7 +229,8 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
           </div>
         </section>
 
-        <section className={styles.catalogSection} id="components">
+        <section className={`${styles.catalogSection} ${styles.canvasPanel}`} id="components">
+          <CanvasPanelBackdrop imageKey="blue" />
           <header className={styles.centeredHeading}>
             <p>{text.catalog}</p>
             <h2>{text.catalogTitle}</h2>
@@ -216,7 +239,8 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
           <ComponentCanvas />
         </section>
 
-        <section className={styles.protocolSection}>
+        <section className={`${styles.protocolSection} ${styles.canvasPanel}`}>
+          <CanvasPanelBackdrop imageKey="plum" />
           <div className={styles.protocolStatement}>
             <ShieldCheckIcon aria-hidden="true" />
             <p>{text.trustBoundary}</p>
@@ -245,7 +269,8 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
           </ol>
         </section>
 
-        <section className={styles.packageSection}>
+        <section className={`${styles.packageSection} ${styles.canvasPanel}`}>
+          <CanvasPanelBackdrop imageKey="sage" />
           <header className={styles.sectionHeading}>
             <p>{text.runtime}</p>
             <h2>{text.runtimeTitle}</h2>
@@ -261,7 +286,8 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
           </div>
         </section>
 
-        <section className={styles.openSourceSection}>
+        <section className={`${styles.openSourceSection} ${styles.canvasPanel}`}>
+          <CanvasPanelBackdrop imageKey="gold" />
           <div className={styles.openSourceMark}>
             <Icon aria-hidden="true" icon={githubIcon} />
           </div>
@@ -279,7 +305,7 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
               {text.github}
               <ArrowRightIcon aria-hidden="true" />
             </a>
-            <Link className={styles.secondaryButton} href={path("/docs/agent-architecture")}>
+            <Link className={styles.secondaryButton} href={path("/docs/agent/architecture")}>
               {text.architecture}
             </Link>
           </div>
