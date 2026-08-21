@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircleIcon,
   CheckIcon,
@@ -540,14 +540,12 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   const isCancelled =
     status?.type === "incomplete" && status.reason === "cancelled";
   const isRequiresAction = status?.type === "requires-action";
+  const shouldAutoOpen = status?.type === "running" || isRequiresAction;
+  const [open, setOpen] = useState(shouldAutoOpen);
 
-  const [open, setOpen] = useState(isRequiresAction);
-  const [prevRequiresAction, setPrevRequiresAction] =
-    useState(isRequiresAction);
-  if (isRequiresAction !== prevRequiresAction) {
-    setPrevRequiresAction(isRequiresAction);
-    if (isRequiresAction) setOpen(true);
-  }
+  useEffect(() => {
+    setOpen(shouldAutoOpen);
+  }, [shouldAutoOpen]);
 
   return (
     <ToolFallbackRoot open={open} onOpenChange={setOpen}>

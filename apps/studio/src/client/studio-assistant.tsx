@@ -231,9 +231,6 @@ function StudioAssistantMessage() {
                 case "reasoning":
                   return <Reasoning {...part} />;
                 case "tool-call":
-                  // Studio's server allowlist has two presentation-only tools.
-                  // Each one is registered in the Assistant UI toolkit and
-                  // renders through the official Tool Call Element.
                   return part.toolUI ?? null;
                 case "data":
                   return part.dataRendererUI ?? <></>;

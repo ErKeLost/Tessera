@@ -63,6 +63,7 @@ import type {
   TesseraUIMessageChunk,
 } from "./protocol";
 import {
+  LOCAL_STUDIO_IDENTITY,
   createTesseraSessionMemory,
   tesseraSessionResourceId,
   tesseraThreadTitleFromMessage,
@@ -506,23 +507,27 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       context.header("Access-Control-Allow-Headers", "Content-Type, X-Request-Id");
       context.header("Vary", "Origin");
     }
-    if (context.req.method !== "OPTIONS" && (dependencies.requireAuthentication || dependencies.authenticate)) {
-      let identity: StudioIdentity | undefined;
-      try {
-        const authenticated = dependencies.authenticate === undefined
-          ? undefined
-          : await dependencies.authenticate({
-            request: context.req.raw,
-            requestId: context.get("requestId"),
-          });
-        identity = authenticated === undefined ? undefined : studioIdentitySchema.parse(authenticated);
-      } catch {
-        throw new StudioHttpError(401, "authentication_required", "Tessera Studio requires an authenticated session.");
+    if (context.req.method !== "OPTIONS") {
+      if (dependencies.requireAuthentication || dependencies.authenticate) {
+        let identity: StudioIdentity | undefined;
+        try {
+          const authenticated = dependencies.authenticate === undefined
+            ? undefined
+            : await dependencies.authenticate({
+              request: context.req.raw,
+              requestId: context.get("requestId"),
+            });
+          identity = authenticated === undefined ? undefined : studioIdentitySchema.parse(authenticated);
+        } catch {
+          throw new StudioHttpError(401, "authentication_required", "Tessera Studio requires an authenticated session.");
+        }
+        if (dependencies.requireAuthentication && identity === undefined) {
+          throw new StudioHttpError(401, "authentication_required", "Tessera Studio requires an authenticated session.");
+        }
+        context.set("identity", identity);
+      } else {
+        context.set("identity", LOCAL_STUDIO_IDENTITY);
       }
-      if (dependencies.requireAuthentication && identity === undefined) {
-        throw new StudioHttpError(401, "authentication_required", "Tessera Studio requires an authenticated session.");
-      }
-      context.set("identity", identity);
     }
     await next();
   });

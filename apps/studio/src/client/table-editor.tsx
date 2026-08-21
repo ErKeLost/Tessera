@@ -514,7 +514,6 @@ export function TableEditor({
     : undefined;
   const writeServiceAvailable = writeCapability !== undefined;
   const connectionCanWrite = connection?.connected === true
-    && connection.readOnlyTransactions === false
     && connection.credentialCanWrite !== false;
   const tableCanMutate = selectedTable !== undefined && isMutableTable(selectedTable);
   const tableHasPrimaryKey = Boolean(selectedTable?.primaryKey?.length);
@@ -1732,7 +1731,6 @@ function TablePermissionsPopover({
   writeStateLabel: string;
 }) {
   const connectionCanWrite = connection?.connected === true
-    && connection.readOnlyTransactions === false
     && connection.credentialCanWrite !== false;
   const canInsert = writeServiceAvailable && connectionCanWrite && tableCanMutate;
   const canUpdate = canInsert && tableHasPrimaryKey;

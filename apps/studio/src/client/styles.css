@@ -389,8 +389,30 @@ button:disabled { cursor: not-allowed; }
 .tessera-message-root:hover .tessera-message-toolbar,
 .tessera-message-root:focus-within .tessera-message-toolbar { opacity: 1; }
 .tessera-user-toolbar { margin-left: auto; }
-.tessera-message-toolbar [data-slot="button"] { width: 24px; height: 24px; border-radius: 4px; color: var(--muted-foreground); }
-.tessera-message-toolbar [data-slot="button"]:hover { background: var(--accent); color: var(--foreground); }
+.tessera-message-toolbar button { width: 24px; height: 24px; border-radius: 4px; color: color-mix(in oklab, var(--foreground) 45%, transparent); }
+.tessera-message-toolbar button:hover { background: var(--accent); color: var(--foreground); }
+.tessera-assistant-message-content .lobehub-markdown div:has(> .table-copy-button):has(> table) {
+  box-sizing: border-box;
+  padding-block-start: 28px;
+}
+.tessera-assistant-message-content .lobehub-markdown .table-copy-button {
+  inset-block-start: 2px !important;
+  inset-inline-end: 0 !important;
+  transform: none !important;
+  opacity: 1 !important;
+  color: color-mix(in oklab, var(--foreground) 45%, transparent) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+.tessera-assistant-message-content .lobehub-markdown .table-copy-button:hover,
+.tessera-assistant-message-content .lobehub-markdown .table-copy-button:focus-visible,
+.tessera-assistant-message-content .lobehub-markdown .table-copy-button:active {
+  color: var(--foreground) !important;
+  background: var(--accent) !important;
+  background-color: var(--accent) !important;
+  box-shadow: none !important;
+}
 .tessera-message-error { margin-top: 6px; color: var(--destructive); font-size: 11px; }
 .tessera-chain-of-thought,
 .tessera-tool-group { display: grid; gap: 2px; }

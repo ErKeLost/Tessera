@@ -27,6 +27,12 @@ const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
 const MAX_REASONING_TEXT_LENGTH = 30_000;
 const HISTORY_TOOL_FAILURE = "This governed tool call did not complete.";
 
+/** Stable principal for a loopback Studio without a host identity provider. */
+export const LOCAL_STUDIO_IDENTITY = Object.freeze({
+  subject: "local-user",
+  tenantId: "local-studio",
+});
+
 export type TesseraSessionThread = Readonly<{
   id: string;
   title: string;
@@ -209,7 +215,9 @@ export function createTesseraSessionMemory(
 
 /** A deterministic resource owner. It is authorization only, never recall scope. */
 export function tesseraSessionResourceId(identity?: Readonly<{ tenantId: string; subject: string }>): string {
-  if (!identity) return "local-studio";
+  if (!identity
+    || (identity.tenantId === LOCAL_STUDIO_IDENTITY.tenantId
+      && identity.subject === LOCAL_STUDIO_IDENTITY.subject)) return "local-studio";
   return `tenant:${identity.tenantId}\u001fsubject:${identity.subject}`;
 }
 

@@ -16,6 +16,21 @@ import { createTesseraStudioRuntimeManager } from "./settings-runtime";
 const IDENTITY = { subject: "alice", tenantId: "tenant-a", roles: ["operator"] } as const;
 
 describe("Tessera Studio database action routes", () => {
+  test("uses the local Studio principal when host authentication is not configured", async () => {
+    const { connector } = createConnector();
+    const service = createTesseraDatabaseActionService({
+      connector,
+      state: new InMemoryDurableStateStore(),
+      policy: createDatabaseScopedPermissionPolicy({ profile: "auto" }),
+    });
+    const app = createStudioApp({ connector, databaseActions: service });
+
+    const capabilities = await app.fetch(request("/api/database-actions/capabilities"));
+
+    expect(capabilities.status).toBe(200);
+    expect(await capabilities.text()).toContain("database.mutate");
+  });
+
   test("reports no capabilities and never exposes actions from a read-only managed runtime", async () => {
     const { connector, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({
