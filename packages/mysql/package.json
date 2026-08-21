@@ -1,6 +1,6 @@
 {
   "name": "@data-elements/mysql",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "MySQL connector, schema introspection, and read-only query policy for Data Elements.",

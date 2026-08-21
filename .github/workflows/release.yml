@@ -94,19 +94,7 @@ jobs:
         run: |
           set -euo pipefail
           pack_dir="$(mktemp -d)"
-          packages=(
-            packages/schema
-            packages/database
-            packages/core
-            packages/runtime
-            packages/data-agent
-            packages/mysql
-            packages/postgres
-            packages/capability-broker
-            packages/compiler
-            apps/studio
-            packages/cli
-          )
+          mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
           for package_path in "${packages[@]}"; do
             archive="$(bun pm pack --cwd "$package_path" --destination "$pack_dir" --ignore-scripts --quiet | tail -n 1)"
             if tar -xOf "$archive" package/package.json | grep -q 'workspace:'; then
@@ -125,19 +113,7 @@ jobs:
             echo "NPM_TOKEN is not available to this workflow." >&2
             exit 1
           fi
-          packages=(
-            packages/schema
-            packages/database
-            packages/core
-            packages/runtime
-            packages/data-agent
-            packages/mysql
-            packages/postgres
-            packages/capability-broker
-            packages/compiler
-            apps/studio
-            packages/cli
-          )
+          mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
           for package_path in "${packages[@]}"; do
             bun publish --cwd "$package_path" --access public --ignore-scripts --no-save
           done
