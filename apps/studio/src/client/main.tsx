@@ -8,6 +8,8 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { StudioApp } from "./studio-app";
 import { StudioThemeProvider } from "./studio-theme";
 
+console.info(`[Tessera Studio] v${__TESSERA_STUDIO_VERSION__}`);
+
 const root = document.getElementById("root");
 if (!root) throw new Error("Tessera Studio root element is missing.");
 

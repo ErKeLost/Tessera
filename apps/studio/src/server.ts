@@ -664,7 +664,10 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
    * this transport never accepts or forwards SQL text.
    */
   app.get("/api/database-actions/capabilities", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-    const service = requireDatabaseActionService(runtime.databaseActions);
+    const service = runtime.databaseActions;
+    if (service === undefined) {
+      return context.json({ grantSetVersion: 0, capabilities: [], messageTemplates: [] });
+    }
     return context.json(await service.capabilities({ actor: databaseActionActor(context) }));
   }));
 

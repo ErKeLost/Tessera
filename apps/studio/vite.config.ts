@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 
@@ -13,10 +14,16 @@ const dataElementsReactSource = fileURLToPath(new URL("../../packages/react/src/
 const dataElementsReactStyles = fileURLToPath(new URL("../../packages/react/src/styles.css", import.meta.url));
 const apiPort = Number.parseInt(process.env.TESSERA_STUDIO_API_PORT ?? "4317", 10);
 const apiTarget = `http://127.0.0.1:${Number.isInteger(apiPort) ? apiPort : 4317}`;
+const studioPackage = JSON.parse(
+  readFileSync(new URL("./package.json", import.meta.url), "utf8"),
+) as { version: string };
 
 export default defineConfig({
   root: clientRoot,
   publicDir: publicDirectory,
+  define: {
+    __TESSERA_STUDIO_VERSION__: JSON.stringify(studioPackage.version),
+  },
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [

@@ -16,7 +16,7 @@ import { createTesseraStudioRuntimeManager } from "./settings-runtime";
 const IDENTITY = { subject: "alice", tenantId: "tenant-a", roles: ["operator"] } as const;
 
 describe("Tessera Studio database action routes", () => {
-  test("never exposes actions from a read-only managed runtime", async () => {
+  test("reports no capabilities and never exposes actions from a read-only managed runtime", async () => {
     const { connector, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({
       connector,
@@ -47,8 +47,8 @@ describe("Tessera Studio database action routes", () => {
 
     try {
       const capabilities = await app.fetch(request("/api/database-actions/capabilities"));
-      expect(capabilities.status).toBe(503);
-      expect(await capabilities.json()).toMatchObject({ error: { code: "database_actions_unavailable" } });
+      expect(capabilities.status).toBe(200);
+      expect(await capabilities.json()).toEqual({ grantSetVersion: 0, capabilities: [], messageTemplates: [] });
 
       const mutation = await app.fetch(jsonRequest("/api/database-actions", {}));
       expect(mutation.status).toBe(503);
@@ -58,7 +58,7 @@ describe("Tessera Studio database action routes", () => {
     }
   });
 
-  test("defaults static runtimes to read-only even when a host injects an action service", async () => {
+  test("defaults static runtimes to empty write capabilities even when a host injects an action service", async () => {
     const { connector, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({
       connector,
@@ -74,8 +74,8 @@ describe("Tessera Studio database action routes", () => {
     try {
       expect(runtime.databaseActions).toBeUndefined();
       const capabilities = await runtime.app.fetch(request("/api/database-actions/capabilities"));
-      expect(capabilities.status).toBe(503);
-      expect(await capabilities.json()).toMatchObject({ error: { code: "database_actions_unavailable" } });
+      expect(capabilities.status).toBe(200);
+      expect(await capabilities.json()).toEqual({ grantSetVersion: 0, capabilities: [], messageTemplates: [] });
       expect(mutations).toHaveLength(0);
     } finally {
       await runtime.close();
