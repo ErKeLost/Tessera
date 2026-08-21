@@ -765,15 +765,36 @@ body { color: var(--tessera-ink); }
 .studio-composer-setting { display: inline-flex; flex: none; height: 32px; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: 8px; background: transparent; color: var(--muted-foreground); font-size: 12px; line-height: 1; white-space: nowrap; transition: background-color 150ms ease, color 150ms ease; }
 .studio-composer-setting:hover { background: var(--background); color: var(--foreground); }
 .studio-composer-setting:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
-.studio-model-picker-root { width: min(12rem, 34vw) !important; min-width: 0; flex: 0 0 min(12rem, 34vw) !important; }
-.studio-model-picker-trigger { max-width: 100%; overflow: hidden; }
+.studio-model-picker-trigger { width: min(12rem, 34vw); min-width: 0; max-width: 100%; flex: 0 0 min(12rem, 34vw); justify-content: space-between; overflow: hidden; }
+.studio-model-picker-field-trigger {
+  display: flex;
+  width: 100%;
+  height: 36px;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--input);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--foreground);
+  box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground) 5%, transparent);
+  font-size: 14px;
+  outline: none;
+}
+.studio-model-picker-field-trigger:hover { background: color-mix(in oklab, var(--input) 30%, transparent); }
+.studio-model-picker-field-trigger:focus-visible { border-color: var(--ring); box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 22%, transparent); }
+.studio-model-picker-field-trigger:disabled,
+.studio-model-picker-trigger:disabled { cursor: not-allowed; opacity: .5; }
 .studio-model-picker-current { display: flex; min-width: 0; align-items: center; gap: 5px; }
 .studio-model-picker-current > svg { flex: none; }
 .studio-model-picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-picker-chevron { flex: none; opacity: .5; transition: transform 160ms ease; }
+.studio-model-picker-field-trigger[data-state="open"] .studio-model-picker-chevron,
+.studio-model-picker-trigger[data-state="open"] .studio-model-picker-chevron { transform: rotate(180deg); }
 .studio-model-picker-popover {
-  right: auto !important;
-  width: min(310px, calc(100dvw - 28px)) !important;
-  max-height: min(380px, calc(100dvh - 28px));
+  width: min(360px, calc(100dvw - 28px)) !important;
   padding: 0 !important;
   overflow: hidden;
   border-color: var(--border) !important;
@@ -781,26 +802,26 @@ body { color: var(--tessera-ink); }
   background: var(--popover) !important;
   box-shadow: 0 14px 32px color-mix(in oklab, var(--foreground) 14%, transparent) !important;
 }
-.studio-model-picker-popover > div { padding: 4px; }
-.studio-model-picker-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 31px;
-  padding: 0 8px;
-  color: var(--muted-foreground);
-  font-size: 11px;
-  font-weight: 600;
+.studio-model-picker-popover [data-slot="command-input-wrapper"] {
+  height: 42px;
+  border-bottom: 0;
+  background: color-mix(in oklab, var(--popover) 72%, var(--muted));
 }
-.studio-model-picker-list { max-height: min(292px, calc(100dvh - 104px)); overflow-y: auto; }
+.studio-model-picker-popover [data-slot="command-input"] { height: 40px; }
+.studio-model-picker-list {
+  max-height: min(320px, calc(100dvh - 112px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
 .studio-model-picker-option {
   display: flex;
   width: 100%;
-  min-height: 42px;
+  min-height: 36px;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
-  padding: 7px 8px;
+  gap: 8px;
+  padding: 6px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -818,18 +839,15 @@ body { color: var(--tessera-ink); }
   place-items: center;
 }
 .studio-model-picker-option-icon > svg { display: block; }
-.studio-model-picker-option-copy { display: grid; min-width: 0; gap: 2px; }
-.studio-model-picker-option-copy strong { overflow: hidden; font-size: 13px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
-.studio-model-picker-option-copy small { overflow: hidden; color: var(--muted-foreground); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.studio-model-picker-option-name { min-width: 0; overflow: hidden; font-size: 13px; font-weight: 520; text-overflow: ellipsis; white-space: nowrap; }
 .studio-model-picker-option > svg { flex: none; margin-left: auto; color: var(--muted-foreground); }
-.studio-model-picker-empty,
 .studio-model-picker-error { margin: 0; padding: 10px 8px; color: var(--muted-foreground); font-size: 12px; line-height: 1.4; }
-.studio-model-picker-error { color: var(--destructive); }
+.studio-model-picker-error { border-top: 1px solid var(--border); color: var(--destructive); }
 .tessera-user-message-content { border: 0; border-radius: 14px !important; background: var(--secondary) !important; }
 .tessera-conversation-scroll { bottom: 14px !important; }
 
 @media (max-width: 640px) {
-  .studio-model-picker-root { width: min(10rem, 42vw) !important; flex-basis: min(10rem, 42vw) !important; }
+  .studio-model-picker-trigger { width: min(10rem, 42vw); flex-basis: min(10rem, 42vw); }
   .studio-minimal-header { top: 10px; left: 12px; right: 12px; }
   .studio-minimal-actions { gap: 2px; padding: 3px; border-radius: 10px; }
   .studio-history-trigger { width: 36px; padding: 0 !important; }

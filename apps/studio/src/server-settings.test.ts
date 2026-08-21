@@ -382,7 +382,7 @@ describe("Tessera Studio Settings routes", () => {
     }
   });
 
-  test("returns a small OpenRouter picker and rejects unsupported reasoning efforts", async () => {
+  test("returns the OpenRouter text model catalog and rejects unsupported reasoning efforts", async () => {
     const { app, manager, tracker } = await createManagedApp();
     try {
       const catalogResponse = await app.fetch(request("/api/settings/models"));

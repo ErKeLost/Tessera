@@ -1,5 +1,4 @@
 import { useChat } from "@ai-sdk/react";
-import { DeepSeek, Grok, Kimi, Qwen, ZAI } from "@lobehub/icons";
 import {
   ActionBarPrimitive,
   AuiConfig,
@@ -15,7 +14,6 @@ import {
 } from "@assistant-ui/react";
 import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import {
-  BotIcon,
   CopyIcon,
   LoaderCircleIcon,
   PencilIcon,
@@ -53,22 +51,14 @@ import {
 } from "./components/assistant-ui/attachment";
 import {
   Reasoning,
-  ReasoningContent,
-  ReasoningRoot,
-  ReasoningText,
-  ReasoningTrigger,
 } from "./components/assistant-ui/reasoning";
 import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button";
 import { AgentActivity } from "./components/agent-activity";
 import { ErrorState } from "./components/elements/error-state";
+import { OpenRouterModelPicker } from "./components/elements/openrouter-model-picker";
+import { ReasoningPanel } from "./components/elements/reasoning-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "./components/motion/select";
 import { tesseraStudioToolkit } from "./tessera-toolkit";
 
 const tesseraStudioAssistantConfig = AuiConfig({
@@ -234,23 +224,8 @@ function StudioAssistantMessage() {
                   return <div className="tessera-chain-of-thought space-y-0.5">{children}</div>;
                 case "group-tool":
                   return <div className="tessera-tool-group space-y-0.5">{children}</div>;
-                case "group-reasoning": {
-                  const streaming = part.status.type === "running";
-                  return (
-                    <ReasoningRoot streaming={streaming}>
-                      {streaming ? (
-                        <AgentActivity
-                          label="Planning governed analysis"
-                          state="thinking"
-                        />
-                      ) : null}
-                      <ReasoningTrigger active={streaming} />
-                      <ReasoningContent aria-busy={streaming}>
-                        <ReasoningText>{children}</ReasoningText>
-                      </ReasoningContent>
-                    </ReasoningRoot>
-                  );
-                }
+                case "group-reasoning":
+                  return <StudioReasoningGroup group={part} />;
                 case "text":
                   return <MarkdownText />;
                 case "reasoning":
@@ -279,6 +254,69 @@ function StudioAssistantMessage() {
       </Message>
     </MessagePrimitive.Root>
   );
+}
+
+type StudioReasoningGroupPart = MessagePrimitive.GroupedParts.GroupPart;
+
+function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
+  const messageParts = useAuiState((state) => state.message.parts);
+  const streaming = group.status.type === "running";
+  const [open, setOpen] = useState(streaming);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef<number | null>(streaming ? Date.now() : null);
+
+  useEffect(() => {
+    if (!streaming) {
+      if (startedAtRef.current !== null) {
+        setElapsedMs(Date.now() - startedAtRef.current);
+        startedAtRef.current = null;
+      }
+      setOpen(false);
+      return undefined;
+    }
+
+    if (startedAtRef.current === null) {
+      startedAtRef.current = Date.now();
+      setElapsedMs(0);
+    }
+    setOpen(true);
+    const updateElapsed = () => {
+      if (startedAtRef.current !== null) {
+        setElapsedMs(Date.now() - startedAtRef.current);
+      }
+    };
+    updateElapsed();
+    const interval = window.setInterval(updateElapsed, 250);
+    return () => window.clearInterval(interval);
+  }, [streaming]);
+
+  const steps = group.indices.flatMap((index) => {
+    const part = messageParts[index];
+    if (part?.type !== "reasoning") return [];
+    const body = part.text.trim();
+    if (!body) return [];
+    return [{
+      title: part.unstable_summary?.trim() || "Reasoning",
+      body,
+    }];
+  });
+  const elapsed = formatReasoningElapsed(elapsedMs);
+
+  return (
+    <ReasoningPanel
+      steps={steps}
+      visibleSteps={steps.length}
+      streaming={streaming}
+      open={open}
+      onOpenChange={setOpen}
+      restingLabel={elapsedMs > 0 ? `Reasoned for ${elapsed}` : "Reasoned"}
+      elapsed={elapsed}
+    />
+  );
+}
+
+function formatReasoningElapsed(elapsedMs: number): string {
+  return `${Math.max(1, Math.round(elapsedMs / 1_000))}s`;
 }
 
 function StudioUserMessage() {
@@ -488,9 +526,6 @@ function StudioModelPicker() {
   }, []);
 
   const selectedModel = settings?.llm.model;
-  const selectedLabel = models.find((model) => model.id === selectedModel)?.name
-    ?? selectedModel
-    ?? "OpenRouter models";
 
   const selectModel = async (model: OpenRouterModelOption) => {
     if (!settings || savingModel) return;
@@ -526,66 +561,22 @@ function StudioModelPicker() {
   };
 
   return (
-    <Select
-      className="studio-model-picker-root"
+    <OpenRouterModelPicker
+      busyValue={savingModel}
       disabled={Boolean(savingModel)}
+      error={error}
+      loading={loading}
+      models={models}
       onOpenChange={setOpen}
       onValueChange={(modelId) => {
         const model = models.find((candidate) => candidate.id === modelId);
         if (model) void selectModel(model);
       }}
       open={open}
-      value={selectedModel ?? ""}
-    >
-      <SelectTrigger className="studio-composer-setting studio-model-picker-trigger">
-        <span className="studio-model-picker-current" title={selectedLabel}>
-          <StudioModelBrandIcon family={models.find((model) => model.id === selectedModel)?.family ?? selectedLabel} size={16} />
-          <span className="studio-model-picker-label">{selectedLabel}</span>
-          {loading ? <LoaderCircleIcon aria-label="Loading models" className="spin" size={13} /> : null}
-        </span>
-      </SelectTrigger>
-      <SelectContent className="studio-model-picker-popover">
-        <div className="studio-model-picker-heading">
-          <span>OpenRouter models</span>
-          <span>{models.length || ""}</span>
-        </div>
-        <div className="studio-model-picker-list">
-          {models.map((model) => {
-            const busy = savingModel === model.id;
-            return (
-              <SelectItem
-                className="studio-model-picker-option"
-                disabled={Boolean(savingModel)}
-                key={model.id}
-                value={model.id}
-              >
-                <span aria-hidden="true" className="studio-model-picker-option-icon">
-                  <StudioModelBrandIcon family={model.family} size={20} />
-                </span>
-                <span className="studio-model-picker-option-copy">
-                  <strong>{model.name}</strong>
-                  <small>{model.family}</small>
-                </span>
-                {busy ? <LoaderCircleIcon aria-label="Saving model" className="spin" size={15} /> : null}
-              </SelectItem>
-            );
-          })}
-          {!loading && models.length === 0 ? <p className="studio-model-picker-empty">No OpenRouter models are available.</p> : null}
-        </div>
-        {error ? <p className="studio-model-picker-error" role="status">{error}</p> : null}
-      </SelectContent>
-    </Select>
+      value={selectedModel}
+      variant="composer"
+    />
   );
-}
-
-function StudioModelBrandIcon({ family, size }: { family: string; size: number }) {
-  const normalized = family.toLocaleLowerCase("en-US");
-  if (normalized.includes("deepseek")) return <DeepSeek.Color size={size} />;
-  if (normalized.includes("qwen")) return <Qwen.Color size={size} />;
-  if (normalized.includes("kimi") || normalized.includes("moonshot")) return <Kimi.Color size={size} />;
-  if (normalized.includes("glm") || normalized.includes("z.ai") || normalized.includes("zhipu")) return <ZAI size={size} />;
-  if (normalized.includes("grok") || normalized.includes("xai")) return <Grok size={size} />;
-  return <BotIcon size={size} strokeWidth={1.8} />;
 }
 
 function readOpenRouterModels(value: unknown): readonly OpenRouterModelOption[] {

@@ -5,7 +5,7 @@ import {
 } from "./openrouter-model-catalog";
 
 describe("OpenRouter model catalog", () => {
-  test("picks the newest supported model for each requested family and keeps only valid efforts", () => {
+  test("returns every text model and keeps only valid reasoning efforts", () => {
     const records = parseOpenRouterModelRecords({
       data: [
         { id: "deepseek/deepseek-v4-pro", name: "Older DeepSeek", created: 10 },
@@ -55,6 +55,12 @@ describe("OpenRouter model catalog", () => {
             mandatory: true,
           },
         },
+        {
+          id: "image/vendor-image",
+          name: "Image only",
+          created: 100,
+          architecture: { output_modalities: ["image"] },
+        },
         { id: "bad model", name: "Ignored", created: 100 },
       ],
     });
@@ -63,20 +69,22 @@ describe("OpenRouter model catalog", () => {
 
     expect(catalog.models.map((model) => model.id)).toEqual([
       "deepseek/deepseek-v4-pro-0813",
-      "qwen/qwen3.8-27b",
+      "deepseek/deepseek-v4-pro",
       "moonshotai/kimi-k3",
-      "z-ai/glm-5.2",
+      "qwen/qwen3.8-27b:batch",
+      "qwen/qwen3.8-27b",
       "x-ai/grok-4.6",
+      "z-ai/glm-5.2",
     ]);
     expect(catalog.models[0]?.reasoning?.supportedEfforts).toEqual(["max", "high", "low"]);
-    expect(catalog.models[1]?.reasoning).toMatchObject({
+    expect(catalog.models[4]?.reasoning).toMatchObject({
       defaultEffort: "xhigh",
       defaultEnabled: true,
     });
-    expect(catalog.models[4]?.reasoning?.mandatory).toBeTrue();
+    expect(catalog.models[5]?.reasoning?.mandatory).toBeTrue();
   });
 
-  test("includes the configured OpenRouter model when it is not one of the featured choices", () => {
+  test("includes the configured OpenRouter model when it is older than the provider limit", () => {
     const records = parseOpenRouterModelRecords({
       data: [{
         id: "other/vendor-model",
@@ -89,7 +97,40 @@ describe("OpenRouter model catalog", () => {
     const catalog = createOpenRouterModelCatalog(records, "other/vendor-model");
 
     expect(catalog.models).toEqual([
-      expect.objectContaining({ id: "other/vendor-model", family: "Current" }),
+      expect.objectContaining({ id: "other/vendor-model", family: "Other" }),
+    ]);
+  });
+
+  test("keeps the latest three text models per provider plus an older current model", () => {
+    const records = parseOpenRouterModelRecords({
+      data: [
+        { id: "openai/model-1", name: "Model 1", created: 1 },
+        { id: "openai/model-2", name: "Model 2", created: 2 },
+        { id: "openai/model-3", name: "Model 3", created: 3 },
+        { id: "openai/model-4", name: "Model 4", created: 4 },
+        { id: "anthropic/model-1", name: "Claude 1", created: 1 },
+        { id: "anthropic/model-2", name: "Claude 2", created: 2 },
+        { id: "anthropic/model-3", name: "Claude 3", created: 3 },
+        { id: "anthropic/model-4", name: "Claude 4", created: 4 },
+      ],
+    });
+
+    expect(createOpenRouterModelCatalog(records).models.map((model) => model.id)).toEqual([
+      "anthropic/model-4",
+      "anthropic/model-3",
+      "anthropic/model-2",
+      "openai/model-4",
+      "openai/model-3",
+      "openai/model-2",
+    ]);
+    expect(createOpenRouterModelCatalog(records, "openai/model-1").models.map((model) => model.id)).toEqual([
+      "openai/model-1",
+      "anthropic/model-4",
+      "anthropic/model-3",
+      "anthropic/model-2",
+      "openai/model-4",
+      "openai/model-3",
+      "openai/model-2",
     ]);
   });
 });

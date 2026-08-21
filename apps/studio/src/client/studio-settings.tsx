@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { Button } from "./components/ui/button";
+import { OpenRouterModelPicker } from "./components/elements/openrouter-model-picker";
 import {
   Dialog,
   DialogClose,
@@ -550,14 +551,15 @@ export function StudioSettingsDialog({
                 <Field>
                   <Label htmlFor="settings-model">Model</Label>
                   {form.provider === "openrouter" ? (
-                    <Select disabled={busy || modelOptions.length === 0} onValueChange={updateOpenRouterModel} value={form.model}>
-                      <SelectTrigger className="w-full" id="settings-model"><SelectValue placeholder="Select a model" /></SelectTrigger>
-                      <SelectContent>
-                        {modelOptions.map((model) => (
-                          <SelectItem key={model.id} value={model.id}>{model.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <OpenRouterModelPicker
+                      ariaLabel="Choose the OpenRouter text model"
+                      disabled={busy || modelOptions.length === 0}
+                      id="settings-model"
+                      models={modelOptions}
+                      onValueChange={updateOpenRouterModel}
+                      value={form.model}
+                      variant="field"
+                    />
                   ) : (
                     <Input
                       autoComplete="off"

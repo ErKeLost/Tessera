@@ -8,14 +8,7 @@ const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 const FETCH_TIMEOUT_MS = 8_000;
 const MAX_MODEL_ID_LENGTH = 512;
 const MAX_MODEL_NAME_LENGTH = 256;
-
-const featuredFamilies = [
-  { id: "deepseek", label: "DeepSeek" },
-  { id: "qwen", label: "Qwen" },
-  { id: "moonshotai", label: "Kimi" },
-  { id: "z-ai", label: "GLM" },
-  { id: "x-ai", label: "Grok" },
-] as const;
+const MODELS_PER_PROVIDER = 3;
 
 const knownReasoningEfforts = new Set<string>(TESSERA_OPENROUTER_REASONING_EFFORTS);
 
@@ -98,20 +91,36 @@ export function createOpenRouterModelCatalog(
   models: readonly OpenRouterModelRecord[],
   currentModel?: string,
 ): OpenRouterModelCatalog {
-  const selected: OpenRouterModelOption[] = [];
-  for (const family of featuredFamilies) {
-    const model = models
-      .filter((candidate) => belongsToFamily(candidate.id, family.id))
-      .filter((candidate) => !isPickerVariant(candidate.id))
-      .sort((left, right) => right.created - left.created || left.id.localeCompare(right.id))[0];
-    if (model !== undefined) selected.push(toModelOption(model, family.label));
+  const normalizedCurrent = currentModel === undefined ? undefined : normalizeModelId(currentModel);
+  const byProvider = new Map<string, OpenRouterModelRecord[]>();
+  for (const model of models) {
+    const provider = modelProvider(model.id);
+    const providerModels = byProvider.get(provider) ?? [];
+    providerModels.push(model);
+    byProvider.set(provider, providerModels);
   }
 
-  const normalizedCurrent = currentModel === undefined ? undefined : normalizeModelId(currentModel);
-  if (normalizedCurrent !== undefined && !selected.some((model) => model.id === normalizedCurrent)) {
-    const current = models.find((model) => model.id === normalizedCurrent);
-    if (current !== undefined) selected.unshift(toModelOption(current, "Current"));
+  const selectedRecords = [...byProvider.values()].flatMap((providerModels) => (
+    providerModels
+      .sort((left, right) => right.created - left.created || left.id.localeCompare(right.id))
+      .slice(0, MODELS_PER_PROVIDER)
+  ));
+  const current = normalizedCurrent === undefined
+    ? undefined
+    : models.find((model) => model.id === normalizedCurrent);
+  if (current !== undefined && !selectedRecords.some((model) => model.id === current.id)) {
+    selectedRecords.push(current);
   }
+
+  const selected = selectedRecords
+    .sort((left, right) => {
+      if (left.id === normalizedCurrent) return -1;
+      if (right.id === normalizedCurrent) return 1;
+      const providerOrder = formatModelFamily(modelProvider(left.id))
+        .localeCompare(formatModelFamily(modelProvider(right.id)));
+      return providerOrder || right.created - left.created || left.id.localeCompare(right.id);
+    })
+    .map(toModelOption);
 
   return Object.freeze({ models: Object.freeze(selected) });
 }
@@ -151,7 +160,7 @@ async function fetchOpenRouterModels(fetcher: FetchLike): Promise<readonly OpenR
 function parseOpenRouterModelRecord(value: unknown): OpenRouterModelRecord | undefined {
   const record = asRecord(value);
   const id = normalizeModelId(record?.id);
-  if (id === undefined) return undefined;
+  if (id === undefined || !supportsTextOutput(record)) return undefined;
   const name = readText(record?.name, MAX_MODEL_NAME_LENGTH) ?? id;
   const created = readTimestamp(record?.created);
   const reasoning = parseReasoningCapability(record?.reasoning);
@@ -182,21 +191,53 @@ function parseReasoningCapability(value: unknown): OpenRouterReasoningCapability
   });
 }
 
-function toModelOption(model: OpenRouterModelRecord, family: string): OpenRouterModelOption {
+function toModelOption(model: OpenRouterModelRecord): OpenRouterModelOption {
   return Object.freeze({
     id: model.id,
     name: model.name,
-    family,
+    family: formatModelFamily(modelProvider(model.id)),
     ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
   });
 }
 
-function belongsToFamily(modelId: string, family: string): boolean {
-  return modelId.startsWith(`${family}/`);
+function modelProvider(modelId: string): string {
+  const provider = (modelId.split("/", 1)[0] ?? "openrouter").replace(/^~/u, "");
+  if (provider === "meta-llama") return "meta";
+  if (provider === "mistralai") return "mistral";
+  return provider;
 }
 
-function isPickerVariant(modelId: string): boolean {
-  return modelId.endsWith(":batch") || modelId.endsWith(":free");
+function supportsTextOutput(record: Record<string, unknown> | undefined): boolean {
+  const architecture = asRecord(record?.architecture);
+  const outputModalities = architecture?.output_modalities;
+  if (Array.isArray(outputModalities)) return outputModalities.includes("text");
+  if (typeof architecture?.modality === "string") {
+    return architecture.modality.split("->").at(-1)?.split("+").includes("text") === true;
+  }
+  // Older OpenRouter responses did not always include architecture metadata.
+  return true;
+}
+
+function formatModelFamily(providerId: string): string {
+  const knownFamilies: Readonly<Record<string, string>> = {
+    "moonshotai": "Moonshot AI",
+    "x-ai": "xAI",
+    "z-ai": "Z.ai",
+    anthropic: "Anthropic",
+    cohere: "Cohere",
+    deepseek: "DeepSeek",
+    google: "Google",
+    meta: "Meta",
+    mistral: "Mistral",
+    nvidia: "NVIDIA",
+    openai: "OpenAI",
+    qwen: "Qwen",
+  };
+  return knownFamilies[providerId] ?? providerId
+    .split(/[-_]/u)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function normalizeModelId(value: unknown): string | undefined {
