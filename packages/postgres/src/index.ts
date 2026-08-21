@@ -82,6 +82,17 @@ type ForeignKeyRow = {
   referenced_columns: string[];
 };
 
+type IndexRow = {
+  schema_name: string;
+  table_name: string;
+  index_name: string;
+  columns: string[];
+  is_unique: boolean;
+  access_method: string;
+  definition: string;
+  is_constraint: boolean;
+};
+
 const DEFAULT_MAX_ROWS = 500;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_LOCK_TIMEOUT_MS = 1_500;
@@ -291,7 +302,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
     // indistinguishable from relations that do not exist.
     const maxTables = normalizeMaxTables(options.maxTables);
 
-    const [tableRows, columnRows, primaryKeyRows, foreignKeyRows, databaseName] = await this.#withReadOnlyTransaction(
+    const [tableRows, columnRows, primaryKeyRows, foreignKeyRows, indexRows, databaseName] = await this.#withReadOnlyTransaction(
       signal,
       async (client) => {
         // node-postgres serializes work on one client. Running these in parallel
@@ -301,8 +312,9 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
         const columnRows = await queryColumns(client, schemas, maxTables);
         const primaryKeyRows = await queryPrimaryKeys(client, schemas, maxTables);
         const foreignKeyRows = await queryForeignKeys(client, schemas, maxTables);
+        const indexRows = await queryIndexes(client, schemas, maxTables);
         const databaseName = await queryDatabaseName(client);
-        return [tableRows, columnRows, primaryKeyRows, foreignKeyRows, databaseName] as const;
+        return [tableRows, columnRows, primaryKeyRows, foreignKeyRows, indexRows, databaseName] as const;
       },
     );
 
@@ -316,6 +328,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
         columnRows,
         primaryKeyRows,
         foreignKeyRows,
+        indexRows,
         options.includeComments ?? false,
       ),
     });
@@ -695,6 +708,47 @@ async function queryForeignKeys(client: PoolClient, schemas: readonly string[], 
   return result.rows;
 }
 
+async function queryIndexes(client: PoolClient, schemas: readonly string[], maxTables: number | undefined): Promise<IndexRow[]> {
+  const result = await client.query<IndexRow>({
+    text: `
+      WITH selected_relations AS (
+        SELECT relation.oid, namespace.nspname, relation.relname
+        FROM pg_class relation
+        JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = ANY($1::text[])
+          AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+          AND has_table_privilege(relation.oid, 'SELECT')
+        ORDER BY namespace.nspname, relation.relname
+        ${catalogLimitSql(maxTables)}
+      )
+      SELECT
+        selected_relations.nspname AS schema_name,
+        selected_relations.relname AS table_name,
+        index_relation.relname AS index_name,
+        array_agg(pg_get_indexdef(index_info.indexrelid, key_column.ordinality, true) ORDER BY key_column.ordinality) AS columns,
+        index_info.indisunique AS is_unique,
+        access_method.amname AS access_method,
+        pg_get_indexdef(index_info.indexrelid) AS definition,
+        EXISTS (
+          SELECT 1
+          FROM pg_constraint constraint_row
+          WHERE constraint_row.conindid = index_info.indexrelid
+        ) AS is_constraint
+      FROM selected_relations
+      JOIN pg_index index_info ON index_info.indrelid = selected_relations.oid
+      JOIN pg_class index_relation ON index_relation.oid = index_info.indexrelid
+      JOIN pg_am access_method ON access_method.oid = index_relation.relam
+      CROSS JOIN LATERAL generate_series(1, index_info.indnatts) AS key_column(ordinality)
+      GROUP BY selected_relations.nspname, selected_relations.relname,
+        index_relation.relname, index_info.indexrelid, index_info.indisunique,
+        access_method.amname
+      ORDER BY selected_relations.nspname, selected_relations.relname, index_relation.relname
+    `,
+    values: catalogQueryValues(schemas, maxTables),
+  });
+  return result.rows;
+}
+
 async function queryDatabaseName(client: PoolClient): Promise<string> {
   const result = await client.query<{ database_name: string }>("SELECT current_database() AS database_name");
   return result.rows[0]?.database_name ?? "postgres";
@@ -727,6 +781,7 @@ function assembleCatalog(
   columnRows: readonly ColumnRow[],
   primaryKeyRows: readonly PrimaryKeyRow[],
   foreignKeyRows: readonly ForeignKeyRow[],
+  indexRows: readonly IndexRow[],
   includeComments: boolean,
 ): DatabaseSchema[] {
   const columns = new Map<string, ColumnRow[]>();
@@ -735,8 +790,10 @@ function assembleCatalog(
     return columns === undefined ? [] : [[tableKey(row.schema_name, row.table_name), columns] as const];
   }));
   const foreignKeys = new Map<string, ForeignKeyRow[]>();
+  const indexes = new Map<string, IndexRow[]>();
   for (const row of columnRows) append(columns, tableKey(row.schema_name, row.table_name), row);
   for (const row of foreignKeyRows) append(foreignKeys, tableKey(row.schema_name, row.table_name), row);
+  for (const row of indexRows) append(indexes, tableKey(row.schema_name, row.table_name), row);
 
   const schemas = new Map<string, DatabaseTable[]>();
   for (const row of tableRows) {
@@ -774,6 +831,18 @@ function assembleCatalog(
           referencedColumns,
         }];
       }),
+      indexes: (indexes.get(key) ?? []).flatMap((index) => {
+        const indexColumns = catalogIdentifierArray(index.columns, 4_000);
+        if (indexColumns === undefined) return [];
+        return [{
+          name: index.index_name,
+          columns: indexColumns,
+          unique: index.is_unique,
+          ...(index.access_method ? { method: index.access_method } : {}),
+          ...(index.definition ? { definition: index.definition } : {}),
+          isConstraint: index.is_constraint,
+        }];
+      }),
     };
     append(schemas, row.schema_name, table);
   }
@@ -804,10 +873,10 @@ function uniqueColumnNames(columns: Array<{ name: string; dataTypeId?: number }>
 }
 
 /** Normalizes driver arrays before they enter the bounded public catalog. */
-function catalogIdentifierArray(value: unknown): string[] | undefined {
+function catalogIdentifierArray(value: unknown, maxItemLength = 256): string[] | undefined {
   if (!Array.isArray(value) || value.length === 0 || value.length > 32) return undefined;
   const identifiers = value.map((item) => typeof item === "string" ? item.trim() : "");
-  return identifiers.every((identifier) => identifier.length > 0 && identifier.length <= 256)
+  return identifiers.every((identifier) => identifier.length > 0 && identifier.length <= maxItemLength)
     ? identifiers
     : undefined;
 }

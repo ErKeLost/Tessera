@@ -361,8 +361,55 @@ describe("Tessera Studio settings runtime", () => {
       expect(directoryStatus.mode & 0o777).toBe(0o700);
       expect(fileStatus.mode & 0o777).toBe(0o600);
       expect(await store.read()).toEqual(value);
+      await store.clear?.();
+      expect(await store.read()).toBeUndefined();
     } finally {
       await rm(rootDirectory, { recursive: true, force: true });
+    }
+  });
+
+  test("resets local overrides to the startup configuration", async () => {
+    const tracker: BuildTracker = { closed: 0, records: [] };
+    let cleared = 0;
+    const store = {
+      async read() {
+        return undefined;
+      },
+      async write(_value: TesseraStudioSettingsCandidate) {},
+      async clear() {
+        cleared += 1;
+      },
+    };
+    const manager = await createTesseraStudioRuntimeManager({
+      config: baseConfig,
+      factory: createFactory(tracker),
+      store,
+    });
+
+    try {
+      await manager.replace(candidate({
+        database: {
+          dialect: "mysql",
+          accessMode: "read-write",
+          url: "mysql://readonly:temporary-secret@localhost/analytics",
+        },
+      }));
+      const beforeReset = manager.acquire();
+      expect(beforeReset.runtime.generation).toBe(2);
+      expect(beforeReset.runtime.connector.dialect).toBe("mysql");
+      await beforeReset.release();
+
+      const snapshot = await manager.reset();
+      expect(cleared).toBe(1);
+      expect(snapshot.database.dialect).toBe("postgres");
+      expect(snapshot.database.urlConfigured).toBe(true);
+      expect(snapshot.database.accessMode).toBe("read-only");
+      await manager.withRuntime((runtime) => {
+        expect(runtime.generation).toBe(3);
+        expect(runtime.connector.dialect).toBe("postgres");
+      });
+    } finally {
+      await manager.close();
     }
   });
 });

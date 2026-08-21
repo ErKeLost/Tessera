@@ -133,6 +133,15 @@ export const databaseForeignKeySchema = z.object({
   referencedColumns: z.array(z.string().min(1).max(256)).min(1).max(32),
 }).strict();
 
+export const databaseIndexSchema = z.object({
+  name: z.string().min(1).max(256),
+  columns: z.array(z.string().min(1).max(4_000)).min(1).max(32),
+  unique: z.boolean(),
+  method: z.string().min(1).max(128).optional(),
+  definition: z.string().max(4_000).optional(),
+  isConstraint: z.boolean().default(false),
+}).strict();
+
 export const databaseTableSchema = z.object({
   schema: z.string().min(1).max(256),
   name: z.string().min(1).max(256),
@@ -142,6 +151,7 @@ export const databaseTableSchema = z.object({
   columns: z.array(databaseColumnSchema).max(2_000),
   primaryKey: z.array(z.string().min(1).max(256)).max(32).default([]),
   foreignKeys: z.array(databaseForeignKeySchema).max(256).default([]),
+  indexes: z.array(databaseIndexSchema).max(256).default([]),
 }).strict();
 
 export const databaseSchemaSchema = z.object({
@@ -242,9 +252,16 @@ export const databaseQueryResultSchema = z.object({
 export type DatabaseDialect = z.infer<typeof databaseDialectSchema>;
 export type DatabaseColumn = z.infer<typeof databaseColumnSchema>;
 export type DatabaseForeignKey = z.infer<typeof databaseForeignKeySchema>;
-export type DatabaseTable = z.infer<typeof databaseTableSchema>;
-export type DatabaseSchema = z.infer<typeof databaseSchemaSchema>;
-export type DatabaseCatalog = z.infer<typeof databaseCatalogSchema>;
+export type DatabaseIndex = z.infer<typeof databaseIndexSchema>;
+type ParsedDatabaseTable = z.infer<typeof databaseTableSchema>;
+type ParsedDatabaseSchema = z.infer<typeof databaseSchemaSchema>;
+type ParsedDatabaseCatalog = z.infer<typeof databaseCatalogSchema>;
+// Indexes were added after the original catalog contract. Keep the public
+// input type backwards-compatible while schema parsing still normalizes them
+// to an empty array at runtime.
+export type DatabaseTable = Omit<ParsedDatabaseTable, "indexes"> & { indexes?: DatabaseIndex[] };
+export type DatabaseSchema = Omit<ParsedDatabaseSchema, "tables"> & { tables: DatabaseTable[] };
+export type DatabaseCatalog = Omit<ParsedDatabaseCatalog, "schemas"> & { schemas: DatabaseSchema[] };
 export type DatabaseCapabilityComponent = z.infer<typeof databaseCapabilityComponentSchema>;
 export type DatabaseCapabilities = z.infer<typeof databaseCapabilitiesSchema>;
 export type ConnectionAssessment = z.infer<typeof connectionAssessmentSchema>;
@@ -308,6 +325,13 @@ export function createCatalogFingerprint(input: Omit<DatabaseCatalog, "fingerpri
           referencedTable: foreignKey.referencedTable,
           referencedColumns: foreignKey.referencedColumns,
         })),
+        indexes: (table.indexes ?? []).map((index) => ({
+          name: index.name,
+          columns: index.columns,
+          unique: index.unique,
+          method: index.method,
+          isConstraint: index.isConstraint,
+        })),
       })),
     })),
   };
@@ -346,6 +370,13 @@ export function summarizeCatalog(
       foreignKeys: table.foreignKeys.map((key) => ({
         columns: key.columns,
         references: `${key.referencedSchema}.${key.referencedTable}(${key.referencedColumns.join(", ")})`,
+      })),
+      indexes: (table.indexes ?? []).map((index) => ({
+        name: index.name,
+        columns: index.columns,
+        unique: index.unique,
+        ...(index.method ? { method: index.method } : {}),
+        isConstraint: index.isConstraint,
       })),
     })),
   };

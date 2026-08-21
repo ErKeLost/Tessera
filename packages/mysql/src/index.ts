@@ -798,6 +798,7 @@ function assembleCatalog(
       })),
       primaryKey: primaryKeys.get(key) ?? [],
       foreignKeys: assembleForeignKeys(foreignKeys.get(key) ?? []),
+      indexes: [],
     };
     append(schemas, row.schema_name, table);
   }

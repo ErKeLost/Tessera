@@ -210,6 +210,7 @@ export class MongoDbConnector implements DatabaseConnector {
         columns: inferColumns(documents),
         primaryKey: documents.length === 0 || documents.some((document) => !("_id" in document)) ? [] : ["_id"],
         foreignKeys: [],
+        indexes: [],
       });
     }
     const catalog = finalizeCatalog({

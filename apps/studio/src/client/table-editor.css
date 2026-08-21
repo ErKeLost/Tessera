@@ -845,8 +845,8 @@
 
 .table-editor-mutation-status {
   min-width: 0;
-  min-height: 0;
-  padding: 0 12px;
+  min-height: 54px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--table-editor-border);
   background: var(--table-editor-surface);
   color: var(--table-editor-muted);
@@ -856,7 +856,18 @@
   overflow: hidden;
 }
 
-.table-editor-mutation-status > svg {
+.table-editor-mutation-status-icon {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--table-editor-border);
+  border-radius: calc(var(--table-editor-radius) - 2px);
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--table-editor-control);
+}
+
+.table-editor-mutation-status-icon svg {
   width: 15px;
   height: 15px;
   flex: none;
@@ -874,12 +885,25 @@
 
 .table-editor-mutation-status p {
   min-width: 0;
-  margin: 0;
+  margin: 2px 0 0;
   overflow: hidden;
+  color: var(--table-editor-muted);
   font-size: 11px;
-  line-height: 34px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.table-editor-mutation-status-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.table-editor-mutation-status-copy strong {
+  display: block;
+  color: var(--table-editor-text);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .table-editor-approval-actions {
@@ -1690,31 +1714,111 @@
 }
 
 .table-editor-definition > header {
-  min-height: 52px;
-  padding: 0 16px;
+  min-height: 64px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--table-editor-border);
   background: var(--table-editor-surface);
   justify-content: space-between;
   gap: 16px;
 }
 
-.table-editor-definition > header p {
-  margin: 0;
-  color: var(--table-editor-subtle);
-  font-size: 12px;
-  font-weight: 560;
+.table-editor-definition-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-.table-editor-definition > header p code {
+.table-editor-definition-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  border: 1px solid var(--table-editor-border);
+  border-radius: calc(var(--table-editor-radius) - 2px);
+  background: var(--table-editor-control);
+  color: var(--table-editor-muted);
+}
+
+.table-editor-definition-heading-copy {
+  min-width: 0;
+}
+
+.table-editor-definition-title-row,
+.table-editor-definition-meta,
+.table-editor-definition-actions,
+.table-editor-definition-readonly {
+  display: flex;
+  align-items: center;
+}
+
+.table-editor-definition-title-row {
+  min-width: 0;
+  gap: 7px;
+}
+
+.table-editor-definition-title-row code {
+  min-width: 0;
+  overflow: hidden;
   color: var(--table-editor-text);
   font-family: var(--font-mono);
   font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.table-editor-definition > header p span {
-  flex: none;
+.table-editor-definition-kind {
+  padding: 2px 5px;
+  border: 1px solid var(--table-editor-border);
+  border-radius: 4px;
   color: var(--table-editor-subtle);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: .04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.table-editor-definition-meta {
+  min-width: 0;
+  gap: 6px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--table-editor-subtle);
+  font-size: 10px;
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-editor-definition-meta span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table-editor-definition-actions {
+  flex: none;
+  gap: 8px;
+}
+
+.table-editor-definition-readonly {
+  height: 30px;
+  gap: 5px;
+  padding: 0 8px;
+  border: 1px solid var(--table-editor-border);
+  border-radius: calc(var(--table-editor-radius) - 2px);
+  background: var(--table-editor-control);
+  color: var(--table-editor-muted);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.table-editor-definition-readonly svg {
+  color: var(--table-editor-subtle);
 }
 
 .table-editor .table-editor-definition-copy {
@@ -1733,14 +1837,31 @@
 
 .table-editor-definition-editor {
   min-width: 720px;
-  flex: 1 0 auto;
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
+  flex: 1 1 auto;
+  display: block;
+  overflow: auto;
   background: var(--table-editor-background);
   color: var(--table-editor-text);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.55;
+}
+
+.table-editor-definition-code {
+  display: block;
+  min-width: 100%;
+  min-height: 100%;
+  background: var(--table-editor-background);
+  color: var(--table-editor-text);
+  --diffs-bg: var(--table-editor-background);
+  --diffs-light-bg: var(--table-editor-background);
+  --diffs-dark-bg: var(--table-editor-background);
+  --diffs-light: var(--table-editor-text);
+  --diffs-dark: var(--table-editor-text);
+  --diffs-fg-number-override: var(--table-editor-subtle);
+  --diffs-font-family: var(--font-mono);
+  --diffs-font-size: 12px;
+  --diffs-line-height: 1.55;
 }
 
 .table-editor-definition-gutter {
@@ -1841,6 +1962,14 @@
 
   .table-editor-definition-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .table-editor-definition > header {
+    padding-inline: 12px;
+  }
+
+  .table-editor-definition-readonly {
+    display: none;
   }
 }
 

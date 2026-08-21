@@ -290,6 +290,8 @@ describe("Tessera Studio Settings routes", () => {
 
       const connectionTest = await app.fetch(jsonRequest("/api/settings/test", "POST", settingsCandidate()));
       expect(connectionTest.status).toBe(403);
+      const reset = await app.fetch(jsonRequest("/api/settings/reset", "POST", {}));
+      expect(reset.status).toBe(403);
       expect(tracker.builds).toHaveLength(1);
     } finally {
       await manager.close();
@@ -348,7 +350,13 @@ describe("Tessera Studio Settings routes", () => {
 
       const connectionTest = await app.fetch(jsonRequest("/api/settings/test", "POST", settingsCandidate()));
       expect(connectionTest.status).toBe(200);
-      expect(authorized).toEqual(["access-mode", "database-permissions", "test"]);
+      const reset = await app.fetch(jsonRequest("/api/settings/reset", "POST", {}));
+      expect(reset.status).toBe(200);
+      expect(await reset.json()).toMatchObject({
+        message: "Local settings reset. Database data was not changed.",
+        settings: { database: { dialect: "postgres" } },
+      });
+      expect(authorized).toEqual(["access-mode", "database-permissions", "test", "reset"]);
     } finally {
       await manager.close();
     }

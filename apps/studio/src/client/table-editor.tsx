@@ -22,6 +22,7 @@ import {
   ArrowUpDownIcon,
   XIcon,
 } from "lucide-react";
+import { File as HighlightedFile } from "@pierre/diffs/react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   approveStudioDatabaseAction,
@@ -77,6 +78,7 @@ import { Switch } from "./components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import "./table-editor.css";
 import { cx } from "./utils";
+import { useStudioTheme } from "./studio-theme";
 
 type DatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
 
@@ -106,10 +108,20 @@ type CatalogForeignKey = {
   referencedTable: string;
 };
 
+type CatalogIndex = {
+  columns: string[];
+  definition?: string;
+  isConstraint?: boolean;
+  method?: string;
+  name: string;
+  unique: boolean;
+};
+
 type CatalogTable = {
   columns: CatalogColumn[];
   estimatedRows?: number;
   foreignKeys?: CatalogForeignKey[];
+  indexes?: CatalogIndex[];
   kind: string;
   name: string;
   primaryKey?: string[];
@@ -1315,14 +1327,22 @@ function TableMutationStatus({
 
   return (
     <section className="table-editor-mutation-status" data-tone={tone} role={tone === "error" ? "alert" : "status"}>
-      {tone === "error" ? <CircleAlertIcon aria-hidden="true" size={15} /> : pendingApproval ? <ShieldCheckIcon aria-hidden="true" size={15} /> : <CheckIcon aria-hidden="true" size={15} />}
-      <p>{message}</p>
+      <div className="table-editor-mutation-status-icon">
+        {tone === "error" ? <CircleAlertIcon aria-hidden="true" size={16} /> : pendingApproval ? <ShieldCheckIcon aria-hidden="true" size={16} /> : <CheckIcon aria-hidden="true" size={16} />}
+      </div>
+      <div className="table-editor-mutation-status-copy">
+        <strong>{pendingApproval ? "Approval required" : tone === "error" ? "Database action failed" : "Database action complete"}</strong>
+        <p>{message}</p>
+      </div>
       {approval && pendingApproval ? (
         <div className="table-editor-approval-actions">
-          <Button disabled={busy} onClick={onReject} size="sm" type="button" variant="outline">Reject</Button>
+          <Button disabled={busy} onClick={onReject} size="sm" type="button" variant="outline">
+            <CircleAlertIcon aria-hidden="true" size={13} />
+            Reject
+          </Button>
           <Button disabled={busy} onClick={onApprove} size="sm" type="button">
-            {busy ? <LoaderCircleIcon aria-hidden="true" className="spin" size={14} /> : null}
-            Approve
+            {busy ? <LoaderCircleIcon aria-hidden="true" className="spin" size={13} /> : <ShieldCheckIcon aria-hidden="true" size={13} />}
+            {busy ? "Working" : "Approve"}
           </Button>
         </div>
       ) : null}
@@ -1930,7 +1950,18 @@ function TableRowMutationForm({
 
 function TableDefinition({ definition, table }: { definition?: string; table: CatalogTable }) {
   const [copied, setCopied] = useState(false);
+  const { resolvedTheme } = useStudioTheme();
   const sql = definition ?? buildClientTableDefinition(table);
+  const lineCount = sql.split(/\r?\n/).length;
+  const indexCount = (table.indexes ?? []).filter((index) => !index.isConstraint).length;
+  const file = useMemo(() => ({ name: `${table.name}.sql`, contents: sql }), [sql, table.name]);
+  const options = useMemo(() => ({
+    theme: { dark: "pierre-dark" as const, light: "pierre-light" as const },
+    themeType: resolvedTheme,
+    overflow: "scroll" as const,
+    disableFileHeader: true,
+    unsafeCSS: `:host { --diffs-bg: var(--table-editor-background); --diffs-light-bg: var(--table-editor-background); --diffs-dark-bg: var(--table-editor-background); --diffs-light: var(--table-editor-text); --diffs-dark: var(--table-editor-text); --diffs-light-number: var(--table-editor-subtle); --diffs-dark-number: var(--table-editor-subtle); --diffs-font-family: var(--font-mono); --diffs-font-size: 12px; --diffs-line-height: 1.55; }`,
+  }), [resolvedTheme]);
 
   const copy = async () => {
     if (!navigator.clipboard) return;
@@ -1945,20 +1976,34 @@ function TableDefinition({ definition, table }: { definition?: string; table: Ca
 
   return (
     <section className="table-editor-definition">
-      <header>
-        <div>
-          <p>SQL Definition of <code>{table.schema}.{table.name}</code> <span>(Read only)</span></p>
+      <header className="table-editor-definition-header">
+        <div className="table-editor-definition-heading">
+          <span className="table-editor-definition-icon" aria-hidden="true">
+            <FileCode2Icon size={15} strokeWidth={1.8} />
+          </span>
+          <div className="table-editor-definition-heading-copy">
+            <div className="table-editor-definition-title-row">
+              <code>{table.name}.sql</code>
+              <span className="table-editor-definition-kind">SQL</span>
+            </div>
+            <div className="table-editor-definition-meta">
+              <span>{table.schema}.{table.name}</span>
+              <span aria-hidden="true">·</span>
+              <span>{lineCount} lines</span>
+              {indexCount ? <><span aria-hidden="true">·</span><span>{indexCount} {indexCount === 1 ? "index" : "indexes"}</span></> : null}
+            </div>
+          </div>
         </div>
-        <Button className="table-editor-definition-copy" onClick={() => void copy()} size="sm" type="button" variant="outline">
-          {copied ? <CheckIcon aria-hidden="true" size={14} /> : <CopyIcon aria-hidden="true" size={14} />}
-          {copied ? "Copied" : "Copy SQL"}
-        </Button>
+        <div className="table-editor-definition-actions">
+          <span className="table-editor-definition-readonly"><EyeIcon aria-hidden="true" size={13} /> Read only</span>
+          <Button className="table-editor-definition-copy" onClick={() => void copy()} size="sm" type="button" variant="outline">
+            {copied ? <CheckIcon aria-hidden="true" size={14} /> : <CopyIcon aria-hidden="true" size={14} />}
+            {copied ? "Copied" : "Copy SQL"}
+          </Button>
+        </div>
       </header>
       <div className="table-editor-definition-editor" role="region" aria-label="SQL table definition">
-        <div className="table-editor-definition-gutter" aria-hidden="true">
-          {sql.split("\n").map((_, index) => <span key={index}>{index + 1}</span>)}
-        </div>
-        <pre><code>{sql}</code></pre>
+        <HighlightedFile className="table-editor-definition-code" file={file} options={options} />
       </div>
     </section>
   );
@@ -2227,7 +2272,12 @@ function buildClientTableDefinition(table: CatalogTable): string {
   for (const foreignKey of table.foreignKeys ?? []) {
     lines.push(`  CONSTRAINT ${quote(foreignKey.name)} FOREIGN KEY (${foreignKey.columns.map(quote).join(", ")}) REFERENCES ${quote(foreignKey.referencedSchema)}.${quote(foreignKey.referencedTable)} (${foreignKey.referencedColumns.map(quote).join(", ")})`);
   }
-  return `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
+  const tableDefinition = `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
+  const indexDefinitions = (table.indexes ?? [])
+    .filter((index) => !index.isConstraint)
+    .map((index) => index.definition?.trim() || `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${quote(index.name)} ON ${relation}${index.method ? ` USING ${index.method}` : ""} (${index.columns.map(quote).join(", ")})`)
+    .map((index) => index.endsWith(";") ? index : `${index};`);
+  return [tableDefinition, ...indexDefinitions].join("\n\n");
 }
 
 type TableFilterOperatorOption = Readonly<{

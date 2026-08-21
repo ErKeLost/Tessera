@@ -282,6 +282,7 @@ export class LibSqlConnector implements DatabaseConnector {
             table.name,
             resultRows<ForeignKeyRow>(foreignKeyResult),
           ),
+          indexes: [],
         });
       }
       return discovered;

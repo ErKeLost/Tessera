@@ -154,7 +154,7 @@ type SettingsForm = {
   permissions: StudioPermissionSettings;
 };
 
-type RequestState = "idle" | "loading" | "testing" | "saving" | "success" | "error";
+type RequestState = "idle" | "loading" | "testing" | "saving" | "resetting" | "success" | "error";
 
 const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
   database: {
@@ -207,6 +207,7 @@ export function StudioSettingsDialog({
   const [modelCatalog, setModelCatalog] = useState<StudioOpenRouterModelCatalog>(EMPTY_MODEL_CATALOG);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [notice, setNotice] = useState<string>();
+  const [resetConfirmOpen, setResetConfirmOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<StudioSettingsTab>("database");
   const loadAbortRef = useRef<AbortController | null>(null);
   const modelCatalogAbortRef = useRef<AbortController | null>(null);
@@ -330,7 +331,7 @@ export function StudioSettingsDialog({
   }, [modelOptions, requestState]);
 
   const candidate = useMemo(() => buildCandidate(form), [form]);
-  const busy = requestState === "loading" || requestState === "testing" || requestState === "saving";
+  const busy = requestState === "loading" || requestState === "testing" || requestState === "saving" || requestState === "resetting";
 
   const testCandidate = useCallback(async () => {
     if (!candidate) {
@@ -420,6 +421,31 @@ export function StudioSettingsDialog({
     }
   }, [form.permissions, onSaved]);
 
+  const resetLocalSettings = useCallback(async () => {
+    setRequestState("resetting");
+    setNotice(undefined);
+    try {
+      const response = await fetch("/api/settings/reset", {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      });
+      const body = await response.json().catch(() => undefined) as unknown;
+      if (!response.ok) throw new Error(readPublicErrorMessage(body) ?? "settings_reset_failed");
+      const snapshot = readStudioSettingsSnapshot(body);
+      setSettings(snapshot);
+      setForm(toForm(snapshot));
+      setResetConfirmOpen(false);
+      setRequestState("success");
+      setNotice(readPublicMessage(body) ?? "Local settings reset.");
+      onSaved?.(snapshot);
+    } catch (error) {
+      setRequestState("error");
+      setNotice(error instanceof Error && error.message !== "settings_reset_failed"
+        ? error.message
+        : "Local settings could not be reset.");
+    }
+  }, [onSaved]);
+
   const saveCurrentTab = useCallback(async () => {
     if (activeTab === "permissions") {
       await savePermissions();
@@ -441,6 +467,7 @@ export function StudioSettingsDialog({
         databaseAuthToken: "",
         apiKey: "",
       }));
+      setResetConfirmOpen(false);
       setRequestState("idle");
       setNotice(undefined);
     }
@@ -654,6 +681,38 @@ export function StudioSettingsDialog({
 
       <SettingsNotice notice={notice} state={requestState} />
 
+      <section className="grid gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4" aria-labelledby="settings-reset-title">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
+            <StudioIcon icon="solar:refresh-linear" size={17} />
+          </span>
+          <div className="min-w-0 space-y-1">
+            <h3 className="text-sm font-medium" id="settings-reset-title">Reset local settings</h3>
+            <p className="text-xs leading-5 text-muted-foreground">
+              Remove locally saved API keys, database connection details, permissions, and other settings overrides.
+              Remote database data will not be changed.
+            </p>
+          </div>
+        </div>
+        {resetConfirmOpen ? (
+          <div className="grid gap-3 rounded-md border border-destructive/20 bg-background/70 p-3">
+            <p className="text-xs leading-5 text-destructive">This clears the local settings file and restores the startup configuration. Continue?</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button disabled={busy} onClick={() => setResetConfirmOpen(false)} type="button" variant="outline" size="sm">Cancel</Button>
+              <Button disabled={busy} onClick={() => void resetLocalSettings()} type="button" variant="destructive" size="sm">
+            {requestState === "resetting" ? <ThinkingOrb aria-label="Resetting local settings" size={20} state="composing" theme="auto" /> : <StudioIcon icon="solar:refresh-linear" size={15} />}
+                Reset settings
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button className="justify-self-start" disabled={busy} onClick={() => setResetConfirmOpen(true)} type="button" variant="outline" size="sm">
+            <StudioIcon icon="solar:refresh-linear" size={15} />
+            Reset local settings
+          </Button>
+        )}
+      </section>
+
       <DialogFooter>
         {testTarget ? (
           <Button disabled={busy || !canTest} onClick={() => void testCandidate()} type="button" variant="outline">
@@ -845,11 +904,11 @@ function PermissionSettingsFields({
 
 function SettingsNotice({ notice, state }: { notice: string | undefined; state: RequestState }) {
   const activeNotice = notice
-    ?? (state === "loading" ? "Loading local settings..." : state === "testing" ? "Testing local connection..." : state === "saving" ? "Saving local settings..." : undefined);
+    ?? (state === "loading" ? "Loading local settings..." : state === "testing" ? "Testing local connection..." : state === "saving" ? "Saving local settings..." : state === "resetting" ? "Resetting local settings..." : undefined);
   if (!activeNotice) return null;
   const Icon = state === "error" ? CircleAlertIcon : state === "success" ? CheckIcon : LoaderCircleIcon;
   const orbState = state === "testing" ? "connecting" : "composing";
-  const isWorking = state === "loading" || state === "testing" || state === "saving";
+  const isWorking = state === "loading" || state === "testing" || state === "saving" || state === "resetting";
   return (
     <p
       className={state === "error" ? "flex min-w-0 items-center gap-2 text-sm text-destructive" : "flex min-w-0 items-center gap-2 text-sm text-muted-foreground"}

@@ -19,6 +19,7 @@ const catalog = finalizeCatalog({
       columns: [{ name: "id", dataType: "uuid", nullable: false, ordinal: 1 }],
       primaryKey: ["id"],
       foreignKeys: [],
+      indexes: [{ name: "orders_status_idx", columns: ["status"], unique: false, method: "btree", isConstraint: false }],
     }],
   }],
 });
@@ -62,5 +63,25 @@ describe("database catalog", () => {
 
   test("reports aggregate catalog counts", () => {
     expect(catalogStats(catalog)).toEqual({ schemaCount: 1, tableCount: 1, columnCount: 1 });
+  });
+
+  test("keeps indexes in the catalog summary and fingerprint", () => {
+    const summary = JSON.parse(summarizeCatalog(catalog));
+    expect(summary.tables[0].indexes).toEqual([{
+      name: "orders_status_idx",
+      columns: ["status"],
+      unique: false,
+      method: "btree",
+      isConstraint: false,
+    }]);
+    const withoutIndex = finalizeCatalog({
+      ...catalog,
+      fingerprint: undefined,
+      schemas: [{
+        ...catalog.schemas[0]!,
+        tables: [{ ...catalog.schemas[0]!.tables[0]!, indexes: [] }],
+      }],
+    } as never);
+    expect(withoutIndex.fingerprint).not.toBe(catalog.fingerprint);
   });
 });

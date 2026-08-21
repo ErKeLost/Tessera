@@ -257,7 +257,7 @@ export type StudioAuthenticator = (
 ) => StudioIdentity | undefined | Promise<StudioIdentity | undefined>;
 
 /** Settings can contain credentials and can enable the database write surface. */
-export type StudioSettingsChangeKind = "settings" | "test" | "access-mode" | "database-permissions";
+export type StudioSettingsChangeKind = "settings" | "test" | "access-mode" | "database-permissions" | "reset";
 export type StudioSettingsChangeAuthorizationInput = Readonly<{
   request: Request;
   requestId: string;
@@ -556,6 +556,20 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
     const settings = runtime.getSnapshot();
     const currentModel = settings.llm.provider === "openrouter" ? settings.llm.model : undefined;
     return context.json(await modelCatalog.list({ currentModel }));
+  });
+
+  app.post("/api/settings/reset", async (context) => {
+    const runtime = requireSettingsRuntime(dependencies.settingsRuntime);
+    try {
+      await authorizeSettingsChange(context, dependencies, "reset");
+      const settings = await runtime.reset();
+      return context.json({
+        settings,
+        message: "Local settings reset. Database data was not changed.",
+      });
+    } catch (error) {
+      throw settingsRuntimeHttpError(error);
+    }
   });
 
   app.post("/api/settings/test", async (context) => {
@@ -2466,10 +2480,12 @@ function findCatalogTable(
 function publicTable(
   table: DatabaseTable,
   columns: readonly DatabaseTable["columns"][number][] = table.columns,
-  options: Readonly<{ includeColumnMetadata?: boolean; maxForeignKeys?: number; maxForeignKeyColumns?: number }> = {},
+  options: Readonly<{ includeColumnMetadata?: boolean; maxForeignKeys?: number; maxForeignKeyColumns?: number; maxIndexes?: number }> = {},
 ): Record<string, unknown> {
   const maxForeignKeys = options.maxForeignKeys ?? table.foreignKeys.length;
   const maxForeignKeyColumns = options.maxForeignKeyColumns ?? Number.MAX_SAFE_INTEGER;
+  const indexes = table.indexes ?? [];
+  const maxIndexes = options.maxIndexes ?? indexes.length;
   return {
     schema: table.schema,
     name: table.name,
@@ -2483,6 +2499,14 @@ function publicTable(
       referencedSchema: foreignKey.referencedSchema,
       referencedTable: foreignKey.referencedTable,
       referencedColumns: foreignKey.referencedColumns.slice(0, maxForeignKeyColumns),
+    })),
+    indexes: indexes.slice(0, maxIndexes).map((index) => ({
+      name: index.name,
+      columns: [...index.columns],
+      unique: index.unique,
+      ...(index.method ? { method: index.method } : {}),
+      ...(index.definition ? { definition: index.definition } : {}),
+      isConstraint: index.isConstraint,
     })),
   };
 }
@@ -2702,7 +2726,12 @@ function buildTableDefinition(dialect: DatabaseCatalog["dialect"], table: Databa
   for (const foreignKey of table.foreignKeys) {
     lines.push(`  CONSTRAINT ${quote(foreignKey.name)} FOREIGN KEY (${foreignKey.columns.map(quote).join(", ")}) REFERENCES ${quote(foreignKey.referencedSchema)}.${quote(foreignKey.referencedTable)} (${foreignKey.referencedColumns.map(quote).join(", ")})`);
   }
-  return `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
+  const tableDefinition = `CREATE TABLE ${relation} (\n${lines.join(",\n")}\n);`;
+  const indexDefinitions = (table.indexes ?? [])
+    .filter((index) => !index.isConstraint)
+    .map((index) => index.definition?.trim() || `CREATE ${index.unique ? "UNIQUE " : ""}INDEX ${quote(index.name)} ON ${relation}${index.method ? ` USING ${index.method}` : ""} (${index.columns.map(quote).join(", ")})`)
+    .map((definition) => definition.endsWith(";") ? definition : `${definition};`);
+  return [tableDefinition, ...indexDefinitions].join("\n\n");
 }
 
 function publicPreviewValue(value: unknown): PublicPreviewValue {
@@ -2813,6 +2842,13 @@ function catalogForAgent(catalog: DatabaseCatalog): DatabaseCatalog {
           referencedSchema: foreignKey.referencedSchema,
           referencedTable: foreignKey.referencedTable,
           referencedColumns: [...foreignKey.referencedColumns],
+        })),
+        indexes: (table.indexes ?? []).map((index) => ({
+          name: index.name,
+          columns: [...index.columns],
+          unique: index.unique,
+          ...(index.method ? { method: index.method } : {}),
+          isConstraint: index.isConstraint,
         })),
       })),
     })),

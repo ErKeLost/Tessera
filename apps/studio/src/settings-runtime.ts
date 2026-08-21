@@ -497,6 +497,8 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
 export interface TesseraStudioSettingsStore {
   read(): Promise<TesseraStudioSettingsCandidate | undefined>;
   write(candidate: TesseraStudioSettingsCandidate): Promise<void>;
+  /** Removes all locally persisted overrides. */
+  clear?(): Promise<void>;
 }
 
 /** Options use a project root, not an arbitrary settings directory, to keep chmod scoped to `.tessera`. */
@@ -580,6 +582,15 @@ export function createTesseraLocalSettingsStore(
         throw new TesseraSettingsRuntimeError("settings_store_unavailable", "Tessera Studio local settings are unavailable.");
       }
     },
+    async clear() {
+      try {
+        await unlink(path);
+      } catch (error) {
+        if (!isMissingFile(error)) {
+          throw new TesseraSettingsRuntimeError("settings_store_unavailable", "Tessera Studio local settings are unavailable.");
+        }
+      }
+    },
   });
 }
 
@@ -594,6 +605,9 @@ export class TesseraStudioRuntimeManager {
   readonly #factory: TesseraStudioRuntimeFactory;
   readonly #store: TesseraStudioSettingsStore | undefined;
   readonly #databaseState: DurableStateStorePort | undefined;
+  readonly #baseConfig: TesseraConfig;
+  readonly #baseAccessMode: TesseraDatabaseAccessMode;
+  readonly #initiallyUnconfigured: boolean;
   readonly #retired = new Set<RuntimeRecord>();
   #persistedCandidate: TesseraStudioSettingsCandidate | undefined;
   #unconfigured: boolean;
@@ -608,6 +622,8 @@ export class TesseraStudioRuntimeManager {
     store: TesseraStudioSettingsStore | undefined,
     persistedCandidate: TesseraStudioSettingsCandidate | undefined,
     databaseState: DurableStateStorePort | undefined,
+    baseConfig: TesseraConfig,
+    baseAccessMode: TesseraDatabaseAccessMode,
     initiallyUnconfigured: boolean,
   ) {
     this.#current = initial;
@@ -615,6 +631,9 @@ export class TesseraStudioRuntimeManager {
     this.#store = store;
     this.#persistedCandidate = persistedCandidate;
     this.#databaseState = databaseState;
+    this.#baseConfig = baseConfig;
+    this.#baseAccessMode = baseAccessMode;
+    this.#initiallyUnconfigured = initiallyUnconfigured;
     this.#unconfigured = initiallyUnconfigured && persistedCandidate?.database.url === undefined;
   }
 
@@ -636,6 +655,8 @@ export class TesseraStudioRuntimeManager {
       options.store,
       stored,
       options.databaseState,
+      options.config,
+      options.accessMode ?? "read-only",
       options.initiallyUnconfigured ?? false,
     );
   }
@@ -786,6 +807,40 @@ export class TesseraStudioRuntimeManager {
       permissions,
     };
     return this.replace(candidate, options);
+  }
+
+  /** Clears local overrides and restores the configuration supplied at startup. */
+  reset(): Promise<TesseraStudioSettingsSnapshot> {
+    return this.#enqueue(async () => {
+      if (this.#closed) {
+        throw new TesseraSettingsRuntimeError("runtime_closed", "Tessera Studio is shutting down.");
+      }
+
+      const next = await buildRuntimeRecord(
+        this.#factory,
+        this.#generation + 1,
+        this.#baseConfig,
+        this.#baseAccessMode,
+        this.#databaseState,
+      );
+      try {
+        await this.#store?.clear?.();
+      } catch (error) {
+        await disposeRuntimeRecord(next);
+        if (error instanceof TesseraSettingsRuntimeError) throw error;
+        throw new TesseraSettingsRuntimeError("settings_store_unavailable", "Tessera Studio could not reset local settings.");
+      }
+
+      const previous = this.#current;
+      this.#generation += 1;
+      this.#current = next;
+      this.#persistedCandidate = undefined;
+      this.#unconfigured = this.#initiallyUnconfigured;
+      previous.retired = true;
+      this.#retired.add(previous);
+      await this.#disposeIfUnused(previous);
+      return this.getSnapshot();
+    });
   }
 
   /** Stops new leases and closes every generation after outstanding requests release. */
