@@ -844,7 +844,7 @@ describe("Tessera Studio Hono app", () => {
     expect(body).not.toContain('"type":"data-tessera-');
     expect(body).not.toContain("select secret from orders");
 
-    const toolIds = [...body.matchAll(/"toolCallId":"(tessera-tool-[^"]+)"/g)].map((match) => match[1]);
+    const toolIds = [...body.matchAll(/"toolCallId":"(tool-[^"]+)"/g)].map((match) => match[1]);
     expect(toolIds).toHaveLength(6);
     expect(new Set(toolIds).size).toBe(2);
     expect(info).toEqual(expect.arrayContaining([

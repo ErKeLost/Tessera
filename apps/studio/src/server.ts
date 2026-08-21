@@ -1110,7 +1110,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
           id: threadId,
           resourceId: sessionResourceId,
           messages: [{
-            id: `tessera-user-${runId}`,
+            id: `user-message-${runId}`,
             role: "user",
             parts: [{ type: "text", text: message }],
           } satisfies TesseraUIMessage],
@@ -1157,7 +1157,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
             chatRetries.mark({
               resourceId: sessionResourceId,
               threadId,
-              messageId: `tessera-${runId}`,
+              messageId: `message-${runId}`,
               message,
             });
             return;
@@ -3011,7 +3011,7 @@ function createStudioChatRetryRegistry() {
  * @mastra/ai-sdk and a stricter Mastra-chunk whitelist.
  */
 function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): ReadableStream<TesseraUIMessageChunk> {
-  const textId = `tessera-text-${input.runId}`;
+  const textId = `text-${input.runId}`;
   let textStarted = false;
   let toolEvent = 0;
   const activeToolIds = new Map<string, string>();
@@ -3027,7 +3027,7 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
         if (!textStarted) return;
         writer.write({ type: "text-end", id: textId });
       };
-      writer.write({ type: "start", messageId: `tessera-${input.runId}` });
+      writer.write({ type: "start", messageId: `message-${input.runId}` });
       try {
         const run = agentRunSchema.parse(
           agent.stream
@@ -3042,7 +3042,7 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
               let toolId = activeToolIds.get(safe.data.tool);
               if (safe.data.state === "started" || toolId === undefined) {
                 toolEvent += 1;
-                toolId = `tessera-tool-${input.runId}-${toolEvent}`;
+                toolId = `tool-${input.runId}-${toolEvent}`;
                 activeToolIds.set(safe.data.tool, toolId);
                 writer.write({
                   type: "tool-input-start",
@@ -3223,7 +3223,7 @@ function redactTesseraUiChunk(
 
   switch (source.type) {
     case "start":
-      return { type: "start", messageId: `tessera-${context.runId}` } as TesseraUIMessageChunk;
+      return { type: "start", messageId: `message-${context.runId}` } as TesseraUIMessageChunk;
     case "text-start": {
       // An unsafe split response must not leave an open text part in the
       // browser before the prefix gate has accepted any of its content.
@@ -3244,8 +3244,16 @@ function redactTesseraUiChunk(
     }
     case "reasoning-start": {
       const sourceId = sourceIdentifier(source.id);
-      if (sourceId === undefined || state.sourceReasoningIds.has(sourceId)) return undefined;
-      const id = `tessera-reasoning-${context.runId}-${state.nextReasoningId++}`;
+      if (sourceId === undefined) return undefined;
+      // Providers commonly restart their reasoning counter for each model
+      // step. A completed source id is no longer active and must be allowed
+      // to open a fresh native reasoning part.
+      if (state.sourceReasoningIds.has(sourceId)) {
+        const existing = state.sourceReasoningIds.get(sourceId);
+        if (existing !== undefined && state.activeReasoningIds.has(existing)) return undefined;
+        state.sourceReasoningIds.delete(sourceId);
+      }
+      const id = `reasoning-${context.runId}-${state.nextReasoningId++}`;
       state.sourceReasoningIds.set(sourceId, id);
       state.activeReasoningIds.add(id);
       return { type: "reasoning-start", id } as TesseraUIMessageChunk;
@@ -3263,6 +3271,7 @@ function redactTesseraUiChunk(
       ];
       state.activeReasoningIds.delete(id);
       state.blockedReasoning.delete(id);
+      forgetPublicReasoningId(id, state);
       return chunks;
     }
     case "tool-input-start": {
@@ -3388,7 +3397,7 @@ function publicTextId(
   if (!id) return undefined;
   const existing = state.sourceTextIds.get(id);
   if (existing) return existing;
-  const publicId = `tessera-text-${context.runId}-${state.nextTextId++}`;
+  const publicId = `text-${context.runId}-${state.nextTextId++}`;
   state.sourceTextIds.set(id, publicId);
   return publicId;
 }
@@ -3411,7 +3420,7 @@ function publicToolCall(
   if (!id) return undefined;
   const existing = state.sourceToolCalls.get(id);
   if (existing) return existing.tool === tool ? existing : undefined;
-  const call = { id: `tessera-tool-${context.runId}-${state.nextToolId++}`, tool };
+  const call = { id: `tool-${context.runId}-${state.nextToolId++}`, tool };
   state.sourceToolCalls.set(id, call);
   return call;
 }
@@ -3675,9 +3684,16 @@ function closePublicAssistantReasoning(
     chunks.push(...flushPublicAssistantReasoning(id, state));
     chunks.push({ type: "reasoning-end", id });
     state.blockedReasoning.delete(id);
+    forgetPublicReasoningId(id, state);
   }
   state.activeReasoningIds.clear();
   return chunks;
+}
+
+function forgetPublicReasoningId(id: string, state: TesseraPublicStreamState): void {
+  for (const [sourceId, publicId] of state.sourceReasoningIds) {
+    if (publicId === id) state.sourceReasoningIds.delete(sourceId);
+  }
 }
 
 function boundedPublicInteger(value: unknown, maximum: number): number | undefined {

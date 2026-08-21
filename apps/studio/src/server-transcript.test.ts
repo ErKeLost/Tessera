@@ -249,7 +249,77 @@ function successfulTextSourceStream(text: string): ReadableStream<TesseraUIMessa
   });
 }
 
+function reusedReasoningIdSourceStream(): ReadableStream<TesseraUIMessageChunk> {
+  const chunks: TesseraUIMessageChunk[] = [
+    { type: "start", messageId: "provider-message-id" },
+    { type: "reasoning-start", id: "reasoning-1" },
+    { type: "reasoning-delta", id: "reasoning-1", delta: "First step." },
+    { type: "reasoning-end", id: "reasoning-1" },
+    { type: "tool-input-start", toolCallId: "tool-1", toolName: "list_database", providerExecuted: true },
+    { type: "tool-input-available", toolCallId: "tool-1", toolName: "list_database", input: {}, providerExecuted: true },
+    { type: "tool-output-available", toolCallId: "tool-1", output: { status: "completed" }, providerExecuted: true },
+    // Mastra/AI SDK providers may restart their reasoning counter per step.
+    { type: "reasoning-start", id: "reasoning-1" },
+    { type: "reasoning-delta", id: "reasoning-1", delta: "Second step." },
+    { type: "reasoning-end", id: "reasoning-1" },
+    { type: "text-start", id: "text-1" },
+    { type: "text-delta", id: "text-1", delta: "Done." },
+    { type: "text-end", id: "text-1" },
+    { type: "finish", finishReason: "stop" },
+  ];
+  return new ReadableStream({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(chunk);
+      controller.close();
+    },
+  });
+}
+
 describe("Studio chat transcript integration", () => {
+  test("reopens reasoning when a provider reuses an id across tool steps", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-reasoning-reuse-"));
+    const sessionMemory = createTesseraSessionMemory({ rootDirectory });
+    const threadId = `thread-${randomUUID()}`;
+    const app = createStudioApp({
+      connector: connector(),
+      sessionMemory,
+      agent: {
+        async run() {
+          return { status: "needs_input", message: "unused" };
+        },
+        streamUI() {
+          return reusedReasoningIdSourceStream();
+        },
+      },
+    });
+
+    try {
+      const response = await app.fetch(request("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: "chat-reasoning-reuse",
+          threadId,
+          trigger: "submit-message",
+          messages: [{
+            id: "user-message-id",
+            role: "user",
+            parts: [{ type: "text", text: "Run the query." }],
+          }],
+        }),
+      }));
+      const sse = await response.text();
+      expect(response.status).toBe(200);
+      expect(sse.match(/"type":"reasoning-start"/g)?.length).toBe(2);
+      expect(sse.match(/"type":"reasoning-end"/g)?.length).toBe(2);
+      expect(sse).not.toContain("tessera-");
+      expect(sse).not.toContain("AI_UIMessageStreamError");
+    } finally {
+      await sessionMemory.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
   test("persists a server stream as Assistant UI parts while redacting provider payloads", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-server-transcript-"));
     const sessionMemory = createTesseraSessionMemory({ rootDirectory });
