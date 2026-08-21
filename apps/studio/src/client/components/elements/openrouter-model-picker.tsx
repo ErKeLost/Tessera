@@ -28,7 +28,6 @@ import {
 import {
   BotIcon,
   CheckIcon,
-  ChevronDownIcon,
   LoaderCircleIcon,
 } from "lucide-react";
 import { type WheelEvent, useState } from "react";
@@ -46,6 +45,7 @@ import {
   PopoverTrigger,
 } from "../ui/popover";
 import { cn } from "../../lib/utils";
+import { StudioIcon } from "../studio-icon";
 
 export type OpenRouterModelPickerOption = Readonly<{
   id: string;
@@ -110,7 +110,7 @@ export function OpenRouterModelPicker({
             <span className="studio-model-picker-label">{selectedLabel}</span>
             {loading ? <LoaderCircleIcon aria-label="Loading models" className="spin" size={13} /> : null}
           </span>
-          <ChevronDownIcon aria-hidden="true" className="studio-model-picker-chevron" size={15} />
+          <StudioIcon className="studio-model-picker-chevron" icon="solar:alt-arrow-down-linear" size={15} />
         </button>
       </PopoverTrigger>
       <PopoverContent

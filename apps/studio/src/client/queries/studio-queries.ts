@@ -4,6 +4,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import {
+  clearStudioThreads,
   createStudioThread,
   deleteStudioThread,
   fetchStudioCatalog,
@@ -78,6 +79,16 @@ export function useStudioThreadMutations() {
     create: useMutation({
       mutationFn: () => createStudioThread(),
       onSuccess: () => invalidateThreads(),
+    }),
+    clear: useMutation({
+      mutationFn: () => clearStudioThreads(),
+      onSuccess: () => {
+        const threads = queryClient.getQueryData<readonly { id: string }[]>(studioQueryKeys.threads) ?? [];
+        queryClient.setQueryData(studioQueryKeys.threads, []);
+        for (const thread of threads) {
+          queryClient.removeQueries({ queryKey: studioQueryKeys.threadMessages(thread.id) });
+        }
+      },
     }),
     remove: useMutation({
       mutationFn: (threadId: string) => deleteStudioThread(threadId),

@@ -50,13 +50,6 @@ import {
   type TesseraConfigInput,
   TesseraConfigError,
 } from "./config";
-import {
-  assistantReasoningHoldbackStart,
-  assistantTextHoldbackStart,
-  isSafeAssistantReasoningFragment,
-  isSafeAssistantTextFragment,
-  redactOpaqueAssistantIdentifiers,
-} from "./public-text";
 import type {
   TesseraToolName,
   TesseraUIMessage,
@@ -103,8 +96,6 @@ import {
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
 const MAX_CHAT_MESSAGE_PARTS = 8;
-const MAX_PUBLIC_TOOL_COUNT = 10_000;
-const MAX_PENDING_PUBLIC_TEXT_CHARS = 4_096;
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "list_database",
   "list_catalog",
@@ -740,6 +731,14 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
     return context.json({ thread }, 201);
   }));
 
+  app.delete("/api/threads", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const memory = requireSessionMemory(runtime.sessionMemory);
+    const resourceId = resourceIdForContext(context);
+    const deletedThreadIds = await memory.clearThreads({ resourceId });
+    chatRetries.clearResource({ resourceId });
+    return context.json({ deletedCount: deletedThreadIds.length });
+  }));
+
   app.get("/api/threads/:threadId/messages", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
     const memory = requireSessionMemory(runtime.sessionMemory);
     const threadId = parseThreadId(context.req.param("threadId"));
@@ -1146,7 +1145,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
       const source = runtime.agent.streamUI?.(agentInput)
         ?? streamLegacyAgentToUI(runtime.agent, agentInput);
       const durableSource = createUIMessageStream<TesseraUIMessage>({
-        execute: ({ writer }) => writer.merge(redactTesseraUiStream(source, { runId })),
+        execute: ({ writer }) => writer.merge(source),
         onError: () => "The Tessera Agent could not complete this analysis.",
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
           // `consumeSseStream` below ensures this callback also runs after an
@@ -1157,7 +1156,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
             chatRetries.mark({
               resourceId: sessionResourceId,
               threadId,
-              messageId: `message-${runId}`,
+              messageId: responseMessage.id,
               message,
             });
             return;
@@ -3002,6 +3001,11 @@ function createStudioChatRetryRegistry() {
         if (retry.resourceId === input.resourceId && retry.threadId === input.threadId) retries.delete(key);
       }
     },
+    clearResource(input: Readonly<{ resourceId: string }>): void {
+      for (const [key, retry] of retries) {
+        if (retry.resourceId === input.resourceId) retries.delete(key);
+      }
+    },
   };
 }
 
@@ -3142,386 +3146,11 @@ function publicAgentRun(runId: string, threadId: string, run: StudioAgentRun): R
   };
 }
 
-type TesseraPublicStreamContext = Readonly<{
-  runId: string;
-}>;
-
-type TesseraPublicToolCall = Readonly<{
-  id: string;
-  tool: TesseraToolName;
-}>;
-
-type TesseraPublicStreamState = {
-  readonly sourceToolCalls: Map<string, TesseraPublicToolCall>;
-  readonly sourceTextIds: Map<string, string>;
-  readonly sourceReasoningIds: Map<string, string>;
-  readonly activeReasoningIds: Set<string>;
-  /** A text start crosses the boundary only with a safe first delta. */
-  readonly startedNarrations: Set<string>;
-  readonly pendingNarrations: Map<string, string>;
-  readonly pendingReasoning: Map<string, string>;
-  readonly blockedReasoning: Set<string>;
-  /** A rejected narrative makes the rest of this UI message unpublishable. */
-  unsafeNarration: boolean;
-  nextTextId: number;
-  nextReasoningId: number;
-  nextToolId: number;
-};
-
-/**
- * `streamUI` is an extension point. Treat its output as untrusted even when it
- * is typed as TesseraUIMessageChunk: injected agents can cast arbitrary data into
- * that type. Rebuild each supported chunk from public fields rather than
- * forwarding a partial object with provider metadata or raw tool payloads.
- */
-function redactTesseraUiStream(
-  source: ReadableStream<TesseraUIMessageChunk>,
-  context: TesseraPublicStreamContext,
-): ReadableStream<TesseraUIMessageChunk> {
-  const state: TesseraPublicStreamState = {
-    sourceToolCalls: new Map(),
-    sourceTextIds: new Map(),
-    sourceReasoningIds: new Map(),
-    activeReasoningIds: new Set(),
-    startedNarrations: new Set(),
-    pendingNarrations: new Map(),
-    pendingReasoning: new Map(),
-    blockedReasoning: new Set(),
-    unsafeNarration: false,
-    nextTextId: 1,
-    nextReasoningId: 1,
-    nextToolId: 1,
-  };
-  return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
-    transform(chunk, controller) {
-      const publicChunks = redactTesseraUiChunk(chunk, context, state);
-      if (publicChunks && "type" in publicChunks) {
-        controller.enqueue(publicChunks);
-      } else if (publicChunks) {
-        for (const publicChunk of publicChunks) controller.enqueue(publicChunk);
-      }
-    },
-  }));
-}
-
-function redactTesseraUiChunk(
-  chunk: unknown,
-  context: TesseraPublicStreamContext,
-  state: TesseraPublicStreamState,
-): TesseraUIMessageChunk | readonly TesseraUIMessageChunk[] | undefined {
-  const source = asRecord(chunk);
-  if (!source || typeof source.type !== "string") return undefined;
-
-  // Never publish a partially rejected message as a successful answer. The
-  // source stream can be supplied by an embedded host, so it is not trusted
-  // merely because it conforms to the UI-message TypeScript type.
-  if (state.unsafeNarration) {
-    if (source.type === "abort") return { type: "abort" } as TesseraUIMessageChunk;
-    if (source.type === "finish") return { type: "finish", finishReason: "error" } as TesseraUIMessageChunk;
-    return undefined;
-  }
-
-  switch (source.type) {
-    case "start":
-      return { type: "start", messageId: `message-${context.runId}` } as TesseraUIMessageChunk;
-    case "text-start": {
-      // An unsafe split response must not leave an open text part in the
-      // browser before the prefix gate has accepted any of its content.
-      publicTextId(source.id, context, state);
-      return undefined;
-    }
-    case "text-delta": {
-      const id = publicTextId(source.id, context, state);
-      return id ? publicAssistantTextDeltas(source.delta, id, state) : undefined;
-    }
-    case "text-end": {
-      const id = publicTextId(source.id, context, state);
-      if (id === undefined) return undefined;
-      const flushed = flushPublicAssistantText(id, state);
-      return state.startedNarrations.has(id)
-        ? [...flushed, { type: "text-end", id } as TesseraUIMessageChunk]
-        : flushed;
-    }
-    case "reasoning-start": {
-      const sourceId = sourceIdentifier(source.id);
-      if (sourceId === undefined) return undefined;
-      // Providers commonly restart their reasoning counter for each model
-      // step. A completed source id is no longer active and must be allowed
-      // to open a fresh native reasoning part.
-      if (state.sourceReasoningIds.has(sourceId)) {
-        const existing = state.sourceReasoningIds.get(sourceId);
-        if (existing !== undefined && state.activeReasoningIds.has(existing)) return undefined;
-        state.sourceReasoningIds.delete(sourceId);
-      }
-      const id = `reasoning-${context.runId}-${state.nextReasoningId++}`;
-      state.sourceReasoningIds.set(sourceId, id);
-      state.activeReasoningIds.add(id);
-      return { type: "reasoning-start", id } as TesseraUIMessageChunk;
-    }
-    case "reasoning-delta": {
-      const id = publicExistingReasoningId(source.id, state);
-      return id === undefined ? undefined : publicAssistantReasoningDelta(source.delta, id, state);
-    }
-    case "reasoning-end": {
-      const id = publicExistingReasoningId(source.id, state);
-      if (id === undefined) return undefined;
-      const chunks = [
-        ...flushPublicAssistantReasoning(id, state),
-        { type: "reasoning-end", id } as TesseraUIMessageChunk,
-      ];
-      state.activeReasoningIds.delete(id);
-      state.blockedReasoning.delete(id);
-      forgetPublicReasoningId(id, state);
-      return chunks;
-    }
-    case "tool-input-start": {
-      const tool = asTesseraToolName(source.toolName);
-      const call = tool === undefined ? undefined : publicToolCall(source.toolCallId, tool, context, state);
-      return call === undefined
-        ? undefined
-        : {
-          type: "tool-input-start",
-          toolCallId: call.id,
-          toolName: call.tool,
-          providerExecuted: true,
-          title: publicToolTitle(call.tool),
-        } as TesseraUIMessageChunk;
-    }
-    case "tool-input-available": {
-      const tool = asTesseraToolName(source.toolName);
-      const call = tool === undefined ? undefined : publicToolCall(source.toolCallId, tool, context, state);
-      return call === undefined
-        ? undefined
-        : {
-          type: "tool-input-available",
-          toolCallId: call.id,
-          toolName: call.tool,
-          input: publicToolInput(call.tool),
-          providerExecuted: true,
-          title: publicToolTitle(call.tool),
-        } as TesseraUIMessageChunk;
-    }
-    case "tool-input-error": {
-      const tool = asTesseraToolName(source.toolName);
-      const call = tool === undefined ? undefined : publicToolCall(source.toolCallId, tool, context, state);
-      return call === undefined
-        ? undefined
-        : {
-          type: "tool-input-error",
-          toolCallId: call.id,
-          toolName: call.tool,
-          input: publicToolInput(call.tool),
-          providerExecuted: true,
-          errorText: "This operation could not be prepared.",
-          title: publicToolTitle(call.tool),
-        } as TesseraUIMessageChunk;
-    }
-    case "tool-output-available": {
-      const call = publicExistingToolCall(source.toolCallId, state);
-      if (call === undefined) return undefined;
-      const output = publicToolOutput(call.tool, source.output);
-      // Mastra represents invalid tool input as an output value. Present it
-      // as a real terminal tool error so the client never leaves the row in a
-      // retrying/output-available visual state.
-      if (output.status === "failed") {
-        return {
-          type: "tool-output-error",
-          toolCallId: call.id,
-          providerExecuted: true,
-          errorText: "This operation could not be completed.",
-        } as TesseraUIMessageChunk;
-      }
-      return {
-        type: "tool-output-available",
-        toolCallId: call.id,
-        output,
-        providerExecuted: true,
-      } as TesseraUIMessageChunk;
-    }
-    case "tool-output-error": {
-      const call = publicExistingToolCall(source.toolCallId, state);
-      return call === undefined
-        ? undefined
-        : {
-          type: "tool-output-error",
-          toolCallId: call.id,
-          providerExecuted: true,
-          errorText: "This operation could not be completed.",
-        } as TesseraUIMessageChunk;
-    }
-    case "tool-output-denied": {
-      const call = publicExistingToolCall(source.toolCallId, state);
-      return call === undefined
-        ? undefined
-        : { type: "tool-output-denied", toolCallId: call.id } as TesseraUIMessageChunk;
-    }
-    case "start-step":
-    case "finish-step":
-      // Provider iteration markers do not render content in Assistant UI.
-      return undefined;
-    case "error":
-      return [
-        ...closePublicAssistantReasoning(state),
-        { type: "error", errorText: "The Tessera Agent could not complete this analysis." } as TesseraUIMessageChunk,
-      ];
-    case "abort":
-      return [
-        ...closePublicAssistantReasoning(state),
-        { type: "abort" } as TesseraUIMessageChunk,
-      ];
-    case "finish":
-      {
-        const finishReason = publicFinishReason(source.finishReason);
-        return [
-          ...closePublicAssistantReasoning(state),
-          ...flushAllPublicAssistantText(state),
-          {
-            type: "finish",
-            ...(finishReason === undefined ? {} : { finishReason }),
-          } as TesseraUIMessageChunk,
-        ];
-      }
-    default:
-      // Provider metadata, sources, files, and custom data chunks can carry
-      // private execution material and have no Studio UI contract.
-      return undefined;
-  }
-}
-
-function publicTextId(
-  sourceId: unknown,
-  context: TesseraPublicStreamContext,
-  state: TesseraPublicStreamState,
-): string | undefined {
-  const id = sourceIdentifier(sourceId);
-  if (!id) return undefined;
-  const existing = state.sourceTextIds.get(id);
-  if (existing) return existing;
-  const publicId = `text-${context.runId}-${state.nextTextId++}`;
-  state.sourceTextIds.set(id, publicId);
-  return publicId;
-}
-
-function publicExistingReasoningId(
-  sourceId: unknown,
-  state: TesseraPublicStreamState,
-): string | undefined {
-  const id = sourceIdentifier(sourceId);
-  return id === undefined ? undefined : state.sourceReasoningIds.get(id);
-}
-
-function publicToolCall(
-  sourceId: unknown,
-  tool: TesseraToolName,
-  context: TesseraPublicStreamContext,
-  state: TesseraPublicStreamState,
-): TesseraPublicToolCall | undefined {
-  const id = sourceIdentifier(sourceId);
-  if (!id) return undefined;
-  const existing = state.sourceToolCalls.get(id);
-  if (existing) return existing.tool === tool ? existing : undefined;
-  const call = { id: `tool-${context.runId}-${state.nextToolId++}`, tool };
-  state.sourceToolCalls.set(id, call);
-  return call;
-}
-
-function publicExistingToolCall(
-  sourceId: unknown,
-  state: TesseraPublicStreamState,
-): TesseraPublicToolCall | undefined {
-  const id = sourceIdentifier(sourceId);
-  return id === undefined ? undefined : state.sourceToolCalls.get(id);
-}
-
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
   if (tool === "list_database") return { action: "list_database" };
   if (tool === "list_catalog") return { action: "list_catalog" };
   if (tool === "execute_sql") return { action: "execute_sql" };
   return { action: "run_governed_analysis" };
-}
-
-function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string, unknown> {
-  const output = isRecord(value) ? value : undefined;
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : output?.status === "unavailable" || output?.status === "rejected"
-      ? "blocked"
-      : "failed";
-  if (tool === "list_database") {
-    const scope = output?.scope === "current" || output?.scope === "schema" || output?.scope === "capabilities"
-      ? output.scope
-      : undefined;
-    const entityCount = boundedPublicInteger(output?.entityCount, MAX_PUBLIC_TOOL_COUNT);
-    const schema = isRecord(output?.schema) ? output.schema : undefined;
-    const tables = Array.isArray(schema?.tables) ? schema.tables : undefined;
-    const tableCount = boundedPublicInteger(
-      output?.tableCount ?? (tables === undefined ? undefined : tables.length),
-      MAX_PUBLIC_TOOL_COUNT,
-    );
-    const columnCount = boundedPublicInteger(
-      output?.columnCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
-        const record = isRecord(table as unknown) ? table as Record<string, unknown> : undefined;
-        return count + (record && Array.isArray(record.columns) ? record.columns.length : 0);
-      }, 0)),
-      MAX_PUBLIC_TOOL_COUNT,
-    );
-    const foreignKeyCount = boundedPublicInteger(
-      output?.foreignKeyCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
-        const record = isRecord(table as unknown) ? table as Record<string, unknown> : undefined;
-        return count + (record && Array.isArray(record.foreignKeys) ? record.foreignKeys.length : 0);
-      }, 0)),
-      MAX_PUBLIC_TOOL_COUNT,
-    );
-    const componentCount = Array.isArray(output?.components)
-      ? Math.min(MAX_PUBLIC_TOOL_COUNT, output.components.length)
-      : undefined;
-    return {
-      status,
-      ...(scope === undefined ? {} : { scope }),
-      ...(entityCount === undefined ? {} : { entityCount }),
-      ...(tableCount === undefined ? {} : { tableCount }),
-      ...(columnCount === undefined ? {} : { columnCount }),
-      ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
-      ...(typeof output?.dialect === "string" ? { dialect: output.dialect } : {}),
-      ...(componentCount === undefined ? {} : { componentCount }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-    };
-  }
-  if (tool === "list_catalog") {
-    const mode = output?.mode === "search" || output?.mode === "describe" ? output.mode : undefined;
-    const entityCount = boundedPublicInteger(output?.entityCount ?? output?.tableCount, MAX_PUBLIC_TOOL_COUNT);
-    return {
-      status,
-      ...(mode === undefined ? {} : { mode }),
-      ...(entityCount === undefined ? {} : { entityCount }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-    };
-  }
-  if (tool === "execute_sql") {
-    const mode = output?.mode === "read" || output?.mode === "mutation" ? output.mode : undefined;
-    const approvalRequired = output?.status === "approval_required";
-    const rowCount = boundedPublicInteger(output?.rowCount, MAX_PUBLIC_TOOL_COUNT);
-    const affectedRows = boundedPublicInteger(output?.affectedRows, MAX_PUBLIC_TOOL_COUNT);
-    const requestId = sourceIdentifier(output?.requestId);
-    const checkpointId = sourceIdentifier(output?.checkpointId);
-    return {
-      status: approvalRequired ? "approval_required" : status,
-      ...(mode === undefined ? {} : { mode }),
-      ...(rowCount === undefined ? {} : { rowCount }),
-      ...(affectedRows === undefined ? {} : { affectedRows }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-      ...(approvalRequired && requestId !== undefined && checkpointId !== undefined
-        ? { requestId, checkpointId }
-        : {}),
-    };
-  }
-
-  const rowCount = boundedPublicInteger(output?.rowCount, MAX_PUBLIC_TOOL_COUNT);
-  return {
-    status,
-    ...(rowCount === undefined ? {} : { rowCount }),
-    ...(output?.truncated === true ? { truncated: true } : {}),
-  };
 }
 
 function publicToolLogState(value: unknown): "completed" | "blocked" | "failed" {
@@ -3541,164 +3170,6 @@ function publicToolTitle(tool: TesseraToolName): string {
 function asTesseraToolName(value: unknown): TesseraToolName | undefined {
   return typeof value === "string" && TESSERA_PUBLIC_TOOL_NAMES.has(value as TesseraToolName)
     ? value as TesseraToolName
-    : undefined;
-}
-
-function publicFinishReason(value: unknown): FinishReason | undefined {
-  return value === "stop"
-    || value === "length"
-    || value === "content-filter"
-    || value === "tool-calls"
-    || value === "error"
-    || value === "other"
-    ? value
-    : undefined;
-}
-
-function sourceIdentifier(value: unknown): string | undefined {
-  return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : undefined;
-}
-
-function boundedPublicText(value: unknown, maximum: number): string | undefined {
-  return typeof value === "string" && value.length > 0 ? value.slice(0, maximum) : undefined;
-}
-
-function publicAssistantTextDeltas(
-  value: unknown,
-  id: string,
-  state: TesseraPublicStreamState,
-): readonly TesseraUIMessageChunk[] {
-  const delta = boundedPublicText(value, 4_096);
-  if (delta === undefined) return [];
-  const buffered = `${state.pendingNarrations.get(id) ?? ""}${delta}`;
-  if (!isSafeAssistantTextFragment(buffered) || buffered.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
-    state.unsafeNarration = true;
-    return [{ type: "error", errorText: "The Tessera Agent returned an unsafe response." } as TesseraUIMessageChunk];
-  }
-  const holdbackStart = assistantTextHoldbackStart(buffered);
-  if (holdbackStart === undefined) {
-    state.pendingNarrations.delete(id);
-    return buffered.length === 0
-      ? []
-      : publicAssistantTextDelta(id, redactOpaqueAssistantIdentifiers(buffered), state);
-  }
-  const safePrefix = buffered.slice(0, holdbackStart);
-  const pending = buffered.slice(holdbackStart);
-  if (pending.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
-    state.unsafeNarration = true;
-    return [{ type: "error", errorText: "The Tessera Agent returned an unsafe response." } as TesseraUIMessageChunk];
-  }
-  state.pendingNarrations.set(id, pending);
-  return safePrefix.length === 0
-    ? []
-    : publicAssistantTextDelta(id, redactOpaqueAssistantIdentifiers(safePrefix), state);
-}
-
-function flushPublicAssistantText(id: string, state: TesseraPublicStreamState): readonly TesseraUIMessageChunk[] {
-  const pending = state.pendingNarrations.get(id);
-  state.pendingNarrations.delete(id);
-  return pending === undefined || pending.length === 0
-    ? []
-    : publicAssistantTextDelta(id, redactOpaqueAssistantIdentifiers(pending), state);
-}
-
-function flushAllPublicAssistantText(state: TesseraPublicStreamState): readonly TesseraUIMessageChunk[] {
-  const chunks = [...state.pendingNarrations.keys()].flatMap((id) => flushPublicAssistantText(id, state));
-  return chunks;
-}
-
-function publicAssistantTextDelta(
-  id: string,
-  delta: string,
-  state: TesseraPublicStreamState,
-): readonly TesseraUIMessageChunk[] {
-  const start = state.startedNarrations.has(id)
-    ? []
-    : (() => {
-      state.startedNarrations.add(id);
-      return [{ type: "text-start", id } as TesseraUIMessageChunk];
-    })();
-  return [...start, { type: "text-delta", id, delta } as TesseraUIMessageChunk];
-}
-
-function publicAssistantReasoningDelta(
-  value: unknown,
-  id: string,
-  state: TesseraPublicStreamState,
-): readonly TesseraUIMessageChunk[] {
-  if (state.blockedReasoning.has(id)) return [];
-  const delta = boundedPublicText(value, 4_096);
-  if (delta === undefined) return [];
-  const buffered = `${state.pendingReasoning.get(id) ?? ""}${delta}`;
-  if (!isSafeAssistantReasoningFragment(buffered) || buffered.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
-    state.pendingReasoning.delete(id);
-    state.blockedReasoning.add(id);
-    return [];
-  }
-  const holdbackStart = assistantReasoningHoldbackStart(buffered);
-  if (holdbackStart === undefined) {
-    state.pendingReasoning.delete(id);
-    return [{
-      type: "reasoning-delta",
-      id,
-      delta: redactOpaqueAssistantIdentifiers(buffered),
-    } as TesseraUIMessageChunk];
-  }
-  const safePrefix = buffered.slice(0, holdbackStart);
-  const pending = buffered.slice(holdbackStart);
-  if (pending.length > MAX_PENDING_PUBLIC_TEXT_CHARS) {
-    state.pendingReasoning.delete(id);
-    state.blockedReasoning.add(id);
-    return [];
-  }
-  state.pendingReasoning.set(id, pending);
-  return safePrefix.length === 0
-    ? []
-    : [{
-      type: "reasoning-delta",
-      id,
-      delta: redactOpaqueAssistantIdentifiers(safePrefix),
-    } as TesseraUIMessageChunk];
-}
-
-function flushPublicAssistantReasoning(
-  id: string,
-  state: TesseraPublicStreamState,
-): readonly TesseraUIMessageChunk[] {
-  const pending = state.pendingReasoning.get(id);
-  state.pendingReasoning.delete(id);
-  return state.blockedReasoning.has(id) || pending === undefined || pending.length === 0
-    ? []
-    : [{
-      type: "reasoning-delta",
-      id,
-      delta: redactOpaqueAssistantIdentifiers(pending),
-    } as TesseraUIMessageChunk];
-}
-
-function closePublicAssistantReasoning(
-  state: TesseraPublicStreamState,
-): readonly TesseraUIMessageChunk[] {
-  const chunks: TesseraUIMessageChunk[] = [];
-  for (const id of state.activeReasoningIds) {
-    chunks.push(...flushPublicAssistantReasoning(id, state));
-    chunks.push({ type: "reasoning-end", id });
-    state.blockedReasoning.delete(id);
-    forgetPublicReasoningId(id, state);
-  }
-  state.activeReasoningIds.clear();
-  return chunks;
-}
-
-function forgetPublicReasoningId(id: string, state: TesseraPublicStreamState): void {
-  for (const [sourceId, publicId] of state.sourceReasoningIds) {
-    if (publicId === id) state.sourceReasoningIds.delete(sourceId);
-  }
-}
-
-function boundedPublicInteger(value: unknown, maximum: number): number | undefined {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-    ? Math.min(value, maximum)
     : undefined;
 }
 

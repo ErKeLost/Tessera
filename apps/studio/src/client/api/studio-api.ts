@@ -244,6 +244,15 @@ export function deleteStudioThread(threadId: string): Promise<unknown> {
   return requestJson<unknown>(`/api/threads/${encodeURIComponent(threadId)}`, { method: "DELETE" });
 }
 
+export async function clearStudioThreads(): Promise<number> {
+  const body = await requestJson<unknown>("/api/threads", { method: "DELETE" });
+  const deletedCount = asRecord(body)?.deletedCount;
+  if (!Number.isSafeInteger(deletedCount) || (deletedCount as number) < 0) {
+    throw new Error("thread_clear_response_invalid");
+  }
+  return deletedCount as number;
+}
+
 export async function fetchStudioThreadMessages(threadId: string, signal?: AbortSignal): Promise<readonly TesseraUIMessage[]> {
   const body = await requestJson<unknown>(`/api/threads/${encodeURIComponent(threadId)}/messages`, { signal });
   return readPublicUiMessages(body);

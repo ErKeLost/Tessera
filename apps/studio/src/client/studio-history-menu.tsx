@@ -1,18 +1,14 @@
-import {
-  CheckIcon,
-  MoreHorizontalIcon,
-  PencilIcon,
-  PlusIcon,
-  Trash2Icon,
-} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StudioThreadSummary } from "./api/studio-api";
+import { StudioIcon } from "./components/studio-icon";
 
 type StudioHistoryMenuProps = Readonly<{
   activeThreadId: string | undefined;
   error: string | undefined;
+  isClearing: boolean;
   isCreating: boolean;
   isLoading: boolean;
+  onClear(): Promise<void> | void;
   onClose(): void;
   onCreate(): Promise<void> | void;
   onDelete(threadId: string): Promise<void> | void;
@@ -24,8 +20,10 @@ type StudioHistoryMenuProps = Readonly<{
 export function StudioHistoryMenu({
   activeThreadId,
   error,
+  isClearing,
   isCreating,
   isLoading,
+  onClear,
   onClose,
   onCreate,
   onDelete,
@@ -36,6 +34,7 @@ export function StudioHistoryMenu({
   const [menuThreadId, setMenuThreadId] = useState<string>();
   const [renamingThreadId, setRenamingThreadId] = useState<string>();
   const [draftTitle, setDraftTitle] = useState("");
+  const [confirmingClear, setConfirmingClear] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -102,7 +101,7 @@ export function StudioHistoryMenu({
                   <span className="studio-history-item-title">{thread.title}</span>
                   <span className="studio-history-item-meta">
                     {formatUpdatedAt(thread.updatedAt)}
-                    {current ? <span className="studio-history-current"><CheckIcon aria-hidden="true" size={11} />Current</span> : null}
+                    {current ? <span className="studio-history-current"><StudioIcon icon="solar:check-read-linear" size={13} />Current</span> : null}
                   </span>
                 </button>
               )}
@@ -113,15 +112,15 @@ export function StudioHistoryMenu({
                 onClick={() => setMenuThreadId((currentId) => currentId === thread.id ? undefined : thread.id)}
                 type="button"
               >
-                <MoreHorizontalIcon aria-hidden="true" size={16} />
+                <StudioIcon icon="solar:menu-dots-linear" size={17} />
               </button>
               {menuOpen ? (
                 <div aria-label={`Manage ${thread.title}`} className="studio-history-item-actions" role="menu">
                   <button onClick={() => beginRename(thread)} role="menuitem" type="button">
-                    <PencilIcon aria-hidden="true" size={14} />Rename
+                    <StudioIcon icon="solar:pen-linear" size={14} />Rename
                   </button>
                   <button className="is-destructive" onClick={() => void removeThread(thread)} role="menuitem" type="button">
-                    <Trash2Icon aria-hidden="true" size={14} />Delete
+                    <StudioIcon icon="solar:trash-bin-trash-linear" size={14} />Delete
                   </button>
                 </div>
               ) : null}
@@ -130,18 +129,64 @@ export function StudioHistoryMenu({
         }) : null}
       </div>
       {error ? <p className="studio-history-error" role="alert">{error}</p> : null}
-      <button
-        className="studio-history-new"
-        disabled={isCreating}
-        onClick={() => {
-          void onCreate();
-          onClose();
-        }}
-        type="button"
-      >
-        <PlusIcon aria-hidden="true" size={17} />
-        New chat
-      </button>
+      {confirmingClear ? (
+        <div
+          aria-describedby="studio-history-clear-description"
+          aria-labelledby="studio-history-clear-title"
+          className="studio-history-clear-confirm"
+          role="alertdialog"
+        >
+          <div>
+            <p id="studio-history-clear-title">Clear all sessions?</p>
+            <p id="studio-history-clear-description">
+              {threads.length} saved {threads.length === 1 ? "session" : "sessions"} and their messages will be permanently deleted.
+            </p>
+          </div>
+          <div className="studio-history-clear-actions">
+            <button autoFocus disabled={isClearing} onClick={() => setConfirmingClear(false)} type="button">Cancel</button>
+            <button
+              className="is-destructive"
+              disabled={isClearing}
+              onClick={async () => {
+                try {
+                  await onClear();
+                  setConfirmingClear(false);
+                } catch {
+                  // The shared inline error surface reports request failures.
+                }
+              }}
+              type="button"
+            >
+              <StudioIcon icon="solar:trash-bin-trash-linear" size={14} />
+              {isClearing ? "Clearing..." : "Clear all"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="studio-history-footer">
+          <button
+            className="studio-history-new"
+            disabled={isCreating || isClearing}
+            onClick={() => {
+              void onCreate();
+              onClose();
+            }}
+            type="button"
+          >
+            <StudioIcon icon="solar:add-circle-linear" size={17} />
+            New chat
+          </button>
+          <button
+            className="studio-history-clear"
+            disabled={threads.length === 0 || isLoading || isCreating || isClearing}
+            onClick={() => setConfirmingClear(true)}
+            type="button"
+          >
+            <StudioIcon icon="solar:trash-bin-trash-linear" size={15} />
+            Clear all
+          </button>
+        </div>
+      )}
     </section>
   );
 }

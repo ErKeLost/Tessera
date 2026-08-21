@@ -8,16 +8,8 @@ import { createStudioApp } from "./server";
 import { createTesseraSessionMemory } from "./session-memory";
 import type { TesseraUIMessageChunk } from "./protocol";
 
-const RAW_SQL = "select raw_sql_marker from private.orders";
-const RAW_ROW = "raw_row_marker";
-const RAW_TOOL_ROW = "raw_tool_row_marker";
-const RAW_CREDENTIAL = "sk-or-v1-server-transcript-secret-123456";
-const PROVIDER_ERROR = "provider-error-marker";
-const RAW_SOURCE_TABLE = "private.source_table_marker";
-const RAW_FILTER = "private_filter_marker";
-const RAW_DETAIL = "private_stage_detail_marker";
-const RAW_RUN_ID = "provider-run-id-do-not-expose";
-const RAW_THREAD_ID = "provider-thread-id-do-not-expose";
+const SAFE_SQL = "select count(*) from public.orders";
+const SAFE_TOOL_ROW = "orders-count";
 const SAFE_REASONING = "Checked SELECT count(*) FROM orders against the requested period.";
 
 const catalog = finalizeCatalog({
@@ -94,127 +86,28 @@ function sourceStream(): ReadableStream<TesseraUIMessageChunk> {
       toolCallId: "provider-tool-id",
       toolName: "run_analysis",
       providerExecuted: true,
-      providerMetadata: { provider: { apiKey: RAW_CREDENTIAL } },
-    } as unknown as TesseraUIMessageChunk,
+      title: "Run governed analysis",
+    },
     {
       type: "tool-input-available",
       toolCallId: "provider-tool-id",
       toolName: "run_analysis",
       input: {
-        sql: RAW_SQL,
-        apiKey: RAW_CREDENTIAL,
-        sourceTables: [RAW_SOURCE_TABLE],
-        filter: RAW_FILTER,
-        detail: RAW_DETAIL,
+        sql: SAFE_SQL,
       },
       providerExecuted: true,
-    } as unknown as TesseraUIMessageChunk,
+      title: "Run governed analysis",
+    },
     {
       type: "tool-output-available",
       toolCallId: "provider-tool-id",
       output: {
         status: "completed",
         rowCount: 2,
-        rows: [{ marker: RAW_TOOL_ROW }],
-        sourceTables: [RAW_SOURCE_TABLE],
-        detail: RAW_DETAIL,
+        rows: [{ marker: SAFE_TOOL_ROW }],
       },
       providerExecuted: true,
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-tool",
-      id: "provider-tool-id",
-      data: {
-        runId: RAW_RUN_ID,
-        tool: "run_analysis",
-        state: "completed",
-        detail: RAW_DETAIL,
-      },
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-stage",
-      id: "provider-stage-id",
-      data: {
-        runId: RAW_RUN_ID,
-        stage: "executing",
-        status: "completed",
-        durationMs: 12.4,
-        detail: { sql: RAW_SQL, credential: RAW_CREDENTIAL, sourceTable: RAW_SOURCE_TABLE },
-      },
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-execution",
-      id: "provider-execution-id",
-      data: {
-        runId: RAW_RUN_ID,
-        status: "completed",
-        stages: [
-          { stage: "catalog", status: "completed", durationMs: 1 },
-          { stage: "retrieval", status: "completed", durationMs: 2 },
-          { stage: "planning", status: "completed", durationMs: 3 },
-          { stage: "probing", status: "completed", durationMs: 4 },
-          { stage: "compiling", status: "completed", durationMs: 5 },
-          {
-            stage: "executing",
-            status: "completed",
-            durationMs: 6,
-            detail: { sql: RAW_SQL, apiKey: RAW_CREDENTIAL },
-          },
-          { stage: "verifying", status: "completed", durationMs: 7 },
-          { stage: "publishing", status: "completed", durationMs: 8 },
-          { stage: "narrating", status: "completed", durationMs: 9 },
-        ],
-      },
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-artifact",
-      id: "provider-artifact-part-id",
-      data: {
-        artifact: {
-          protocolVersion: "1.0",
-          id: "provider-artifact-id",
-          kind: "query",
-          title: "Orders",
-          description: "Validated order count.",
-          metricDefinition: "Count of orders.",
-          timeZone: "UTC",
-          filters: [RAW_FILTER],
-          warnings: [PROVIDER_ERROR],
-          sql: RAW_SQL,
-          columns: [{ key: "count", label: "Orders", type: "number", format: "plain" }],
-          rows: [{ count: RAW_ROW }],
-          rowCount: 2,
-          truncated: false,
-          sourceTables: [RAW_SOURCE_TABLE],
-        },
-        evidence: [{ queryId: "provider-query-id", label: RAW_DETAIL }],
-      },
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-artifact",
-      id: "provider-artifact-part-id-2",
-      data: {
-        artifact: {
-          protocolVersion: "1.0",
-          id: "provider-artifact-id-2",
-          kind: "metric",
-          title: "Order total",
-          description: "Validated aggregate total.",
-          metrics: [{ id: "total", label: "Orders", value: 2, format: "number" }],
-        },
-        evidence: [],
-      },
-    } as unknown as TesseraUIMessageChunk,
-    {
-      type: "data-tessera-run",
-      id: "provider-run-part-id",
-      data: {
-        runId: RAW_RUN_ID,
-        threadId: RAW_THREAD_ID,
-        status: "completed",
-        evidence: [{ queryId: "provider-query-id", label: RAW_DETAIL }],
-      },
-    } as unknown as TesseraUIMessageChunk,
+    },
     { type: "finish", finishReason: "stop" },
   ];
   return new ReadableStream({
@@ -249,16 +142,19 @@ function successfulTextSourceStream(text: string): ReadableStream<TesseraUIMessa
   });
 }
 
-function reusedReasoningIdSourceStream(): ReadableStream<TesseraUIMessageChunk> {
+function reusedPartIdsSourceStream(): ReadableStream<TesseraUIMessageChunk> {
   const chunks: TesseraUIMessageChunk[] = [
     { type: "start", messageId: "provider-message-id" },
     { type: "reasoning-start", id: "reasoning-1" },
     { type: "reasoning-delta", id: "reasoning-1", delta: "First step." },
     { type: "reasoning-end", id: "reasoning-1" },
+    { type: "text-start", id: "text-1" },
+    { type: "text-delta", id: "text-1", delta: "Checking the database." },
+    { type: "text-end", id: "text-1" },
     { type: "tool-input-start", toolCallId: "tool-1", toolName: "list_database", providerExecuted: true },
     { type: "tool-input-available", toolCallId: "tool-1", toolName: "list_database", input: {}, providerExecuted: true },
     { type: "tool-output-available", toolCallId: "tool-1", output: { status: "completed" }, providerExecuted: true },
-    // Mastra/AI SDK providers may restart their reasoning counter per step.
+    // Mastra providers may restart part counters for each model step.
     { type: "reasoning-start", id: "reasoning-1" },
     { type: "reasoning-delta", id: "reasoning-1", delta: "Second step." },
     { type: "reasoning-end", id: "reasoning-1" },
@@ -276,7 +172,26 @@ function reusedReasoningIdSourceStream(): ReadableStream<TesseraUIMessageChunk> 
 }
 
 describe("Studio chat transcript integration", () => {
-  test("reopens reasoning when a provider reuses an id across tool steps", async () => {
+  test("clears all sessions through the collection endpoint", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-clear-sessions-"));
+    const sessionMemory = createTesseraSessionMemory({ rootDirectory });
+    const app = createStudioApp({ connector: connector(), sessionMemory });
+
+    try {
+      await sessionMemory.createThread({ id: "thread-clear-1", resourceId: "local-studio" });
+      await sessionMemory.createThread({ id: "thread-clear-2", resourceId: "local-studio" });
+      const response = await app.fetch(request("/api/threads", { method: "DELETE" }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ deletedCount: 2 });
+      expect(await sessionMemory.listThreads({ resourceId: "local-studio" })).toEqual([]);
+    } finally {
+      await sessionMemory.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("preserves native part lifecycles when a provider reuses ids across tool steps", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-reasoning-reuse-"));
     const sessionMemory = createTesseraSessionMemory({ rootDirectory });
     const threadId = `thread-${randomUUID()}`;
@@ -288,7 +203,7 @@ describe("Studio chat transcript integration", () => {
           return { status: "needs_input", message: "unused" };
         },
         streamUI() {
-          return reusedReasoningIdSourceStream();
+          return reusedPartIdsSourceStream();
         },
       },
     });
@@ -312,6 +227,10 @@ describe("Studio chat transcript integration", () => {
       expect(response.status).toBe(200);
       expect(sse.match(/"type":"reasoning-start"/g)?.length).toBe(2);
       expect(sse.match(/"type":"reasoning-end"/g)?.length).toBe(2);
+      expect(sse.match(/"type":"text-start"/g)?.length).toBe(2);
+      expect(sse.match(/"type":"text-end"/g)?.length).toBe(2);
+      expect(sse).toContain("Checking the database.");
+      expect(sse).toContain("Done.");
       expect(sse).not.toContain("tessera-");
       expect(sse).not.toContain("AI_UIMessageStreamError");
     } finally {
@@ -320,7 +239,7 @@ describe("Studio chat transcript integration", () => {
     }
   });
 
-  test("persists a server stream as Assistant UI parts while redacting provider payloads", async () => {
+  test("passes native AI SDK parts through and persists them", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-server-transcript-"));
     const sessionMemory = createTesseraSessionMemory({ rootDirectory });
     const threadId = `thread-${randomUUID()}`;
@@ -355,31 +274,15 @@ describe("Studio chat transcript integration", () => {
       expect(response.status).toBe(200);
       const sse = await response.text();
       expect(sse).toContain('"toolName":"run_analysis"');
-      expect(sse).toContain('"action":"run_governed_analysis"');
+      expect(sse).toContain(SAFE_SQL);
+      expect(sse).toContain(SAFE_TOOL_ROW);
       expect(sse).toContain('"rowCount":2');
       expect(sse).toContain('"type":"reasoning-start"');
       expect(sse).toContain('"type":"reasoning-delta"');
       expect(sse).toContain('"type":"reasoning-end"');
       expect(sse).toContain(SAFE_REASONING);
-      expect(sse).not.toContain(RAW_ROW);
-      expect(sse).not.toContain('"type":"data-tessera-');
-      for (const marker of [
-        RAW_SQL,
-        RAW_TOOL_ROW,
-        RAW_CREDENTIAL,
-        PROVIDER_ERROR,
-        RAW_SOURCE_TABLE,
-        RAW_FILTER,
-        RAW_DETAIL,
-        RAW_RUN_ID,
-        RAW_THREAD_ID,
-        "provider-query-id",
-        "provider-tool-id",
-        "provider-reasoning-id",
-        "provider-artifact-id",
-      ]) {
-        expect(sse).not.toContain(marker);
-      }
+      expect(sse).toContain("provider-tool-id");
+      expect(sse).toContain("provider-reasoning-id");
 
       const messagesResponse = await app.fetch(request(`/api/threads/${threadId}/messages`));
       expect(messagesResponse.status).toBe(200);
@@ -398,25 +301,9 @@ describe("Studio chat transcript integration", () => {
 
       const transcriptText = JSON.stringify(payload);
       expect(transcriptText).toContain(SAFE_REASONING);
+      expect(transcriptText).toContain('"action":"run_governed_analysis"');
+      expect(transcriptText).toContain('"rowCount":2');
       expect(transcriptText).not.toContain("data-tessera-");
-      expect(transcriptText).not.toContain(RAW_ROW);
-      for (const marker of [
-        RAW_SQL,
-        RAW_TOOL_ROW,
-        RAW_CREDENTIAL,
-        PROVIDER_ERROR,
-        RAW_SOURCE_TABLE,
-        RAW_FILTER,
-        RAW_DETAIL,
-        RAW_RUN_ID,
-        RAW_THREAD_ID,
-        "provider-query-id",
-        "provider-tool-id",
-        "provider-reasoning-id",
-        "provider-artifact-id",
-      ]) {
-        expect(transcriptText).not.toContain(marker);
-      }
     } finally {
       await sessionMemory.close();
       rmSync(rootDirectory, { force: true, recursive: true });

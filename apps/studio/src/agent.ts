@@ -2828,7 +2828,7 @@ function streamTesseraAgentTurnUI(
           }
         } catch (error) {
           if (!cancelled && !controller.signal.aborted) {
-            if (!started) streamController.enqueue({ type: "start", messageId: `tessera-${input.runId}` });
+            if (!started) streamController.enqueue({ type: "start", messageId: `message-${input.runId}` });
             streamController.enqueue({ type: "error", errorText: "The Tessera Agent could not complete this analysis." });
             streamController.enqueue({ type: "finish", finishReason: "error" });
           }

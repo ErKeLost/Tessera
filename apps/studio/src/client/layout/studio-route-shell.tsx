@@ -1,10 +1,5 @@
 import {
-  ChevronDownIcon,
   GripVerticalIcon,
-  HistoryIcon,
-  PlusIcon,
-  Settings2Icon,
-  Table2Icon,
 } from "lucide-react";
 import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -22,6 +17,7 @@ import {
 import { StudioHistoryMenu } from "../studio-history-menu";
 import { StudioSettingsDialog, type StudioSettingsTab } from "../studio-settings";
 import { StudioThemePicker } from "../studio-theme";
+import { StudioIcon } from "../components/studio-icon";
 import { TooltipIconButton } from "../components/assistant-ui/tooltip-icon-button";
 import { RouteLoading } from "../routes/route-state";
 import type { TableEditorAgentPageContext } from "../table-editor";
@@ -113,6 +109,12 @@ export function StudioRouteShell() {
     navigate(next ? `/chat/${encodeURIComponent(next.id)}` : "/");
   }, [activeThreadId, mutations.remove, navigate, threads]);
 
+  const clearThreads = useCallback(async () => {
+    await mutations.clear.mutateAsync();
+    navigate("/");
+    setHistoryOpen(false);
+  }, [mutations.clear, navigate]);
+
   const onSelectThread = useCallback((id: string) => {
     navigate(`/chat/${encodeURIComponent(id)}`);
   }, [navigate]);
@@ -133,17 +135,19 @@ export function StudioRouteShell() {
           <Popover onOpenChange={setHistoryOpen} open={historyOpen}>
             <PopoverTrigger asChild>
               <Button className="studio-history-trigger" size="sm" type="button" variant="ghost">
-                <HistoryIcon aria-hidden="true" size={15} />
+                <StudioIcon icon="solar:history-linear" size={16} />
                 <span>History</span>
-                <ChevronDownIcon aria-hidden="true" size={14} />
+                <StudioIcon icon="solar:alt-arrow-down-linear" size={14} />
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" className="studio-history-popover" sideOffset={8}>
               <StudioHistoryMenu
                 activeThreadId={activeThreadId}
-                error={threadsError ? publicError(threadsError) : undefined}
+                error={mutations.clear.error || threadsError ? publicError(mutations.clear.error ?? threadsError) : undefined}
+                isClearing={mutations.clear.isPending}
                 isCreating={mutations.create.isPending}
                 isLoading={threadsLoading}
+                onClear={clearThreads}
                 onClose={() => setHistoryOpen(false)}
                 onCreate={createThread}
                 onDelete={deleteThread}
@@ -154,7 +158,7 @@ export function StudioRouteShell() {
             </PopoverContent>
           </Popover>
           <Button aria-label="Start a new analysis" className="studio-new-thread-button" onClick={() => void createThread()} size="sm" type="button" variant="secondary">
-            <PlusIcon aria-hidden="true" size={16} />
+            <StudioIcon icon="solar:add-circle-linear" size={16} />
             <span>New</span>
           </Button>
           <TooltipIconButton
@@ -164,7 +168,7 @@ export function StudioRouteShell() {
             tooltip={databaseOpen ? "Close database explorer" : "Open database explorer"}
             type="button"
           >
-            <Table2Icon aria-hidden="true" size={16} />
+            <StudioIcon icon="solar:database-linear" size={17} />
           </TooltipIconButton>
           <TooltipIconButton
             aria-label="Configure workspace"
@@ -173,7 +177,7 @@ export function StudioRouteShell() {
             tooltip="Configure workspace"
             type="button"
           >
-            <Settings2Icon aria-hidden="true" size={16} />
+            <StudioIcon icon="solar:settings-linear" size={17} />
           </TooltipIconButton>
           <StudioThemePicker />
         </nav>

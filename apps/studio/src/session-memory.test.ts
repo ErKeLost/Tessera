@@ -343,6 +343,24 @@ describe("Tessera Studio UI transcript memory", () => {
     }
   });
 
+  test("clears every thread for one resource without touching another resource", async () => {
+    const sessions = createTesseraSessionMemory({ rootDirectory: temporaryRoot() });
+    try {
+      await sessions.createThread({ id: "thread-a-1", resourceId: "resource-a" });
+      await sessions.createThread({ id: "thread-a-2", resourceId: "resource-a" });
+      await sessions.createThread({ id: "thread-b-1", resourceId: "resource-b" });
+
+      expect(await sessions.clearThreads({ resourceId: "resource-a" })).toEqual(expect.arrayContaining([
+        "thread-a-1",
+        "thread-a-2",
+      ]));
+      expect(await sessions.listThreads({ resourceId: "resource-a" })).toEqual([]);
+      expect((await sessions.listThreads({ resourceId: "resource-b" })).map((thread) => thread.id)).toEqual(["thread-b-1"]);
+    } finally {
+      await sessions.close();
+    }
+  });
+
   test("does not treat private Mastra model history as a browser transcript", async () => {
     const sessions = createTesseraSessionMemory({ rootDirectory: temporaryRoot() });
     try {

@@ -1,9 +1,9 @@
 "use client";
 
 import type { ComponentProps } from "react";
-import { CircleAlertIcon, RefreshCwIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ShimmerLabel } from "@/lib/surfaces";
+import { StudioIcon } from "@/components/studio-icon";
 
 export interface ErrorStateProps extends Omit<
   ComponentProps<"div">,
@@ -36,7 +36,7 @@ export function ErrorState({
 
         {...props}
       >
-        <RefreshCwIcon className="text-foreground/45 size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
+        <StudioIcon className="text-foreground/45 size-3.5 shrink-0 animate-spin motion-reduce:animate-none" icon="solar:refresh-linear" />
         <ShimmerLabel className="text-foreground/55 relative inline-block">
           Retrying
         </ShimmerLabel>
@@ -56,7 +56,7 @@ export function ErrorState({
 
       {...props}
     >
-      <CircleAlertIcon className="mt-0.5 size-4 shrink-0 text-destructive/80" />
+      <StudioIcon className="mt-0.5 size-4 shrink-0 text-destructive/80" icon="solar:danger-triangle-linear" />
       <div>
         <p className="font-medium text-destructive">{title}</p>
         <p className="mt-0.5 text-[13px] leading-snug text-destructive/70">
@@ -68,7 +68,7 @@ export function ErrorState({
         onClick={onRetry}
         className="ms-auto flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
       >
-        <RefreshCwIcon className="size-3" />
+        <StudioIcon icon="solar:refresh-linear" size={13} />
         Retry
       </button>
     </div>

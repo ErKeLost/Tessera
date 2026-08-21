@@ -13,6 +13,7 @@ import {
   unstable_useComposerInput,
 } from "@assistant-ui/react";
 import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
+import { BorderBeam } from "border-beam";
 import {
   CopyIcon,
   LoaderCircleIcon,
@@ -30,6 +31,7 @@ import {
   type StudioSettingsSnapshot,
   type StudioSettingsTab,
 } from "./studio-settings";
+import { useStudioTheme } from "./studio-theme";
 import type { StudioAgentPageContext } from "./layout/studio-route-context";
 import {
   Conversation,
@@ -427,6 +429,7 @@ function StudioEditComposer() {
 function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const attachmentCount = useAuiState((state) => state.composer.attachments.length);
+  const { resolvedTheme } = useStudioTheme();
   const aui = useAui();
   const composer = unstable_useComposerInput();
   const addAttachments = async (files: File[]) => {
@@ -441,24 +444,35 @@ function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettings
 
   return (
     <ComposerPrimitive.Root className="tessera-composer-form">
-      <PromptInput
-        aria-label="Ask Tessera to analyze your data"
-        autoFocus
-        className="tessera-composer studio-composer"
-        attachments={<ComposerAttachments />}
-        disabled={composer.isDisabled}
-        footer={<StudioComposerSettings onOpenSettings={onOpenSettings} />}
-        hasAttachments={attachmentCount > 0}
-        leadingAction={<ComposerAddAttachment />}
-        loading={isRunning}
-        onPasteFiles={addAttachments}
-        onDropFiles={addAttachments}
-        onStop={() => aui.composer.cancel()}
-        onSubmit={() => composer.send()}
-        onValueChange={composer.setText}
-        placeholder="Ask about your data..."
-        value={composer.value}
-      />
+      <BorderBeam
+        active={isRunning}
+        className="studio-composer-beam"
+        colorVariant="sunset"
+        duration={3.1}
+        size="line"
+        staticColors
+        strength={0.64}
+        theme={resolvedTheme}
+      >
+        <PromptInput
+          aria-label="Ask Tessera to analyze your data"
+          autoFocus
+          className="tessera-composer studio-composer"
+          attachments={<ComposerAttachments />}
+          disabled={composer.isDisabled}
+          footer={<StudioComposerSettings onOpenSettings={onOpenSettings} />}
+          hasAttachments={attachmentCount > 0}
+          leadingAction={<ComposerAddAttachment />}
+          loading={isRunning}
+          onPasteFiles={addAttachments}
+          onDropFiles={addAttachments}
+          onStop={() => aui.composer.cancel()}
+          onSubmit={() => composer.send()}
+          onValueChange={composer.setText}
+          placeholder="Ask about your data..."
+          value={composer.value}
+        />
+      </BorderBeam>
     </ComposerPrimitive.Root>
   );
 }

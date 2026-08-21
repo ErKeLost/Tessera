@@ -481,7 +481,7 @@ describe("Tessera Studio Hono app", () => {
     expect(Object.keys(received ?? {})).not.toContain("connector");
   });
 
-  test("filters legacy artifact chunks from the direct UI stream", async () => {
+  test("passes custom agent data chunks through without rewriting", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -523,8 +523,8 @@ describe("Tessera Studio Hono app", () => {
     const body = await response.text();
     expect(response.status).toBe(200);
     expect(body).toContain("Two results are ready.");
-    expect(body).not.toContain('"type":"data-tessera-artifact"');
-    expect(body).not.toContain("provider-artifact-id");
+    expect(body).toContain('"type":"data-tessera-artifact"');
+    expect(body).toContain("provider-artifact-id");
   });
 
   test("binds a valid browser relation only as server-side Agent turn context", async () => {
@@ -647,9 +647,7 @@ describe("Tessera Studio Hono app", () => {
     expect(received[1]?.turnContext).toBeUndefined();
   });
 
-  test("redacts selected-context tool input and output from the public chat stream", async () => {
-    const privateFingerprint = `sha256:${"d".repeat(64)}`;
-    const privateCapability = `cap_${"e".repeat(32)}.${"f".repeat(32)}`;
+  test("passes native tool input and output through without rewriting", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -670,10 +668,8 @@ describe("Tessera Studio Hono app", () => {
                 toolCallId: "provider-current-context-call",
                 toolName: "list_database",
                 input: {
-                  schema: "private_schema",
-                  table: "private_orders",
-                  catalogFingerprint: privateFingerprint,
-                  localFilter: "customer-email@example.test",
+                  schema: "public",
+                  table: "orders",
                 },
               });
               controller.enqueue({
@@ -683,11 +679,6 @@ describe("Tessera Studio Hono app", () => {
                   status: "completed",
                   entityCount: 1,
                   truncated: true,
-                  capability: { token: privateCapability },
-                  catalog: {
-                    ref: { fingerprint: privateFingerprint, catalogFingerprint: privateFingerprint },
-                    entities: [{ label: "private_orders" }],
-                  },
                 },
               });
               controller.enqueue({ type: "finish", finishReason: "stop" });
@@ -711,18 +702,14 @@ describe("Tessera Studio Hono app", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('"toolName":"list_database"');
-    expect(body).toContain('"action":"list_database"');
+    expect(body).toContain('"toolCallId":"provider-current-context-call"');
+    expect(body).toContain('"schema":"public"');
+    expect(body).toContain('"table":"orders"');
     expect(body).toContain('"status":"completed"');
     expect(body).toContain('"entityCount":1');
-    expect(body).not.toContain("provider-current-context-call");
-    expect(body).not.toContain("private_schema");
-    expect(body).not.toContain("private_orders");
-    expect(body).not.toContain(privateFingerprint);
-    expect(body).not.toContain(privateCapability);
-    expect(body).not.toContain("customer-email@example.test");
   });
 
-  test("exposes SQL approval handles without exposing SQL or mutation data", async () => {
+  test("passes native SQL approval tool parts through without rewriting", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -743,9 +730,9 @@ describe("Tessera Studio Hono app", () => {
                 toolCallId: "provider-sql-call",
                 toolName: "execute_sql",
                 input: {
-                  sql: "DELETE FROM private.orders WHERE email = $1",
-                  parameters: ["customer@example.test"],
-                  mutation: { relation: { schema: "private", table: "orders" } },
+                  sql: "DELETE FROM public.orders WHERE id = $1",
+                  parameters: [42],
+                  mutation: { relation: { schema: "public", table: "orders" } },
                 },
               });
               controller.enqueue({
@@ -756,7 +743,6 @@ describe("Tessera Studio Hono app", () => {
                   mode: "mutation",
                   requestId: "database-action-request-1",
                   checkpointId: "database-action-checkpoint-1",
-                  rows: [{ email: "customer@example.test" }],
                 },
               });
               controller.enqueue({ type: "finish", finishReason: "stop" });
@@ -780,14 +766,12 @@ describe("Tessera Studio Hono app", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('"toolName":"execute_sql"');
-    expect(body).toContain('"action":"execute_sql"');
+    expect(body).toContain('"toolCallId":"provider-sql-call"');
+    expect(body).toContain("DELETE FROM public.orders WHERE id = $1");
+    expect(body).toContain('"parameters":[42]');
     expect(body).toContain('"status":"approval_required"');
     expect(body).toContain("database-action-request-1");
     expect(body).toContain("database-action-checkpoint-1");
-    expect(body).not.toContain("provider-sql-call");
-    expect(body).not.toContain("DELETE FROM");
-    expect(body).not.toContain("private.orders");
-    expect(body).not.toContain("customer@example.test");
   });
 
   test("streams bounded chat events while keeping tool payloads server-side", async () => {
@@ -856,7 +840,7 @@ describe("Tessera Studio Hono app", () => {
     expect(errors).toEqual([]);
   });
 
-  test("does not expose empty provider iteration markers in a chat stream", async () => {
+  test("preserves provider iteration markers in the native chat stream", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -895,11 +879,11 @@ describe("Tessera Studio Hono app", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('"type":"text-delta"');
-    expect(body).not.toContain('"type":"start-step"');
-    expect(body).not.toContain('"type":"finish-step"');
+    expect(body).toContain('"type":"start-step"');
+    expect(body).toContain('"type":"finish-step"');
   });
 
-  test("keeps ordinary assistant deltas incremental after the public text gate", async () => {
+  test("keeps ordinary assistant deltas incremental", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -941,7 +925,7 @@ describe("Tessera Studio Hono app", () => {
     expect(body).toContain('"type":"text-end"');
   });
 
-  test("blocks split raw SQL before any text segment reaches chat SSE", async () => {
+  test("passes split assistant text through without content rewriting", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -976,16 +960,16 @@ describe("Tessera Studio Hono app", () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).not.toContain("tessera_split_sql_marker");
-    expect(body).not.toContain("hidden.orders");
-    expect(body).not.toContain('"type":"text-start"');
-    expect(body).not.toContain('"type":"text-delta"');
-    expect(body).not.toContain('"type":"text-end"');
-    expect(body).toContain('"type":"error"');
-    expect(body).toContain('"finishReason":"error"');
+    expect(body).toContain("tessera_split_sql_marker");
+    expect(body).toContain("hidden.orders");
+    expect(body).toContain('"type":"text-start"');
+    expect([...body.matchAll(/"type":"text-delta"/g)]).toHaveLength(2);
+    expect(body).toContain('"type":"text-end"');
+    expect(body).not.toContain('"type":"error"');
+    expect(body).toContain('"finishReason":"stop"');
   });
 
-  test("renders a tool input rejection as a terminal tool error", async () => {
+  test("preserves a native tool output value without rewriting its state", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -1023,12 +1007,12 @@ describe("Tessera Studio Hono app", () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('"type":"tool-output-error"');
-    expect(body).not.toContain('"type":"tool-output-available"');
-    expect(body).not.toContain("private validation detail");
+    expect(body).toContain('"type":"tool-output-available"');
+    expect(body).not.toContain('"type":"tool-output-error"');
+    expect(body).toContain("private validation detail");
   });
 
-  test("renders a recoverable semantic-plan rejection as a completed blocked tool", async () => {
+  test("preserves a native semantic-plan rejection output", async () => {
     const app = createStudioApp({
       connector: createConnector(),
       agent: {
@@ -1070,10 +1054,10 @@ describe("Tessera Studio Hono app", () => {
 
     expect(response.status).toBe(200);
     expect(body).toContain('"type":"tool-output-available"');
-    expect(body).toContain('"status":"blocked"');
+    expect(body).toContain('"status":"rejected"');
     expect(body).not.toContain('"type":"tool-output-error"');
-    expect(body).not.toContain("invalid_plan");
-    expect(body).not.toContain("revise_plan");
+    expect(body).toContain("invalid_plan");
+    expect(body).toContain("revise_plan");
   });
 
   test("logs redacted API and stream lifecycle metadata without chat content", async () => {

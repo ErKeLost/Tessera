@@ -41,6 +41,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "./components/ui/tabs";
+import { StudioIcon, type StudioIconName } from "./components/studio-icon";
 import { cn } from "./lib/utils";
 import { ThinkingOrb } from "thinking-orbs";
 
@@ -56,6 +57,13 @@ export type StudioPermissionSettings = Readonly<{
   profile: StudioPermissionProfile;
   sqlStatements: Readonly<Record<StudioPermissionClass, StudioPermissionLevel>>;
 }>;
+
+const SETTINGS_TABS: ReadonlyArray<readonly [StudioSettingsTab, string, StudioIconName]> = [
+  ["database", "Database", "solar:database-linear"],
+  ["model", "Model", "solar:bolt-linear"],
+  ["limits", "Limits", "solar:tuning-2-linear"],
+  ["permissions", "Permissions", "solar:shield-check-linear"],
+];
 
 type StudioReasoningCapability = Readonly<{
   supportedEfforts: readonly StudioReasoningEffort[];
@@ -455,10 +463,13 @@ export function StudioSettingsDialog({
       }}
     >
       <DialogHeader>
-        <DialogTitle>Settings</DialogTitle>
-        <DialogDescription>
-          Manage the local database, model, permissions, and execution settings.
-        </DialogDescription>
+        <div className="tessera-settings-title-row">
+          <div className="tessera-settings-title-heading">
+            <span className="tessera-settings-title-icon"><StudioIcon icon="solar:settings-linear" size={19} /></span>
+            <DialogTitle>Settings</DialogTitle>
+          </div>
+          <DialogDescription>Manage the local database, model, permissions, and execution settings.</DialogDescription>
+        </div>
       </DialogHeader>
 
       <Tabs
@@ -466,17 +477,19 @@ export function StudioSettingsDialog({
         onValueChange={(value) => setActiveTab(value as StudioSettingsTab)}
       >
         <TabsList className="w-full">
-          <TabsTrigger value="database">Database</TabsTrigger>
-          <TabsTrigger value="model">Model</TabsTrigger>
-          <TabsTrigger value="limits">Limits</TabsTrigger>
-          <TabsTrigger value="permissions">Permissions</TabsTrigger>
+          {SETTINGS_TABS.map(([value, label, icon]) => (
+            <TabsTrigger key={value} value={value}>
+              <StudioIcon icon={icon} size={15} />
+              <span>{label}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
             <TabsContent value="database">
               <FieldGroup>
                 {form.dialect !== "mongodb" ? (
                   <Field>
-                    <Label htmlFor="settings-dialect">Database engine</Label>
+                    <Label htmlFor="settings-dialect"><StudioIcon icon="solar:server-square-linear" size={14} />Database engine</Label>
                     <Select
                       disabled={busy}
                       onValueChange={(value) => {
@@ -497,7 +510,7 @@ export function StudioSettingsDialog({
                   </Field>
                 ) : null}
                 <Field>
-                  <Label htmlFor="settings-access-mode">Access mode</Label>
+                  <Label htmlFor="settings-access-mode"><StudioIcon icon="solar:lock-keyhole-linear" size={14} />Access mode</Label>
                   <Select disabled={busy || isReadOnlyStudioDialect(form.dialect)} onValueChange={(value) => updateForm("accessMode", value as StudioDatabaseAccessMode)} value={form.accessMode}>
                     <SelectTrigger className="w-full" id="settings-access-mode"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -507,7 +520,7 @@ export function StudioSettingsDialog({
                   </Select>
                 </Field>
                 <Field>
-                  <Label htmlFor="settings-database-url">Database URL</Label>
+                  <Label htmlFor="settings-database-url"><StudioIcon icon="solar:link-linear" size={14} />Database URL</Label>
                   <SecretInput
                     configured={settings.database.urlConfigured}
                     disabled={busy}
@@ -520,7 +533,7 @@ export function StudioSettingsDialog({
                 </Field>
                 {form.dialect === "turso" ? (
                   <Field>
-                    <Label htmlFor="settings-database-auth-token">Turso auth token</Label>
+                    <Label htmlFor="settings-database-auth-token"><StudioIcon icon="solar:key-linear" size={14} />Turso auth token</Label>
                     <SecretInput
                       configured={settings.database.authTokenConfigured}
                       disabled={busy}
@@ -538,7 +551,7 @@ export function StudioSettingsDialog({
             <TabsContent value="model">
               <FieldGroup>
                 <Field>
-                  <Label htmlFor="settings-provider">Provider</Label>
+                  <Label htmlFor="settings-provider"><StudioIcon icon="solar:buildings-2-linear" size={14} />Provider</Label>
                   <Select disabled={busy} onValueChange={updateProvider} value={form.provider}>
                     <SelectTrigger className="w-full" id="settings-provider"><SelectValue /></SelectTrigger>
                     <SelectContent>
@@ -549,7 +562,7 @@ export function StudioSettingsDialog({
                   </Select>
                 </Field>
                 <Field>
-                  <Label htmlFor="settings-model">Model</Label>
+                  <Label htmlFor="settings-model"><StudioIcon icon="solar:cpu-linear" size={14} />Model</Label>
                   {form.provider === "openrouter" ? (
                     <OpenRouterModelPicker
                       ariaLabel="Choose the OpenRouter text model"
@@ -574,7 +587,7 @@ export function StudioSettingsDialog({
                 </Field>
                 {reasoningOptions.length > 0 ? (
                   <Field>
-                    <Label htmlFor="settings-reasoning">Reasoning</Label>
+                    <Label htmlFor="settings-reasoning"><StudioIcon icon="solar:graph-up-linear" size={14} />Reasoning</Label>
                     <Select
                       disabled={busy}
                       onValueChange={(value) => updateForm("reasoningEffort", value as StudioReasoningSelection)}
@@ -591,7 +604,7 @@ export function StudioSettingsDialog({
                   </Field>
                 ) : null}
                 <Field>
-                  <Label htmlFor="settings-api-key">API key</Label>
+                  <Label htmlFor="settings-api-key"><StudioIcon icon="solar:key-linear" size={14} />API key</Label>
                   <SecretInput
                     configured={settings.llm.apiKeyConfigured}
                     disabled={busy}
@@ -603,7 +616,7 @@ export function StudioSettingsDialog({
                   />
                 </Field>
                 <Field>
-                  <Label htmlFor="settings-base-url">Base URL</Label>
+                  <Label htmlFor="settings-base-url"><StudioIcon icon="solar:link-linear" size={14} />Base URL</Label>
                   <Input
                     autoComplete="off"
                     disabled={busy}
@@ -620,9 +633,9 @@ export function StudioSettingsDialog({
 
             <TabsContent value="limits">
               <FieldGroup>
-                <NumberField disabled={busy} id="settings-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => updateForm("maxRows", value)} value={form.maxRows} />
-                <NumberField disabled={busy} id="settings-timeout-ms" label="Timeout (ms)" max={120_000} min={250} onChange={(value) => updateForm("timeoutMs", value)} value={form.timeoutMs} />
-                <NumberField disabled={busy} id="settings-max-steps" label="Maximum steps" max={50} min={3} onChange={(value) => updateForm("maxSteps", value)} value={form.maxSteps} />
+                <NumberField disabled={busy} icon="solar:table-linear" id="settings-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => updateForm("maxRows", value)} value={form.maxRows} />
+                <NumberField disabled={busy} icon="solar:stopwatch-linear" id="settings-timeout-ms" label="Timeout (ms)" max={120_000} min={250} onChange={(value) => updateForm("timeoutMs", value)} value={form.timeoutMs} />
+                <NumberField disabled={busy} icon="solar:route-linear" id="settings-max-steps" label="Maximum steps" max={50} min={3} onChange={(value) => updateForm("maxSteps", value)} value={form.maxSteps} />
               </FieldGroup>
             </TabsContent>
 
@@ -645,14 +658,16 @@ export function StudioSettingsDialog({
         {testTarget ? (
           <Button disabled={busy || !canTest} onClick={() => void testCandidate()} type="button" variant="outline">
             {requestState === "testing" ? <ThinkingOrb aria-label={`Testing ${testTarget}`} size={20} state="connecting" theme="auto" /> : null}
+            {requestState !== "testing" ? <StudioIcon icon={testTarget === "model" ? "solar:play-circle-linear" : "solar:server-square-linear"} size={16} /> : null}
             {testTarget === "model" ? "Test model" : "Test database"}
           </Button>
         ) : null}
         <DialogClose asChild>
-          <Button disabled={busy} type="button" variant="outline">Cancel</Button>
+          <Button disabled={busy} type="button" variant="outline"><StudioIcon icon="solar:close-circle-linear" size={16} />Cancel</Button>
         </DialogClose>
         <Button disabled={busy || !canSave} type="submit">
           {requestState === "saving" ? <ThinkingOrb aria-label="Saving local settings" size={20} state="composing" theme="auto" /> : null}
+          {requestState !== "saving" ? <StudioIcon icon="solar:diskette-linear" size={16} /> : null}
           Save changes
         </Button>
       </DialogFooter>
@@ -670,6 +685,7 @@ export function StudioSettingsDialog({
 
 function NumberField({
   disabled,
+  icon,
   id,
   label,
   max,
@@ -678,6 +694,7 @@ function NumberField({
   value,
 }: {
   disabled: boolean;
+  icon: StudioIconName;
   id: string;
   label: string;
   max: number;
@@ -687,7 +704,7 @@ function NumberField({
 }) {
   return (
     <Field>
-      <Label htmlFor={id}>{label}</Label>
+      <Label htmlFor={id}><StudioIcon icon={icon} size={14} />{label}</Label>
       <Input
         disabled={disabled}
         id={id}
@@ -781,7 +798,7 @@ function PermissionSettingsFields({
     <div className="grid gap-4">
       <FieldGroup>
         <Field>
-          <Label htmlFor="settings-permission-profile">Permission profile</Label>
+          <Label htmlFor="settings-permission-profile"><StudioIcon icon="solar:shield-check-linear" size={14} />Permission profile</Label>
           <Select
             disabled={disabled}
             onValueChange={(profile) => onChange({ ...value, profile: profile as StudioPermissionProfile })}
@@ -797,7 +814,10 @@ function PermissionSettingsFields({
         </Field>
         {PERMISSION_CLASSES.map(([statementClass, label]) => (
           <Field key={statementClass}>
-            <Label htmlFor={`settings-permission-${statementClass}`}>{label} actions</Label>
+            <Label htmlFor={`settings-permission-${statementClass}`}>
+              <StudioIcon icon={statementClass === "read" ? "solar:eye-linear" : statementClass === "destructive" ? "solar:danger-triangle-linear" : "solar:lock-keyhole-linear"} size={14} />
+              {label} actions
+            </Label>
             <Select
               disabled={disabled}
               onValueChange={(permission) => onChange({

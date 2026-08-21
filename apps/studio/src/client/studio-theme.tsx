@@ -77,7 +77,7 @@ export function StudioThemePicker() {
       tooltip={label}
       type="button"
     >
-      <Icon aria-hidden="true" icon="proicons:dark-theme" width={18} height={18} />
+      <Icon aria-hidden="true" icon={nextTheme === "dark" ? "solar:moon-linear" : "solar:sun-2-linear"} width={18} height={18} />
     </TooltipIconButton>
   );
 }

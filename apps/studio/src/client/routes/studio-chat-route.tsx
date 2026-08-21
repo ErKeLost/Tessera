@@ -1,5 +1,4 @@
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
-import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 import { useCallback, useEffect, useRef } from "react";
 import { Button } from "../components/motion/button";
 import { publicError } from "../api/studio-api";
@@ -7,6 +6,7 @@ import { useStudioRouteContext } from "../layout/studio-route-context";
 import { useStudioThreadMessagesQuery, useStudioThreadMutations } from "../queries/studio-queries";
 import { StudioAssistant } from "../studio-assistant";
 import { RouteError, RouteLoading } from "./route-state";
+import { StudioIcon } from "../components/studio-icon";
 
 export function StudioChatRoute() {
   const { threadId: rawThreadId } = useParams();
@@ -71,14 +71,14 @@ export function StudioChatEntryRoute() {
     <section aria-label="Opening chat" className="studio-session-entry">
       {createMutation.error ? (
         <div className="studio-session-entry-error" role="alert">
-          <CircleAlertIcon aria-hidden="true" size={16} />
+          <StudioIcon icon="solar:danger-triangle-linear" size={17} />
           <span>Unable to start a chat.</span>
           <Button onClick={() => void openConversation()} size="sm" type="button" variant="secondary">
-            Try again
+            <StudioIcon icon="solar:refresh-linear" size={15} />Try again
           </Button>
         </div>
       ) : (
-        <LoaderCircleIcon aria-label="Opening chat" className="studio-session-entry-spinner" size={18} />
+        <StudioIcon aria-label="Opening chat" className="studio-session-entry-spinner spin" icon="solar:refresh-linear" size={18} />
       )}
     </section>
   );

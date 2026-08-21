@@ -1,0 +1,48 @@
+import { Icon, type IconProps } from "@iconify/react";
+
+export type StudioIconName =
+  | "solar:settings-linear"
+  | "solar:database-linear"
+  | "solar:history-linear"
+  | "solar:add-circle-linear"
+  | "solar:moon-linear"
+  | "solar:sun-2-linear"
+  | "solar:close-circle-linear"
+  | "solar:check-circle-linear"
+  | "solar:check-read-linear"
+  | "solar:play-circle-linear"
+  | "solar:diskette-linear"
+  | "solar:restart-linear"
+  | "solar:trash-bin-trash-linear"
+  | "solar:pen-linear"
+  | "solar:menu-dots-linear"
+  | "solar:alt-arrow-down-linear"
+  | "solar:danger-triangle-linear"
+  | "solar:shield-check-linear"
+  | "solar:filter-linear"
+  | "solar:sort-linear"
+  | "solar:copy-linear"
+  | "solar:table-linear"
+  | "solar:bolt-linear"
+  | "solar:tuning-2-linear"
+  | "solar:code-linear"
+  | "solar:lock-keyhole-linear"
+  | "solar:server-square-linear"
+  | "solar:chart-2-linear"
+  | "solar:stop-circle-linear"
+  | "solar:refresh-linear"
+  | "solar:magnifer-linear"
+  | "solar:link-linear"
+  | "solar:key-linear"
+  | "solar:buildings-2-linear"
+  | "solar:cpu-linear"
+  | "solar:graph-up-linear"
+  | "solar:eye-linear"
+  | "solar:stopwatch-linear"
+  | "solar:route-linear"
+  | "solar:arrow-left-linear"
+  | "solar:arrow-right-linear";
+
+export function StudioIcon({ icon, size = 16, ...props }: Omit<IconProps, "icon"> & { icon: StudioIconName; size?: number | string }) {
+  return <Icon aria-hidden="true" icon={icon} height={size} width={size} {...props} />;
+}

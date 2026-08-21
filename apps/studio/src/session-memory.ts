@@ -50,6 +50,7 @@ export type TesseraSessionMemory = Readonly<{
   listThreads(input: Readonly<{ resourceId: string; limit?: number }>): Promise<readonly TesseraSessionThread[]>;
   renameThread(input: Readonly<{ id: string; resourceId: string; title: string }>): Promise<TesseraSessionThread | undefined>;
   deleteThread(input: Readonly<{ id: string; resourceId: string }>): Promise<boolean>;
+  clearThreads(input: Readonly<{ resourceId: string }>): Promise<readonly string[]>;
   appendUiMessages(input: Readonly<{
     id: string;
     resourceId: string;
@@ -132,6 +133,15 @@ export function createTesseraSessionMemory(
     await transcriptUpdates.get(key);
   };
 
+  const deleteOwnedThread = (input: Readonly<{ id: string; resourceId: string }>): Promise<boolean> => (
+    queueTranscriptUpdate(input, async () => {
+      const existing = await memory.getThreadById({ threadId: input.id, resourceId: input.resourceId });
+      if (!existing) return false;
+      await memory.deleteThread(input.id);
+      return true;
+    })
+  );
+
   return Object.freeze({
     memory,
     async createThread(input) {
@@ -166,13 +176,19 @@ export function createTesseraSessionMemory(
       });
       return publicThread(thread);
     },
-    async deleteThread(input) {
-      return queueTranscriptUpdate(input, async () => {
-        const existing = await memory.getThreadById({ threadId: input.id, resourceId: input.resourceId });
-        if (!existing) return false;
-        await memory.deleteThread(input.id);
-        return true;
+    deleteThread: deleteOwnedThread,
+    async clearThreads(input) {
+      const result = await memory.listThreads({
+        filter: { resourceId: input.resourceId },
+        perPage: false,
       });
+      const deletedThreadIds: string[] = [];
+      for (const thread of result.threads) {
+        if (await deleteOwnedThread({ id: thread.id, resourceId: input.resourceId })) {
+          deletedThreadIds.push(thread.id);
+        }
+      }
+      return deletedThreadIds;
     },
     async appendUiMessages(input) {
       if (input.messages.length === 0) return;
