@@ -13,7 +13,7 @@ const MarkdownTextImpl = () => {
       animated={status.type === "running"}
       className="aui-md lobehub-markdown"
       enableStream
-      fullFeaturedCodeBlock
+      fullFeaturedCodeBlock={false}
       variant="chat"
     >
       {text}

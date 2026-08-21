@@ -101,10 +101,15 @@ export function StudioAssistant({
             throw new Error("Tessera can only submit the current user message.");
           }
           const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
+          // The server owns the tool registry. AssistantChatTransport adds an
+          // empty `tools` field to the request body, but `/api/chat` never
+          // consumes it and the client-side toolkit is registered above.
+          const requestBody = { ...(body ?? {}) };
+          delete (requestBody as { tools?: unknown }).tools;
           return {
             headers: { "Content-Type": "application/json" },
             body: {
-              ...(body ?? {}),
+              ...requestBody,
               id: threadId,
               ...(messageId === undefined ? {} : { messageId }),
               messages: [message],

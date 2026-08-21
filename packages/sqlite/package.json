@@ -1,6 +1,6 @@
 {
   "name": "@data-elements/sqlite",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "Cross-runtime SQLite connector, catalog introspection, and read-only query policy for Data Elements.",

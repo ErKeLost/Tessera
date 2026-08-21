@@ -752,7 +752,7 @@ describe("Tessera Agent vNext public boundary", () => {
     const permissionResult = await permissionProcessor.processLLMRequest!(args);
     const signalResult = await signalProcessor.processLLMRequest!(args);
     expect(JSON.stringify(permissionResult?.prompt)).toContain("write=approval required");
-    expect(JSON.stringify(permissionResult?.prompt)).not.toContain("read-only");
+    expect(JSON.stringify(permissionResult?.prompt)).not.toContain("Database access mode: read-only");
     expect(JSON.stringify(signalResult?.prompt)).toContain("<system-reminder>");
     expect(formatDatabasePermissionContext(undefined, undefined)).toContain("database is unavailable");
     expect(formatDatabasePermissionContext(undefined, catalogState.snapshot)).toContain("read=denied");
