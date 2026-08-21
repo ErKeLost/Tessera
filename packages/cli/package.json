@@ -1,6 +1,6 @@
 {
   "name": "data-elements",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "description": "Install editable Data Elements components and launch the local Tessera Studio.",
   "license": "MIT",
   "homepage": "https://data-elements.dev",

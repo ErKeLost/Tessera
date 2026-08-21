@@ -69,7 +69,7 @@
     },
     "apps/studio": {
       "name": "@data-elements/studio",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@ai-sdk/react": "4.0.76",
         "@assistant-ui/react": "0.15.16",
@@ -86,6 +86,8 @@
         "@data-elements/schema": "workspace:*",
         "@data-elements/sqlite": "workspace:*",
         "@data-elements/turso": "workspace:*",
+        "@fontsource-variable/dm-sans": "^5.3.0",
+        "@fontsource/dm-mono": "^5.3.0",
         "@hono/node-server": "^1.19.9",
         "@iconify/react": "6.0.2",
         "@libsql/client": "0.17.4",
@@ -182,7 +184,7 @@
     },
     "packages/capability-broker": {
       "name": "@data-elements/capability-broker",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/runtime": "workspace:*",
         "zod": "4.4.3",
@@ -194,7 +196,7 @@
     },
     "packages/cli": {
       "name": "data-elements",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "bin": {
         "data-elements": "index.js",
         "tessera": "index.js",
@@ -205,7 +207,7 @@
     },
     "packages/compiler": {
       "name": "@data-elements/compiler",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/capability-broker": "workspace:*",
         "@data-elements/core": "workspace:*",
@@ -220,7 +222,7 @@
     },
     "packages/core": {
       "name": "@data-elements/core",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/schema": "workspace:*",
         "zod": "4.4.3",
@@ -232,7 +234,7 @@
     },
     "packages/data-agent": {
       "name": "@data-elements/data-agent",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/database": "workspace:*",
         "zod": "4.4.3",
@@ -244,7 +246,7 @@
     },
     "packages/database": {
       "name": "@data-elements/database",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -300,7 +302,7 @@
     },
     "packages/mongodb": {
       "name": "@data-elements/mongodb",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/database": "workspace:*",
         "mongodb": "^6.20.0",
@@ -313,7 +315,7 @@
     },
     "packages/mysql": {
       "name": "@data-elements/mysql",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/database": "workspace:*",
         "mysql2": "^3.23.3",
@@ -339,7 +341,7 @@
     },
     "packages/postgres": {
       "name": "@data-elements/postgres",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/database": "workspace:*",
         "pg": "8.23.0",
@@ -403,7 +405,7 @@
     },
     "packages/runtime": {
       "name": "@data-elements/runtime",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/schema": "workspace:*",
         "zod": "4.4.3",
@@ -415,7 +417,7 @@
     },
     "packages/schema": {
       "name": "@data-elements/schema",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -426,7 +428,7 @@
     },
     "packages/sqlite": {
       "name": "@data-elements/sqlite",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/database": "workspace:*",
         "@libsql/client": "0.17.4",
@@ -441,7 +443,7 @@
     },
     "packages/turso": {
       "name": "@data-elements/turso",
-      "version": "0.1.12",
+      "version": "0.1.16",
       "dependencies": {
         "@data-elements/sqlite": "workspace:*",
       },
@@ -735,6 +737,10 @@
     "@floating-ui/react-dom": ["@floating-ui/react-dom@2.1.9", "", { "dependencies": { "@floating-ui/dom": "^1.8.0" }, "peerDependencies": { "react": ">=16.8.0", "react-dom": ">=16.8.0" } }, "sha512-JDjEFGCpImxDCA7JJKviA0M9+RtmJdj0m/NVU5IMgBK+AmZouAQQ7/+2GLH0GXXY0YMw9oXPB8hKdbPYg5QLYg=="],
 
     "@floating-ui/utils": ["@floating-ui/utils@0.2.12", "", {}, "sha512-HpCo8tmWzLVad5s2d19EhAz5zqrrQ6s69qd6moPMQvkOuSwDT1YgRfWSVuc4ennqrgv3OHppiOGMQ7oC13yIww=="],
+
+    "@fontsource-variable/dm-sans": ["@fontsource-variable/dm-sans@5.3.0", "", {}, "sha512-BpUG5bqePiDFMBM4ZtLSlPdAIOM990uB1dlXzIf4aw21yQR7BmykedLXXXMqGWsR18aMLOsbWccwJNh3ztTQaA=="],
+
+    "@fontsource/dm-mono": ["@fontsource/dm-mono@5.3.0", "", {}, "sha512-OINjI8C1S/wpchhQxl7njZdMn4+hnDCpQ4YtvvOpKNARo+0J8O1x1IcrChxNjHOhfVv1by8C/FQoy3hXK+C1Ug=="],
 
     "@fuma-translate/react": ["@fuma-translate/react@1.0.2", "", { "peerDependencies": { "@types/react": "*", "react": "^19.2.0", "react-dom": "^19.2.0" }, "optionalPeers": ["@types/react"] }, "sha512-uOiOtBx3nRXR8Nu1GzBf1tApgF1FErDBTHxRIAQeyQdyOoZbrNRN6H4kDCWObY4qyGeGbHydG0DHzgeUgFDMIw=="],
 
