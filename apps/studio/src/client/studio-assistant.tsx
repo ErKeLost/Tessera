@@ -14,6 +14,7 @@ import {
 } from "@assistant-ui/react";
 import { AssistantChatTransport, useAISDKRuntime } from "@assistant-ui/react-ai-sdk";
 import { BorderBeam } from "border-beam";
+import { gooeyToast } from "goey-toast";
 import {
   CopyIcon,
   LoaderCircleIcon,
@@ -61,6 +62,7 @@ import { OpenRouterModelPicker } from "./components/elements/openrouter-model-pi
 import { ReasoningPanel } from "./components/elements/reasoning-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
+import { useStudioSettingsQuery } from "./queries/studio-queries";
 import { tesseraStudioToolkit } from "./tessera-toolkit";
 
 const tesseraStudioAssistantConfig = AuiConfig({
@@ -128,20 +130,92 @@ export function StudioAssistant({
     onFinish: () => onThreadActivity?.(),
     transport,
   });
+  const settingsQuery = useStudioSettingsQuery();
+  const configurationCheckRef = useRef(false);
+  const ensureConfiguration = useMemo(() => async (send: () => void | Promise<void>) => {
+    if (configurationCheckRef.current) return;
+    configurationCheckRef.current = true;
+    try {
+      let status = settingsQuery.data;
+      if (!status) {
+        try {
+          status = (await settingsQuery.refetch()).data;
+        } catch {
+          status = undefined;
+        }
+      }
+      if (!status) {
+        showConfigurationError(onOpenSettings);
+        return;
+      }
+      const missingDatabase = !status.database.urlConfigured;
+      const missingModelKey = !status.llm.apiKeyConfigured;
+      if (missingDatabase || missingModelKey) {
+        showMissingConfigurationToast({
+          missingDatabase,
+          missingModelKey,
+          provider: status.llm.provider,
+          onOpenSettings,
+        });
+        return;
+      }
+      await send();
+    } finally {
+      configurationCheckRef.current = false;
+    }
+  }, [onOpenSettings, settingsQuery.data, settingsQuery.refetch]);
   const initialPromptSent = useRef(false);
   useEffect(() => {
     if (!initialPrompt || initialMessages.length > 0 || initialPromptSent.current) return;
     initialPromptSent.current = true;
-    void chat.sendMessage({ text: initialPrompt });
-  }, [chat, initialMessages.length, initialPrompt]);
+    void ensureConfiguration(() => chat.sendMessage({ text: initialPrompt }));
+  }, [chat, ensureConfiguration, initialMessages.length, initialPrompt]);
   const runtime = useAISDKRuntime<TesseraUIMessage>(chat);
   transport.setRuntime(runtime);
 
   return (
     <AssistantRuntimeProvider config={tesseraStudioAssistantConfig} runtime={runtime}>
-      <StudioConversation onOpenSettings={onOpenSettings} />
+      <StudioConversation onBeforeSend={ensureConfiguration} onOpenSettings={onOpenSettings} />
     </AssistantRuntimeProvider>
   );
+}
+
+type StudioSendGuard = (send: () => void | Promise<void>) => Promise<void>;
+
+function showConfigurationError(onOpenSettings: (tab: StudioSettingsTab) => void) {
+  gooeyToast.error("无法读取工作区配置", {
+    description: "请稍后重试，或打开设置检查数据库和模型配置。",
+    action: {
+      label: "打开设置",
+      onClick: () => onOpenSettings("database"),
+    },
+  });
+}
+
+function showMissingConfigurationToast({
+  missingDatabase,
+  missingModelKey,
+  onOpenSettings,
+  provider,
+}: {
+  missingDatabase: boolean;
+  missingModelKey: boolean;
+  onOpenSettings: (tab: StudioSettingsTab) => void;
+  provider: string;
+}) {
+  const missing = missingDatabase && missingModelKey
+    ? "OpenRouter API Key 和数据库连接"
+    : missingModelKey
+      ? `${provider === "openrouter" ? "OpenRouter" : provider} API Key`
+      : "数据库连接";
+  const targetTab: StudioSettingsTab = missingModelKey ? "model" : "database";
+  gooeyToast.warning("请先完成工作区配置", {
+    description: `当前还没有配置${missing}，配置完成后才能发送分析请求。`,
+    action: {
+      label: "打开设置",
+      onClick: () => onOpenSettings(targetTab),
+    },
+  });
 }
 
 function chatWorkspaceContext(context: StudioAgentPageContext | undefined) {
@@ -153,7 +227,13 @@ function chatWorkspaceContext(context: StudioAgentPageContext | undefined) {
   };
 }
 
-function StudioConversation({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
+function StudioConversation({
+  onBeforeSend,
+  onOpenSettings,
+}: {
+  onBeforeSend: StudioSendGuard;
+  onOpenSettings(tab: StudioSettingsTab): void;
+}) {
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">
       <ThreadPrimitive.Root className="tessera-thread-root">
@@ -175,7 +255,7 @@ function StudioConversation({ onOpenSettings }: { onOpenSettings(tab: StudioSett
           </Conversation>
         </ThreadPrimitive.Viewport>
         <footer className="tessera-composer-dock">
-          <StudioComposer onOpenSettings={onOpenSettings} />
+          <StudioComposer onBeforeSend={onBeforeSend} onOpenSettings={onOpenSettings} />
         </footer>
       </ThreadPrimitive.Root>
     </section>
@@ -431,7 +511,13 @@ function StudioEditComposer() {
   );
 }
 
-function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
+function StudioComposer({
+  onBeforeSend,
+  onOpenSettings,
+}: {
+  onBeforeSend: StudioSendGuard;
+  onOpenSettings(tab: StudioSettingsTab): void;
+}) {
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const attachmentCount = useAuiState((state) => state.composer.attachments.length);
   const { resolvedTheme } = useStudioTheme();
@@ -472,7 +558,7 @@ function StudioComposer({ onOpenSettings }: { onOpenSettings(tab: StudioSettings
           onPasteFiles={addAttachments}
           onDropFiles={addAttachments}
           onStop={() => aui.composer.cancel()}
-          onSubmit={() => composer.send()}
+          onSubmit={() => { void onBeforeSend(() => composer.send()); }}
           onValueChange={composer.setText}
           placeholder="Ask about your data..."
           value={composer.value}

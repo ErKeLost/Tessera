@@ -1,6 +1,7 @@
 import {
   GripVerticalIcon,
 } from "lucide-react";
+import { GooeyToaster } from "goey-toast";
 import { AnimatePresence, animate, motion, useMotionValue, useMotionValueEvent, useReducedMotion } from "motion/react";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
@@ -10,13 +11,14 @@ import { Button } from "../components/motion/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import {
   useRefreshStudioWorkspace,
+  useStudioSettingsQuery,
   useStudioThreadMutations,
   useStudioThreadsQuery,
   useStudioWorkspaceQueries,
 } from "../queries/studio-queries";
 import { StudioHistoryMenu } from "../studio-history-menu";
 import { StudioSettingsDialog, type StudioSettingsTab } from "../studio-settings";
-import { StudioThemePicker } from "../studio-theme";
+import { StudioThemePicker, useStudioTheme } from "../studio-theme";
 import { StudioIcon } from "../components/studio-icon";
 import { TooltipIconButton } from "../components/assistant-ui/tooltip-icon-button";
 import { RouteLoading } from "../routes/route-state";
@@ -36,6 +38,8 @@ export function StudioRouteShell() {
   const mutations = useStudioThreadMutations();
   const workspace = useStudioWorkspaceQueries();
   const refreshWorkspace = useRefreshStudioWorkspace();
+  const settingsQuery = useStudioSettingsQuery();
+  const { resolvedTheme } = useStudioTheme();
   const threadId = location.pathname.match(/^\/chat\/([^/]+)/)?.[1];
   const activeThreadId = threadId ? decodeURIComponent(threadId) : undefined;
   const activeThread = threads.find((thread) => thread.id === activeThreadId);
@@ -251,8 +255,19 @@ export function StudioRouteShell() {
       <StudioSettingsDialog
         initialTab={settingsTab}
         onOpenChange={setSettingsOpen}
-        onSaved={() => { void refreshWorkspace(); }}
+        onSaved={() => {
+          void refreshWorkspace();
+          void settingsQuery.refetch();
+        }}
         open={settingsOpen}
+      />
+      <GooeyToaster
+        closeOnEscape
+        offset="24px"
+        position="bottom-right"
+        preset="snappy"
+        showTimestamp={false}
+        theme={resolvedTheme}
       />
     </div>
   );

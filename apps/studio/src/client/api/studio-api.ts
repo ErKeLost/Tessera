@@ -70,6 +70,10 @@ export type StudioMeta = Readonly<{
 
 export type StudioSettingsStatus = Readonly<{
   database: Readonly<{ urlConfigured: boolean }>;
+  llm: Readonly<{
+    provider: string;
+    apiKeyConfigured: boolean;
+  }>;
 }>;
 
 /**
@@ -263,9 +267,23 @@ export async function fetchStudioSettingsStatus(signal?: AbortSignal): Promise<S
     headers: { Accept: "application/json" },
     signal,
   });
-  const configured = asRecord(asRecord(asRecord(body)?.settings)?.database)?.urlConfigured;
-  if (typeof configured !== "boolean") throw new Error("settings_response_invalid");
-  return { database: { urlConfigured: configured } };
+  const settings = asRecord(asRecord(body)?.settings);
+  const database = asRecord(settings?.database);
+  const llm = asRecord(settings?.llm);
+  const databaseConfigured = database?.urlConfigured;
+  const provider = llm?.provider;
+  const apiKeyConfigured = llm?.apiKeyConfigured;
+  if (
+    typeof databaseConfigured !== "boolean"
+    || typeof provider !== "string"
+    || typeof apiKeyConfigured !== "boolean"
+  ) {
+    throw new Error("settings_response_invalid");
+  }
+  return {
+    database: { urlConfigured: databaseConfigured },
+    llm: { provider, apiKeyConfigured },
+  };
 }
 
 export function publicError(error: unknown): string {

@@ -6,6 +6,7 @@ import "@fontsource-variable/dm-sans/wght.css";
 import "@fontsource/dm-mono/400.css";
 import "@fontsource/dm-mono/500.css";
 import "@data-elements/react/styles.css";
+import "goey-toast/styles.css";
 import "./styles.css";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { StudioApp } from "./studio-app";
