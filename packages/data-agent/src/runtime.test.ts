@@ -158,6 +158,26 @@ function multiEntityCatalog() {
 }
 
 describe("vNext data agent runtime", () => {
+  test("executes explicit SQL through the connector read boundary", async () => {
+    const { connector, requests } = harness();
+    const agent = createDataAgent({ connector, query: { maxRows: 250, timeoutMs: 4_000 } });
+
+    const result = await agent.executeReadSql({
+      sql: "SELECT status FROM analytics.orders WHERE id = $1",
+      parameters: ["order-1"],
+      purpose: "Read one order",
+    });
+
+    expect(result.rowCount).toBe(1);
+    expect(requests).toEqual([{
+      sql: "SELECT status FROM analytics.orders WHERE id = $1",
+      parameters: ["order-1"],
+      purpose: "Read one order",
+      maxRows: 250,
+      timeoutMs: 4_000,
+    }]);
+  });
+
   test("coalesces catalog discovery when one waiting request is cancelled", async () => {
     const { connector } = harness();
     let introspections = 0;

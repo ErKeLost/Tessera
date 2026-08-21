@@ -10,7 +10,6 @@ import {
   buildDataCopilotInstructions,
   compactDescribeDataForModel,
   compactInspectCurrentContextForModel,
-  compactProbeDataForModel,
   createDatabaseConnectionContextProcessor,
   createDatabasePermissionContextProcessor,
   createRequestContextProcessor,
@@ -28,18 +27,14 @@ import {
   formatDatabaseSchemaInventory,
   inferTesseraTaskType,
   inspectDatabaseSchema,
-  MAX_DISCOVERY_PROBES_PER_TURN,
   modelEvidenceFromResult,
   modelAnalysisToolInputSchema,
-  modelProbeDataInputSchema,
   normalizeAnalysisToolDraft,
-  normalizeProbeDataInput,
   hasVisibleCopilotText,
   publicToolOutput,
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
-  selectPlanningCapabilityScopesForProbe,
   toPublicExecutionTraceData,
   toPublicStageData,
 } from "./agent";
@@ -558,12 +553,12 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(inspectDatabaseSchema(catalog, { schema: "missing" })).toEqual({
       status: "blocked",
       reason: "schema_not_discovered",
-      nextAction: "inspect_schema",
+      nextAction: "list_database",
     });
     expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "missing" })).toEqual({
       status: "blocked",
       reason: "table_not_discovered",
-      nextAction: "inspect_schema",
+      nextAction: "list_database",
     });
 
     const hostileInventory = buildDatabaseSchemaInventory({
@@ -692,7 +687,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "customers" }, inventory, semanticCatalog)).toEqual({
       status: "blocked",
       reason: "table_not_discovered",
-      nextAction: "inspect_schema",
+      nextAction: "list_database",
     });
   });
 
@@ -705,15 +700,13 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("<tool_use>");
     expect(instructions).toContain("<sequence>");
     expect(instructions).toContain("<response_contract>");
-    expect(instructions).toContain("<examples>");
     expect(instructions).not.toContain("<system-reminder>");
     expect(instructions).toContain("runtime authorization");
-    expect(instructions).toContain("Determine the task type before using a capability");
-    expect(instructions).toContain("inspect the current source again");
-    expect(instructions).toContain("<describe_data>");
-    expect(instructions).toContain("<probe_data>");
-    expect(instructions).toContain("use at most two per turn");
-    expect(instructions).toContain("expanded fields, metrics, or relationships");
+    expect(instructions).toContain("<list_database>");
+    expect(instructions).toContain("<list_catalog>");
+    expect(instructions).toContain("<execute_sql>");
+    expect(instructions).toContain("<run_analysis>");
+    expect(instructions).not.toContain("<probe_data>");
   });
 
   test("injects runtime authorization and transient system signals outside the base prompt", async () => {
@@ -815,56 +808,6 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(serialized).not.toContain("signal-6");
   });
 
-  test("keeps the model-facing discovery probe schema flat and normalizes it server-side", () => {
-    const jsonSchema = modelProbeDataInputSchema["~standard"].jsonSchema.input({ target: "draft-07" });
-    expect(jsonSchema).not.toHaveProperty("oneOf");
-    expect(jsonSchema).not.toHaveProperty("anyOf");
-    expect(jsonSchema).toHaveProperty("properties.kind");
-    expect(normalizeProbeDataInput({
-      kind: "value-domain",
-      fieldId: "fld_1111111111111111",
-      candidates: ["active", "pending"],
-    })).toEqual({
-      kind: "value-domain",
-      fieldId: "fld_1111111111111111",
-      candidates: ["active", "pending"],
-    });
-    expect(() => normalizeProbeDataInput({
-      kind: "value-domain",
-      fieldId: "fld_1111111111111111",
-      candidates: ["unexpected"],
-      fieldIds: ["fld_1111111111111111"],
-    })).toThrow();
-  });
-
-  test("keeps probe scope selection inside previously issued server scopes", () => {
-    const users = planningScope({ tokenPart: "u", entities: [userEntity] });
-    const operations = planningScope({
-      tokenPart: "o",
-      entities: [operationEntity],
-      relationships: [{
-        id: "rel_0123456789abcdef",
-        fromEntityId: "ent_0123456789abcdef",
-        toEntityId: "ent_abcdef0123456789",
-        pairs: [{ fromFieldId: "fld_0000000000000001", toFieldId: "fld_0000000000000002" }],
-        cardinality: "one-to-many",
-        origin: "foreign-key",
-      }],
-    });
-
-    expect(selectPlanningCapabilityScopesForProbe([users, operations], {
-      kind: "field-profile",
-      fieldIds: ["fld_1111111111111111", "fld_2222222222222222"],
-    })?.map((scope) => scope.capability.token)).toEqual([
-      operations.capability.token,
-      users.capability.token,
-    ]);
-    expect(selectPlanningCapabilityScopesForProbe([users], {
-      kind: "join-coverage",
-      relationshipId: "rel_0123456789abcdef",
-    })).toBeUndefined();
-  });
-
   test("gates unresolved inspect candidates without blocking a grounded join", () => {
     const broadInspect = planningScope({
       tokenPart: "b",
@@ -899,7 +842,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(planningScopesRequireDiscovery([{ ...broadInspect, discovery: "describe" }], singleEntityDraft)).toBeFalse();
   });
 
-  test("compacts description and probe results before model delivery", () => {
+  test("compacts catalog descriptions before model delivery", () => {
     const catalog = semanticCatalogSchema.parse({
       version: "2",
       ref: {
@@ -928,24 +871,6 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(JSON.stringify(described)).toContain("Customer account created");
     expect(JSON.stringify(described)).not.toContain("catalogFingerprint");
 
-    const probed = compactProbeDataForModel({
-      status: "completed",
-      evidence: {
-        resultScope: "complete-result",
-        rowCount: 1,
-        truncated: false,
-        columns: [{ key: "out_minimum", label: "Minimum", type: "date" }],
-        sampleStrategy: "all",
-        sampleRows: [{ out_minimum: "2026-08-01" }],
-        numericSummaries: [],
-        omitted: { columns: 0, rows: 0 },
-      },
-    });
-    const serializedProbe = JSON.stringify(probed);
-    expect(serializedProbe).not.toContain("query_");
-    expect(serializedProbe).not.toContain("cap_");
-    expect(serializedProbe).not.toContain("sourceName");
-    expect(MAX_DISCOVERY_PROBES_PER_TURN).toBe(2);
   });
 
   test("uses Agent.stream for a completed run and persists that private turn", async () => {
@@ -1043,8 +968,8 @@ describe("Tessera Agent vNext public boundary", () => {
                 controller.enqueue({
                   type: "tool-call",
                   toolCallId: "schema-call-1",
-                  toolName: "inspect_schema",
-                  input: JSON.stringify({ schema: "analytics", table: "orders" }),
+                  toolName: "list_database",
+                  input: JSON.stringify({ scope: "schema", schema: "analytics", table: "orders" }),
                   providerExecuted: false,
                 });
                 controller.enqueue({
@@ -1122,8 +1047,8 @@ describe("Tessera Agent vNext public boundary", () => {
       },
     } as unknown as DataAgent;
     const toolTurns = [
-      { toolName: "inspect_current_context", input: {} },
-      { toolName: "describe_data", input: { entityIds: ["ent_0123456789abcdef"] } },
+      { toolName: "list_database", input: { scope: "current" } },
+      { toolName: "list_catalog", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
     ] as const;
     let modelTurn = 0;
     const model = {
@@ -1222,7 +1147,7 @@ describe("Tessera Agent vNext public boundary", () => {
     }
   });
 
-  test("registers describe_data and bounded probe_data as real Agent tools", async () => {
+  test("lists and expands the catalog through one Agent tool", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-discovery-"));
     const session = createTesseraSessionMemory({ rootDirectory });
     const initial = planningScope({ tokenPart: "i", entities: [userEntity] });
@@ -1239,7 +1164,7 @@ describe("Tessera Agent vNext public boundary", () => {
       catalogFingerprint: semanticFingerprint,
       capturedAt: "2026-08-16T00:00:00.000Z",
     };
-    const calls = { inspect: 0, describe: [] as string[], probe: [] as string[] };
+    const calls = { inspect: 0, describe: [] as string[] };
     const dataAgent = {
       connectorId: "test",
       async inspectPlanningCatalog() {
@@ -1265,38 +1190,12 @@ describe("Tessera Agent vNext public boundary", () => {
           omitted: { entities: 0, fields: 0, metrics: 0, relationships: 0 },
         };
       },
-      async probePlanningData(input: { capability: { token: string } }) {
-        calls.probe.push(input.capability.token);
-        return {
-          catalog: catalogRef,
-          semanticCatalog: described.catalog.ref,
-          probe: { kind: "value-domain" as const, fieldId: "fld_1111111111111111", candidates: ["active"] },
-          columns: [{ outputId: "out_value", label: "Value", type: "string" }],
-          execution: {
-            specId: "spec_test",
-            probeId: "probe_test",
-            queryFingerprint: "query_private",
-            result: {
-              queryId: "private-query-id",
-              columns: [{ name: "out_value" }],
-              rows: [{ out_value: "active" }],
-              rowCount: 1,
-              truncated: false,
-              durationMs: 1,
-            },
-            resultScope: "complete-result" as const,
-          },
-        };
-      },
     } as unknown as DataAgent;
 
     let modelTurn = 0;
     const toolTurns = [
-      { toolName: "inspect_catalog", input: { query: "new users" } },
-      { toolName: "describe_data", input: { entityIds: ["ent_0123456789abcdef"] } },
-      { toolName: "probe_data", input: { kind: "value-domain", fieldId: "fld_1111111111111111", candidates: ["active"] } },
-      { toolName: "probe_data", input: { kind: "value-domain", fieldId: "fld_1111111111111111", candidates: ["active"] } },
-      { toolName: "probe_data", input: { kind: "value-domain", fieldId: "fld_1111111111111111", candidates: ["active"] } },
+      { toolName: "list_catalog", input: { mode: "search", query: "new users" } },
+      { toolName: "list_catalog", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
     ];
     const model = {
       specificationVersion: "v2",
@@ -1366,8 +1265,166 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(run.message).toBe("I need one clarification before I can continue.");
       expect(calls.inspect).toBe(1);
       expect(calls.describe).toEqual([initial.capability.token]);
-      expect(calls.probe).toEqual([described.capability.token, described.capability.token]);
-      expect(modelTurn).toBe(6);
+      expect(modelTurn).toBe(3);
+    } finally {
+      await session.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("executes read SQL directly and routes mutations to durable approval", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-execute-sql-"));
+    const session = createTesseraSessionMemory({ rootDirectory });
+    const physicalCatalog = {
+      connectorId: "test",
+      dialect: "postgres",
+      databaseName: "analytics",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "public",
+        tables: [{
+          schema: "public",
+          name: "orders",
+          kind: "table",
+          columns: [{ name: "id", dataType: "text", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    } as DatabaseCatalog;
+    const reads: unknown[] = [];
+    const submissions: unknown[] = [];
+    const dataAgent = {
+      connectorId: "test",
+      async inspectCatalog() {
+        return { catalog: physicalCatalog };
+      },
+      async executeReadSql(input: unknown) {
+        reads.push(input);
+        return {
+          queryId: "private-query-id",
+          columns: [{ name: "value" }],
+          rows: [{ value: 1 }],
+          rowCount: 1,
+          truncated: false,
+          durationMs: 1,
+        } satisfies DatabaseQueryResult;
+      },
+    } as unknown as DataAgent;
+    const databaseActions = {
+      async submit(input: unknown) {
+        submissions.push(input);
+        return {
+          summary: { status: "awaiting-approval", requestId: "database-action-request-1" },
+          approval: { checkpointId: "database-action-checkpoint-1" },
+        };
+      },
+    } as never;
+    const toolTurns = [{
+      toolName: "execute_sql",
+      input: { sql: "SELECT 1 AS value", parameters: [], purpose: "Check the connection" },
+    }, {
+      toolName: "execute_sql",
+      input: {
+        mutation: {
+          kind: "data.insert",
+          relation: { schema: "public", table: "orders" },
+          values: [{ id: "order-1" }],
+          maxAffectedRows: 1,
+        },
+        purpose: "Create one order",
+      },
+    }];
+    let modelTurn = 0;
+    const model = {
+      specificationVersion: "v2",
+      provider: "tessera-test",
+      modelId: "execute-sql-test",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("Tessera must use Agent.stream for every model turn.");
+      },
+      async doStream() {
+        const tool = toolTurns[modelTurn++];
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (tool) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: `execute-sql-${modelTurn}`,
+                  toolName: tool.toolName,
+                  input: JSON.stringify(tool.input),
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-1" });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The read completed and the change is waiting for approval." });
+                controller.enqueue({ type: "text-end", id: "text-1" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const llm: TesseraLlmConfig = {
+      model: model as unknown as string,
+      headers: {},
+      temperature: 0,
+      maxOutputTokens: 256,
+      maxSteps: 4,
+      maxRetries: 0,
+    };
+
+    try {
+      await session.createThread({ id: "thread-execute-sql", resourceId: "local-studio" });
+      const agent = createTesseraStudioAgent({
+        dataAgent,
+        databaseActions,
+        memory: session.memory,
+        llm,
+        permissionContext: {
+          accessMode: "read-write",
+          databaseActionsAvailable: true,
+          sqlStatements: { read: "allow", write: "allow", destructive: "allow", unknown: "deny" },
+        },
+      });
+      const run = await agent.run({
+        runId: "run-execute-sql",
+        threadId: "thread-execute-sql",
+        message: "Check the connection, then add order-1.",
+        signal: new AbortController().signal,
+        identity: { tenantId: "tenant-a", subject: "alice", roles: ["analyst"] },
+      });
+
+      expect(run.message).toContain("waiting for approval");
+      expect(reads).toEqual([{
+        sql: "SELECT 1 AS value",
+        parameters: [],
+        purpose: "Check the connection",
+      }]);
+      expect(submissions).toEqual([expect.objectContaining({
+        requireApproval: true,
+        purpose: "Create one order",
+        actor: { tenantRef: "tenant-a", actorRef: "alice", roleRefs: ["analyst"] },
+        action: expect.objectContaining({ kind: "data.insert", connectionRef: "tessera" }),
+      })]);
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1478,7 +1535,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(analysisToolRejection(new DataAgentError("catalog_stale"))).toEqual({
       status: "rejected",
       reason: "catalog_changed",
-      nextAction: "inspect_catalog",
+      nextAction: "list_catalog",
     });
     expect(analysisToolRejection(new DataAgentError("invalid_analysis_spec"))).toEqual({
       status: "rejected",
@@ -1533,19 +1590,33 @@ describe("Tessera Agent vNext public boundary", () => {
   });
 
   test("emits only allowlisted public tool summaries", () => {
-    expect(publicToolOutput("inspect_catalog", "completed", {
+    expect(publicToolOutput("list_catalog", "completed", {
+      mode: "search",
       tableCount: 3,
       truncated: true,
       catalog: { entities: [{ label: "private_orders" }] },
       connectionString: "postgres://user:password@private-host/warehouse",
-    })).toEqual({ status: "completed", tableCount: 3, truncated: true });
+    })).toEqual({ status: "completed", mode: "search", entityCount: 3, truncated: true });
 
-    expect(publicToolOutput("describe_data", "completed", {
-      entityCount: 2,
-      truncated: true,
-      catalog: { entities: [{ id: "ent_0123456789abcdef" }] },
-      capability: { token: `cap_${"x".repeat(32)}.${"y".repeat(32)}` },
-    })).toEqual({ status: "completed", entityCount: 2, truncated: true });
+    expect(publicToolOutput("list_database", "completed", {
+      scope: "schema",
+      tableCount: 2,
+      columnCount: 8,
+      schema: { tables: [{ name: "private_orders" }] },
+    })).toEqual({ status: "completed", scope: "schema", tableCount: 2, columnCount: 8, foreignKeyCount: 0 });
+
+    expect(publicToolOutput("execute_sql", "completed", {
+      status: "approval_required",
+      mode: "mutation",
+      requestId: "request-1",
+      checkpointId: "checkpoint-1",
+      sql: "delete from private.orders",
+    })).toEqual({
+      status: "approval_required",
+      mode: "mutation",
+      requestId: "request-1",
+      checkpointId: "checkpoint-1",
+    });
 
     expect(publicToolOutput("run_analysis", "completed", {
       rowCount: 2,

@@ -684,8 +684,10 @@ body { color: var(--tessera-ink); }
   z-index: 4;
   width: 10px;
   min-width: 10px;
+  flex: 0 0 10px;
   overflow: visible;
   cursor: col-resize;
+  touch-action: none;
 }
 .studio-workspace-resize-handle::before {
   position: absolute;

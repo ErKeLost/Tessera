@@ -663,12 +663,12 @@ describe("Tessera Studio Hono app", () => {
               controller.enqueue({
                 type: "tool-input-start",
                 toolCallId: "provider-current-context-call",
-                toolName: "inspect_current_context",
+                toolName: "list_database",
               });
               controller.enqueue({
                 type: "tool-input-available",
                 toolCallId: "provider-current-context-call",
-                toolName: "inspect_current_context",
+                toolName: "list_database",
                 input: {
                   schema: "private_schema",
                   table: "private_orders",
@@ -710,8 +710,8 @@ describe("Tessera Studio Hono app", () => {
     const body = await response.text();
 
     expect(response.status).toBe(200);
-    expect(body).toContain('"toolName":"inspect_current_context"');
-    expect(body).toContain('"action":"inspect_current_context"');
+    expect(body).toContain('"toolName":"list_database"');
+    expect(body).toContain('"action":"list_database"');
     expect(body).toContain('"status":"completed"');
     expect(body).toContain('"entityCount":1');
     expect(body).not.toContain("provider-current-context-call");
@@ -720,6 +720,74 @@ describe("Tessera Studio Hono app", () => {
     expect(body).not.toContain(privateFingerprint);
     expect(body).not.toContain(privateCapability);
     expect(body).not.toContain("customer-email@example.test");
+  });
+
+  test("exposes SQL approval handles without exposing SQL or mutation data", async () => {
+    const app = createStudioApp({
+      connector: createConnector(),
+      agent: {
+        async run() {
+          return { status: "completed", message: "Unused fallback." };
+        },
+        streamUI() {
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "provider-message" });
+              controller.enqueue({
+                type: "tool-input-start",
+                toolCallId: "provider-sql-call",
+                toolName: "execute_sql",
+              });
+              controller.enqueue({
+                type: "tool-input-available",
+                toolCallId: "provider-sql-call",
+                toolName: "execute_sql",
+                input: {
+                  sql: "DELETE FROM private.orders WHERE email = $1",
+                  parameters: ["customer@example.test"],
+                  mutation: { relation: { schema: "private", table: "orders" } },
+                },
+              });
+              controller.enqueue({
+                type: "tool-output-available",
+                toolCallId: "provider-sql-call",
+                output: {
+                  status: "approval_required",
+                  mode: "mutation",
+                  requestId: "database-action-request-1",
+                  checkpointId: "database-action-checkpoint-1",
+                  rows: [{ email: "customer@example.test" }],
+                },
+              });
+              controller.enqueue({ type: "finish", finishReason: "stop" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-public-sql-approval",
+        trigger: "submit-message",
+        messages: [{ id: "user-public-sql-approval", role: "user", parts: [{ type: "text", text: "Delete that order." }] }],
+      }),
+    }));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"toolName":"execute_sql"');
+    expect(body).toContain('"action":"execute_sql"');
+    expect(body).toContain('"status":"approval_required"');
+    expect(body).toContain("database-action-request-1");
+    expect(body).toContain("database-action-checkpoint-1");
+    expect(body).not.toContain("provider-sql-call");
+    expect(body).not.toContain("DELETE FROM");
+    expect(body).not.toContain("private.orders");
+    expect(body).not.toContain("customer@example.test");
   });
 
   test("streams bounded chat events while keeping tool payloads server-side", async () => {
@@ -736,9 +804,9 @@ describe("Tessera Studio Hono app", () => {
           return { status: "needs_input", message: "Fallback response." };
         },
         async stream(_input, emit) {
-          await emit({ type: "tool", tool: "inspect_catalog", state: "started" });
+          await emit({ type: "tool", tool: "list_catalog", state: "started" });
           await emit({ type: "text-delta", text: "I found the relevant table. " });
-          await emit({ type: "tool", tool: "inspect_catalog", state: "completed" });
+          await emit({ type: "tool", tool: "list_catalog", state: "completed" });
           await emit({ type: "tool", tool: "run_analysis", state: "completed" });
           return {
             status: "needs_input",
@@ -779,8 +847,8 @@ describe("Tessera Studio Hono app", () => {
     expect(toolIds[0]).toBe(toolIds[1]);
     expect(toolIds[2]).not.toBe(toolIds[1]);
     expect(info).toEqual(expect.arrayContaining([
-      expect.objectContaining({ event: "stream", stage: "tool", tool: "inspect_catalog", toolState: "started" }),
-      expect.objectContaining({ event: "stream", stage: "tool", tool: "inspect_catalog", toolState: "completed" }),
+      expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "started" }),
+      expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "completed" }),
       expect.objectContaining({ event: "stream", stage: "tool", tool: "run_analysis", toolState: "completed" }),
       expect.objectContaining({ event: "stream", stage: "completed", outcome: "completed" }),
     ]));

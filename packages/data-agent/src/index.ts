@@ -4,6 +4,7 @@ import {
   databaseQueryResultSchema,
   findCatalogTable,
   type DatabaseDialect,
+  type DatabaseQueryResult,
 } from "@data-elements/database";
 import {
   AnalysisCompilerError,
@@ -45,6 +46,7 @@ import {
   type DataAgentPlanningCatalogSnapshot,
   type DataAgentPlanningProbeInput,
   type DataAgentPlanningProbeResult,
+  type DataAgentReadSqlInput,
   type DataAgentRelationPlanningCatalogInput,
   type DataAgentRelationPlanningCatalogSnapshot,
   type DataAgentRelationPreview,
@@ -132,6 +134,7 @@ export type {
   DataAgentPlanningCatalogSnapshot,
   DataAgentPlanningProbeInput,
   DataAgentPlanningProbeResult,
+  DataAgentReadSqlInput,
   DataAgentRelationPlanningCatalogInput,
   DataAgentRelationPlanningCatalogSnapshot,
   DataAgentRelationPreview,
@@ -665,6 +668,16 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     };
   }
 
+  async function executeReadSql(input: DataAgentReadSqlInput, signal?: AbortSignal): Promise<DatabaseQueryResult> {
+    if (options.connector.dialect === "mongodb") {
+      throw new DataAgentError("query_failed", "This connection does not support SQL queries.");
+    }
+    return runConnectorQuery({
+      sql: input.sql,
+      parameters: [...(input.parameters ?? [])],
+    }, input.purpose ?? "Tessera SQL query", signal);
+  }
+
   async function runConnectorQuery(
     compiled:
       | Readonly<{ sql: string; parameters: readonly (string | number | boolean)[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>
@@ -674,8 +687,8 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     rowLimit = maxRows,
   ) {
     try {
-      // The executable query is generated solely by compiler.ts or the
-      // catalog-bound preview path. No caller or model can supply it.
+      // Connectors remain the SQL security boundary: every request is parsed,
+      // restricted to one read-only statement, bounded, and timed out there.
       const request = "sql" in compiled
         ? {
           sql: compiled.sql,
@@ -782,6 +795,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     probePlanningData,
     composePlanningCapabilities,
     previewRelation,
+    executeReadSql,
     runAnalysis,
   });
 }

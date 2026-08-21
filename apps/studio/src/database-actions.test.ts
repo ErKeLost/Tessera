@@ -44,6 +44,35 @@ describe("Tessera database action service", () => {
     expect(fetched.replayed).toBe(true);
   });
 
+  test("can require approval even when policy would auto-allow the mutation", async () => {
+    const { connector, catalog, mutations } = createConnector();
+    const service = createTesseraDatabaseActionService({
+      connector,
+      state: new InMemoryDurableStateStore(),
+      policy: createDatabaseScopedPermissionPolicy({ profile: "dangerous" }),
+      idFactory: deterministicIds(),
+    });
+
+    const pending = await service.submit({
+      actor: ACTOR,
+      requestId: "agent-insert-approval",
+      action: insertAction(catalog),
+      purpose: "Create one order from the Data Agent",
+      requireApproval: true,
+    });
+
+    expect(pending.summary.status).toBe("awaiting-approval");
+    expect(mutations).toHaveLength(0);
+
+    const approved = await service.approve({
+      actor: ACTOR,
+      requestId: pending.summary.requestId,
+      checkpointId: pending.approval!.checkpointId,
+    });
+    expect(approved.summary.status).toBe("succeeded");
+    expect(mutations).toHaveLength(1);
+  });
+
   test("holds a destructive mutation for approval and executes it only after approval", async () => {
     const { connector, catalog, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({

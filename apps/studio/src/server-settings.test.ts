@@ -235,7 +235,13 @@ describe("Tessera Studio Settings routes", () => {
       const getResponse = await app.fetch(request("/api/settings"));
       const getBody = await getResponse.text();
       expect(getResponse.status).toBe(200);
-      expect(getBody).toContain("urlConfigured");
+      expect(getResponse.headers.get("Cache-Control")).toBe("no-store, max-age=0");
+      expect(JSON.parse(getBody)).toMatchObject({
+        settings: {
+          database: { urlConfigured: true },
+          llm: { apiKeyConfigured: true },
+        },
+      });
       expect(getBody).not.toContain(DATABASE_SECRET);
       expect(getBody).not.toContain(PROVIDER_SECRET);
 

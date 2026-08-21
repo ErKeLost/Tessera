@@ -60,6 +60,7 @@ const DATABASE_ACTION_DOCUMENT_PREFIX = "database-action-document";
 const databaseActionInvocationSchema = z.object({
   action: databaseActionSchema,
   purpose: z.string().trim().min(1).max(1_000),
+  requireApproval: z.boolean(),
   /** Internal server binding; public submit input never accepts this field. */
   boundRowPredicates: z.array(databaseRowPredicateBindingSchema).max(1_024).optional(),
 }).strict();
@@ -72,13 +73,14 @@ const databaseActionResultSchema = databaseMutationResultSchema.extend({
 const databaseActionInputSchema = boundedObjectSchema({
   action: boundedObjectSchema({}, [], 64, boundedJsonSchema(6)),
   purpose: { type: "string", minLength: 1, maxLength: 1_000 },
+  requireApproval: { type: "boolean" },
   boundRowPredicates: {
     type: "array",
     minItems: 0,
     maxItems: 1_024,
     items: boundedObjectSchema({}, ["ref", "predicate"], 2, boundedJsonSchema(6)),
   },
-}, ["action", "purpose"]);
+}, ["action", "purpose", "requireApproval"]);
 
 const databaseActionOutputSchema = boundedObjectSchema({
   mutationId: { type: "string", minLength: 1, maxLength: 256 },
@@ -148,6 +150,8 @@ export type TesseraDatabaseActionSubmitInput = Readonly<{
   actor: TesseraDatabaseActionActor;
   action: DatabaseAction;
   purpose: string;
+  /** Tightens policy for this request. It can require approval, never bypass it. */
+  requireApproval?: boolean;
   /** Supplying the same request id makes transport retries replay-safe. */
   requestId?: string;
   invocationId?: string;
@@ -372,6 +376,21 @@ export function createTesseraDatabaseActionService(
         grants,
         trustedRowPredicateRefs: bound.rowPredicateRefs,
       });
+      if (evaluation.outcome === "deny") {
+        return { outcome: "deny", reasonCodes: [...evaluation.reasonCodes], policyHash: evaluation.policyHash };
+      }
+      if (invocation.requireApproval) {
+        if (phase === "initial") {
+          return {
+            outcome: "require-approval",
+            reasonCodes: ["request.approval-required", ...evaluation.reasonCodes],
+            policyHash: evaluation.policyHash,
+          };
+        }
+        return approved
+          ? { outcome: "allow", reasonCodes: ["request.approved", ...evaluation.reasonCodes], policyHash: evaluation.policyHash }
+          : { outcome: "deny", reasonCodes: ["request.approval-missing"], policyHash: evaluation.policyHash };
+      }
       if (evaluation.outcome === "require-approval") {
         if (phase === "initial") {
           return { outcome: "require-approval", reasonCodes: [...evaluation.reasonCodes], policyHash: evaluation.policyHash };
@@ -492,13 +511,18 @@ export function createTesseraDatabaseActionService(
 
   return Object.freeze({
     async submit(input: TesseraDatabaseActionSubmitInput): Promise<TesseraDatabaseActionEffect> {
-      const inputInvocation = databaseActionInvocationSchema.parse({ action: input.action, purpose: input.purpose });
+      const inputInvocation = databaseActionInvocationSchema.parse({
+        action: input.action,
+        purpose: input.purpose,
+        requireApproval: input.requireApproval ?? false,
+      });
       if (inputInvocation.action.kind === "data.read") throw new TypeError("Read actions must use the existing Data Agent.");
       const actor = await toActorContext(input.actor);
       const [permissionActor, catalog] = await Promise.all([resolvePermissionActor(actor), getCatalog()]);
       const invocation = databaseActionInvocationSchema.parse({
         action: normalizeConnectionRef(inputInvocation.action),
         purpose: inputInvocation.purpose,
+        requireApproval: inputInvocation.requireApproval,
       });
       const bound = await bindAction(invocation.action, catalog, permissionActor);
       const { broker, grant, outputCommit } = await bindActor(actor);
@@ -520,6 +544,7 @@ export function createTesseraDatabaseActionService(
         input: toJsonValue({
           action: invocation.action,
           purpose: invocation.purpose,
+          requireApproval: invocation.requireApproval,
           boundRowPredicates: bound.bindings,
         }),
         statePreconditions: {},

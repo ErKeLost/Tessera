@@ -464,6 +464,7 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
           dataAgent,
           memory: sessionMemory.memory,
           llm: resolveTesseraLlmConfig(config),
+          ...(databaseActions === undefined ? {} : { databaseActions }),
           permissionContext: {
             accessMode: options.accessMode,
             databaseActionsAvailable: databaseActions !== undefined,

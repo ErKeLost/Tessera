@@ -3,7 +3,7 @@ import pretty from "pino-pretty";
 
 export type StudioApiOperation = "catalog" | "chat" | "connection" | "data_preview" | "database_actions" | "meta" | "runs" | "settings" | "threads" | "unknown";
 export type StudioStreamOutcome = "completed" | "failed" | "cancelled";
-export type StudioToolName = "inspect_current_context" | "inspect_catalog" | "inspect_schema" | "inspect_database_capabilities" | "describe_data" | "probe_data" | "run_analysis";
+export type StudioToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis";
 export type StudioToolState = "started" | "completed" | "blocked" | "failed";
 export type StudioAgentStage =
   | "catalog"

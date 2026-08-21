@@ -120,12 +120,9 @@ const TESSERA_PUBLIC_STAGES: readonly TesseraDataAgentStage[] = [
   "narrating",
 ];
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
-  "inspect_current_context",
-  "inspect_catalog",
-  "inspect_schema",
-  "inspect_database_capabilities",
-  "describe_data",
-  "probe_data",
+  "list_database",
+  "list_catalog",
+  "execute_sql",
   "run_analysis",
 ]);
 const TESSERA_PUBLIC_TOOL_STATES = new Set<TesseraToolState>([
@@ -213,7 +210,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["inspect_current_context", "inspect_catalog", "inspect_schema", "inspect_database_capabilities", "describe_data", "probe_data", "run_analysis"]),
+    tool: z.enum(["list_database", "list_catalog", "execute_sql", "run_analysis"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -1534,6 +1531,7 @@ export function createTesseraStudioRuntime(
       dataAgent,
       memory: sessionMemory.memory,
       llm: resolveTesseraLlmConfig(config),
+      ...(databaseActions === undefined ? {} : { databaseActions }),
       permissionContext: {
         accessMode,
         databaseActionsAvailable: databaseActions !== undefined,
@@ -3439,43 +3437,24 @@ function publicDataToolId(
 }
 
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
-  if (tool === "inspect_current_context") return { action: "inspect_current_context" };
-  if (tool === "inspect_catalog") return { action: "inspect_governed_catalog" };
-  if (tool === "inspect_schema") return { action: "inspect_governed_schema" };
-  if (tool === "inspect_database_capabilities") return { action: "inspect_database_capabilities" };
-  if (tool === "describe_data") return { action: "describe_governed_catalog" };
-  if (tool === "probe_data") return { action: "probe_governed_data" };
+  if (tool === "list_database") return { action: "list_database" };
+  if (tool === "list_catalog") return { action: "list_catalog" };
+  if (tool === "execute_sql") return { action: "execute_sql" };
   return { action: "run_governed_analysis" };
 }
 
 function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string, unknown> {
   const output = isRecord(value) ? value : undefined;
-  if (tool === "inspect_current_context") {
+  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
+    ? output.status
+    : output?.status === "unavailable" || output?.status === "rejected"
+      ? "blocked"
+      : "failed";
+  if (tool === "list_database") {
+    const scope = output?.scope === "current" || output?.scope === "schema" || output?.scope === "capabilities"
+      ? output.scope
+      : undefined;
     const entityCount = boundedPublicInteger(output?.entityCount, MAX_PUBLIC_TOOL_COUNT);
-    return {
-      status: output?.status === "completed"
-        ? "completed"
-        : output?.status === "unavailable"
-          ? "blocked"
-          : "failed",
-      ...(entityCount === undefined ? {} : { entityCount }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-    };
-  }
-  if (tool === "inspect_catalog") {
-    const tableCount = boundedPublicInteger(output?.tableCount, MAX_PUBLIC_TOOL_COUNT);
-    return {
-      status: output?.status === "completed" ? "completed" : "failed",
-      ...(tableCount === undefined ? {} : { tableCount }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-    };
-  }
-  if (tool === "inspect_schema") {
-    const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-      ? output.status
-      : output?.status === "unavailable"
-        ? "blocked"
-        : "failed";
     const schema = isRecord(output?.schema) ? output.schema : undefined;
     const tables = Array.isArray(schema?.tables) ? schema.tables : undefined;
     const tableCount = boundedPublicInteger(
@@ -3496,44 +3475,49 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
       }, 0)),
       MAX_PUBLIC_TOOL_COUNT,
     );
-    return {
-      status,
-      ...(tableCount === undefined ? {} : { tableCount }),
-      ...(columnCount === undefined ? {} : { columnCount }),
-      ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
-      ...(output?.truncated === true ? { truncated: true } : {}),
-    };
-  }
-  if (tool === "inspect_database_capabilities") {
     const componentCount = Array.isArray(output?.components)
       ? Math.min(MAX_PUBLIC_TOOL_COUNT, output.components.length)
       : undefined;
     return {
-      status: output?.status === "completed" ? "completed" : "blocked",
+      status,
+      ...(scope === undefined ? {} : { scope }),
+      ...(entityCount === undefined ? {} : { entityCount }),
+      ...(tableCount === undefined ? {} : { tableCount }),
+      ...(columnCount === undefined ? {} : { columnCount }),
+      ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
       ...(typeof output?.dialect === "string" ? { dialect: output.dialect } : {}),
       ...(componentCount === undefined ? {} : { componentCount }),
       ...(output?.truncated === true ? { truncated: true } : {}),
     };
   }
-
-  // A rejected semantic draft is a completed, terminal tool outcome: the
-  // model can revise its plan, but the browser must not present this as a
-  // transport error or leave a tool call retrying. Keep the rejection reason
-  // server-side and expose the established public `blocked` state instead.
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : output?.status === "rejected"
-      ? "blocked"
-      : "failed";
-  if (tool === "describe_data") {
-    const entityCount = boundedPublicInteger(output?.entityCount, MAX_PUBLIC_TOOL_COUNT);
+  if (tool === "list_catalog") {
+    const mode = output?.mode === "search" || output?.mode === "describe" ? output.mode : undefined;
+    const entityCount = boundedPublicInteger(output?.entityCount ?? output?.tableCount, MAX_PUBLIC_TOOL_COUNT);
     return {
       status,
+      ...(mode === undefined ? {} : { mode }),
       ...(entityCount === undefined ? {} : { entityCount }),
       ...(output?.truncated === true ? { truncated: true } : {}),
     };
   }
-  if (tool === "probe_data") return { status };
+  if (tool === "execute_sql") {
+    const mode = output?.mode === "read" || output?.mode === "mutation" ? output.mode : undefined;
+    const approvalRequired = output?.status === "approval_required";
+    const rowCount = boundedPublicInteger(output?.rowCount, MAX_PUBLIC_TOOL_COUNT);
+    const affectedRows = boundedPublicInteger(output?.affectedRows, MAX_PUBLIC_TOOL_COUNT);
+    const requestId = sourceIdentifier(output?.requestId);
+    const checkpointId = sourceIdentifier(output?.checkpointId);
+    return {
+      status: approvalRequired ? "approval_required" : status,
+      ...(mode === undefined ? {} : { mode }),
+      ...(rowCount === undefined ? {} : { rowCount }),
+      ...(affectedRows === undefined ? {} : { affectedRows }),
+      ...(output?.truncated === true ? { truncated: true } : {}),
+      ...(approvalRequired && requestId !== undefined && checkpointId !== undefined
+        ? { requestId, checkpointId }
+        : {}),
+    };
+  }
 
   const rowCount = boundedPublicInteger(output?.rowCount, MAX_PUBLIC_TOOL_COUNT);
   return {
@@ -3544,12 +3528,9 @@ function publicToolOutput(tool: TesseraToolName, value: unknown): Record<string,
 }
 
 function publicToolTitle(tool: TesseraToolName): string {
-  if (tool === "inspect_current_context") return "Read selected data context";
-  if (tool === "inspect_catalog") return "Inspect data catalog";
-  if (tool === "inspect_schema") return "Inspect database schema";
-  if (tool === "inspect_database_capabilities") return "Inspect database capabilities";
-  if (tool === "describe_data") return "Describe data definitions";
-  if (tool === "probe_data") return "Probe governed data";
+  if (tool === "list_database") return "List database context";
+  if (tool === "list_catalog") return "List data catalog";
+  if (tool === "execute_sql") return "Execute SQL";
   return "Run governed analysis";
 }
 

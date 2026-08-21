@@ -6,8 +6,10 @@ import {
   LoaderCircleIcon,
 } from "lucide-react";
 import {
+  type ComponentProps,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -38,6 +40,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "./components/ui/tabs";
+import { cn } from "./lib/utils";
 import { ThinkingOrb } from "thinking-orbs";
 
 export type StudioDatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
@@ -182,6 +185,7 @@ const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string | undefined>> =
 };
 const REASONING_EFFORTS = new Set<StudioReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "none"]);
 const EMPTY_MODEL_CATALOG: StudioOpenRouterModelCatalog = { models: [] };
+const CONFIGURED_SECRET_MASK = "••••••••••••";
 
 export function StudioSettingsDialog({
   initialTab = "database",
@@ -207,6 +211,7 @@ export function StudioSettingsDialog({
 
     try {
       const response = await fetch("/api/settings", {
+        cache: "no-store",
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
@@ -502,28 +507,26 @@ export function StudioSettingsDialog({
                 </Field>
                 <Field>
                   <Label htmlFor="settings-database-url">Database URL</Label>
-                  <Input
-                    autoComplete="off"
+                  <SecretInput
+                    configured={settings.database.urlConfigured}
                     disabled={busy}
+                    emptyPlaceholder={databaseUrlPlaceholder(form.dialect)}
                     id="settings-database-url"
                     name="databaseUrl"
                     onChange={(event) => updateForm("databaseUrl", event.target.value)}
-                    placeholder={settings.database.urlConfigured ? "Configured locally" : databaseUrlPlaceholder(form.dialect)}
-                    type="password"
                     value={form.databaseUrl}
                   />
                 </Field>
                 {form.dialect === "turso" ? (
                   <Field>
                     <Label htmlFor="settings-database-auth-token">Turso auth token</Label>
-                    <Input
-                      autoComplete="off"
+                    <SecretInput
+                      configured={settings.database.authTokenConfigured}
                       disabled={busy}
+                      emptyPlaceholder="Turso auth token"
                       id="settings-database-auth-token"
                       name="databaseAuthToken"
                       onChange={(event) => updateForm("databaseAuthToken", event.target.value)}
-                      placeholder={settings.database.authTokenConfigured ? "Configured locally" : "Turso auth token"}
-                      type="password"
                       value={form.databaseAuthToken}
                     />
                   </Field>
@@ -587,14 +590,13 @@ export function StudioSettingsDialog({
                 ) : null}
                 <Field>
                   <Label htmlFor="settings-api-key">API key</Label>
-                  <Input
-                    autoComplete="new-password"
+                  <SecretInput
+                    configured={settings.llm.apiKeyConfigured}
                     disabled={busy}
+                    emptyPlaceholder="Optional provider key"
                     id="settings-api-key"
                     name="apiKey"
                     onChange={(event) => updateForm("apiKey", event.target.value)}
-                    placeholder={settings.llm.apiKeyConfigured ? "Configured locally" : "Optional provider key"}
-                    type="password"
                     value={form.apiKey}
                   />
                 </Field>
@@ -696,6 +698,52 @@ function NumberField({
         value={value}
       />
     </Field>
+  );
+}
+
+type SecretInputProps = Omit<ComponentProps<typeof Input>, "placeholder" | "type"> & Readonly<{
+  configured: boolean;
+  emptyPlaceholder: string;
+}>;
+
+function SecretInput({
+  className,
+  configured,
+  emptyPlaceholder,
+  value,
+  ...props
+}: SecretInputProps) {
+  const statusId = useId();
+  const showConfiguredState = configured && (typeof value !== "string" || value.length === 0);
+  const describedBy = [props["aria-describedby"], showConfiguredState ? statusId : undefined]
+    .filter(Boolean)
+    .join(" ") || undefined;
+
+  return (
+    <div className="relative" data-secret-configured={showConfiguredState || undefined}>
+      <Input
+        {...props}
+        aria-describedby={describedBy}
+        autoCapitalize="none"
+        autoComplete="new-password"
+        className={cn(showConfiguredState && "pr-10", className)}
+        placeholder={showConfiguredState ? CONFIGURED_SECRET_MASK : emptyPlaceholder}
+        spellCheck={false}
+        type="password"
+        value={value}
+      />
+      {showConfiguredState ? (
+        <>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-muted-foreground"
+          >
+            <CheckIcon size={14} strokeWidth={2} />
+          </span>
+          <span className="sr-only" id={statusId}>Credential configured. Enter a new value to replace it.</span>
+        </>
+      ) : null}
+    </div>
   );
 }
 

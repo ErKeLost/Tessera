@@ -89,24 +89,26 @@ describe("Tessera Studio UI transcript memory", () => {
             type: "reasoning",
             text: providerError,
           }, {
-            type: "tool-inspect_catalog",
+            type: "tool-list_catalog",
             toolCallId: "provider-catalog-call-id",
             state: "output-available",
             input: { query: rawSql, password: credential },
             output: {
               status: "completed",
-              tableCount: 3,
+              mode: "search",
+              entityCount: 3,
               truncated: true,
               tables: [{ name: "private.customer_rows" }],
             },
             callProviderMetadata: { providerError },
           }, {
-            type: "tool-inspect_schema",
+            type: "tool-list_database",
             toolCallId: "provider-schema-call-id",
             state: "output-available",
             input: { schema: "private", table: "customer_rows", token: credential },
             output: {
               status: "completed",
+              scope: "schema",
               schema: {
                 name: "private",
                 tables: [{
@@ -129,11 +131,17 @@ describe("Tessera Studio UI transcript memory", () => {
             },
             callProviderMetadata: { providerError },
           }, {
-            type: "tool-probe_data",
-            toolCallId: "provider-probe-call-id",
+            type: "tool-execute_sql",
+            toolCallId: "provider-sql-call-id",
             state: "output-available",
-            input: { column: "secret", values: [rawRow], token: credential },
-            output: { status: "completed", values: [rawRow] },
+            input: { sql: rawSql, token: credential },
+            output: {
+              status: "approval_required",
+              mode: "mutation",
+              requestId: "database-action-request-1",
+              checkpointId: "database-action-checkpoint-1",
+              rows: [rawRow],
+            },
           }, {
             type: "tool-run_analysis",
             toolCallId: "provider-analysis-call-id",
@@ -241,17 +249,18 @@ describe("Tessera Studio UI transcript memory", () => {
 
       const assistantParts = messages?.[1]?.parts ?? [];
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "tool-inspect_catalog",
+        type: "tool-list_catalog",
         state: "output-available",
-        input: { action: "inspect_governed_catalog" },
-        output: { status: "completed", tableCount: 3, truncated: true },
+        input: { action: "list_catalog" },
+        output: { status: "completed", mode: "search", entityCount: 3, truncated: true },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "tool-inspect_schema",
+        type: "tool-list_database",
         state: "output-available",
-        input: { action: "inspect_governed_schema" },
+        input: { action: "list_database" },
         output: {
           status: "completed",
+          scope: "schema",
           tableCount: 1,
           columnCount: 1,
           foreignKeyCount: 1,
@@ -259,10 +268,15 @@ describe("Tessera Studio UI transcript memory", () => {
         },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "tool-probe_data",
+        type: "tool-execute_sql",
         state: "output-available",
-        input: { action: "probe_governed_data" },
-        output: { status: "completed" },
+        input: { action: "execute_sql" },
+        output: {
+          status: "approval_required",
+          mode: "mutation",
+          requestId: "database-action-request-1",
+          checkpointId: "database-action-checkpoint-1",
+        },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
         type: "tool-run_analysis",

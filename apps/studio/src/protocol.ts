@@ -1,7 +1,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "inspect_current_context" | "inspect_catalog" | "inspect_schema" | "inspect_database_capabilities" | "describe_data" | "probe_data" | "run_analysis";
+export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis";
 export type TesseraToolState = "started" | "completed" | "blocked" | "failed";
 /**
  * Public lifecycle only. Details such as SQL, catalog identifiers, probe
@@ -24,76 +24,49 @@ export type TesseraDataAgentStageStatus = "started" | "completed" | "failed";
  * Tool UIs can communicate what is happening without disclosing catalog
  * identifiers, SQL, query output, or user-supplied search terms.
  */
-export type TesseraInspectCatalogToolInput = Readonly<{
-  action: "inspect_governed_catalog";
+export type TesseraListDatabaseToolInput = Readonly<{
+  action: "list_database";
 }>;
 
-/** A redacted UI input for a server-bound physical schema inspection. */
-export type TesseraInspectSchemaToolInput = Readonly<{
-  action: "inspect_governed_schema";
+export type TesseraListCatalogToolInput = Readonly<{
+  action: "list_catalog";
 }>;
 
-export type TesseraInspectDatabaseCapabilitiesToolInput = Readonly<{
-  action: "inspect_database_capabilities";
-}>;
-
-/** A server-bound current-page context. It has no browser-provided payload. */
-export type TesseraInspectCurrentContextToolInput = Readonly<{
-  action: "inspect_current_context";
-}>;
-
-export type TesseraProbeDataToolInput = Readonly<{
-  action: "probe_governed_data";
-}>;
-
-export type TesseraDescribeDataToolInput = Readonly<{
-  action: "describe_governed_catalog";
+export type TesseraExecuteSqlToolInput = Readonly<{
+  action: "execute_sql";
 }>;
 
 export type TesseraRunAnalysisToolInput = Readonly<{
   action: "run_governed_analysis";
 }>;
 
-export type TesseraInspectCatalogToolOutput = Readonly<{
-  status: "completed" | "failed";
-  tableCount?: number;
-  truncated?: boolean;
-}>;
-
-/**
- * Only bounded counts cross the Studio UI boundary. The model receives the
- * bounded schema projection directly; physical names are intentionally not
- * retained in browser transcript data.
- */
-export type TesseraInspectSchemaToolOutput = Readonly<{
+export type TesseraListDatabaseToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
+  scope?: "current" | "schema" | "capabilities";
+  entityCount?: number;
   tableCount?: number;
   columnCount?: number;
   foreignKeyCount?: number;
-  truncated?: boolean;
-}>;
-
-export type TesseraInspectDatabaseCapabilitiesToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
   dialect?: string;
   componentCount?: number;
   truncated?: boolean;
 }>;
 
-export type TesseraInspectCurrentContextToolOutput = Readonly<{
+export type TesseraListCatalogToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
+  mode?: "search" | "describe";
   entityCount?: number;
   truncated?: boolean;
 }>;
 
-export type TesseraProbeDataToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
-}>;
-
-export type TesseraDescribeDataToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
-  entityCount?: number;
+export type TesseraExecuteSqlToolOutput = Readonly<{
+  status: "completed" | "approval_required" | "blocked" | "failed";
+  mode?: "read" | "mutation";
+  rowCount?: number;
+  affectedRows?: number;
   truncated?: boolean;
+  requestId?: string;
+  checkpointId?: string;
 }>;
 
 export type TesseraRunAnalysisToolOutput = Readonly<{
@@ -104,29 +77,17 @@ export type TesseraRunAnalysisToolOutput = Readonly<{
 
 /** The native AI SDK tool parts expected by assistant-ui renderers. */
 export type TesseraUITools = {
-  inspect_current_context: {
-    input: TesseraInspectCurrentContextToolInput;
-    output: TesseraInspectCurrentContextToolOutput;
+  list_database: {
+    input: TesseraListDatabaseToolInput;
+    output: TesseraListDatabaseToolOutput;
   };
-  inspect_catalog: {
-    input: TesseraInspectCatalogToolInput;
-    output: TesseraInspectCatalogToolOutput;
+  list_catalog: {
+    input: TesseraListCatalogToolInput;
+    output: TesseraListCatalogToolOutput;
   };
-  inspect_schema: {
-    input: TesseraInspectSchemaToolInput;
-    output: TesseraInspectSchemaToolOutput;
-  };
-  inspect_database_capabilities: {
-    input: TesseraInspectDatabaseCapabilitiesToolInput;
-    output: TesseraInspectDatabaseCapabilitiesToolOutput;
-  };
-  describe_data: {
-    input: TesseraDescribeDataToolInput;
-    output: TesseraDescribeDataToolOutput;
-  };
-  probe_data: {
-    input: TesseraProbeDataToolInput;
-    output: TesseraProbeDataToolOutput;
+  execute_sql: {
+    input: TesseraExecuteSqlToolInput;
+    output: TesseraExecuteSqlToolOutput;
   };
   run_analysis: {
     input: TesseraRunAnalysisToolInput;

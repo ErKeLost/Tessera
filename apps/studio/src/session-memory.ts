@@ -291,20 +291,16 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     }
 
     if (source.role !== "assistant") continue;
-    if (part.type === "tool-inspect_catalog") {
-      parts.push(sanitizeCatalogToolPart(part, context, parts.length));
+    if (part.type === "tool-list_database") {
+      parts.push(sanitizeListDatabaseToolPart(part, context, parts.length));
       continue;
     }
-    if (part.type === "tool-inspect_schema") {
-      parts.push(sanitizeSchemaToolPart(part, context, parts.length));
+    if (part.type === "tool-list_catalog") {
+      parts.push(sanitizeListCatalogToolPart(part, context, parts.length));
       continue;
     }
-    if (part.type === "tool-describe_data") {
-      parts.push(sanitizeDescriptionToolPart(part, context, parts.length));
-      continue;
-    }
-    if (part.type === "tool-probe_data") {
-      parts.push(sanitizeProbeToolPart(part, context, parts.length));
+    if (part.type === "tool-execute_sql") {
+      parts.push(sanitizeExecuteSqlToolPart(part, context, parts.length));
       continue;
     }
     if (part.type === "tool-run_analysis") {
@@ -337,177 +333,142 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
   return { id: messageId, role: source.role, parts };
 }
 
-function sanitizeCatalogToolPart(
+function sanitizeListDatabaseToolPart(
   part: Record<string, unknown>,
   context: SanitizationContext,
   index: number,
 ): TesseraUIMessage["parts"][number] {
-  const input = { action: "inspect_governed_catalog" as const };
+  const input = { action: "list_database" as const };
   const output = asRecord(part.output);
-  const status = output?.status === "completed" ? "completed" : "failed";
+  const status = sanitizedToolStatus(output?.status);
   if (part.state !== "output-available" || status === "failed") {
     return {
-      type: "tool-inspect_catalog",
+      type: "tool-list_database",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
       errorText: HISTORY_TOOL_FAILURE,
       providerExecuted: true,
-      title: "Inspect data catalog",
+      title: "List database context",
     };
   }
-  const tableCount = safeInteger(output?.tableCount, 0, 2_000);
+  const scope = output?.scope === "current" || output?.scope === "schema" || output?.scope === "capabilities"
+    ? output.scope
+    : undefined;
+  const entityCount = safeInteger(output?.entityCount, 0, 10_000);
+  const tableCount = safeInteger(output?.tableCount, 0, 10_000);
+  const columnCount = safeInteger(output?.columnCount, 0, 10_000);
+  const foreignKeyCount = safeInteger(output?.foreignKeyCount, 0, 10_000);
+  const componentCount = safeInteger(output?.componentCount, 0, 10_000);
   return {
-    type: "tool-inspect_catalog",
+    type: "tool-list_database",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
     state: "output-available",
     input,
     output: {
       status,
-      ...(tableCount === undefined ? {} : { tableCount }),
-      ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
-    },
-    providerExecuted: true,
-    title: "Inspect data catalog",
-  };
-}
-
-/**
- * Persists only the terminal summary of physical schema discovery. The raw
- * schema projection may contain relation and column names, so it never enters
- * the session transcript.
- */
-function sanitizeSchemaToolPart(
-  part: Record<string, unknown>,
-  context: SanitizationContext,
-  index: number,
-): TesseraUIMessage["parts"][number] {
-  const input = { action: "inspect_governed_schema" as const };
-  const output = asRecord(part.output);
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : output?.status === "unavailable"
-      ? "blocked"
-      : "failed";
-  if (part.state !== "output-available" || status === "failed") {
-    return {
-      type: "tool-inspect_schema",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
-      state: "output-error",
-      input,
-      errorText: HISTORY_TOOL_FAILURE,
-      providerExecuted: true,
-      title: "Inspect database schema",
-    };
-  }
-
-  const schema = asRecord(output?.schema);
-  const tables = Array.isArray(schema?.tables) ? schema.tables : undefined;
-  const tableCount = safeInteger(
-    output?.tableCount ?? (tables === undefined ? undefined : tables.length),
-    0,
-    10_000,
-  );
-  const columnCount = safeInteger(
-    output?.columnCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
-      const record = asRecord(table);
-      return count + (record && Array.isArray(record.columns) ? record.columns.length : 0);
-    }, 0)),
-    0,
-    10_000,
-  );
-  const foreignKeyCount = safeInteger(
-    output?.foreignKeyCount ?? (tables === undefined ? undefined : tables.reduce((count, table) => {
-      const record = asRecord(table);
-      return count + (record && Array.isArray(record.foreignKeys) ? record.foreignKeys.length : 0);
-    }, 0)),
-    0,
-    10_000,
-  );
-  return {
-    type: "tool-inspect_schema",
-    toolCallId: `${context.messageId}-tool-${index + 1}`,
-    state: "output-available",
-    input,
-    output: {
-      status,
+      ...(scope === undefined ? {} : { scope }),
+      ...(entityCount === undefined ? {} : { entityCount }),
       ...(tableCount === undefined ? {} : { tableCount }),
       ...(columnCount === undefined ? {} : { columnCount }),
       ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
+      ...(typeof output?.dialect === "string" ? { dialect: output.dialect.slice(0, 32) } : {}),
+      ...(componentCount === undefined ? {} : { componentCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
     },
     providerExecuted: true,
-    title: "Inspect database schema",
+    title: "List database context",
   };
 }
 
-function sanitizeDescriptionToolPart(
+function sanitizeListCatalogToolPart(
   part: Record<string, unknown>,
   context: SanitizationContext,
   index: number,
 ): TesseraUIMessage["parts"][number] {
-  const input = { action: "describe_governed_catalog" as const };
+  const input = { action: "list_catalog" as const };
   const output = asRecord(part.output);
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : "failed";
+  const status = sanitizedToolStatus(output?.status);
   if (part.state !== "output-available" || status === "failed") {
     return {
-      type: "tool-describe_data",
+      type: "tool-list_catalog",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
       errorText: HISTORY_TOOL_FAILURE,
       providerExecuted: true,
-      title: "Describe data definitions",
+      title: "List data catalog",
     };
   }
-  const entityCount = safeInteger(output?.entityCount, 0, 2_000);
+  const mode = output?.mode === "search" || output?.mode === "describe" ? output.mode : undefined;
+  const entityCount = safeInteger(output?.entityCount, 0, 10_000);
   return {
-    type: "tool-describe_data",
+    type: "tool-list_catalog",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
     state: "output-available",
     input,
     output: {
       status,
+      ...(mode === undefined ? {} : { mode }),
       ...(entityCount === undefined ? {} : { entityCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
     },
     providerExecuted: true,
-    title: "Describe data definitions",
+    title: "List data catalog",
   };
 }
 
-function sanitizeProbeToolPart(
+function sanitizeExecuteSqlToolPart(
   part: Record<string, unknown>,
   context: SanitizationContext,
   index: number,
 ): TesseraUIMessage["parts"][number] {
-  const input = { action: "probe_governed_data" as const };
+  const input = { action: "execute_sql" as const };
   const output = asRecord(part.output);
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : "failed";
+  const status = output?.status === "approval_required" ? "approval_required" : sanitizedToolStatus(output?.status);
   if (part.state !== "output-available" || status === "failed") {
     return {
-      type: "tool-probe_data",
+      type: "tool-execute_sql",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
       errorText: HISTORY_TOOL_FAILURE,
       providerExecuted: true,
-      title: "Probe governed data",
+      title: "Execute SQL",
     };
   }
+  const mode = output?.mode === "read" || output?.mode === "mutation" ? output.mode : undefined;
+  const rowCount = safeInteger(output?.rowCount, 0, 10_000);
+  const affectedRows = safeInteger(output?.affectedRows, 0, 10_000);
+  const requestId = safeOpaqueHandle(output?.requestId);
+  const checkpointId = safeOpaqueHandle(output?.checkpointId);
   return {
-    type: "tool-probe_data",
+    type: "tool-execute_sql",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
     state: "output-available",
     input,
-    output: { status },
+    output: {
+      status,
+      ...(mode === undefined ? {} : { mode }),
+      ...(rowCount === undefined ? {} : { rowCount }),
+      ...(affectedRows === undefined ? {} : { affectedRows }),
+      ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
+      ...(status === "approval_required" && requestId !== undefined && checkpointId !== undefined
+        ? { requestId, checkpointId }
+        : {}),
+    },
     providerExecuted: true,
-    title: "Probe governed data",
+    title: "Execute SQL",
   };
+}
+
+function sanitizedToolStatus(value: unknown): "completed" | "blocked" | "failed" {
+  if (value === "completed" || value === "blocked" || value === "failed") return value;
+  return value === "unavailable" || value === "rejected" ? "blocked" : "failed";
+}
+
+function safeOpaqueHandle(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= 512 ? value : undefined;
 }
 
 function sanitizeAnalysisToolPart(

@@ -658,6 +658,17 @@ export type DataAgentExecution = Readonly<{
   resultScope: "complete-result" | "returned-rows";
 }>;
 
+/**
+ * Explicit SQL is an escape hatch for database work that is not a semantic
+ * analysis. The connector remains the execution boundary and accepts only
+ * its dialect's supported read-only statement subset.
+ */
+export type DataAgentReadSqlInput = Readonly<{
+  sql: string;
+  parameters?: readonly (string | number | boolean)[];
+  purpose?: string;
+}>;
+
 export type DataAgentRelationPreview = Readonly<{
   catalog: CatalogSnapshotRef;
   relation: Readonly<{ schema: string; table: string }>;
@@ -708,6 +719,7 @@ export type DataAgent = Readonly<{
   probePlanningData(input: DataAgentPlanningProbeInput, signal?: AbortSignal): Promise<DataAgentPlanningProbeResult>;
   composePlanningCapabilities(input: DataAgentPlanningCapabilityCompositionInput, signal?: AbortSignal): Promise<PlanningCapability>;
   previewRelation(input: RelationPreviewRequest, signal?: AbortSignal): Promise<DataAgentRelationPreview>;
+  executeReadSql(input: DataAgentReadSqlInput, signal?: AbortSignal): Promise<DatabaseQueryResult>;
   runAnalysis(input: DataAgentRunInput): Promise<DataAgentRunResult>;
 }>;
 

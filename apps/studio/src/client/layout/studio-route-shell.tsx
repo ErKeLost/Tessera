@@ -29,6 +29,10 @@ import type { StudioAgentPageContext, StudioRouteContext } from "./studio-route-
 
 const TableEditor = lazy(() => import("../table-editor").then(({ TableEditor: Editor }) => ({ default: Editor })));
 
+const DEFAULT_DATABASE_PANEL_SIZE = 70;
+const MIN_DATABASE_PANEL_SIZE = "36%";
+const MIN_ASSISTANT_PANEL_SIZE = "24%";
+
 export function StudioRouteShell() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -46,7 +50,7 @@ export function StudioRouteShell() {
   const [settingsTab, setSettingsTab] = useState<StudioSettingsTab>("database");
   const databasePanelRef = useRef<PanelImperativeHandle>(null);
   const databaseSize = useMotionValue(0);
-  const lastDatabaseSizeRef = useRef(42);
+  const lastDatabaseSizeRef = useRef(DEFAULT_DATABASE_PANEL_SIZE);
   const reduceMotion = useReducedMotion() ?? false;
 
   useMotionValueEvent(databaseSize, "change", (size) => {
@@ -188,9 +192,9 @@ export function StudioRouteShell() {
             collapsible
             defaultSize="0%"
             id="studio-database-panel"
-            minSize="0%"
+            minSize={MIN_DATABASE_PANEL_SIZE}
             onResize={(size) => {
-              if (databaseOpen && size.asPercentage >= 44) lastDatabaseSizeRef.current = size.asPercentage;
+              if (databaseOpen && size.asPercentage >= 36) lastDatabaseSizeRef.current = size.asPercentage;
             }}
             panelRef={databasePanelRef}
           >
@@ -228,7 +232,12 @@ export function StudioRouteShell() {
               <GripVerticalIcon size={12} strokeWidth={1.8} />
             </span>
           </Separator>
-          <Panel className="studio-assistant-panel" defaultSize="100%" id="studio-chat-panel" minSize="0%">
+          <Panel
+            className="studio-assistant-panel"
+            defaultSize="100%"
+            id="studio-chat-panel"
+            minSize={MIN_ASSISTANT_PANEL_SIZE}
+          >
             <div className="studio-ai-panel">
               <Outlet context={routeContext} />
             </div>

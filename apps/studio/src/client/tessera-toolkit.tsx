@@ -6,70 +6,47 @@ import {
   type ToolCallMessagePartComponent,
   type ToolCallMessagePartProps,
 } from "@assistant-ui/react";
+import { CheckIcon, LoaderCircleIcon, XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { approveStudioDatabaseAction, rejectStudioDatabaseAction } from "./api/studio-api";
 import { AgentActivity } from "./components/agent-activity";
 import { ToolCall } from "./components/elements/tool-call";
 
 type SafeToolResult = Record<string, unknown>;
-type TesseraToolKind = "context" | "catalog" | "schema" | "probe" | "analysis";
+type TesseraToolKind = "database" | "catalog" | "sql" | "analysis";
+type ApprovalResolution = Readonly<{
+  state: "idle" | "working" | "approved" | "rejected" | "failed";
+  affectedRows?: number;
+}>;
 
-const CurrentContextTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+const ListDatabaseTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
     {...props}
-    kind="context"
-    label="Reading selected data context"
-    completeLabel="Read selected data context"
-    detail={currentContextDetail(props.result)}
+    kind="database"
+    label="Listing database context"
+    completeLabel="Listed database context"
+    detail={databaseDetail(props.result)}
   />
 );
 
-const CatalogSearchTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+const ListCatalogTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
     {...props}
     kind="catalog"
-    label="Inspecting permitted data"
-    completeLabel="Inspected permitted data"
+    label="Listing permitted data"
+    completeLabel="Listed permitted data"
     detail={catalogDetail(props.result)}
   />
 );
 
-const CatalogDescriptionTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+const ExecuteSqlTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
   <TesseraToolCall
     {...props}
-    kind="catalog"
-    label="Reviewing data definitions"
-    completeLabel="Reviewed data definitions"
-    detail={catalogDescriptionDetail(props.result)}
-  />
-);
-
-const SchemaInspectionTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
-  <TesseraToolCall
-    {...props}
-    kind="schema"
-    label="Inspecting database schema"
-    completeLabel="Inspected database schema"
-    detail={schemaDetail(props.result)}
-  />
-);
-
-const DatabaseCapabilitiesTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
-  <TesseraToolCall
-    {...props}
-    kind="schema"
-    label="Inspecting database capabilities"
-    completeLabel="Inspected database capabilities"
-    detail={capabilitiesDetail(props.result)}
-  />
-);
-
-const DataProbeTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
-  <TesseraToolCall
-    {...props}
-    kind="probe"
-    label="Checking data signals"
-    completeLabel="Checked data signals"
-    detail={probeDetail(props.result)}
+    kind="sql"
+    label="Executing SQL"
+    completeLabel="Executed SQL"
+    detail={sqlDetail(props.result)}
   />
 );
 
@@ -98,7 +75,11 @@ function TesseraToolCall({
 }) {
   const running = status.type === "running";
   const failed = status.type === "incomplete" || result?.status === "blocked" || result?.status === "failed";
-  const needsApproval = status.type === "requires-action";
+  const [approval, setApproval] = useState<ApprovalResolution>({ state: "idle" });
+  const approvalHandles = sqlApprovalHandles(result);
+  const needsApproval = (status.type === "requires-action" || approvalHandles !== undefined)
+    && approval.state !== "approved"
+    && approval.state !== "rejected";
   const title = running ? label : needsApproval ? `${label} needs approval` : completeLabel;
   const [open, setOpen] = useState(running || failed || needsApproval);
 
@@ -108,6 +89,29 @@ function TesseraToolCall({
 
   const request = toolRequest(kind);
   const chip = toolChip(kind);
+  const resolvedDetail = approvalDetail(approval) ?? detail;
+
+  const respondToApproval = async (decision: "approve" | "reject") => {
+    if (approvalHandles === undefined || approval.state === "working") return;
+    setApproval({ state: "working" });
+    try {
+      const effect = decision === "approve"
+        ? await approveStudioDatabaseAction(approvalHandles.requestId, approvalHandles.checkpointId)
+        : await rejectStudioDatabaseAction(approvalHandles.requestId, approvalHandles.checkpointId);
+      if (decision === "reject" || effect.summary.status === "cancelled") {
+        setApproval({ state: "rejected" });
+      } else if (effect.summary.status === "succeeded") {
+        setApproval({
+          state: "approved",
+          ...(effect.result?.affectedRows === undefined ? {} : { affectedRows: effect.result.affectedRows }),
+        });
+      } else {
+        setApproval({ state: "failed" });
+      }
+    } catch {
+      setApproval({ state: "failed" });
+    }
+  };
 
   if (failed) {
     return <AgentActivity detail={chip} label={`${label} stopped`} state="failed" />;
@@ -129,9 +133,34 @@ function TesseraToolCall({
         open={open}
         query={chip}
         request={request}
-        result={`${detail}${result?.truncated === true ? " Result limit reached." : ""}`}
+        result={`${resolvedDetail}${result?.truncated === true ? " Result limit reached." : ""}`}
         running={running}
       />
+      {approvalHandles !== undefined && approval.state !== "approved" && approval.state !== "rejected" ? (
+        <div className="mt-2 flex items-center gap-2 ps-5">
+          <Button
+            disabled={approval.state === "working"}
+            onClick={() => void respondToApproval("approve")}
+            size="sm"
+            type="button"
+          >
+            {approval.state === "working"
+              ? <LoaderCircleIcon className="size-3.5 animate-spin" />
+              : <CheckIcon className="size-3.5" />}
+            Approve
+          </Button>
+          <Button
+            disabled={approval.state === "working"}
+            onClick={() => void respondToApproval("reject")}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <XIcon className="size-3.5" />
+            Reject
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -141,38 +170,34 @@ function toolChip(kind: TesseraToolKind): string {
 }
 
 function toolRequest(kind: TesseraToolKind): string {
-  if (kind === "context") return "Read server-bound selected data context";
   if (kind === "catalog") return "Read governed catalog metadata";
-  if (kind === "schema") return "Read bounded physical schema metadata";
-  if (kind === "probe") return "Check bounded data signals";
+  if (kind === "database") return "Read bounded database metadata";
+  if (kind === "sql") return "Execute a governed database operation";
   return "Run a governed read-only analysis";
 }
 
-function currentContextDetail(result: SafeToolResult | undefined): string {
-  if (!result) return "Preparing the selected data context";
-  if (result.status === "blocked") return "The selected data context is no longer available";
-  const count = safePositiveInteger(result.entityCount);
-  return count === undefined
-    ? "Selected data context is ready"
-    : `${count} selected ${count === 1 ? "entity is" : "entities are"} ready`;
+function databaseDetail(result: SafeToolResult | undefined): string {
+  if (!result) return "Reading connected database metadata";
+  if (result.status === "blocked") return "The requested database context is unavailable";
+  if (result.scope === "current") {
+    const count = safePositiveInteger(result.entityCount);
+    return count === undefined ? "Selected data context is ready" : `${count} selected ${count === 1 ? "entity is" : "entities are"} ready`;
+  }
+  if (result.scope === "schema") return schemaDetail(result);
+  if (result.scope === "capabilities") {
+    const count = safePositiveInteger(result.componentCount);
+    return count === undefined ? "Database capabilities are ready" : `${count} database capabilities listed`;
+  }
+  return "Database context is ready";
 }
 
 function catalogDetail(result: SafeToolResult | undefined): string {
   if (!result) return "Reviewing the governed schema";
   if (result.status === "blocked") return "No permitted catalog path was available";
-  const count = safePositiveInteger(result.tableCount);
-  return count === undefined
-    ? "Catalog review completed"
-    : `${count} permitted ${count === 1 ? "table is" : "tables are"} available`;
-}
-
-function catalogDescriptionDetail(result: SafeToolResult | undefined): string {
-  if (!result) return "Reviewing permitted fields and relationships";
-  if (result.status === "blocked") return "No permitted data definition was available";
   const count = safePositiveInteger(result.entityCount);
   return count === undefined
-    ? "Data definition review completed"
-    : `${count} ${count === 1 ? "entity was" : "entities were"} reviewed`;
+    ? "Catalog listing completed"
+    : `${count} permitted ${count === 1 ? "entity is" : "entities are"} available`;
 }
 
 function schemaDetail(result: SafeToolResult | undefined): string {
@@ -188,17 +213,34 @@ function schemaDetail(result: SafeToolResult | undefined): string {
   return `${detail}${columnDetail}${relationDetail} reviewed`;
 }
 
-function capabilitiesDetail(result: SafeToolResult | undefined): string {
-  if (!result) return "Checking database version and extensions";
-  if (result.status === "blocked") return "Database capabilities are unavailable";
-  const count = safePositiveInteger(result.componentCount);
-  return count === undefined ? "Database capability check completed" : `${count} database capabilities checked`;
+function sqlDetail(result: SafeToolResult | undefined): string {
+  if (!result) return "Applying database safeguards";
+  if (result.status === "approval_required") return "A database change is waiting for your approval";
+  if (result.status === "blocked") return "The database operation was blocked";
+  if (result.mode === "mutation") {
+    const rows = safePositiveInteger(result.affectedRows);
+    return rows === undefined ? "Database change completed" : `${rows} ${rows === 1 ? "row was" : "rows were"} changed`;
+  }
+  const rows = safePositiveInteger(result.rowCount);
+  return rows === undefined ? "Read query completed" : `${rows} ${rows === 1 ? "row was" : "rows were"} returned`;
 }
 
-function probeDetail(result: SafeToolResult | undefined): string {
-  if (!result) return "Checking bounded values and ranges";
-  if (result.status === "blocked") return "No governed probe was available for this analysis";
-  return "Governed data check completed";
+function sqlApprovalHandles(result: SafeToolResult | undefined): Readonly<{ requestId: string; checkpointId: string }> | undefined {
+  return result?.status === "approval_required"
+    && typeof result.requestId === "string"
+    && typeof result.checkpointId === "string"
+    ? { requestId: result.requestId, checkpointId: result.checkpointId }
+    : undefined;
+}
+
+function approvalDetail(approval: ApprovalResolution): string | undefined {
+  if (approval.state === "working") return "Applying your approval decision";
+  if (approval.state === "rejected") return "Database change rejected; no change was applied";
+  if (approval.state === "failed") return "The approval decision could not be completed";
+  if (approval.state !== "approved") return undefined;
+  return approval.affectedRows === undefined
+    ? "Approved database change completed"
+    : `Approved database change completed for ${approval.affectedRows} ${approval.affectedRows === 1 ? "row" : "rows"}`;
 }
 
 function analysisDetail(result: SafeToolResult | undefined): string {
@@ -220,29 +262,17 @@ function safePositiveInteger(value: unknown): number | undefined {
  * its arguments and outputs to the browser.
  */
 export const tesseraStudioToolkit: Toolkit = defineToolkit({
-  inspect_current_context: {
+  list_database: {
     type: "backend" as const,
-    render: CurrentContextTool,
+    render: ListDatabaseTool,
   },
-  inspect_catalog: {
+  list_catalog: {
     type: "backend" as const,
-    render: CatalogSearchTool,
+    render: ListCatalogTool,
   },
-  inspect_schema: {
+  execute_sql: {
     type: "backend" as const,
-    render: SchemaInspectionTool,
-  },
-  inspect_database_capabilities: {
-    type: "backend" as const,
-    render: DatabaseCapabilitiesTool,
-  },
-  describe_data: {
-    type: "backend" as const,
-    render: CatalogDescriptionTool,
-  },
-  probe_data: {
-    type: "backend" as const,
-    render: DataProbeTool,
+    render: ExecuteSqlTool,
   },
   run_analysis: {
     type: "backend" as const,

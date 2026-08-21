@@ -452,16 +452,16 @@ function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: Studio
   return (
     <>
       <StudioModelPicker />
-      <button
+      <TooltipIconButton
         aria-label="Configure permissions"
-        className="studio-composer-setting"
+        className="ml-auto size-8 shrink-0 rounded-full"
         onClick={() => onOpenSettings("permissions")}
-        title="Configure permissions"
+        side="top"
+        tooltip="Configure permissions"
         type="button"
       >
-        <ShieldCheckIcon aria-hidden="true" size={14} />
-        <span>Permissions</span>
-      </button>
+        <ShieldCheckIcon aria-hidden="true" size={16} />
+      </TooltipIconButton>
     </>
   );
 }
