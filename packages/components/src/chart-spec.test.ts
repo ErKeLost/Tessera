@@ -1,68 +1,56 @@
 import { describe, expect, test } from "bun:test";
-import {
-  chartSpecSchema,
-  resolvedChartSpecSchema,
-} from "./chart-spec";
 import { officialChartSpecFixtures } from "./chart-fixtures";
+import { chartRecipes, chartSpecSchema, resolvedChartSpecSchema } from "./chart-spec";
 
-describe("ChartSpec", () => {
-  test("validates one strict authoring fixture for every official chart recipe", () => {
-    expect(officialChartSpecFixtures).toHaveLength(70);
+describe("Data Chart spec", () => {
+  test("is an exact 17-recipe discriminated union", () => {
+    expect(officialChartSpecFixtures).toHaveLength(17);
+    expect(officialChartSpecFixtures.map((fixture) => fixture.recipeName)).toEqual([...chartRecipes]);
     for (const fixture of officialChartSpecFixtures) {
       expect(chartSpecSchema.parse(fixture.spec)).toEqual(fixture.spec);
-      expect(fixture.spec.equivalentView === "table" || fixture.spec.equivalentView === "text-summary").toBe(true);
+      expect(resolvedChartSpecSchema.parse(fixture.resolvedSpec)).toEqual(fixture.resolvedSpec);
+      expect(fixture.spec.recipe).toBe(fixture.recipeName);
     }
   });
 
-  test("keeps authoring resource expressions separate from resolved data", () => {
-    const fixture = structuredClone(officialChartSpecFixtures[0]!.spec);
-    expect(chartSpecSchema.safeParse(fixture).success).toBe(true);
-    expect(resolvedChartSpecSchema.safeParse(fixture).success).toBe(false);
-
-    const resolved = {
-      ...fixture,
-      data: {
-        columns: [
-          { columnId: "month", label: "Month", valueType: "date" },
-          { columnId: "revenue", label: "Revenue", valueType: "number" },
-        ],
-        rows: [{ month: "2026-08-01", revenue: 42 }],
-      },
-    };
-    expect(resolvedChartSpecSchema.safeParse(resolved).success).toBe(true);
-    expect(chartSpecSchema.safeParse(resolved).success).toBe(false);
+  test("separates authoring Resource Bindings from resolved datasets", () => {
+    const fixture = officialChartSpecFixtures[0]!;
+    expect(chartSpecSchema.safeParse(fixture.spec).success).toBe(true);
+    expect(resolvedChartSpecSchema.safeParse(fixture.spec).success).toBe(false);
+    expect(resolvedChartSpecSchema.safeParse(fixture.resolvedSpec).success).toBe(true);
+    expect(chartSpecSchema.safeParse(fixture.resolvedSpec).success).toBe(false);
   });
 
-  test("rejects inline data, raw presentation values, callbacks, and renderer props", () => {
-    const base = structuredClone(officialChartSpecFixtures[0]!.spec) as Record<string, any>;
-
-    expect(chartSpecSchema.safeParse({ ...base, data: [{ month: "2026-08", revenue: 42 }] }).success).toBe(false);
-    const forbiddenPresentationKey = ["class", "Name"].join("");
-    expect(chartSpecSchema.safeParse({ ...base, [forbiddenPresentationKey]: "h-80" }).success).toBe(false);
+  test("rejects inline rows and renderer-controlled presentation", () => {
+    const base = structuredClone(officialChartSpecFixtures[0]!.spec) as Record<string, unknown>;
+    expect(chartSpecSchema.safeParse({ ...base, data: [{ day: "Mon", steps: 42 }] }).success).toBe(false);
+    expect(chartSpecSchema.safeParse({ ...base, color: "#9cdf15" }).success).toBe(false);
+    expect(chartSpecSchema.safeParse({ ...base, className: "h-80" }).success).toBe(false);
     expect(chartSpecSchema.safeParse({ ...base, style: { color: "red" } }).success).toBe(false);
-    expect(chartSpecSchema.safeParse({ ...base, margin: { top: 10 } }).success).toBe(false);
-    expect(chartSpecSchema.safeParse({ ...base, content: () => null }).success).toBe(false);
-
-    const invalidColorToken = structuredClone(base);
-    invalidColorToken.series[0].colorToken = "#ff0000";
-    expect(chartSpecSchema.safeParse(invalidColorToken).success).toBe(false);
-
-    const rawIcon = structuredClone(base);
-    rawIcon.series[0].iconToken = "MyIconComponent";
-    expect(chartSpecSchema.safeParse(rawIcon).success).toBe(false);
+    expect(chartSpecSchema.safeParse({ ...base, onSelect: () => undefined }).success).toBe(false);
+    expect(chartSpecSchema.safeParse({ ...base, svg: "<svg />" }).success).toBe(false);
+    expect(chartSpecSchema.safeParse({ ...base, recipe: "chart-area-default" }).success).toBe(false);
   });
 
-  test("rejects family-specific fields and invalid domains or stacks", () => {
-    const line = structuredClone(officialChartSpecFixtures.find((fixture) => fixture.spec.family === "line")!.spec);
-    expect(chartSpecSchema.safeParse({ ...line, innerRadius: "md" }).success).toBe(false);
+  test("rejects undeclared or semantically invalid resolved columns", () => {
+    const base = structuredClone(officialChartSpecFixtures[0]!.resolvedSpec) as Record<string, any>;
+    base.valueColumn = "missing";
+    expect(resolvedChartSpecSchema.safeParse(base).success).toBe(false);
 
-    const radial = structuredClone(officialChartSpecFixtures.find((fixture) => fixture.spec.family === "radial")!.spec);
-    expect(chartSpecSchema.safeParse({ ...radial, domain: { min: 10, max: 10 } }).success).toBe(false);
+    const invalidType = structuredClone(officialChartSpecFixtures[0]!.resolvedSpec) as Record<string, any>;
+    const steps = invalidType.data.columns.find((column: Record<string, unknown>) => column.columnId === "steps")!;
+    steps.valueType = "string";
+    expect(resolvedChartSpecSchema.safeParse(invalidType).success).toBe(false);
+  });
 
-    const stacked = structuredClone(officialChartSpecFixtures.find((fixture) => (
-      "stack" in fixture.spec && fixture.spec.stack?.mode === "normal"
-    ))!.spec) as Record<string, any>;
-    stacked.series = [stacked.series[0]];
-    expect(chartSpecSchema.safeParse(stacked).success).toBe(false);
+  test("requires steps bars to resolve one complete week and an existing selected date", () => {
+    const missingSelection = structuredClone(officialChartSpecFixtures[0]!.resolvedSpec) as Record<string, any>;
+    missingSelection.selectedDate = "2026-07-06";
+    expect(resolvedChartSpecSchema.safeParse(missingSelection).success).toBe(false);
+
+    const incompleteWeek = structuredClone(officialChartSpecFixtures[0]!.resolvedSpec) as Record<string, any>;
+    incompleteWeek.data.rows.pop();
+    incompleteWeek.data.totalRows = incompleteWeek.data.rows.length;
+    expect(resolvedChartSpecSchema.safeParse(incompleteWeek).success).toBe(false);
   });
 });

@@ -44,6 +44,13 @@ function TesseraToolCall({
   toolName,
 }: NativeToolProps) {
   const running = status.type === "running";
+  const failedResult = result?.error === true
+    || typeof result?.error === "string"
+    || result?.status === "failed"
+    || result?.status === "blocked"
+    || result?.status === "rejected"
+    || result?.status === "unavailable";
+  const failed = status.type === "incomplete" || failedResult;
   const initialApprovalHandles = sqlApprovalHandles(result);
   const [approvalState, setApprovalState] = useState<ApprovalState>(
     initialApprovalHandles === undefined ? "idle" : "loading",
@@ -57,7 +64,7 @@ function TesseraToolCall({
   // The approval surface is the review UI. Keep the implementation payload
   // collapsed while waiting so users see the action summary first, not a raw
   // JSON envelope.
-  const shouldAutoOpen = running;
+  const shouldAutoOpen = running || failed;
   const [open, setOpen] = useState(shouldAutoOpen);
 
   useEffect(() => {
@@ -118,10 +125,11 @@ function TesseraToolCall({
     <>
       <ToolCall
         activeLabel={toolName}
+        failed={failed}
         label={toolName}
         onOpenChange={setOpen}
         open={open}
-        query={status.type}
+        query={failed ? "failed" : status.type}
         request={formatToolInput(args, argsText, running)}
         result={formatToolValue(result)}
         running={running}

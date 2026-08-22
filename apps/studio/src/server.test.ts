@@ -1229,7 +1229,7 @@ describe("Tessera Studio Nitro app", () => {
     expect(serialized).not.toContain("thread-1");
   });
 
-  test("logs a failed chat stream without exposing the model error", async () => {
+  test("logs a concrete failed-stream diagnostic while redacting sensitive values", async () => {
     const info: StudioLogEvent[] = [];
     const errors: StudioLogEvent[] = [];
     const app = createStudioApp({
@@ -1243,7 +1243,14 @@ describe("Tessera Studio Nitro app", () => {
           return { status: "completed", message: "Unused fallback." };
         },
         async stream() {
-          throw new Error("model-provider-secret-do-not-log");
+          const error = new Error([
+            "OpenRouter returned 429: quota exceeded for this model.",
+            "api_key=sk-or-secret-provider-key-123456789",
+            "sql: SELECT secret_value FROM private.accounts",
+            "response body: {\"raw\":\"provider-payload-do-not-log\"}",
+          ].join(" "));
+          Object.assign(error, { code: "429" });
+          throw error;
         },
       },
     });
@@ -1276,8 +1283,19 @@ describe("Tessera Studio Nitro app", () => {
       operation: "chat",
       status: 200,
       outcome: "failed",
+      finishReason: "error",
+      diagnosticCode: "429",
+      errorPhase: "provider",
+      errorType: "Error",
+      errorMessage: expect.stringContaining("OpenRouter returned 429: quota exceeded for this model."),
     })]);
-    expect(JSON.stringify(errors)).not.toContain("model-provider-secret-do-not-log");
+    const serializedErrors = JSON.stringify(errors);
+    expect(serializedErrors).toContain("[REDACTED]");
+    expect(serializedErrors).toContain("[REDACTED_SQL]");
+    expect(serializedErrors).toContain("[REDACTED_PROVIDER_PAYLOAD]");
+    expect(serializedErrors).not.toContain("sk-or-secret-provider-key-123456789");
+    expect(serializedErrors).not.toContain("secret_value");
+    expect(serializedErrors).not.toContain("provider-payload-do-not-log");
   });
 
   test("logs native tool events with the server-owned run correlation", async () => {
@@ -1349,6 +1367,161 @@ describe("Tessera Studio Nitro app", () => {
     expect(runIds).toHaveLength(1);
     expect(JSON.stringify(info)).not.toContain("source-tool-id-do-not-log");
     expect(JSON.stringify(info)).not.toContain("source-sql-do-not-log");
+  });
+
+  test("logs concrete tool failures and bounded-inventory omissions without tool arguments", async () => {
+    const info: StudioLogEvent[] = [];
+    const errors: StudioLogEvent[] = [];
+    const app = createStudioApp({
+      connector: createConnector(),
+      logger: {
+        info(event) { info.push(event); },
+        error(event) { errors.push(event); },
+      },
+      agent: {
+        async run() { return { status: "completed", message: "Unused fallback." }; },
+        streamUI(input) {
+          const databaseError = Object.assign(new Error('column "missing_total" does not exist'), {
+            name: "PostgresError",
+            code: "42703",
+            detail: "The requested projection references an unknown column.",
+            position: "18",
+          });
+          input.reportDiagnostic?.({
+            phase: "tool-output",
+            tool: "execute_sql",
+            reason: "query_failed",
+            error: databaseError,
+          });
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "message-tool-diagnostics" });
+              controller.enqueue({
+                type: "tool-input-start",
+                toolCallId: "sql-call-private",
+                toolName: "execute_sql",
+              });
+              controller.enqueue({
+                type: "tool-input-available",
+                toolCallId: "sql-call-private",
+                toolName: "execute_sql",
+                input: { sql: "SELECT missing_total FROM private.billing", apiKey: "secret-tool-key" },
+              } as TesseraUIMessageChunk);
+              controller.enqueue({
+                type: "tool-output-available",
+                toolCallId: "sql-call-private",
+                output: { status: "failed", reason: "query_failed", message: "The database query failed." },
+              });
+              controller.enqueue({
+                type: "tool-input-start",
+                toolCallId: "catalog-call-private",
+                toolName: "list_database",
+              });
+              controller.enqueue({
+                type: "tool-output-available",
+                toolCallId: "catalog-call-private",
+                output: {
+                  status: "completed",
+                  truncated: true,
+                  omitted: { schemas: 2, tables: 17, columns: 0, foreignKeys: 0 },
+                },
+              });
+              controller.enqueue({ type: "finish", finishReason: "stop" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-tool-diagnostics",
+        trigger: "submit-message",
+        messages: [{ id: "user-1", role: "user", parts: [{ type: "text", text: "Check billing" }] }],
+      }),
+    }));
+    await response.text();
+
+    expect(errors).toEqual([expect.objectContaining({
+      event: "stream",
+      stage: "tool",
+      tool: "execute_sql",
+      toolState: "failed",
+      diagnosticCode: "42703",
+      errorPhase: "tool-output",
+      errorType: "PostgresError",
+      errorMessage: expect.stringContaining('column "missing_total" does not exist'),
+      reason: "query_failed",
+    })]);
+    expect(errors[0]?.errorMessage).toContain("unknown column");
+    expect(errors[0]?.errorMessage).toContain("Position: 18");
+    expect(info).toEqual(expect.arrayContaining([expect.objectContaining({
+      event: "stream",
+      stage: "tool",
+      tool: "list_database",
+      toolState: "completed",
+      truncated: true,
+      omittedSchemas: 2,
+      omittedTables: 17,
+    })]));
+    const serialized = JSON.stringify([...info, ...errors]);
+    expect(serialized).not.toContain("SELECT missing_total");
+    expect(serialized).not.toContain("secret-tool-key");
+    expect(serialized).not.toContain("sql-call-private");
+  });
+
+  test("logs tool input validation details without logging the rejected arguments", async () => {
+    const errors: StudioLogEvent[] = [];
+    const app = createStudioApp({
+      connector: createConnector(),
+      logger: { info() {}, error(event) { errors.push(event); } },
+      agent: {
+        async run() { return { status: "completed", message: "Unused fallback." }; },
+        streamUI() {
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "message-tool-input-error" });
+              controller.enqueue({
+                type: "tool-input-error",
+                toolCallId: "validation-call-private",
+                toolName: "list_database",
+                input: { operation: "describe_schema", sql: "SELECT secret FROM private.users" },
+                errorText: 'Type validation failed. Value: {"operation":"describe_schema","sql":"SELECT secret FROM private.users"}. Error message: path: ["schema"] is required.',
+              });
+              controller.enqueue({ type: "finish", finishReason: "stop" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-tool-input-error",
+        trigger: "submit-message",
+        messages: [{ id: "user-1", role: "user", parts: [{ type: "text", text: "Inspect users" }] }],
+      }),
+    }));
+    await response.text();
+
+    expect(errors).toEqual([expect.objectContaining({
+      tool: "list_database",
+      toolState: "failed",
+      errorPhase: "tool-input",
+      errorType: "ToolInputError",
+      field: "schema",
+      errorMessage: 'path: ["schema"] is required.',
+    })]);
+    const serialized = JSON.stringify(errors);
+    expect(serialized).not.toContain("SELECT secret");
+    expect(serialized).not.toContain("private.users");
+    expect(serialized).not.toContain("validation-call-private");
   });
 
   test("redacts connector and Agent failures", async () => {

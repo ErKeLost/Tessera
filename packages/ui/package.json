@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/ui",
-  "version": "0.3.15",
+  "version": "0.3.16",
   "description": "Official React renderers for the Open Generative component catalog and ChartSpec.",
   "license": "MIT",
   "type": "module",
@@ -30,7 +30,9 @@
     "@open-generative/components": "workspace:*",
     "@open-generative/protocol": "workspace:*",
     "@open-generative/react": "workspace:*",
+    "class-variance-authority": "^0.7.1",
     "lucide-react": "1.31.0",
+    "radix-ui": "^1.6.7",
     "recharts": "3.10.1"
   },
   "peerDependencies": {

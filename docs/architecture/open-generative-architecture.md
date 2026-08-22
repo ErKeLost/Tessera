@@ -35,10 +35,10 @@
 
 本仓库不是以“package 能 build”作为成功，而以 Tessera Agent 的完整行为证据验收：
 
-1. 同一次 governed Query execution 能发布同源、带 provenance 的 typed pinned Resources，并按问题需要组合 `data.metric`、`data.chart`、`data.table`、`data.query-details`、filters 和解释性内容，而不是固定渲染一种 Query view；只有采用相同 Dataset Envelope 与 schema 的 Chart/Table binding 才能复用同一个 dataset version。
+1. 同一次 governed Query execution 能发布带 provenance 的 typed pinned Dataset，并由唯一 `data.chart` Contract 根据问题选择 17 个锁定 recipe 中的任意一个，而不是把 Query 结果固定映射成一种视图或把 rows 复制进 Document。
 2. 模型只看到安全 descriptor、column metadata、binding/evidence offer；rows 不进入 prompt proposal、Document、chat history 或通用 transport。
 3. snapshot 与等价 operation stream 得到完全相同的 canonical content；invalid/abort/conflict 永远保留 last-good。
-4. 12 个首批 Component 全部走同一 Contract、Resource、state、action、stream 和 renderer 链；`data.chart` 覆盖锁定的全部 61 chart + 9 tooltip recipes。
+4. 当前官方 Catalog 只包含 `data.chart`；17 个 recipe 全部走同一 Contract、Resource、stream、Surface 和 renderer 链，并由严格判别联合拒绝非法字段组合。
 5. 常见分析任务经过固定 golden set 和 model eval，达到本文完成标准与 [Tessera 成功证明规范](./tessera-data-agent-generative-ui-proof.md)，才允许启动独立 Open Generative 项目。
 
 ## 2. 仓库、产品与未来拆分边界
@@ -945,7 +945,7 @@ trusted SurfaceEventStream
 -> Tessera Agent shadcn/ui node renderers
 ```
 
-`data.metric`、`data.table`、`data.chart` 等是同一 registry 中的 node renderer，不是各自拥有协议和状态的顶层 Renderer。`data.chart` 内部根据严格 ChartSpec 选择 Area/Bar/Line/Pie/Radar/Radial recipe，也不产生第二条渲染链。
+当前 registry 只注册 `data.chart`。它内部根据严格 ChartSpec 选择 17 个 Tessera recipe 中的一个，但 recipe 不是 Component，也不产生第二条协议、SurfaceController、Registry 或渲染链。
 
 ### Renderer Capability Handshake
 
@@ -1112,7 +1112,7 @@ Tessera Data UI Catalog 只向模型暴露一个带独立 contract revision 的 
 | Radial | simple、grid、label、shape、stacked、center text |
 | Tooltip/Legend | default、advanced、formatter token、icons、dot/line/dashed/none indicator、custom/none label、legend |
 
-以仓库当前 shadcn/ui 参考快照为覆盖样本，这代表 6 个 chart family、61 个 chart recipes 和 9 个 tooltip recipes。当前快照是 commit `25be24cca34d06eed29a4779c3f48c4816aa812c`、registry path `apps/v4/registry/new-york-v4/charts`、shadcn source `4.18.0`、Recharts `3.8.0`；但根 CLI 仍为 shadcn `4.17.0`，当前 renderer 使用 Recharts `3.10.1`，因此它只是审计样本，不是发布基线。
+shadcn/ui 的 chart registry 只作为底层 primitive 与实现审计样本，不再直接决定官方 recipe 数量。当前发布基线由本仓库锁定的 17 个 Tessera Data Chart 参考设计、精确 ChartSpec fixture、renderer fixture 与 accessibility fixture 决定；上游 shadcn 新增示例不会自动扩大模型可用 Catalog。
 
 正式实现必须选择唯一 upstream snapshot 和唯一 resolved dependency graph，并生成 machine-readable coverage。不能只锁 major，也不能用 range 代替发布 provenance：
 
@@ -1153,40 +1153,40 @@ type ChartCoverageManifest = {
 
 ```ts
 type ChartSpec =
-  | CartesianChartSpec<"area" | "bar" | "line">
-  | PolarChartSpec<"pie" | "radar" | "radial">
+  | StepsBarsSpec
+  | PipelineStageBarsSpec
+  | SleepScoreSpec
+  | RevenuePerAccountScatterSpec
+  | TrackedTimeSankeySpec
+  | VisitorsRadialSpec
+  | VisitorsRadarSpec
+  | ActivityCalendarSpec
+  | RevenueSmoothAreaSpec
+  | ActiveUsersHeatmapSpec
+  | SignUpFunnelSpec
+  | EarnedSoFarBarsSpec
+  | ContributionsHeatmapSpec
+  | SessionsConversionComboSpec
+  | DevicesBarsSpec
+  | VisitorsStackedAreaSpec
+  | ActivityRingsSpec
 
 type ChartBase = {
   data: ResourceBindingExpr
-  title?: string
-  description?: string
-  series: ChartSeries[]
-  legend?: LegendSpec
-  tooltip?: TooltipSpec
-  labels?: LabelSpec
-  interaction?: ChartInteractionSpec
-  presentation?: ChartPresentationTokens
-  equivalentView: "table" | "text-summary"
+  title: string
+  subtitle?: string
+  recipe: ChartRecipe
+  equivalentView: "table"
   accessibility: { label: string; description?: string }
-}
-
-type ChartSeries = {
-  column: ColumnId
-  label?: string
-  colorToken?: `chart.${1 | 2 | 3 | 4 | 5}` | SemanticColorToken
-  valueFormat?: FormatToken
-  stackId?: string
-  iconToken?: ChartIconToken
 }
 ```
 
-不同 family 使用 discriminated schema 约束 encoding：Cartesian chart 才能声明 axes/orientation/curve/stack offset，Pie 才能声明 inner radius/active shape/separator，Radar 才能声明 polar grid/radius，Radial 才能声明 gauge domain/center text。Gradient、dots、label、icon、grid、active state 和 interactive range 都使用 allowlisted capability tokens 与 typed state binding。非法组合在 server proposal validation 时失败，而不是让 Recharts 静默忽略。
+`recipe` 是严格 discriminant。每个分支只暴露该设计所需的列角色、聚合与格式字段：例如 Sankey 只能声明 source/target/value 列，Calendar 与 Heatmap 只能声明日期或二维 bucket/value 列，Combo 只能声明 sessions 与 conversion 列。非法组合在 server proposal validation 时失败，而不是让 renderer 或 Recharts 静默忽略。
 
 模型只能使用：
 
 - Resource 中真实存在的 `ColumnId`；
-- allowlisted chart、curve、stack、axis、label、tooltip 与 interaction tokens；
-- shadcn theme 的语义 color token；
+- recipe 分支明确允许的列角色、聚合与格式 token；
 - locale-aware number/date/currency/percent `FormatToken`；
 - Contract 声明的 `select`、`legendToggle`、`rangeChange` 等 event port。
 
@@ -1198,58 +1198,41 @@ type ChartSeries = {
 - 任意 icon component；
 - 内联大数据数组。
 
-Renderer 负责将 `ChartSpec` 确定性编译成 shadcn Chart + Recharts tree，并强制：稳定尺寸、responsive container、`accessibilityLayer`、theme tokens、空/错误/loading 状态、series 数量与 point 数量上限、降采样/窗口化以及 prefers-reduced-motion。`accessibilityLayer` 不足以单独满足可访问性；每个 chart 还必须提供同数据 snapshot 的 table 或 text-summary 等价视图。
+Renderer 负责将 `ChartSpec` 确定性编译成统一视觉系统。Area、Bar、Radar、Scatter 与 Combo 可以使用 Recharts；Sankey、Funnel、Heatmap、Calendar、Devices、Stage Bars 与 Rings 使用 schema 驱动的 SVG/DOM，不能把空 Recharts wrapper 当作实现。所有 recipe 强制稳定尺寸、responsive constraints、空/错误/loading 状态、数据量上限、降采样/窗口化与 prefers-reduced-motion；每个 chart 还必须提供同一 Resource snapshot 的 table 等价视图。
 
-## 17. Tessera Data UI Component Catalog
+## 17. Tessera Data Chart Catalog
 
-底层完整不等于一开始暴露几十个组件。当前 Catalog 只启用 Tessera Agent 需要的小而正交的集合：
+底层完整不等于当前 Catalog 必须暴露大量组件。当前官方 Catalog 只启用一个 Component：
 
-| 类别 | Component | 目的 |
-| --- | --- | --- |
-| Layout | `layout.stack` | 默认阅读流 |
-| Layout | `layout.grid` | 指标和可比较视图 |
-| Layout | `layout.section` | 标题、描述和内容分组 |
-| Content | `content.text` | 简短标题、说明和 caption |
-| Content | `content.callout` | 洞察、限制、warning |
-| Content | `content.empty` | no-data、unavailable、filtered |
-| Data | `data.metric` | 单个或紧密相关 KPI |
-| Data | `data.table` | Resource-backed 明细、分页、排序 |
-| Data | `data.chart` | Resource-backed、完整覆盖 shadcn/ui Chart Library 的严格 chart spec |
-| Data | `data.query-details` | SQL、lineage、freshness、evidence 的受控检查面板 |
-| Control | `control.filter` | Contract 限定的 filter state |
-| Control | `control.group` | 少量相关 controls 的语义分组 |
-
-首批 Contract 设计如下；字段均为语义 token 或 typed binding，不接受 raw JSX/style/function：
-
-| Component | 核心 props / binding | Slots 与 event ports | Readiness / fallback | shadcn/ui React recipe |
+| Component | 核心 props / binding | Slots 与 event ports | Readiness / fallback | React renderer |
 | --- | --- | --- | --- | --- |
-| `layout.stack` | `gap`、`align`、`density` tokens | `children`; 无 event | progressive；缺 child 显示 slot placeholder | tokenized flex layout |
-| `layout.grid` | `columns: 1..4|auto`、`gap`、`align` | `children`; 无 event | progressive；Host placement 决定 responsive collapse | tokenized CSS grid |
-| `layout.section` | `title?`、`description?`、`level` | `children`; 无 event | progressive；保留语义 heading order | heading + Separator，不强制 Card |
-| `content.text` | plain `text`、`role`、`tone`；禁止 HTML/Markdown execution | 无 slot/event | progressive；不完整 text 不发布 | Typography tokens |
-| `content.callout` | `title?`、`body`、`tone` | optional `actions`; `dismiss?` | progressive；critical 使用 alert semantics | Alert / AlertTitle / AlertDescription |
-| `content.empty` | `reason`、`title`、`description?` | optional `actions`; `retry?` | committed/preview 均可；无伪造数据 | Empty + Button |
-| `data.metric` | scalar/record binding、`label`、`format`、`comparison?`、evidence | `details?`; `select?` | governed atomic；loading/denied/stale 明确 | compact metric composition + Skeleton |
-| `data.table` | dataset binding、ColumnId specs、format、selection、resource capability refs | `toolbar?`; `rowSelect`、`sortChange`、`pageChange` | governed atomic；windowed loading/empty/error | Table + ScrollArea + controlled virtualization |
-| `data.chart` | `ChartSpec` + ResourceBindingExpr + evidence | `toolbar?`; `select`、`rangeChange`、`legendToggle` | governed atomic；强制 equivalent view | shadcn Chart primitives + Recharts |
-| `data.query-details` | query metadata/evidence binding；SQL 可见性由 policy 控制 | `actions?`; `copy` local、`export` HostIntent | atomic；denied 时不泄露 SQL/lineage | Tabs/Accordion + code surface + Badge |
-| `control.filter` | typed state binding、operator schema、options/resource binding | 无 child；`change`、`apply`、`reset` | 仅 committed 可交互；unresolved options disable | Input/Select/Date controls |
-| `control.group` | `label?`、`orientation`、`submitMode` | `controls`; `apply`、`reset` | 仅 committed 可交互 | Field/fieldset + Button group |
+| `data.chart` | 严格 `ChartSpec`、一个 Dataset ResourceBinding、列角色、聚合和 FormatToken | 无 slots；当前无模型自定义事件 | governed atomic；Host 负责 loading/empty/error/unsupported | shadcn tokens + Recharts 或 schema-driven SVG/DOM |
 
-Loading、error、approval、pending effect 和 conflict 不作为模型随意生成的普通 Component；它们由 Contract fallback 与 Host-owned system surfaces 统一渲染，避免模型隐藏、伪造或样式化安全状态。
+17 个参考设计是 `spec.recipe` 的判别联合，不是 17 个 Component type：
 
-这些组件必须全部走相同的 `ResourceBindingExpr`、state、event、ActionIntent、streaming、fallback 与 accessibility Contract。它们不是特例。
+| Recipe | 主要表达 | 确定性实现 |
+| --- | --- | --- |
+| `steps-bars` | 步数与目标进度 | DOM horizontal bars |
+| `pipeline-stage-bars` | Pipeline stage 横向比较 | SVG/DOM bars |
+| `sleep-score` | 单值睡眠评分与分段 | SVG arc + stat layout |
+| `revenue-per-account-scatter` | 账户收入分布 | Recharts Scatter |
+| `tracked-time-sankey` | 时间来源到去向 | schema-driven SVG Sankey |
+| `visitors-radial` | 访客占比环形图 | SVG radial |
+| `visitors-radar` | 多维访客比较 | Recharts Radar |
+| `activity-calendar` | 日期活动强度 | DOM calendar grid |
+| `revenue-smooth-area` | 收入平滑趋势 | Recharts Area |
+| `active-users-heatmap` | 二维活跃用户强度 | DOM heatmap |
+| `sign-up-funnel` | 注册转化阶段 | schema-driven SVG Funnel |
+| `earned-so-far-bars` | 累计收入柱状比较 | Recharts Bar |
+| `contributions-heatmap` | 年度贡献强度 | DOM contribution grid |
+| `sessions-conversion-combo` | Sessions 与 conversion 双指标 | Recharts Composed |
+| `devices-bars` | 设备占比 | DOM proportional bars |
+| `visitors-stacked-area` | 多来源访客趋势 | Recharts stacked Area |
+| `activity-rings` | 多目标活动完成度 | SVG concentric rings |
 
-framework-neutral core 不定义固定 chart/table/SQL/lineage 大组件。Tessera Agent 直接使用 Tessera Data UI components 生成下面的组合：
+所有视觉 token 由 renderer 持有。模型不能提供 rows、raw color、CSS、className、callback、React/Recharts props、HTML 或 SVG markup。标题、统计值和摘要优先由列与 aggregate 从同一绑定 Dataset 推导，不能通过另一条未治理的数据通道注入。
 
-```text
-layout.section
-  -> optional data.metric
-  -> data.chart and/or data.table
-  -> data.query-details
-```
-
-首批分析 recipes 由 Tessera Agent 的真实 jobs、golden conversations 和 evals 决定。当前仓库中的 Trend、Anomaly、Forecast、Funnel、Cohort、Experiment 等实现只作为候选研究样本，不构成必须继承的产品范围。被选中的 recipe 可以推荐组件组合、Resource schema、evidence 和 prompt guidance，但最终仍编译成相同 nodes，不产生第二套 renderer 或协议。
+Loading、empty、error、approval、pending effect 与 conflict 不是模型可选 recipe；它们继续由 Contract fallback 和 Host-owned system surfaces 统一渲染。未来增加其他 Component 只扩展 Catalog，不改变 Document、Runtime、Resource、Surface 或 RendererRegistry 架构。
 
 ## 18. Tessera Agent 的最终接入链
 
@@ -1419,15 +1402,15 @@ protocol identity and terminology
 
 ### Tessera Data UI Components
 
-- 首批 12 个 Component 全部从唯一 Contract 生成 schema、types、registry entries、fixtures、renderer requirements 与 accessibility tests，不存在手写漂移。
+- 当前唯一 `data.chart` Contract 从同一来源生成 schema、types、registry entry、fixtures、renderer requirements 与 accessibility tests，不存在手写漂移。
 - React renderer 基于 shadcn/ui source primitives，但 Tailwind、Radix、React 或 Recharts props 不泄漏到 canonical protocol。
-- `data.chart` 对 manifest 锁定的全部 chart/tooltip recipes 具有一一对应的 valid ChartSpec、renderer、accessibility 与 visual regression fixture。
+- `data.chart` 对 manifest 锁定的 17 个 recipe 具有一一对应的 valid ChartSpec、真实 renderer、accessibility 与 visual regression fixture。
 - Chart manifest 锁定 upstream tree、shadcn source、CLI、Recharts exact versions、package integrity 与 renderer lockfile hash；任何漂移都重新跑 conformance。
-- 每个 chart 提供同一 Resource snapshot 的 table 或 text-summary 等价视图，并满足尺寸、数据量、降采样和 reduced-motion 限制。
+- 每个 chart 提供同一 Resource snapshot 的 table 等价视图，并满足尺寸、数据量、降采样和 reduced-motion 限制。
 
 ### Tessera Agent reference integration
 
-- 同一次 governed Query execution 可以发布符合各自 Contract 的 typed pinned Resources，并组合生成 metric、chart、table 与 query details；这些资源共享 evidence/provenance，只有 schema 一致的 Chart/Table Dataset binding 才复用同一个 dataset version，proposal、Document 和聊天链路不复制 rows。
+- 同一次 governed Query execution 可以发布 typed pinned Dataset，并按问题生成不同 `data.chart` recipe；资源保留 evidence/provenance，proposal、Document 和聊天链路不复制 rows。
 - Query tool output、Mastra Memory、history API、AI SDK stream 和 observability 均通过 no-payload tests。
 - Chat route 建立真实 AuthorityContext、Surface session、CatalogSetSlice、Resource grants 和 transaction，并只发布 trusted Surface events。
 - Workbench 只使用一个 `SurfaceController` 和一个 `GenerativeSurface`；桌面/移动只是 placements，不是两套状态或 renderer。

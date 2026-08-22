@@ -57,14 +57,15 @@ import type {
   TesseraSuspendedToolPayload,
 } from "./protocol";
 import type { TesseraDatabaseActionService } from "./database-actions";
-import type { StudioAgent, StudioAgentEvent, StudioAgentRun, StudioAgentRunInput } from "./server";
+import type { StudioAgent, StudioAgentDiagnostic, StudioAgentEvent, StudioAgentRun, StudioAgentRunInput } from "./server";
+import { safeStudioErrorDetails } from "./studio-logger";
 
-const MAX_MODEL_EVIDENCE_COLUMNS = 12;
-const MAX_MODEL_EVIDENCE_ROWS = 8;
+const MAX_MODEL_EVIDENCE_COLUMNS = 24;
+const MAX_MODEL_EVIDENCE_ROWS = 16;
 /** Record lookups such as session transcripts need every short row to remain
  * available to the model; aggregate results keep the smaller representative
  * sample above. */
-const MAX_MODEL_RECORD_EVIDENCE_ROWS = 32;
+const MAX_MODEL_RECORD_EVIDENCE_ROWS = 64;
 const MAX_MODEL_CATALOG_ENTITY_ALIASES = 6;
 const MAX_MODEL_CATALOG_FIELD_ALIASES = 4;
 const MAX_MODEL_CATALOG_TEXT_CHARACTERS = 120;
@@ -179,7 +180,7 @@ export const modelAnalysisToolInputSchema = z.object({
   primaryEntityId: entityIdSchema,
   relationshipIds: z.array(relationshipIdSchema).max(16).default([]),
   filter: modelAnalysisFilterSchema.optional(),
-  limit: z.number().int().min(1).max(10_000).default(100),
+  limit: z.number().int().min(1).max(20_000).default(100),
   // Records plans use these two fields. Keeping them independent from the
   // aggregate shape avoids a root-level JSON Schema `oneOf`.
   fields: z.array(fieldIdSchema).min(1).max(32).optional(),
@@ -238,43 +239,40 @@ const databaseIdentifierSchema = z.string().trim().min(1).max(256).describe(
   "Case-preserving physical identifier. Copy it exactly from the user or a completed list_database result; never translate, singularize, pluralize, or guess it.",
 );
 
-export const listDatabaseInputSchema = z.discriminatedUnion("operation", [
-  z.object({
-    operation: z.literal("list_relations").describe(
-      "List the bounded database relation inventory across schemas or namespaces. No schema or relation argument is accepted.",
-    ),
-  }).strict().describe("List schemas/namespaces and relation names. This branch accepts only operation."),
-  z.object({
-    operation: z.literal("describe_schema").describe(
-      "Describe relations and columns in one exact schema or namespace.",
-    ),
-    schema: databaseIdentifierSchema.describe(
-      "Exact case-preserving schema or namespace name from the user or list_relations. Copy it verbatim; never translate, singularize, pluralize, or guess it.",
-    ),
-  }).strict().describe("Describe one exact schema/namespace. This branch requires schema and does not accept relation."),
-  z.object({
-    operation: z.literal("describe_relation").describe(
-      "Describe one exact table, view, materialized view, foreign table, partitioned table, or collection.",
-    ),
-    schema: databaseIdentifierSchema.describe(
-      "Exact case-preserving schema or namespace name. Copy it verbatim; never translate, singularize, pluralize, or guess it.",
-    ),
-    relation: databaseIdentifierSchema.describe(
-      "Exact case-preserving table, view, or collection name. Copy it verbatim; never translate, singularize, pluralize, or guess it.",
-    ),
-  }).strict().describe("Describe one exact relation. This branch requires both schema and relation."),
-  z.object({
-    operation: z.literal("current_relation").describe(
-      "Load the relation selected in the Studio browser. No schema or relation argument is accepted.",
-    ),
-  }).strict().describe("Load the Studio-selected relation. This branch accepts only operation."),
-  z.object({
-    operation: z.literal("capabilities").describe(
-      "List database engine/version capabilities. This is metadata, not authorization.",
-    ),
-  }).strict().describe("Load engine/version metadata. This branch accepts only operation."),
-]).describe(
-  "Choose exactly one database metadata operation. Do not omit a required field and do not add fields from another operation. Use list_relations rather than an incomplete describe_schema call when names are unknown.",
+export const listDatabaseInputSchema = z.object({
+  operation: z.enum([
+    "list_relations",
+    "describe_schema",
+    "describe_relation",
+    "current_relation",
+    "capabilities",
+  ]).default("list_relations").describe(
+    "Database metadata operation. Omit only for the initial bounded inventory, which defaults to list_relations.",
+  ),
+  schema: databaseIdentifierSchema.optional().describe(
+    "Required only for describe_schema and describe_relation. Copy the exact case-preserving schema or namespace name verbatim.",
+  ),
+  relation: databaseIdentifierSchema.optional().describe(
+    "Required only for describe_relation. Copy the exact case-preserving table, view, or collection name verbatim.",
+  ),
+}).strict().superRefine((value, validation) => {
+  if (value.operation === "describe_schema" || value.operation === "describe_relation") {
+    if (value.schema === undefined) {
+      validation.addIssue({ code: "custom", message: `schema is required for ${value.operation}.`, path: ["schema"] });
+    }
+  } else if (value.schema !== undefined) {
+    validation.addIssue({ code: "custom", message: `schema is not accepted for ${value.operation}.`, path: ["schema"] });
+  }
+
+  if (value.operation === "describe_relation") {
+    if (value.relation === undefined) {
+      validation.addIssue({ code: "custom", message: "relation is required for describe_relation.", path: ["relation"] });
+    }
+  } else if (value.relation !== undefined) {
+    validation.addIssue({ code: "custom", message: `relation is not accepted for ${value.operation}.`, path: ["relation"] });
+  }
+}).describe(
+  "One database metadata operation. Empty input safely lists the bounded relation inventory. Exact schema and relation lookups require their named fields.",
 );
 
 export type ListDatabaseInput = z.infer<typeof listDatabaseInputSchema>;
@@ -764,11 +762,11 @@ function compactModelCatalogText(value: string): string {
  * capability-bound identifiers when it plans an analysis.
  */
 export const DATABASE_SCHEMA_CONTEXT_LIMITS = {
-  maxSchemas: 32,
-  maxTables: 120,
-  maxColumnsPerTable: 48,
-  maxForeignKeysPerTable: 16,
-  maxCharacters: 48_000,
+  maxSchemas: 64,
+  maxTables: 240,
+  maxColumnsPerTable: 96,
+  maxForeignKeysPerTable: 32,
+  maxCharacters: 96_000,
 } as const;
 
 /**
@@ -777,9 +775,9 @@ export const DATABASE_SCHEMA_CONTEXT_LIMITS = {
  * constraints stay out of the initial prompt until the model asks for them.
  */
 export const DATABASE_SCHEMA_INVENTORY_LIMITS = {
-  maxSchemas: 64,
-  maxTables: 256,
-  maxCharacters: 24_000,
+  maxSchemas: 128,
+  maxTables: 512,
+  maxCharacters: 48_000,
 } as const;
 
 export type DatabaseSchemaInventory = Readonly<{
@@ -1075,10 +1073,10 @@ export function formatDatabaseSchemaContext(summary: DatabaseSchemaContext): str
 }
 
 export const DATABASE_SCHEMA_INSPECTION_LIMITS = {
-  maxTables: 96,
-  maxColumnsPerTable: 64,
-  maxForeignKeysPerTable: 32,
-  maxCharacters: 40_000,
+  maxTables: 192,
+  maxColumnsPerTable: 128,
+  maxForeignKeysPerTable: 64,
+  maxCharacters: 80_000,
 } as const;
 
 export function inspectDatabaseSchema(
@@ -1928,6 +1926,14 @@ function createCopilotRuntime(): CopilotRuntime {
   };
 }
 
+function reportAgentDiagnostic(input: StudioAgentRunInput, diagnostic: StudioAgentDiagnostic): void {
+  try {
+    input.reportDiagnostic?.(diagnostic);
+  } catch {
+    // Diagnostics must never alter an Agent or tool result.
+  }
+}
+
 async function runTesseraAgentTurn(
   input: StudioAgentRunInput,
   dataAgent: DataAgent,
@@ -1947,7 +1953,10 @@ async function runTesseraAgentTurn(
         from: "agent",
         sendReasoning: true,
         version: "v7",
-        onError: () => "The Tessera Agent could not complete this analysis.",
+        onError: (error) => {
+          reportAgentDiagnostic(input, { phase: "provider", error });
+          return safeStudioErrorDetails(error).errorMessage;
+        },
       }) as ReadableStream<TesseraUIMessageChunk>,
     ),
   );
@@ -1978,7 +1987,10 @@ async function streamTesseraAgentTurn(
       from: "agent",
       sendReasoning: true,
       version: "v7",
-      onError: () => "The Tessera Agent could not complete this analysis.",
+      onError: (error) => {
+        reportAgentDiagnostic(input, { phase: "provider", error });
+        return safeStudioErrorDetails(error).errorMessage;
+      },
     }) as ReadableStream<TesseraUIMessageChunk>,
   );
   const activeTools = new Map<string, TesseraToolName>();
@@ -2107,7 +2119,7 @@ function createDataCopilotAgent(context: Readonly<{
     id: "list_database",
     description: [
       "Lists or describes connected database metadata through one explicit operation.",
-      "Use operation=list_relations to list bounded schemas/namespaces and relations; operation=describe_schema with an exact schema; operation=describe_relation with exact schema and relation names; operation=current_relation for the Studio-selected relation; or operation=capabilities for engine/version metadata.",
+      "Use operation=list_relations (or empty input) to list bounded schemas/namespaces and relations; operation=describe_schema with an exact schema; operation=describe_relation with exact schema and relation names; operation=current_relation for the Studio-selected relation; or operation=capabilities for engine/version metadata.",
       "A not_found result applies only to the exact requested name after one catalog refresh. An unavailable or not_exposed result is not evidence that a schema or relation does not physically exist. Follow the returned recovery.input exactly; never remove required fields to broaden a lookup.",
       "If a relation inventory is truncated, absence from that bounded list is unknown; use describe_relation with the original exact names before deciding it is missing. Use list_catalog before run_analysis. Capabilities are metadata, never permission or authorization.",
       "Do not use execute_sql to enumerate schemas or tables, and do not query system or catalog relations directly. Use this tool or a connector-provided metadata tool instead.",
@@ -2181,6 +2193,7 @@ function createDataCopilotAgent(context: Readonly<{
           };
         } catch (error) {
           if (isAbortError(error)) throw error;
+          reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_database", reason: "catalog_unavailable", error });
           return {
             status: "unavailable",
             operation: "list_relations",
@@ -2206,14 +2219,15 @@ function createDataCopilotAgent(context: Readonly<{
             };
         } catch (error) {
           if (isAbortError(error)) throw error;
+          reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_database", reason: "catalog_unavailable", error });
           return unavailableSchemaResult(input.operation);
         }
 
         const inspect = () => inspectDatabaseSchema(
           schemaContext.catalog,
           {
-            schema: input.schema,
-            ...(input.operation === "describe_relation" ? { relation: input.relation } : {}),
+            schema: input.schema!,
+            ...(input.operation === "describe_relation" ? { relation: input.relation! } : {}),
           },
           schemaContext.inventory,
           schemaContext.semanticCatalog,
@@ -2226,6 +2240,7 @@ function createDataCopilotAgent(context: Readonly<{
             result = inspect();
           } catch (error) {
             if (isAbortError(error)) throw error;
+            reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_database", reason: "catalog_refresh_failed", error });
             return unavailableSchemaResult(input.operation);
           }
         }
@@ -2247,6 +2262,7 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_database", reason: "capabilities_unavailable", error });
         return {
           status: "unavailable",
           operation: "capabilities",
@@ -2288,6 +2304,7 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_rls_policies", reason: "rls_inspection_failed", error });
         return { status: "failed", reason: "rls_inspection_failed" };
       }
     },
@@ -2325,6 +2342,7 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_extensions", reason: "extension_inspection_failed", error });
         return { status: "failed", reason: "extension_inspection_failed" };
       }
     },
@@ -2374,6 +2392,7 @@ function createDataCopilotAgent(context: Readonly<{
         );
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_catalog", reason: "catalog_scope_failed", error });
         return { ...discoveryToolRejection(error), mode: "describe" };
       }
       if (capability === undefined) return { ...discoveryScopeRejection(context.runtime), mode: "describe" };
@@ -2402,6 +2421,7 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "list_catalog", reason: "catalog_describe_failed", error });
         return { ...discoveryToolRejection(error), mode: "describe" };
       }
     },
@@ -2459,6 +2479,12 @@ function createDataCopilotAgent(context: Readonly<{
           };
         } catch (error) {
           if (isAbortError(error)) throw error;
+          reportAgentDiagnostic(context.input, {
+            phase: "tool-output",
+            tool: "execute_sql",
+            reason: error instanceof DataAgentError ? error.reasonCode ?? error.code : "query_failed",
+            error,
+          });
           // Permission is checked above. A connector/policy/database error is
           // a failed query, not an authorization decision.
           if (error instanceof DataAgentError && error.code === "query_policy_rejected") {
@@ -2474,7 +2500,7 @@ function createDataCopilotAgent(context: Readonly<{
             status: "failed",
             mode: "read",
             reason: "query_failed",
-            message: "数据库拒绝了这条查询，请检查表名、字段名、查询条件和连接状态。",
+            message: "The database query failed. Check the relation names, column names, query predicates, and connection state, then revise the query.",
             nextAction: "revise_query",
           };
         }
@@ -2521,7 +2547,9 @@ function createDataCopilotAgent(context: Readonly<{
             status: resumedEffect.summary.status === "denied" || resumedEffect.approval?.status === "rejected" ? "blocked" : "failed",
             mode: "mutation",
             reason: resumedEffect.receipt?.diagnostic?.code ?? (resumeData.decision === "reject" ? "user_declined" : "mutation_not_executed"),
-            message: resumedEffect.receipt?.diagnostic?.message ?? (resumeData.decision === "reject" ? "用户拒绝了这项数据库变更，未执行任何修改。" : "数据库变更执行失败。"),
+            message: resumedEffect.receipt?.diagnostic?.message ?? (resumeData.decision === "reject"
+              ? "The user rejected this database change. No changes were applied."
+              : "The database change failed."),
             nextAction: resumeData.decision === "reject" ? "respond" : "revise_mutation",
           };
         }
@@ -2591,11 +2619,12 @@ function createDataCopilotAgent(context: Readonly<{
         };
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "execute_sql", reason: "mutation_rejected", error });
         return {
           status: "failed",
           mode: "mutation",
           reason: "mutation_rejected",
-          message: "数据库变更请求未能提交，请检查当前连接和变更权限。",
+          message: "The database change could not be submitted. Check the current connection and mutation authorization.",
           nextAction: "revise_mutation",
         };
       }
@@ -2618,7 +2647,8 @@ function createDataCopilotAgent(context: Readonly<{
       let draft: AnalysisDraft;
       try {
         draft = normalizeAnalysisToolDraft(draftInput);
-      } catch {
+      } catch (error) {
+        reportAgentDiagnostic(context.input, { phase: "tool-input", tool: "run_analysis", reason: "invalid_analysis_input", error });
         return invalidAnalysisInputRejection(context.runtime);
       }
       const selectedScopes = selectPlanningCapabilityScopes(context.runtime.planningScopes, draft);
@@ -2640,6 +2670,7 @@ function createDataCopilotAgent(context: Readonly<{
         );
       } catch (error) {
         if (isAbortError(error)) throw error;
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "run_analysis", reason: "analysis_scope_failed", error });
         return analysisToolRejection(error);
       }
       if (capability === undefined) {
@@ -2674,6 +2705,7 @@ function createDataCopilotAgent(context: Readonly<{
       } catch (error) {
         if (isAbortError(error)) throw error;
         const rejection = analysisToolRejection(error);
+        reportAgentDiagnostic(context.input, { phase: "tool-output", tool: "run_analysis", reason: rejection.reason, error });
         if (rejection.reason === "invalid_plan") context.runtime.rejectedAnalysisPlans.add(planFingerprint);
         return rejection;
       }
@@ -3369,9 +3401,19 @@ function streamTesseraAgentTurnUI(
               from: "agent",
               sendReasoning: true,
               version: "v7",
-              onError: () => "The Tessera Agent could not complete this analysis.",
+              onError: (error) => {
+                reportAgentDiagnostic(input, { phase: "provider", error });
+                return safeStudioErrorDetails(error).errorMessage;
+              },
             }) as ReadableStream<TesseraUIMessageChunk>,
-            (message) => persistCompletedCopilotTurn(memory, input, message),
+            async (message) => {
+              try {
+                await persistCompletedCopilotTurn(memory, input, message);
+              } catch (error) {
+                reportAgentDiagnostic(input, { phase: "persistence", error });
+                throw error;
+              }
+            },
           );
           const reader = source.getReader();
           sourceReader = reader;
@@ -3392,8 +3434,9 @@ function streamTesseraAgentTurnUI(
           }
         } catch (error) {
           if (!cancelled && !controller.signal.aborted) {
+            reportAgentDiagnostic(input, { phase: "stream", error });
             if (!started) streamController.enqueue({ type: "start", messageId: `message-${input.runId}` });
-            streamController.enqueue({ type: "error", errorText: "The Tessera Agent could not complete this analysis." });
+            streamController.enqueue({ type: "error", errorText: safeStudioErrorDetails(error).errorMessage });
             streamController.enqueue({ type: "finish", finishReason: "error" });
           }
         } finally {
@@ -3420,6 +3463,7 @@ export function appendCopilotOutcome(
   let hasVisibleText = false;
   let response = "";
   let suspended = false;
+  let pendingError: Extract<TesseraUIMessageChunk, { type: "error" }> | undefined;
   return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
     async transform(chunk, streamController) {
       if (chunk.type === "text-delta") {
@@ -3436,7 +3480,10 @@ export function appendCopilotOutcome(
       }
 
       if (chunk.type === "error") {
-        streamController.enqueue(chunk);
+        // A model can recover from an invalid tool call in a later iteration.
+        // Delay message-level failure until the terminal outcome is known so a
+        // recovered tool error does not leave a false "interrupted" banner.
+        pendingError = chunk;
         return;
       }
 
@@ -3456,7 +3503,7 @@ export function appendCopilotOutcome(
           return;
         }
         if (chunk.finishReason !== "stop") {
-          streamController.enqueue({
+          streamController.enqueue(pendingError ?? {
             type: "error",
             errorText: chunk.finishReason === "error"
               ? "The Tessera Agent could not complete this analysis."
@@ -3469,7 +3516,7 @@ export function appendCopilotOutcome(
         }
 
         if (!hasVisibleText) {
-          streamController.enqueue({
+          streamController.enqueue(pendingError ?? {
             type: "error",
             errorText: "The Tessera Agent stopped before it returned a visible response.",
           });
@@ -3505,7 +3552,7 @@ export function appendCopilotOutcome(
       // data-tool-call-suspended chunk without emitting a regular finish.
       if (terminal || suspended) return;
       terminal = true;
-      streamController.enqueue({
+      streamController.enqueue(pendingError ?? {
         type: "error",
         errorText: "The Tessera Agent stream ended before it returned a terminal response.",
       });
@@ -3601,17 +3648,21 @@ export function publicToolOutput(
   if (tool === "list_catalog") {
     const mode = output.mode === "search" || output.mode === "describe" ? output.mode : undefined;
     const entityCount = safeInteger(output.entityCount ?? output.tableCount, 0, 10_000);
+    const reason = displayText(output.reason, 128);
+    const message = displayText(output.message, 500);
     return {
       status,
       ...(mode === undefined ? {} : { mode }),
       ...(entityCount === undefined ? {} : { entityCount }),
       ...(output.truncated === true ? { truncated: true } : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
     };
   }
   if (tool === "execute_sql") {
     const mode = output.mode === "read" || output.mode === "mutation" ? output.mode : undefined;
     const toolStatus = output.status === "approval_required" ? "approval_required" : status;
-    const rowCount = safeInteger(output.rowCount, 0, 10_000);
+    const rowCount = safeInteger(output.rowCount, 0, 20_000);
     const affectedRows = safeInteger(output.affectedRows, 0, 10_000);
     const requestId = displayText(output.requestId, 256);
     const checkpointId = displayText(output.checkpointId, 256);
@@ -3633,11 +3684,15 @@ export function publicToolOutput(
     };
   }
   if (tool === "run_analysis") {
-    const rowCount = safeInteger(output.rowCount, 0, 10_000);
+    const rowCount = safeInteger(output.rowCount, 0, 20_000);
+    const reason = displayText(output.reason, 128);
+    const message = displayText(output.message, 500);
     return {
       status,
       ...(rowCount === undefined ? {} : { rowCount }),
       ...(output.truncated === true ? { truncated: true } : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
     };
   }
   if (tool === "list_rls_policies") {

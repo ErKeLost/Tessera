@@ -7,7 +7,7 @@ export default defineConfig({
   format: ["esm"],
   sourcemap: true,
   deps: {
-    neverBundle: [/^@open-generative\//, /^react/, /^recharts/, /^lucide-react/],
+    neverBundle: [/^@open-generative\//, /^react/, /^recharts/, /^lucide-react/, /^radix-ui$/, /^class-variance-authority$/],
     dts: { neverBundle: true },
   },
 });

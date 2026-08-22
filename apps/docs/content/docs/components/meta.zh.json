@@ -1,6 +1,5 @@
 {
   "title": "组件",
-  "description": "Tessera Agent Data Agent 的 Generative UI 组件目录。",
-  "root": true,
+  "description": "Tessera Agent 的 17 个 Data Chart Recipe。",
   "pages": ["index", "generative-ui-catalog"]
 }

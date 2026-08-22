@@ -18,19 +18,18 @@ description: Tessera Agent 如何为单次模型调用提供最小但足够的 C
 
 ## 当前选择词汇
 
-Tessera Agent 成功证明的完整 Catalog 包含 12 个 Contract，但单次 Turn 可以只拿到更少的集合：
+Tessera Agent 成功证明的完整 Catalog 只提供 `data.chart`。具体选择发生在严格 Recipe Union 内：
 
-| 需求 | 提供的 Contract |
+| 分析需求 | Recipe 示例 |
 | --- | --- |
-| 叙述型回答 | `layout.stack`、`layout.section`、`content.text`、`content.callout` |
-| KPI 摘要 | `layout.grid`、`data.metric` |
-| Trend 或 Comparison | `data.chart` 与合法 ChartSpec Recipe |
-| Row 检查 | `data.table`，必要时加 `data.query-details` |
-| 结果细化 | `control.group`、`control.filter` 与 Host 提供的 Action Binding |
-| 没有可用结果 | `content.empty` |
+| 有序进度 | Steps Bars、Pipeline Stage Bars、Sign-up Funnel |
+| 趋势与比较 | Revenue Smooth Area、Visitors Stacked Area、Sessions + Conversion Combo |
+| 分布与关系 | Revenue per Account Scatter、Tracked Time Sankey |
+| 周期与强度 | Activity Calendar、Active Users Heatmap、Contributions Heatmap |
+| 紧凑状态 | Sleep Score、Visitors Radial、Visitors Radar、Devices Bars、Activity Rings |
 
-Trend、Funnel、Cohort、Anomaly、Forecast、Ranking 与 Data Quality 都不是可选择的协议 Component
-Name，而是这组词汇之上的评测 Composition Recipe。
+这些名称是 `spec.recipe` 值，不是 Component Contract Name。Host 可以在单次 Turn 中进一步收窄
+允许的 Recipe Enum 与 Column Binding，而不创建第二份 Schema 或第二条 Renderer 路径。
 
 ## 选择不变量
 

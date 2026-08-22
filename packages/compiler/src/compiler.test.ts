@@ -15,9 +15,12 @@ import {
   proposalStreamEnvelopeSchema,
   sha256HashSchema,
   transactionIdSchema,
+  valueExprSchema,
   type AuthoringProposalOperation,
   type DocumentContent,
+  type JsonValue,
   type ProposalOperationEnvelope,
+  type ValueExpr,
 } from "@open-generative/protocol";
 import {
   catalogManifestInputSchema,
@@ -57,9 +60,9 @@ import type {
 const FIXTURE_HASH = sha256HashSchema.parse(`sha256:${"1".repeat(64)}`);
 
 describe("proposal normalization", () => {
-  test("keeps snapshot and operation normalization equivalent for all 120 golden prompts", async () => {
+  test("keeps snapshot and operation normalization equivalent for all 17 chart recipes", async () => {
     const fixture = await createFixture();
-    expect(officialGoldenPromptCases).toHaveLength(120);
+    expect(officialGoldenPromptCases).toHaveLength(17);
 
     for (const [index, golden] of officialGoldenPromptCases.entries()) {
       const title = `${golden.caseId}: ${golden.prompt}`;
@@ -523,7 +526,7 @@ describe("Catalog-backed Runtime validation", () => {
     expect(rejected.map((issue) => issue.code)).toContain("authority.resource-not-authorized");
   });
 
-  test("normalizes HostIntent identity inputs without embedding state values or resource payloads", async () => {
+  test("normalizes chart Resource identity without embedding its payload", async () => {
     const fixture = await createOfficialChartCompilerFixture();
     const proposal = authoringSnapshotProposalSchema.parse({
       kind: "snapshot",
@@ -532,39 +535,11 @@ describe("Catalog-backed Runtime validation", () => {
         component: fixture.chartComponentId,
         props: fixture.authoringProps,
       },
-      stateDefinitions: [{
-        localId: "region-filter",
-        value: { schema: { type: "string" }, initial: "all" },
-      }],
       resourceBindings: [{
         localId: "chart-data",
         value: { source: fixture.resourceSliceId },
       }],
-      actions: [
-        {
-          localId: "export-data",
-          value: {
-            kind: "host-intent",
-            action: fixture.exportActionId,
-            input: {
-              bindingId: { ref: "resource-id", target: { kind: "resource", localId: "chart-data" } },
-              format: "csv",
-            },
-          },
-        },
-        {
-          localId: "apply-filter",
-          value: {
-            kind: "host-intent",
-            action: fixture.applyActionId,
-            input: {
-              groupId: "filters",
-              stateIds: [{ ref: "state-id", target: { kind: "state", localId: "region-filter" } }],
-            },
-          },
-        },
-      ],
-      meta: { title: "Identity-reference proof", tags: ["actions"] },
+      meta: { title: "Identity-reference proof", tags: ["resource"] },
     });
 
     const compiled = compilePresentUi({ catalog: fixture.catalog });
@@ -574,21 +549,13 @@ describe("Catalog-backed Runtime validation", () => {
       "transaction-identity-inputs",
     ).normalizeSnapshot(proposal);
 
-    expect(normalized.document.actions["action-export-data" as never]).toMatchObject({
-      kind: "host-intent",
-      input: {
-        bindingId: { kind: "resource-id-ref", bindingId: "resource-chart-data" },
-      },
+    expect(normalized.document.resourceBindings["resource-chart-data" as never]).toMatchObject({
+      resourceKey: "host-chart-data",
+      kind: "dataset",
     });
-    expect(normalized.document.actions["action-apply-filter" as never]).toMatchObject({
-      kind: "host-intent",
-      input: {
-        stateIds: {
-          kind: "array",
-          items: [{ kind: "state-id-ref", stateId: "state-region-filter" }],
-        },
-      },
-    });
+    expect(normalized.document.actions).toEqual({});
+    expect(normalized.document.stateDefinitions).toEqual({});
+    expect(JSON.stringify(normalized.document)).not.toContain('"rows"');
     expect(createCatalogRuntimeValidationPort(fixture.catalog, fixture.authority).validateDocument({
       document: normalized.document,
       phase: "commit",
@@ -779,19 +746,21 @@ async function createFixture() {
 async function createOfficialChartCompilerFixture() {
   const official = await createOfficialCatalog();
   const chart = official.components.dataChart;
-  const text = official.components.contentText;
-  const actionContracts = [official.actions.dataExport, official.actions.controlApply];
   const dataPolicy = Object.entries(chart.authoringBindings)
     .find(([pointer]) => pointer === "/spec/data")?.[1];
   const schemaConstraint = dataPolicy?.resource?.schemaConstraints[0];
   if (!schemaConstraint) throw new TypeError("The official chart data binding has no resource schema constraint.");
+  const chartFixture = officialChartSpecFixtures.find(
+    (fixture) => fixture.recipeName === "revenue-smooth-area",
+  );
+  if (!chartFixture) throw new TypeError("The official revenue area fixture is missing.");
 
   const renderer = await createRendererCapabilityManifest({
     rendererId: "tessera-chart-proof",
     rendererRevision: "2026-08-22",
     implementationHash: FIXTURE_HASH,
     conformanceRevision: "2026-08-22",
-    contracts: [chart, text].map((contract) => ({
+    contracts: [chart].map((contract) => ({
       contract: contract.ref,
       placements: [{ kind: "panel" as const, minWidth: 320 }],
       features: [],
@@ -803,7 +772,7 @@ async function createOfficialChartCompilerFixture() {
     catalogs: [official.manifest],
     renderer,
     placement: { kind: "panel", width: 960, height: 640 },
-    requirements: [chart, text].map((contract) => ({ contract, requiredFeatures: [] })),
+    requirements: [{ contract: chart, requiredFeatures: [] }],
   });
   const resourceOffer = await createModelVisibleResourceOffer({
     bindingId: "offered-chart-data" as never,
@@ -828,8 +797,8 @@ async function createOfficialChartCompilerFixture() {
   const slice = await createCatalogSetSlice({
     catalogs: [official.manifest],
     rendererNegotiation: negotiation,
-    components: [chart.ref, text.ref],
-    actions: actionContracts.map((contract) => contract.ref),
+    components: [chart.ref],
+    actions: [],
     resources: [resourceOffer],
     evidence: [],
     limits: {
@@ -843,7 +812,28 @@ async function createOfficialChartCompilerFixture() {
     },
     providerSchemaProfile: "canonical",
   });
-  const catalog = await createCompilerCatalog({ slice, components: [chart, text], actions: actionContracts });
+  const catalog = await createCompilerCatalog({ slice, components: [chart], actions: [] });
+  const authorizedDeclaration = {
+    resourceKey: "host-chart-data" as never,
+    kind: "dataset" as const,
+    schemaConstraint: {
+      schemaId: "official-chart-data" as never,
+      schemaRevision: 1,
+      schemaHash: schemaConstraint.schemaHash,
+      compatibility: "exact" as const,
+    },
+    selector: { projection: ["month" as never, "revenue" as never], windowLimit: 1_000 },
+    resolution: {
+      mode: "pinned" as const,
+      versionId: "chart-data-v1" as never,
+      contentHash: FIXTURE_HASH,
+    },
+  };
+  const baseBindingId = "resource-base-chart-data";
+  const baseSpec = {
+    ...structuredClone(chartFixture.spec),
+    data: { kind: "resource-ref" as const, bindingId: baseBindingId },
+  };
   const base = documentContentSchema.parse({
     protocol: OPEN_GENERATIVE_DOCUMENT_PROTOCOL,
     protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
@@ -852,12 +842,8 @@ async function createOfficialChartCompilerFixture() {
     rootNodeId: "root",
     nodes: {
       root: {
-        contract: text.ref,
-        props: {
-          text: { kind: "literal", value: "Old" },
-          role: { kind: "literal", value: "body" },
-          tone: { kind: "literal", value: "default" },
-        },
+        contract: chart.ref,
+        props: { spec: toDocumentValueExpr(baseSpec) },
         slots: {},
         events: {},
         evidence: [],
@@ -865,31 +851,17 @@ async function createOfficialChartCompilerFixture() {
     },
     stateDefinitions: {},
     actions: {},
-    resourceBindings: {},
+    resourceBindings: { [baseBindingId]: authorizedDeclaration },
     evidenceBindings: {},
     claims: {},
     meta: { title: "Old", tags: [] },
   });
   const revisions = await computeEntityRevisionIndex(base);
   const authority: CompilerAuthority = {
-    actions: actionContracts.map((contract) => ({
-      contract: contract.ref,
-      maxInputClassification: "restricted" as const,
-    })),
+    actions: [],
     resources: [{
       source: resourceOffer.source,
-      declaration: {
-        resourceKey: "host-chart-data" as never,
-        kind: "dataset",
-        schemaConstraint: {
-          schemaId: "official-chart-data" as never,
-          schemaRevision: 1,
-          schemaHash: schemaConstraint.schemaHash,
-          compatibility: "exact",
-        },
-        selector: { projection: ["month" as never, "revenue" as never], windowLimit: 1_000 },
-        resolution: { mode: "pinned", versionId: "chart-data-v1" as never, contentHash: FIXTURE_HASH },
-      },
+      declaration: authorizedDeclaration,
       classification: "internal",
     }],
     evidence: [],
@@ -912,7 +884,7 @@ async function createOfficialChartCompilerFixture() {
       node: { [base.rootNodeId]: revisions.nodes[base.rootNodeId]! },
       state: {},
       action: {},
-      resource: {},
+      resource: { [baseBindingId]: revisions.resources[baseBindingId]! },
       evidence: {},
       claim: {},
     },
@@ -920,8 +892,6 @@ async function createOfficialChartCompilerFixture() {
     meta: { expectedMetaHash: revisions.metaHash },
   };
 
-  const chartFixture = officialChartSpecFixtures.find((fixture) => fixture.recipeName === "chart-area-default");
-  if (!chartFixture) throw new TypeError("The official area chart fixture is missing.");
   const { data: _data, ...literalSpec } = structuredClone(chartFixture.spec);
   const authoringSpec = toCompilerAuthoringLiteral(literalSpec) as { object: Record<string, unknown> };
   authoringSpec.object.data = {
@@ -930,9 +900,7 @@ async function createOfficialChartCompilerFixture() {
   };
   const chartComponentId = slice.components.find((entry) => entry.contract.componentType === "data.chart")?.sliceComponentId;
   const resourceSliceId = slice.resources[0]?.sliceResourceId;
-  const exportActionId = slice.actions.find((entry) => entry.contract.actionType === "data.export")?.sliceActionId;
-  const applyActionId = slice.actions.find((entry) => entry.contract.actionType === "control.apply")?.sliceActionId;
-  if (!chartComponentId || !resourceSliceId || !exportActionId || !applyActionId) {
+  if (!chartComponentId || !resourceSliceId) {
     throw new TypeError("The chart proof Slice is incomplete.");
   }
 
@@ -944,10 +912,26 @@ async function createOfficialChartCompilerFixture() {
     writeScope,
     chartComponentId,
     resourceSliceId,
-    exportActionId,
-    applyActionId,
     authoringProps: { spec: authoringSpec },
   };
+}
+
+function toDocumentValueExpr(value: JsonValue): ValueExpr {
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    if (value.kind === "resource-ref" || value.kind === "state-ref") {
+      return valueExprSchema.parse(value);
+    }
+    return {
+      kind: "object",
+      entries: Object.fromEntries(
+        Object.entries(value).map(([key, child]) => [key, toDocumentValueExpr(child)]),
+      ),
+    };
+  }
+  if (Array.isArray(value)) {
+    return { kind: "array", items: value.map(toDocumentValueExpr) };
+  }
+  return { kind: "literal", value };
 }
 
 function toCompilerAuthoringLiteral(value: unknown): unknown {

@@ -7,21 +7,8 @@ import {
   type BrowserContractRegistry,
 } from "@open-generative/client";
 import {
-  contentCalloutPropsSchema,
-  contentEmptyPropsSchema,
-  contentTextPropsSchema,
-  controlFilterPropsSchema,
-  controlGroupPropsSchema,
   createOfficialCatalog,
   dataChartPropsSchema,
-  dataMetricPropsSchema,
-  dataQueryDetailsPropsSchema,
-  dataTablePropsSchema,
-  layoutGridPropsSchema,
-  layoutSectionPropsSchema,
-  layoutStackPropsSchema,
-  officialChartSpecFixtures,
-  officialComponentTypes,
   officialRendererReleaseSchema,
   type OfficialCatalogBundle,
 } from "@open-generative/components";
@@ -43,18 +30,18 @@ import rendererRelease from "@open-generative/ui/renderer-release.json";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
-  contractDescriptions,
+  chartRecipeDocumentation,
   descriptorKey,
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type OfficialComponentType,
+  type ChartRecipeName,
   type PreviewDescriptor,
 } from "./generative-gallery-model";
 
 export {
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type OfficialComponentType,
+  type ChartRecipeName,
   type PreviewDescriptor,
 };
 
@@ -75,22 +62,6 @@ type SurfaceState =
   | Readonly<{ status: "error"; message: string }>;
 
 const AUDIENCE_BINDING_HASH = sha256HashSchema.parse(`sha256:${"a".repeat(64)}`);
-
-const resolvedPropsSchemas = {
-  "content.callout": contentCalloutPropsSchema,
-  "content.empty": contentEmptyPropsSchema,
-  "content.text": contentTextPropsSchema,
-  "control.filter": controlFilterPropsSchema,
-  "control.group": controlGroupPropsSchema,
-  "data.chart": dataChartPropsSchema,
-  "data.metric": dataMetricPropsSchema,
-  "data.query-details": dataQueryDetailsPropsSchema,
-  "data.table": dataTablePropsSchema,
-  "layout.grid": layoutGridPropsSchema,
-  "layout.section": layoutSectionPropsSchema,
-  "layout.stack": layoutStackPropsSchema,
-} satisfies Record<OfficialComponentType, z.ZodType>;
-
 let foundationPromise: Promise<GalleryFoundation> | undefined;
 const eventPromises = new Map<string, Promise<SurfaceEventEnvelope>>();
 
@@ -102,24 +73,20 @@ function getFoundation(): Promise<GalleryFoundation> {
 async function createFoundation(): Promise<GalleryFoundation> {
   const catalog = await createOfficialCatalog();
   const release = officialRendererReleaseSchema.parse(rendererRelease);
-  const registrations = catalog.componentContracts.map(contract => {
-    const componentType = officialComponentType(contract.ref.componentType);
-    const eventPayloadValidators = Object.fromEntries(
+  const registrations = catalog.componentContracts.map(contract => ({
+    contract,
+    validateResolvedProps: createZodClientValidator(
+      dataChartPropsSchema as unknown as z.ZodType<JsonObject>,
+    ),
+    eventPayloadValidators: Object.fromEntries(
       Object.entries(contract.events).map(([port, event]) => [
         port,
         createZodClientValidator(
           z.fromJSONSchema(event.payloadSchema) as z.ZodType<JsonValue>,
         ),
       ]),
-    );
-    return {
-      contract,
-      validateResolvedProps: createZodClientValidator(
-        resolvedPropsSchemas[componentType] as unknown as z.ZodType<JsonObject>,
-      ),
-      eventPayloadValidators,
-    };
-  });
+    ),
+  }));
   const [contracts, renderers] = await Promise.all([
     createBrowserContractRegistry(registrations),
     createVerifiedOfficialRendererRegistry(release, catalog),
@@ -128,13 +95,6 @@ async function createFoundation(): Promise<GalleryFoundation> {
     throw new Error("The browser Contract registry does not match the official Catalog manifest.");
   }
   return Object.freeze({ catalog, contracts, renderers });
-}
-
-function officialComponentType(value: string): OfficialComponentType {
-  if ((officialComponentTypes as readonly string[]).includes(value)) {
-    return value as OfficialComponentType;
-  }
-  throw new Error(`Unknown official component type: ${value}`);
 }
 
 function getSnapshotEvent(descriptor: PreviewDescriptor): Promise<SurfaceEventEnvelope> {
@@ -230,16 +190,15 @@ function SurfacePreview({ descriptor }: { descriptor: PreviewDescriptor }) {
       active = false;
       controller?.dispose();
     };
-  }, [descriptor.kind, descriptor.value]);
+  }, [descriptor.value]);
 
-  const minHeight = previewMinHeight(descriptor);
   if (state.status === "loading") {
     return (
       <div
         aria-busy="true"
-        aria-label="Loading trusted Generative UI surface"
+        aria-label="Loading trusted data chart surface"
         className="animate-pulse rounded-md border border-border/60 bg-muted/25"
-        style={{ minHeight }}
+        style={{ minHeight: 440 }}
       />
     );
   }
@@ -248,9 +207,9 @@ function SurfacePreview({ descriptor }: { descriptor: PreviewDescriptor }) {
       <div
         className="rounded-md border border-destructive/35 bg-destructive/5 p-4 text-sm text-destructive"
         role="alert"
-        style={{ minHeight }}
+        style={{ minHeight: 440 }}
       >
-        Generative UI surface failed validation: {state.message}
+        Data chart surface failed validation: {state.message}
       </div>
     );
   }
@@ -258,7 +217,7 @@ function SurfacePreview({ descriptor }: { descriptor: PreviewDescriptor }) {
     <div
       className="min-w-0 overflow-hidden"
       data-generative-preview={descriptor.value}
-      style={{ minHeight }}
+      style={{ minHeight: 440 }}
     >
       <GenerativeSurface
         controller={state.surface.controller}
@@ -269,133 +228,42 @@ function SurfacePreview({ descriptor }: { descriptor: PreviewDescriptor }) {
   );
 }
 
-function previewMinHeight(descriptor: PreviewDescriptor): number {
-  if (descriptor.kind === "recipe") return 380;
-  if (descriptor.kind === "analysis" || descriptor.kind === "filter") return 760;
-  if (descriptor.kind === "metrics") return 260;
-  if (descriptor.value === "data.chart") return 380;
-  if (descriptor.value === "data.table" || descriptor.value === "data.query-details") return 300;
-  return 128;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown validation error";
 }
 
-export function ComponentContractDemo({
-  componentType,
-}: {
-  componentType: OfficialComponentType;
-}) {
-  return <SurfacePreview descriptor={{ kind: "component", value: componentType }} />;
-}
-
-export function ChartRecipeDemo({ recipeName }: { recipeName: string }) {
+export function ChartRecipeDemo({ recipeName }: { recipeName: ChartRecipeName }) {
   return <SurfacePreview descriptor={{ kind: "recipe", value: recipeName }} />;
 }
 
-export function DataAgentAnalysisDemo() {
-  return <SurfacePreview descriptor={{ kind: "analysis", value: "analysis-overview" }} />;
-}
-
-export function DataAgentFilterDemo() {
-  return <SurfacePreview descriptor={{ kind: "filter", value: "filterable-breakdown" }} />;
-}
-
-export function DataAgentMetricsDemo() {
-  return <SurfacePreview descriptor={{ kind: "metrics", value: "workspace-health" }} />;
-}
-
-export function DataAgentCompositionGallery() {
-  const compositions = [
-    {
-      key: "analysis",
-      title: "Query analysis",
-      description: "Metric, chart, exact rows, and governed query evidence from pinned resources.",
-      preview: <DataAgentAnalysisDemo />,
-    },
-    {
-      key: "filter",
-      title: "Filter-bound breakdown",
-      description: "Surface state drives Resource Gateway row projection before chart and table materialization.",
-      preview: <DataAgentFilterDemo />,
-    },
-    {
-      key: "metrics",
-      title: "Workspace health",
-      description: "Three independent scalar bindings composed into one responsive operational view.",
-      preview: <DataAgentMetricsDemo />,
-    },
-  ] as const;
+export function DataChartGallery() {
   return (
-    <div className="not-prose my-8 grid min-w-0 gap-y-12">
-      {compositions.map(composition => (
-        <section className="min-w-0 border-t border-border/70 pt-5" key={composition.key}>
-          <header className="mb-5 grid gap-1 md:grid-cols-[12rem_minmax(0,1fr)] md:items-baseline md:gap-6">
-            <h3 className="text-sm font-semibold text-foreground">{composition.title}</h3>
-            <p className="m-0 text-xs leading-5 text-muted-foreground">{composition.description}</p>
-          </header>
-          {composition.preview}
-        </section>
-      ))}
-    </div>
-  );
-}
-
-export function GenerativeContractGallery() {
-  return (
-    <div className="not-prose my-8 grid min-w-0 gap-x-8 gap-y-10 xl:grid-cols-2">
-      {officialComponentTypes.map(componentType => (
-        <section className="min-w-0 border-t border-border/70 pt-4" key={componentType}>
-          <header className="mb-4 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-            <code className="text-sm font-semibold text-foreground">{componentType}</code>
-            <span className="text-xs text-muted-foreground">{contractDescriptions[componentType]}</span>
-          </header>
-          <ComponentContractDemo componentType={componentType} />
-        </section>
-      ))}
-    </div>
-  );
-}
-
-export function GenerativeChartRecipeGallery() {
-  const [selected, setSelected] = useState(officialChartSpecFixtures[0]!.recipeName);
-  const selectedFixture = officialChartSpecFixtures.find(fixture => fixture.recipeName === selected)
-    ?? officialChartSpecFixtures[0]!;
-  const families = ["area", "bar", "line", "pie", "radar", "radial", "tooltip"] as const;
-  return (
-    <div className="not-prose my-8 min-w-0">
-      <div className="mb-6 border-y border-border/70 py-5">
-        {families.map(family => {
-          const fixtures = officialChartSpecFixtures.filter(fixture => fixture.recipeFamily === family);
-          return (
-            <div className="grid gap-2 py-2 md:grid-cols-[5rem_minmax(0,1fr)]" key={family}>
-              <span className="pt-1.5 text-xs font-semibold uppercase text-muted-foreground">{family}</span>
-              <div className="flex min-w-0 flex-wrap gap-1.5">
-                {fixtures.map(fixture => (
-                  <button
-                    aria-pressed={selected === fixture.recipeName}
-                    className="min-h-8 max-w-full rounded-md border border-border/70 px-2.5 py-1 text-left text-[11px] leading-4 text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[active=true]:border-foreground/30 data-[active=true]:bg-foreground data-[active=true]:text-background"
-                    data-active={selected === fixture.recipeName}
-                    key={fixture.recipeName}
-                    onClick={() => setSelected(fixture.recipeName)}
-                    type="button"
-                  >
-                    {fixture.recipeName.replace(`chart-${family}-`, "")}
-                  </button>
-                ))}
+    <div className="not-prose my-10 grid min-w-0 gap-y-14">
+      {generativeGalleryConformanceDescriptors.map((descriptor, index) => {
+        const documentation = chartRecipeDocumentation[descriptor.value];
+        return (
+          <section
+            className="min-w-0 border-t border-border/70 pt-5"
+            data-chart-recipe={descriptor.value}
+            key={descriptor.value}
+          >
+            <header className="mb-5 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-8">
+              <div className="min-w-0">
+                <h2 className="m-0 text-base font-semibold text-foreground">
+                  {documentation.title}
+                </h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {documentation.description}
+                </p>
               </div>
-            </div>
-          );
-        })}
-      </div>
-      <section aria-live="polite" className="min-w-0">
-        <header className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-          <code className="text-sm font-semibold text-foreground">{selectedFixture.recipeName}</code>
-          <span className="text-xs text-muted-foreground">1 trusted Surface / 70 selectable recipes</span>
-        </header>
-        <ChartRecipeDemo recipeName={selectedFixture.recipeName} />
-      </section>
+              <code className="text-[11px] text-muted-foreground">
+                data.chart / {String(index + 1).padStart(2, "0")}
+              </code>
+            </header>
+            <ChartRecipeDemo recipeName={descriptor.value} />
+          </section>
+        );
+      })}
     </div>
   );
 }

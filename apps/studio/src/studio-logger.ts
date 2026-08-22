@@ -17,6 +17,7 @@ export type StudioAgentStage =
   | "narrating";
 export type StudioAgentStageStatus = "started" | "completed" | "failed";
 export type StudioLogLevel = "debug" | "info" | "warn" | "error";
+export type StudioErrorPhase = "catalog" | "provider" | "tool-input" | "tool-output" | "persistence" | "stream" | "transport";
 export type StudioLogStage =
   | "ready"
   | "failed"
@@ -51,6 +52,21 @@ export type StudioLogEvent = Readonly<{
   operation?: StudioApiOperation;
   status?: number;
   code?: string;
+  diagnosticCode?: string;
+  errorPhase?: StudioErrorPhase;
+  errorType?: string;
+  errorMessage?: string;
+  field?: string;
+  reason?: string;
+  truncated?: boolean;
+  omittedSchemas?: number;
+  omittedTables?: number;
+  omittedColumns?: number;
+  omittedForeignKeys?: number;
+  omittedEntities?: number;
+  omittedFields?: number;
+  omittedMetrics?: number;
+  omittedRelationships?: number;
   outcome?: StudioStreamOutcome;
   durationMs?: number;
   tool?: StudioToolName;
@@ -171,6 +187,24 @@ function toPinoFields(event: StudioLogEvent): Record<string, string | number> {
   if (event.operation !== undefined) fields.operation = event.operation;
   if (event.status !== undefined) fields.status = event.status;
   if (isStudioLogCode(event.code)) fields.code = event.code;
+  if (isSafeDiagnosticToken(event.diagnosticCode)) fields.diagnosticCode = event.diagnosticCode;
+  if (event.errorPhase !== undefined) fields.errorPhase = event.errorPhase;
+  if (isSafeDiagnosticToken(event.errorType)) fields.errorType = event.errorType;
+  if (event.errorMessage !== undefined) {
+    const errorMessage = sanitizeStudioErrorText(event.errorMessage);
+    if (errorMessage !== undefined) fields.errorMessage = errorMessage;
+  }
+  if (isSafeDiagnosticToken(event.field)) fields.field = event.field;
+  if (isSafeDiagnosticToken(event.reason)) fields.reason = event.reason;
+  if (event.truncated !== undefined) fields.truncated = event.truncated ? 1 : 0;
+  if (isSafeCount(event.omittedSchemas)) fields.omittedSchemas = event.omittedSchemas;
+  if (isSafeCount(event.omittedTables)) fields.omittedTables = event.omittedTables;
+  if (isSafeCount(event.omittedColumns)) fields.omittedColumns = event.omittedColumns;
+  if (isSafeCount(event.omittedForeignKeys)) fields.omittedForeignKeys = event.omittedForeignKeys;
+  if (isSafeCount(event.omittedEntities)) fields.omittedEntities = event.omittedEntities;
+  if (isSafeCount(event.omittedFields)) fields.omittedFields = event.omittedFields;
+  if (isSafeCount(event.omittedMetrics)) fields.omittedMetrics = event.omittedMetrics;
+  if (isSafeCount(event.omittedRelationships)) fields.omittedRelationships = event.omittedRelationships;
   if (event.outcome !== undefined) fields.outcome = event.outcome;
   if (event.durationMs !== undefined) fields.durationMs = event.durationMs;
   if (event.tool !== undefined) fields.tool = event.tool;
@@ -178,6 +212,7 @@ function toPinoFields(event: StudioLogEvent): Record<string, string | number> {
   if (event.agentStage !== undefined) fields.agentStage = event.agentStage;
   if (event.agentStageStatus !== undefined) fields.agentStageStatus = event.agentStageStatus;
   if (event.runStatus !== undefined) fields.runStatus = event.runStatus;
+  if (event.finishReason !== undefined) fields.finishReason = event.finishReason;
   if (event.listenPort !== undefined) fields.listenPort = event.listenPort;
   if (event.idleTimeoutSeconds !== undefined) fields.idleTimeoutSeconds = event.idleTimeoutSeconds;
   return fields;
@@ -242,6 +277,115 @@ function isStudioLogStage(value: unknown): value is StudioLogStage {
 
 function isStudioLogCode(value: unknown): value is string {
   return typeof value === "string" && studioLogCodes.has(value);
+}
+
+function isSafeDiagnosticToken(value: unknown): value is string {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
+}
+
+function isSafeCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+export type SafeStudioErrorDetails = Readonly<{
+  diagnosticCode?: string;
+  errorType: string;
+  errorMessage: string;
+}>;
+
+const MAX_STUDIO_ERROR_MESSAGE_CHARACTERS = 16_000;
+const REDACTED_VALUE = "[REDACTED]";
+
+/**
+ * Extracts the complete useful Error message and cause chain without serializing
+ * driver/provider objects, request payloads, SQL, credentials, or stack traces.
+ */
+export function safeStudioErrorDetails(error: unknown): SafeStudioErrorDetails {
+  const messages: string[] = [];
+  const visited = new Set<unknown>();
+  let current: unknown = error;
+  let errorType = "Error";
+  let diagnosticCode: string | undefined;
+
+  for (let depth = 0; current !== undefined && current !== null && depth < 8 && !visited.has(current); depth += 1) {
+    visited.add(current);
+    const record = isRecord(current) ? current : undefined;
+    const currentType = errorTypeFrom(current, record);
+    if (depth === 0) {
+      errorType = currentType;
+      diagnosticCode = diagnosticCodeFrom(record);
+    }
+    const message = errorMessageFrom(current, record);
+    const extras = diagnosticExtras(record);
+    const complete = [message, ...extras].filter((value): value is string => value !== undefined).join(" ");
+    if (complete) messages.push(depth === 0 ? complete : `Caused by ${currentType}: ${complete}`);
+    current = record?.cause;
+  }
+
+  const errorMessage = sanitizeStudioErrorText(messages.join(" "))
+    ?? "The operation failed without an Error message.";
+  return {
+    ...(diagnosticCode === undefined ? {} : { diagnosticCode }),
+    errorType,
+    errorMessage,
+  };
+}
+
+/** Final safety boundary for terminal-facing diagnostic strings. */
+export function sanitizeStudioErrorText(value: string): string | undefined {
+  let text = value
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, " ")
+    .trim();
+  if (!text) return undefined;
+
+  text = text
+    .replace(/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|libsql|https?|wss?):\/\/[^\s"'<>]+/gi, REDACTED_VALUE)
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+\/-]+=*/gi, `$1 ${REDACTED_VALUE}`)
+    .replace(/\b(?:api[-_ ]?key|authorization|auth[-_ ]?token|access[-_ ]?token|password|passwd|secret)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, (match) => `${match.slice(0, match.search(/[:=]/) + 1)} ${REDACTED_VALUE}`)
+    .replace(/\b(?:sk|pk)-(?:or-)?[A-Za-z0-9_-]{12,}\b/g, REDACTED_VALUE)
+    .replace(/\bor-v1-[A-Za-z0-9_-]{12,}\b/g, REDACTED_VALUE)
+    .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g, REDACTED_VALUE)
+    .replace(/\b(sql|query|statement)(\s*[:=]\s*)(?:"[\s\S]*?"|'[\s\S]*?'|(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE)\b[\s\S]*?(?=\s+\b(?:response\s*body|responseBody|provider\s*payload|request\s*body|api[-_ ]?key|authorization|error|cause|detail|hint)\s*[:=]|$))/gi, (_match, label: string, separator: string) => `${label}${separator}[REDACTED_SQL]`)
+    .replace(/(^|[\r\n])\s*(?:SELECT|WITH|INSERT|UPDATE|DELETE|MERGE|CREATE|ALTER|DROP|TRUNCATE)\b[^\r\n]*/gi, `$1[REDACTED_SQL]`)
+    .replace(/\b(?:response\s*body|responseBody|provider\s*payload|request\s*body)\s*[:=]\s*(?:\{[\s\S]*\}|\[[\s\S]*\])/gi, (match) => `${match.slice(0, match.search(/[:=]/) + 1)} [REDACTED_PROVIDER_PAYLOAD]`);
+
+  if (text.length <= MAX_STUDIO_ERROR_MESSAGE_CHARACTERS) return text;
+  return `${text.slice(0, MAX_STUDIO_ERROR_MESSAGE_CHARACTERS)} [diagnostic truncated]`;
+}
+
+function errorTypeFrom(value: unknown, record: Record<string, unknown> | undefined): string {
+  const name = typeof record?.name === "string" ? record.name : undefined;
+  const constructorName = typeof value === "object" && value !== null
+    ? value.constructor?.name
+    : undefined;
+  const candidate = name ?? constructorName ?? (typeof value === "string" ? "Error" : typeof value);
+  return isSafeDiagnosticToken(candidate) ? candidate : "Error";
+}
+
+function diagnosticCodeFrom(record: Record<string, unknown> | undefined): string | undefined {
+  const value = record?.code ?? record?.statusCode;
+  const candidate = typeof value === "string" || typeof value === "number" ? String(value) : undefined;
+  return isSafeDiagnosticToken(candidate) ? candidate : undefined;
+}
+
+function errorMessageFrom(value: unknown, record: Record<string, unknown> | undefined): string | undefined {
+  if (typeof value === "string") return value;
+  if (typeof record?.message === "string") return record.message;
+  const nestedError = isRecord(record?.error) ? record.error : undefined;
+  return typeof nestedError?.message === "string" ? nestedError.message : undefined;
+}
+
+function diagnosticExtras(record: Record<string, unknown> | undefined): string[] {
+  if (!record) return [];
+  const extras: string[] = [];
+  if (typeof record.detail === "string" && record.detail !== record.message) extras.push(`Detail: ${record.detail}`);
+  if (typeof record.hint === "string") extras.push(`Hint: ${record.hint}`);
+  if (typeof record.position === "string" || typeof record.position === "number") extras.push(`Position: ${String(record.position)}`);
+  return extras;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function studioLogMessage(event: StudioLogEvent): string {

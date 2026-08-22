@@ -8,24 +8,20 @@ import {
   scanNoPayload,
   verifyDeterministicProofReport,
 } from "./proof";
-import { officialComponentTypes } from "./fixtures";
+import { chartRecipes } from "./chart-spec";
 
-describe("Tessera deterministic proof manifest", () => {
-  test("contains 120 versioned golden prompts with ten cases per task family", () => {
-    expect(officialGoldenPromptCases).toHaveLength(120);
-    expect(new Set(officialGoldenPromptCases.map(({ caseId }) => caseId)).size).toBe(120);
+describe("Tessera Data Chart proof manifest", () => {
+  test("contains one payload-free golden case for every recipe", () => {
+    expect(officialGoldenPromptCases).toHaveLength(17);
+    expect(proofTaskFamilies).toEqual(chartRecipes);
     for (const golden of officialGoldenPromptCases) {
       expect(goldenPromptCaseSchema.parse(golden)).toEqual(golden);
       expect(scanNoPayload(golden)).toEqual([]);
+      expect(golden.expected.components).toEqual(["data.chart"]);
     }
-    for (const family of proofTaskFamilies) {
-      expect(officialGoldenPromptCases.filter((golden) => golden.family === family)).toHaveLength(10);
-    }
-    const covered = new Set(officialGoldenPromptCases.flatMap((golden) => golden.expected.components));
-    expect(covered).toEqual(new Set(officialComponentTypes));
   });
 
-  test("keeps prompt, tool, durable wire, message, and observability fixtures payload-free", () => {
+  test("keeps durable channels payload-free", () => {
     expect(officialNoPayloadFixtures).toHaveLength(5);
     for (const fixture of officialNoPayloadFixtures) expect(scanNoPayload(fixture.value)).toEqual([]);
     expect(scanNoPayload({ rows: [{ secret: 1 }] })).toEqual([{ code: "prohibited-key", path: "$.rows" }]);
@@ -33,14 +29,11 @@ describe("Tessera deterministic proof manifest", () => {
   });
 
   test("generates and verifies one deterministic report", async () => {
-    const [left, right] = await Promise.all([
-      createDeterministicProofReport(),
-      createDeterministicProofReport(),
-    ]);
+    const [left, right] = await Promise.all([createDeterministicProofReport(), createDeterministicProofReport()]);
     expect(left).toEqual(right);
-    expect(left.goldenCaseCount).toBe(120);
+    expect(left.goldenCaseCount).toBe(17);
+    expect(left.componentContractCount).toBe(1);
     await expect(verifyDeterministicProofReport(left)).resolves.toEqual(left);
-
     const tampered = { ...left, goldenCasesHash: `sha256:${"0".repeat(64)}` };
     await expect(verifyDeterministicProofReport(tampered)).rejects.toThrow("does not match");
   });

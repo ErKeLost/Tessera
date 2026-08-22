@@ -1,6 +1,0 @@
-{
-  "title": "示例",
-  "description": "通过可信 Tessera Agent Surface 渲染的 Data Agent Composition。",
-  "root": true,
-  "pages": ["index", "query-analysis", "workspace-health", "compound-interest"]
-}

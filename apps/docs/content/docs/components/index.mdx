@@ -1,40 +1,12 @@
 ---
 title: Components
-description: The current Tessera Agent data-agent catalog and its preserved historical design inputs.
+description: The public Tessera Data Chart component collection.
 ---
 
-Tessera Agent now generates interfaces by composing a small, orthogonal
-Component Contract catalog. The final architecture is generic, but the current
-renderers, recipes, fixtures, and proof prompts are deliberately designed for
-data-agent workflows.
-
-## Current Generative UI catalog
-
-The current source of truth contains 12 contracts:
-
-- Layout: `layout.stack`, `layout.grid`, `layout.section`
-- Content: `content.text`, `content.callout`, `content.empty`
-- Data: `data.metric`, `data.table`, `data.chart`, `data.query-details`
-- Controls: `control.filter`, `control.group`
-
-`data.chart` supports all 61 shadcn/Recharts chart recipes and nine tooltip
-recipes through one strict ChartSpec. Analytical experiences such as trend,
-breakdown, anomaly, forecast, funnel, cohort, experiment, and data quality are
-composition recipes over these primitives.
+The component catalog is focused on **Data Charts**. It contains 17 named,
+production-oriented chart designs rendered by the same trusted runtime used by
+Tessera Agent.
 
 <Cards>
-  <Card title="Current catalog reference" description="Read the exact contracts, actions, recipes, fixtures, and conformance ownership." href="/docs/components/generative-ui-catalog" />
-  <Card title="Generative UI architecture" description="Understand how Contracts flow through the compiler, Controller, Surface, and renderer registry." href="/docs/agent/architecture/generative-ui" />
-  <Card title="Proof gates" description="See what must pass before the framework-neutral core can be extracted." href="/docs/agent/architecture/generative-ui-proof" />
+  <Card title="Data charts" description="Browse all 17 chart recipes and their live renderer output." href="/docs/components/generative-ui-catalog" />
 </Cards>
-
-## Preserved design inputs
-
-The remaining pages in this section are intentionally retained. They document
-the fixed Artifact recipes, schemas, previews, and interaction ideas explored
-before the current compositional architecture. They are **historical design
-inputs**, not current protocol Contracts or public installation APIs.
-
-Those pages still matter: they define the product quality Tessera Agent's
-generated compositions must recover without reintroducing one protocol type for
-every analytical shape.

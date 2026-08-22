@@ -39,8 +39,8 @@ Raw model output never reaches React.
 | Resource data | `@open-generative/resources` | Server-only schemas, grants, projections, windows, and evidence |
 | Effects | `@open-generative/capabilities` | Server-only action policy, approval, idempotency, effects, and receipts |
 | React binding | `@open-generative/react` | `GenerativeSurface`, exact `RendererRegistry`, placement, and system surfaces |
-| Data-agent contracts | `@open-generative/components` | The 12 contracts, props schemas, chart specs, recipes, and fixtures |
-| Data-agent UI | `@open-generative/ui` | Official shadcn/Recharts node renderers and registry factory |
+| Data-agent contract | `@open-generative/components` | The `data.chart` contract, strict recipe union, resource schemas, and fixtures |
+| Data-agent UI | `@open-generative/ui` | The official shadcn/Recharts `data.chart` renderer and registry factory |
 
 Framework adapters may translate transport details, but they cannot own or
 replace these semantics. Browser code must not import compiler, server,
@@ -48,23 +48,24 @@ resource, capability, credentials, prompt examples, or signing material.
 
 ## Current Component Contract slice
 
-The proof uses 12 orthogonal contracts:
+The Tessera Agent proof Catalog contains one Component Contract: `data.chart`.
+Its `spec.recipe` field is a strict discriminated union of 17 product designs.
+Steps, funnel, Sankey, scatter, radial, radar, calendar, area, heatmap, combo,
+device, and ring treatments are recipes inside that Contract, not component
+types and not arbitrary React props.
 
-- Layout: `layout.stack`, `layout.grid`, `layout.section`
-- Content: `content.text`, `content.callout`, `content.empty`
-- Data: `data.metric`, `data.table`, `data.chart`, `data.query-details`
-- Controls: `control.filter`, `control.group`
-
-Trend, comparison, funnel, cohort, anomaly, forecast, and data-quality
-experiences are composition recipes, not additional protocol types. This keeps
-the model-facing slice small while allowing product-quality analytical surfaces.
+The model selects a recipe and maps offered columns into its bounded semantic
+fields. It cannot provide rows, raw colors, CSS, callbacks, SVG markup, JSX, or
+renderer names. The Host resolves the resource binding and the registered
+renderer chooses the audited DOM, SVG, or Recharts implementation for that
+recipe.
 
 ## Commit and preview
 
-Layout and safe content may appear through a validated read-only preview.
-Resource-backed data and state-bound controls commit atomically. Preview
-renderers receive no event emitter, so incomplete content cannot trigger host
-commands. A failed proposal preserves the last-good committed revision.
+Complete `data.chart` entities may appear through a validated read-only preview.
+Resource-backed chart nodes commit atomically. Preview renderers receive no
+event emitter, so incomplete content cannot trigger host commands. A failed
+proposal preserves the last-good committed revision.
 
 Resource payloads do not enter the canonical document. `SurfaceController`
 materializes and validates resolved props for one node from trusted,

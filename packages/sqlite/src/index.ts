@@ -88,7 +88,7 @@ type ForeignKeyRow = {
   to: string;
 };
 
-const DEFAULT_MAX_ROWS = 500;
+const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const SQLITE_SCHEMA = "main";
 
@@ -130,7 +130,7 @@ export class LibSqlConnector implements DatabaseConnector {
       clientUrl: connection.clientUrl,
       ...(options.authToken?.trim() ? { authToken: options.authToken.trim() } : {}),
       id: this.id,
-      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 10_000),
+      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 20_000),
       statementTimeoutMs: clampInteger(
         options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS,
         250,

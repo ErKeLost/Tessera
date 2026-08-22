@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   createOfficialChartRecipeManifest,
   officialChartAccessibilityFixtures,
@@ -9,149 +7,59 @@ import {
   verifyChartRecipeManifest,
 } from "./chart-fixtures";
 import {
-  chartCapabilityTokens,
   officialChartRecipeDefinitions,
   officialChartRecipeSource,
   verifyChartRecipeDefinitions,
 } from "./chart-recipes";
+import { chartRecipes } from "./chart-spec";
 import { createOfficialCatalog } from "./contracts";
-import {
-  compositionRecipeSchema,
-  officialComponentFixtures,
-  officialComponentTypes,
-  officialCompositionRecipes,
-} from "./fixtures";
+import { officialComponentFixtures, officialComponentTypes, officialCompositionRecipes } from "./fixtures";
 
 describe("chart recipe coverage", () => {
-  test("maps every pinned registry recipe exactly once", () => {
-    const mappedFiles = officialChartRecipeDefinitions.map((recipe) => recipe.sourceFile).sort();
-
-    expect(mappedFiles).toHaveLength(70);
-    expect(new Set(mappedFiles).size).toBe(70);
-    expect(mappedFiles.every((file) => /^charts\/chart-[a-z0-9-]+\.tsx$/.test(file))).toBe(true);
-    expect(new Set(officialChartRecipeDefinitions.map((recipe) => recipe.recipeName)).size).toBe(70);
+  test("declares every final recipe exactly once in canonical order", () => {
+    expect(officialChartRecipeDefinitions.map((recipe) => recipe.recipeName)).toEqual([...chartRecipes]);
+    expect(new Set(officialChartRecipeDefinitions.map((recipe) => recipe.recipeName)).size).toBe(17);
     expect(() => verifyChartRecipeDefinitions(officialChartRecipeDefinitions)).not.toThrow();
-
-    const counts = Object.fromEntries(["area", "bar", "line", "pie", "radar", "radial", "tooltip"].map((family) => [
-      family,
-      officialChartRecipeDefinitions.filter((recipe) => recipe.family === family).length,
-    ]));
-    expect(counts).toEqual({ area: 10, bar: 10, line: 10, pie: 11, radar: 14, radial: 6, tooltip: 9 });
-  });
-
-  test("separates the vendored recipe dependencies from the official renderer runtime", async () => {
     expect(officialChartRecipeSource).toMatchObject({
-      upstreamCommit: "25be24cca34d06eed29a4779c3f48c4816aa812c",
-      registryTree: "addee626e9f09551ff366c62deffebedea6bcac2",
-      registryListingHash: "sha256:d80981943fe3f674a49b8020df7b6015f63796e95b4b3e153cd742a6ffb82e8e",
-      vendorLockfileHash: "sha256:4cdeb1a0cb106189fb36681f435e80a10a676aea41cffee22e059a3b2d49ac7a",
-      recipeFileCount: 70,
-      sourcePackages: {
-        chartEngine: { packageName: "recharts", version: "3.8.0", integritySource: "vendor-lockfile" },
-      },
-      rendererPackages: {
-        chartEngine: { packageName: "recharts", version: "3.10.1", integritySource: "workspace-lockfile" },
-      },
+      sourceKind: "reference-design-set",
+      designSystem: "shadcn/ui",
+      recipeCount: 17,
+      rendererPackages: { chartEngine: { packageName: "recharts", version: "3.10.1" } },
     });
-    expect("rendererImplementationHash" in officialChartRecipeSource).toBe(false);
-    expect("rendererCapabilityManifestHash" in officialChartRecipeSource).toBe(false);
-
-    const vendorRoot = fileURLToPath(new URL("../../../vendor/shadcn-ui/", import.meta.url));
-    if (!existsSync(vendorRoot)) {
-      return;
-    }
-
-    const head = Bun.spawnSync(["git", "-C", vendorRoot, "rev-parse", "HEAD"]);
-    expect(head.exitCode).toBe(0);
-    expect(head.stdout.toString().trim()).toBe(officialChartRecipeSource.upstreamCommit);
-
-    const listing = Bun.spawnSync([
-      "git",
-      "-C",
-      vendorRoot,
-      "ls-tree",
-      "-r",
-      "HEAD",
-      officialChartRecipeSource.registryPath,
-    ]);
-    expect(listing.exitCode).toBe(0);
-    const listingHash = new Bun.CryptoHasher("sha256").update(listing.stdout).digest("hex");
-    expect(`sha256:${listingHash}`).toBe(officialChartRecipeSource.registryListingHash);
-
-    const worktreeDiff = Bun.spawnSync([
-      "git",
-      "-C",
-      vendorRoot,
-      "status",
-      "--porcelain",
-      "--",
-      officialChartRecipeSource.registryPath,
-    ]);
-    expect(worktreeDiff.exitCode).toBe(0);
-    expect(worktreeDiff.stdout.toString()).toBe("");
-
-    const lockfile = await Bun.file(new URL("../../../vendor/shadcn-ui/pnpm-lock.yaml", import.meta.url)).arrayBuffer();
-    const lockfileHash = new Bun.CryptoHasher("sha256").update(lockfile).digest("hex");
-    expect(`sha256:${lockfileHash}`).toBe(officialChartRecipeSource.vendorLockfileHash);
-
-    const workspaceLockfile = await Bun.file(new URL("../../../bun.lock", import.meta.url)).text();
-    const rendererDependency = officialChartRecipeSource.rendererPackages.chartEngine;
-    expect(workspaceLockfile).toContain(
-      `"recharts": ["recharts@${rendererDependency.version}",`,
-    );
-    expect(workspaceLockfile).toContain(rendererDependency.integrity);
   });
 
-  test("keeps dashed tooltip indicators as an API capability without inventing a snapshot recipe", () => {
-    expect(chartCapabilityTokens).toContain("tooltip.indicator.dashed");
-    expect(officialChartRecipeDefinitions.some((recipe) => (
-      recipe.requiredCapabilities.includes("tooltip.indicator.dashed")
-    ))).toBe(false);
-  });
-
-  test("binds every recipe to one valid spec, renderer expectation, and accessibility fixture", () => {
-    expect(officialChartSpecFixtures).toHaveLength(70);
-    expect(officialRendererExpectationFixtures).toHaveLength(70);
-    expect(officialChartAccessibilityFixtures).toHaveLength(70);
+  test("binds each recipe to authoring, resolved, renderer, and accessibility fixtures", () => {
+    expect(officialChartSpecFixtures).toHaveLength(17);
+    expect(officialRendererExpectationFixtures).toHaveLength(17);
+    expect(officialChartAccessibilityFixtures).toHaveLength(17);
     for (const [index, recipe] of officialChartRecipeDefinitions.entries()) {
       expect(officialChartSpecFixtures[index]?.recipeName).toBe(recipe.recipeName);
-      expect(officialRendererExpectationFixtures[index]?.recipeName).toBe(recipe.recipeName);
+      expect(officialChartSpecFixtures[index]?.resolvedSpec.recipe).toBe(recipe.recipeName);
       expect(officialRendererExpectationFixtures[index]?.requiredCapabilities).toEqual(recipe.requiredCapabilities);
-      expect(officialChartAccessibilityFixtures[index]?.recipeName).toBe(recipe.recipeName);
       expect(officialChartAccessibilityFixtures[index]?.dataSemantics).toBe("preserved-in-equivalent-view");
     }
   });
 
-  test("hashes the complete recipe and fixture manifest deterministically", async () => {
+  test("hashes the complete recipe manifest deterministically", async () => {
     const catalog = await createOfficialCatalog();
     const [left, right] = await Promise.all([
       createOfficialChartRecipeManifest(catalog),
       createOfficialChartRecipeManifest(catalog),
     ]);
-    expect(left.recipeManifestHash).toBe(right.recipeManifestHash);
-    expect(left.contractSetHash).toBe(catalog.manifest.contractSetHash);
-    expect(left.dataChartContract).toEqual(catalog.components.dataChart.ref);
+    expect(left).toEqual(right);
     await expect(verifyChartRecipeManifest(left)).resolves.toEqual(left);
-
     const tampered = structuredClone(left);
     tampered.accessibilityFixtures[0]!.accessibleName = "Changed after hashing";
     await expect(verifyChartRecipeManifest(tampered)).rejects.toThrow("hash mismatch");
   });
 });
 
-describe("official component fixtures and composition recipes", () => {
-  test("provides one authoring/resolved fixture for each official component", () => {
-    expect(officialComponentFixtures).toHaveLength(12);
-    expect(officialComponentFixtures.map((fixture) => fixture.componentType).sort()).toEqual([...officialComponentTypes].sort());
-  });
-
-  test("keeps composition recipes framework-neutral, referentially valid, and acyclic", () => {
-    expect(officialCompositionRecipes.length).toBeGreaterThan(0);
-    const forbiddenPresentationKey = ["class", "Name"].join("");
-    for (const recipe of officialCompositionRecipes) {
-      expect(compositionRecipeSchema.parse(recipe)).toEqual(recipe);
-      expect(JSON.stringify(recipe)).not.toContain(forbiddenPresentationKey);
-      expect(JSON.stringify(recipe)).not.toContain("style");
-    }
+describe("official component fixtures", () => {
+  test("contains only one data.chart component fixture and composition", () => {
+    expect(officialComponentTypes).toEqual(["data.chart"]);
+    expect(officialComponentFixtures).toHaveLength(1);
+    expect(officialComponentFixtures[0]?.componentType).toBe("data.chart");
+    expect(officialCompositionRecipes).toHaveLength(1);
+    expect(officialCompositionRecipes[0]?.nodes).toHaveLength(1);
   });
 });

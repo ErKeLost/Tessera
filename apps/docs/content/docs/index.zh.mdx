@@ -25,14 +25,13 @@ trusted SurfaceEventStream
 
 ## 当前范围
 
-底层不是 MVP，而是直接实现终局架构；初始 Catalog 则有意保持克制：12 个正交 Component Contract、
-70 个基于 shadcn/Recharts 的 Chart 与 Tooltip Recipe，以及 data-agent 专属 Fixture。Trend、Funnel、
-Cohort、Anomaly、Forecast 等体验由这些 Contract 组合完成，不再成为协议级固定大组件。
+公共 UI Catalog 只聚焦一件事：一个受治理的 `data.chart` Component Contract，以及 17 个具名
+Data Chart Recipe。每个 Recipe 都有独立的信息结构与视觉表达，同时复用同一条可信 Resource、
+校验和渲染链路。
 
 <Cards>
   <Card title="Generative UI 终局架构" description="阅读唯一协议、权限边界、Commit 与渲染设计。" href="/docs/agent/architecture/generative-ui" />
   <Card title="data-agent 成功证明" description="查看 Tessera Agent 必须通过的确定性、安全、渲染与产品质量门槛。" href="/docs/agent/architecture/generative-ui-proof" />
-  <Card title="当前 Catalog" description="查看本次证明使用的 12 个 Component Contract 与 70 个 Chart/Tooltip Recipe。" href="/docs/components/generative-ui-catalog" />
+  <Card title="Data Chart" description="通过真实且经过验证的 Renderer 查看全部 17 个图表 Recipe。" href="/docs/components/generative-ui-catalog" />
   <Card title="Agent 架构" description="把 Generative UI 与受治理分析、证据和生产运行连接起来。" href="/docs/agent/architecture" />
-  <Card title="历史设计输入" description="浏览被完整保留、并继续影响当前 Composition 的固定 Artifact Recipe。" href="/docs/components" />
 </Cards>

@@ -366,6 +366,46 @@ describe("Tessera Studio UI transcript memory", () => {
     }
   });
 
+  test("preserves a safe concrete tool error while removing SQL and credentials", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-session-tool-error-"));
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+    try {
+      await sessions.createThread({ id: "thread-error", resourceId: "resource-error" });
+      await sessions.appendUiMessages({
+        id: "thread-error",
+        resourceId: "resource-error",
+        messages: [{
+          id: "assistant-error",
+          role: "assistant",
+          parts: [{
+            type: "tool-list_database",
+            toolCallId: "private-tool-call-id",
+            state: "output-error",
+            input: { operation: "describe_schema", schema: "private" },
+            errorText: 'column "missing_total" does not exist. api_key=sk-or-private-error-key-123456 sql: SELECT missing_total FROM private.billing',
+          }],
+        }],
+      });
+
+      const messages = await sessions.readMessages({ id: "thread-error", resourceId: "resource-error" });
+      const errorPart = messages?.[0]?.parts[0];
+      expect(errorPart).toEqual(expect.objectContaining({
+        type: "tool-list_database",
+        state: "output-error",
+        errorText: expect.stringContaining('column "missing_total" does not exist.'),
+      }));
+      const serialized = JSON.stringify(messages);
+      expect(serialized).toContain("[REDACTED]");
+      expect(serialized).toContain("[REDACTED_SQL]");
+      expect(serialized).not.toContain("sk-or-private-error-key-123456");
+      expect(serialized).not.toContain("SELECT missing_total");
+      expect(serialized).not.toContain("private-tool-call-id");
+    } finally {
+      await sessions.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
   test("never returns a UI transcript across resource ownership boundaries", async () => {
     const sessions = createTesseraSessionMemory({ rootDirectory: temporaryRoot() });
     try {

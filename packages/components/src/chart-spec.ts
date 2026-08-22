@@ -4,107 +4,57 @@ import {
   resourceDatasetPayloadSchema,
 } from "@open-generative/protocol";
 import {
-  chartIconTokenSchema,
   columnIdValueSchema,
   formatTokenSchema,
   resourceBindingExprSchema,
-  semanticColorTokenSchema,
-  stateBindingExprSchema,
 } from "./schema";
 
-export const chartFamilies = ["area", "bar", "line", "pie", "radar", "radial"] as const;
-export const chartFamilySchema = z.enum(chartFamilies);
+export const chartRecipes = [
+  "steps-bars",
+  "pipeline-stage-bars",
+  "sleep-score",
+  "revenue-per-account-scatter",
+  "tracked-time-sankey",
+  "visitors-radial",
+  "visitors-radar",
+  "activity-calendar",
+  "revenue-smooth-area",
+  "active-users-heatmap",
+  "sign-up-funnel",
+  "earned-so-far-bars",
+  "contributions-heatmap",
+  "sessions-conversion-combo",
+  "devices-bars",
+  "visitors-stacked-area",
+  "activity-rings",
+] as const;
 
+export const chartRecipeSchema = z.enum(chartRecipes);
 export const chartCellValueSchema = resourceDatasetCellValueSchema;
 export const resolvedChartDataSchema = resourceDatasetPayloadSchema;
 
-export const chartSeriesSchema = z.object({
+export const chartAggregateSchema = z.enum([
+  "sum",
+  "average",
+  "minimum",
+  "maximum",
+  "first",
+  "last",
+  "count",
+  "distinct-count",
+]);
+
+export const chartMetricSchema = z.object({
   column: columnIdValueSchema,
-  label: z.string().trim().min(1).max(256).optional(),
-  colorToken: semanticColorTokenSchema.optional(),
-  valueFormat: formatTokenSchema.optional(),
-  stackId: z.string().regex(/^[a-z][a-z0-9.-]{0,63}$/).optional(),
-  iconToken: chartIconTokenSchema.optional(),
-}).strict();
-
-export const chartAxisSchema = z.object({
-  visible: z.boolean().default(true),
-  scale: z.enum(["category", "number", "time"]),
-  label: z.string().trim().min(1).max(256).optional(),
-  tickFormat: formatTokenSchema.optional(),
-  tickCount: z.number().int().min(2).max(20).optional(),
-}).strict();
-
-export const chartAxesSchema = z.object({
-  x: chartAxisSchema.optional(),
-  y: chartAxisSchema.optional(),
-  grid: z.enum(["none", "horizontal", "vertical", "both"]).default("horizontal"),
-}).strict();
-
-export const chartStackSchema = z.object({
-  mode: z.enum(["none", "normal", "normalized"]),
-}).strict();
-
-export const chartLabelSchema = z.object({
-  mode: z.enum(["none", "value", "category", "category-value", "list", "formatted"]),
-  position: z.enum(["auto", "inside", "outside", "top", "right"]).default("auto"),
+  aggregate: chartAggregateSchema,
+  label: z.string().trim().min(1).max(128).optional(),
   format: formatTokenSchema.optional(),
-  leaderLine: z.boolean().default(true),
-}).strict().superRefine((label, context) => {
-  if (label.mode === "formatted" && label.format === undefined) {
-    context.addIssue({ code: "custom", path: ["format"], message: "Formatted labels require a format token." });
-  }
-  if (label.mode !== "formatted" && label.format !== undefined) {
-    context.addIssue({ code: "custom", path: ["format"], message: "Label formats are only valid in formatted mode." });
-  }
-});
-
-export const chartTooltipSchema = z.object({
-  enabled: z.boolean().default(true),
-  indicator: z.enum(["dot", "line", "dashed", "none"]).default("dot"),
-  label: z.discriminatedUnion("mode", [
-    z.object({ mode: z.literal("default") }).strict(),
-    z.object({ mode: z.literal("none") }).strict(),
-    z.object({ mode: z.literal("column"), column: columnIdValueSchema }).strict(),
-    z.object({
-      mode: z.literal("formatted"),
-      column: columnIdValueSchema.optional(),
-      format: formatTokenSchema,
-    }).strict(),
-  ]).default({ mode: "default" }),
-  valueFormat: formatTokenSchema.optional(),
-  seriesIcons: z.boolean().default(false),
-  aggregate: z.enum(["none", "total", "average"]).default("none"),
 }).strict();
 
-function createLegendSchema(stateSchema: z.ZodType) {
-  return z.object({
-    visibility: z.enum(["none", "auto", "always"]).default("auto"),
-    position: z.enum(["top", "bottom", "left", "right"]).default("bottom"),
-    align: z.enum(["start", "center", "end"]).default("center"),
-    iconMode: z.enum(["swatch", "series-icon"]).default("swatch"),
-    visibilityState: stateSchema.optional(),
-  }).strict();
-}
-
-function createInteractionSchema(stateSchema: z.ZodType) {
-  return z.discriminatedUnion("kind", [
-    z.object({ kind: z.literal("none") }).strict(),
-    z.object({ kind: z.literal("datum-select"), state: stateSchema }).strict(),
-    z.object({ kind: z.literal("series-select"), state: stateSchema }).strict(),
-    z.object({ kind: z.literal("slice-select"), state: stateSchema }).strict(),
-    z.object({
-      kind: z.literal("range-select"),
-      state: stateSchema,
-      minimumPoints: z.number().int().min(1).max(1_000).default(2),
-    }).strict(),
-  ]);
-}
-
-export const chartPresentationSchema = z.object({
-  height: z.enum(["sm", "md", "lg"]).default("md"),
-  density: z.enum(["compact", "comfortable"]).default("comfortable"),
-  animation: z.enum(["none", "entrance", "interactive"]).default("entrance"),
+export const chartSeriesColumnSchema = z.object({
+  column: columnIdValueSchema,
+  label: z.string().trim().min(1).max(128).optional(),
+  format: formatTokenSchema.optional(),
 }).strict();
 
 export const chartAccessibilitySchema = z.object({
@@ -112,157 +62,372 @@ export const chartAccessibilitySchema = z.object({
   description: z.string().trim().min(1).max(2_048).optional(),
 }).strict();
 
-export const resolvedChartInteractionStateSchema = z.union([
-  z.null(),
-  z.string().max(1_024),
-  z.number().finite(),
-  z.array(z.union([z.string().max(1_024), z.number().finite()])).max(1_000),
-  z.object({ start: z.number().finite(), end: z.number().finite() }).strict(),
-]);
+const titleSchema = z.string().trim().min(1).max(256);
 
-function createCenterTextSchema(stateSchema: z.ZodType) {
-  return z.object({
-    value: z.union([z.literal("total"), z.literal("selected"), stateSchema]),
-    label: z.string().trim().min(1).max(128),
-    format: formatTokenSchema.optional(),
-  }).strict();
-}
-
-function createChartSchemas(dataSchema: z.ZodType, stateSchema: z.ZodType) {
+function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataSchema) {
   const common = {
     data: dataSchema,
-    title: z.string().trim().min(1).max(512).optional(),
-    description: z.string().trim().min(1).max(2_048).optional(),
-    series: z.array(chartSeriesSchema).min(1).max(12),
-    tooltip: chartTooltipSchema.optional(),
-    legend: createLegendSchema(stateSchema).optional(),
-    labels: chartLabelSchema.optional(),
-    interaction: createInteractionSchema(stateSchema).optional(),
-    presentation: chartPresentationSchema.optional(),
-    equivalentView: z.enum(["table", "text-summary"]),
+    title: titleSchema,
+    subtitle: z.string().trim().min(1).max(512).optional(),
+    equivalentView: z.literal("table"),
     accessibility: chartAccessibilitySchema,
   } as const;
 
-  const area = z.object({
-    family: z.literal("area"),
-    ...common,
-    x: columnIdValueSchema,
-    axes: chartAxesSchema.optional(),
-    curve: z.enum(["monotone", "linear", "natural", "step"]).default("monotone"),
-    stack: chartStackSchema.optional(),
-    fill: z.enum(["solid", "gradient"]).default("solid"),
-    activeMark: z.boolean().default(false),
-  }).strict();
-
-  const bar = z.object({
-    family: z.literal("bar"),
-    ...common,
-    category: columnIdValueSchema,
-    orientation: z.enum(["vertical", "horizontal"]).default("vertical"),
-    axes: chartAxesSchema.optional(),
-    stack: chartStackSchema.optional(),
-    activeMark: z.boolean().default(false),
-    shape: z.enum(["default", "rounded", "active-rounded"]).default("default"),
-    colorMode: z.enum(["series", "per-datum", "by-sign"]).default("series"),
-    allowNegative: z.boolean().default(false),
-  }).strict();
-
-  const line = z.object({
-    family: z.literal("line"),
-    ...common,
-    x: columnIdValueSchema,
-    axes: chartAxesSchema.optional(),
-    curve: z.enum(["monotone", "linear", "natural", "step"]).default("monotone"),
-    points: z.enum(["hidden", "visible", "series-color", "custom-symbol"]).default("hidden"),
-    activeMark: z.boolean().default(false),
-  }).strict();
-
-  const pie = z.object({
-    family: z.literal("pie"),
-    ...common,
-    name: columnIdValueSchema,
-    innerRadius: z.enum(["none", "sm", "md", "lg"]).default("none"),
-    separator: z.enum(["default", "none"]).default("default"),
-    rings: z.enum(["single", "stacked"]).default("single"),
-    activeMark: z.boolean().default(false),
-    shape: z.enum(["default", "active-sector"]).default("default"),
-    centerText: createCenterTextSchema(stateSchema).optional(),
-  }).strict();
-
-  const radar = z.object({
-    family: z.literal("radar"),
-    ...common,
-    angle: columnIdValueSchema,
-    grid: z.enum([
-      "polygon",
-      "polygon-filled",
-      "polygon-no-radial-lines",
-      "circle",
-      "circle-filled",
-      "circle-no-radial-lines",
-      "custom-radius-no-radial-lines",
-      "none",
-    ]).default("polygon"),
-    radiusAxis: z.object({ visible: z.boolean(), domain: z.tuple([z.number().finite(), z.number().finite()]).optional() }).strict().optional(),
-    points: z.enum(["hidden", "visible"]).default("hidden"),
-    fill: z.enum(["area", "none"]).default("area"),
-  }).strict();
-
-  const radial = z.object({
-    family: z.literal("radial"),
-    ...common,
-    name: columnIdValueSchema,
-    domain: z.object({ min: z.number().finite(), max: z.number().finite() }).strict(),
-    sweep: z.enum(["full", "extended-full", "partial", "semicircle"]).default("full"),
-    grid: z.enum(["none", "circle", "ring"]).default("none"),
-    shape: z.enum(["default", "round", "custom"]).default("default"),
-    stack: chartStackSchema.optional(),
-    centerText: createCenterTextSchema(stateSchema).optional(),
-  }).strict();
-
-  return z.discriminatedUnion("family", [area, bar, line, pie, radar, radial]).superRefine((spec, context) => {
-    const columns = spec.series.map((series) => series.column);
-    if (new Set(columns).size !== columns.length) {
-      context.addIssue({ code: "custom", path: ["series"], message: "Series columns must be unique." });
+  return z.discriminatedUnion("recipe", [
+    z.object({
+      recipe: z.literal("steps-bars"),
+      ...common,
+      dateColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      goalColumn: columnIdValueSchema,
+      selectedDate: z.iso.date(),
+      unitLabel: z.string().trim().min(1).max(48),
+      locale: z.string().trim().min(2).max(35),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("pipeline-stage-bars"),
+      ...common,
+      stageColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("sleep-score"),
+      ...common,
+      subtitle: titleSchema,
+      labelColumn: columnIdValueSchema,
+      detailColumn: columnIdValueSchema,
+      scoreColumn: columnIdValueSchema,
+      targetColumn: columnIdValueSchema,
+      score: chartMetricSchema,
+      periodStart: z.iso.date(),
+      periodEnd: z.iso.date(),
+      locale: z.string().trim().min(2).max(35),
+      scoreFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("revenue-per-account-scatter"),
+      ...common,
+      accountColumn: columnIdValueSchema,
+      revenueColumn: columnIdValueSchema,
+      comparisonColumn: columnIdValueSchema,
+      sizeColumn: columnIdValueSchema.optional(),
+      summary: chartMetricSchema.optional(),
+      revenueFormat: formatTokenSchema.optional(),
+      comparisonFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("tracked-time-sankey"),
+      ...common,
+      sourceColumn: columnIdValueSchema,
+      targetColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("visitors-radial"),
+      ...common,
+      categoryColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema,
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("visitors-radar"),
+      ...common,
+      dimensionColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      comparisonColumn: columnIdValueSchema.optional(),
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("activity-calendar"),
+      ...common,
+      dateColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("revenue-smooth-area"),
+      ...common,
+      timeColumn: columnIdValueSchema,
+      revenueColumn: columnIdValueSchema,
+      summary: chartMetricSchema,
+      revenueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("active-users-heatmap"),
+      ...common,
+      dayColumn: columnIdValueSchema,
+      timeBucketColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("sign-up-funnel"),
+      ...common,
+      stageColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      conversion: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("earned-so-far-bars"),
+      ...common,
+      periodColumn: columnIdValueSchema,
+      earnedColumn: columnIdValueSchema,
+      targetColumn: columnIdValueSchema.optional(),
+      summary: chartMetricSchema,
+      earnedFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("contributions-heatmap"),
+      ...common,
+      dateColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema,
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("sessions-conversion-combo"),
+      ...common,
+      timeColumn: columnIdValueSchema,
+      sessionsColumn: columnIdValueSchema,
+      conversionColumn: columnIdValueSchema,
+      sessionsSummary: chartMetricSchema,
+      conversionSummary: chartMetricSchema,
+      sessionsFormat: formatTokenSchema.optional(),
+      conversionFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("devices-bars"),
+      ...common,
+      deviceColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("visitors-stacked-area"),
+      ...common,
+      timeColumn: columnIdValueSchema,
+      series: z.array(chartSeriesColumnSchema).min(2).max(5),
+      summary: chartMetricSchema.optional(),
+    }).strict(),
+    z.object({
+      recipe: z.literal("activity-rings"),
+      ...common,
+      activityColumn: columnIdValueSchema,
+      valueColumn: columnIdValueSchema,
+      targetColumn: columnIdValueSchema,
+      summary: chartMetricSchema.optional(),
+      valueFormat: formatTokenSchema.optional(),
+    }).strict(),
+  ]).superRefine((spec, context) => {
+    const internal = spec as InternalSpec;
+    const selectors = referencedColumns(internal);
+    const uniqueSelectors = new Set(selectors);
+    if (internal.recipe === "visitors-stacked-area") {
+      const seriesColumns = internal.series.map((series) => series.column);
+      if (new Set(seriesColumns).size !== seriesColumns.length) {
+        context.addIssue({
+          code: "custom",
+          path: ["series"],
+          message: "Stacked area series columns must be unique.",
+        });
+      }
     }
-
-    if ("stack" in spec && spec.stack?.mode !== undefined && spec.stack.mode !== "none" && spec.series.length < 2) {
-      context.addIssue({ code: "custom", path: ["series"], message: "Stacked charts require at least two series." });
-    }
-
-    if (spec.family === "pie" && spec.rings === "stacked" && spec.series.length < 2) {
-      context.addIssue({ code: "custom", path: ["series"], message: "Stacked pie rings require at least two series." });
-    }
-
-    if (spec.family === "radial" && spec.domain.max <= spec.domain.min) {
-      context.addIssue({ code: "custom", path: ["domain", "max"], message: "Radial domain max must exceed min." });
-    }
-
-    if (spec.family === "radar" && spec.radiusAxis?.domain !== undefined && spec.radiusAxis.domain[1] <= spec.radiusAxis.domain[0]) {
-      context.addIssue({ code: "custom", path: ["radiusAxis", "domain"], message: "Radar radius domain must increase." });
+    if (uniqueSelectors.size === 0) {
+      context.addIssue({ code: "custom", message: "A chart must reference at least one dataset column." });
     }
   });
 }
 
-export const chartCenterTextResolvedValueSchema = z.union([
-  z.literal("total"),
-  z.literal("selected"),
-  resolvedChartInteractionStateSchema,
-]);
+export const chartSpecSchema = createChartSpecSchema(resourceBindingExprSchema);
+export const resolvedChartSpecSchema = createChartSpecSchema(resolvedChartDataSchema).superRefine((spec, context) => {
+  const columns = new Map(spec.data.columns.map((column) => [column.columnId, column.valueType]));
+  const internal = spec as InternalSpec;
+  for (const column of referencedColumns(internal)) {
+    if (!columns.has(column)) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "columns"],
+        message: `Chart references undeclared dataset column ${column}.`,
+      });
+    }
+  }
+  for (const column of numericColumns(internal)) {
+    const valueType = columns.get(column);
+    if (valueType !== undefined && valueType !== "number") {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "columns"],
+        message: `Chart numeric column ${column} must declare valueType number.`,
+      });
+    }
+  }
+  for (const column of temporalColumns(internal)) {
+    const valueType = columns.get(column);
+    if (valueType !== undefined && valueType !== "date" && valueType !== "datetime") {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "columns"],
+        message: `Chart temporal column ${column} must declare valueType date or datetime.`,
+      });
+    }
+  }
+  if (spec.recipe === "steps-bars") {
+    if (spec.data.rows.length !== 7) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "rows"],
+        message: "Steps bars requires exactly seven daily rows.",
+      });
+    }
+    if (!spec.data.rows.some((row) => row[spec.dateColumn] === spec.selectedDate)) {
+      context.addIssue({
+        code: "custom",
+        path: ["selectedDate"],
+        message: "Steps bars selectedDate must identify a row in the resolved dataset.",
+      });
+    }
+  }
+  if (spec.recipe === "pipeline-stage-bars" && spec.data.rows.length !== 6) {
+    context.addIssue({
+      code: "custom",
+      path: ["data", "rows"],
+      message: "Pipeline stage bars requires exactly six ordered stages.",
+    });
+  }
+  if (spec.recipe === "sleep-score") {
+    if (spec.data.rows.length !== 3) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "rows"],
+        message: "Sleep score requires exactly three score contributors.",
+      });
+    }
+    if (spec.periodStart > spec.periodEnd) {
+      context.addIssue({
+        code: "custom",
+        path: ["periodEnd"],
+        message: "Sleep score periodEnd must not precede periodStart.",
+      });
+    }
+  }
+});
 
-export const chartSpecSchema = createChartSchemas(resourceBindingExprSchema, stateBindingExprSchema);
-export const resolvedChartSpecSchema = createChartSchemas(resolvedChartDataSchema, resolvedChartInteractionStateSchema);
+type InternalMetric = Readonly<{ column: string }>;
+type InternalSeries = Readonly<{ column: string }>;
+type InternalSpec = Readonly<{
+  recipe: ChartRecipe;
+  summary?: InternalMetric;
+  change?: InternalMetric;
+  score?: InternalMetric;
+  conversion?: InternalMetric;
+  sessionsSummary?: InternalMetric;
+  conversionSummary?: InternalMetric;
+  series: readonly InternalSeries[];
+}> & Readonly<Record<string, any>>;
 
-export type ChartFamily = z.infer<typeof chartFamilySchema>;
+function metricColumns(spec: InternalSpec): string[] {
+  switch (spec.recipe) {
+    case "steps-bars": return [];
+    case "pipeline-stage-bars": return [spec.summary!.column, spec.change!.column];
+    case "sleep-score": return [spec.score!.column];
+    case "revenue-per-account-scatter": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "tracked-time-sankey": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "visitors-radial": return [spec.summary!.column];
+    case "visitors-radar": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "activity-calendar": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "revenue-smooth-area": return [spec.summary!.column];
+    case "active-users-heatmap": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "sign-up-funnel": return [
+      ...(spec.summary === undefined ? [] : [spec.summary.column]),
+      ...(spec.conversion === undefined ? [] : [spec.conversion.column]),
+    ];
+    case "earned-so-far-bars": return [spec.summary!.column];
+    case "contributions-heatmap": return [spec.summary!.column];
+    case "sessions-conversion-combo": return [spec.sessionsSummary!.column, spec.conversionSummary!.column];
+    case "devices-bars": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "visitors-stacked-area": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "activity-rings": return spec.summary === undefined ? [] : [spec.summary.column];
+  }
+}
+
+function referencedColumns(spec: InternalSpec): string[] {
+  const metrics = metricColumns(spec);
+  switch (spec.recipe) {
+    case "steps-bars": return [spec.dateColumn, spec.valueColumn, spec.goalColumn, ...metrics];
+    case "pipeline-stage-bars": return [spec.stageColumn, spec.valueColumn, ...metrics];
+    case "sleep-score": return [spec.labelColumn, spec.detailColumn, spec.scoreColumn, spec.targetColumn, ...metrics];
+    case "revenue-per-account-scatter": return [spec.accountColumn, spec.revenueColumn, spec.comparisonColumn, ...(spec.sizeColumn === undefined ? [] : [spec.sizeColumn]), ...metrics];
+    case "tracked-time-sankey": return [spec.sourceColumn, spec.targetColumn, spec.valueColumn, ...metrics];
+    case "visitors-radial": return [spec.categoryColumn, spec.valueColumn, ...metrics];
+    case "visitors-radar": return [spec.dimensionColumn, spec.valueColumn, ...(spec.comparisonColumn === undefined ? [] : [spec.comparisonColumn]), ...metrics];
+    case "activity-calendar": return [spec.dateColumn, spec.valueColumn, ...metrics];
+    case "revenue-smooth-area": return [spec.timeColumn, spec.revenueColumn, ...metrics];
+    case "active-users-heatmap": return [spec.dayColumn, spec.timeBucketColumn, spec.valueColumn, ...metrics];
+    case "sign-up-funnel": return [spec.stageColumn, spec.valueColumn, ...metrics];
+    case "earned-so-far-bars": return [spec.periodColumn, spec.earnedColumn, ...(spec.targetColumn === undefined ? [] : [spec.targetColumn]), ...metrics];
+    case "contributions-heatmap": return [spec.dateColumn, spec.valueColumn, ...metrics];
+    case "sessions-conversion-combo": return [spec.timeColumn, spec.sessionsColumn, spec.conversionColumn, ...metrics];
+    case "devices-bars": return [spec.deviceColumn, spec.valueColumn, ...metrics];
+    case "visitors-stacked-area": return [spec.timeColumn, ...spec.series.map((series) => series.column), ...metrics];
+    case "activity-rings": return [spec.activityColumn, spec.valueColumn, spec.targetColumn, ...metrics];
+  }
+}
+
+function numericColumns(spec: InternalSpec): string[] {
+  const metrics = metricColumns(spec);
+  switch (spec.recipe) {
+    case "steps-bars": return [spec.valueColumn, spec.goalColumn, ...metrics];
+    case "pipeline-stage-bars": return [spec.valueColumn, ...metrics];
+    case "sleep-score": return [spec.scoreColumn, spec.targetColumn, ...metrics];
+    case "revenue-per-account-scatter": return [spec.revenueColumn, spec.comparisonColumn, ...(spec.sizeColumn === undefined ? [] : [spec.sizeColumn]), ...metrics];
+    case "tracked-time-sankey": return [spec.valueColumn, ...metrics];
+    case "visitors-radial": return [spec.valueColumn, ...metrics];
+    case "visitors-radar": return [spec.valueColumn, ...(spec.comparisonColumn === undefined ? [] : [spec.comparisonColumn]), ...metrics];
+    case "activity-calendar": return [spec.valueColumn, ...metrics];
+    case "revenue-smooth-area": return [spec.revenueColumn, ...metrics];
+    case "active-users-heatmap": return [spec.valueColumn, ...metrics];
+    case "sign-up-funnel": return [spec.valueColumn, ...metrics];
+    case "earned-so-far-bars": return [spec.earnedColumn, ...(spec.targetColumn === undefined ? [] : [spec.targetColumn]), ...metrics];
+    case "contributions-heatmap": return [spec.valueColumn, ...metrics];
+    case "sessions-conversion-combo": return [spec.sessionsColumn, spec.conversionColumn, ...metrics];
+    case "devices-bars": return [spec.valueColumn, ...metrics];
+    case "visitors-stacked-area": return [...spec.series.map((series) => series.column), ...metrics];
+    case "activity-rings": return [spec.valueColumn, spec.targetColumn, ...metrics];
+  }
+}
+
+function temporalColumns(spec: InternalSpec): string[] {
+  switch (spec.recipe) {
+    case "steps-bars":
+    case "activity-calendar":
+    case "contributions-heatmap": return [spec.dateColumn];
+    case "revenue-smooth-area":
+    case "sessions-conversion-combo":
+    case "visitors-stacked-area": return [spec.timeColumn];
+    default: return [];
+  }
+}
+
+export type ChartRecipe = z.infer<typeof chartRecipeSchema>;
 export type ChartCellValue = z.infer<typeof chartCellValueSchema>;
 export type ResolvedChartData = z.infer<typeof resolvedChartDataSchema>;
-export type ChartSeries = z.infer<typeof chartSeriesSchema>;
-export type ChartAxis = z.infer<typeof chartAxisSchema>;
-export type ChartAxes = z.infer<typeof chartAxesSchema>;
-export type ChartStack = z.infer<typeof chartStackSchema>;
-export type ChartLabel = z.infer<typeof chartLabelSchema>;
-export type ChartTooltip = z.infer<typeof chartTooltipSchema>;
-export type ChartPresentation = z.infer<typeof chartPresentationSchema>;
+export type ChartAggregate = z.infer<typeof chartAggregateSchema>;
+export type ChartMetric = z.infer<typeof chartMetricSchema>;
+export type ChartSeriesColumn = z.infer<typeof chartSeriesColumnSchema>;
 export type ChartAccessibility = z.infer<typeof chartAccessibilitySchema>;
 export type ChartSpec = z.infer<typeof chartSpecSchema>;
 export type ResolvedChartSpec = z.infer<typeof resolvedChartSpecSchema>;

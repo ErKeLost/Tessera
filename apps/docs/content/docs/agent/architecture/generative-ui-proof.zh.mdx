@@ -7,10 +7,10 @@ description: 在抽取 Open Generative 之前，Tessera Agent 必须达到的确
 
 ## 固定范围
 
-- 12 个正交 Component Contracts，组件目录见[当前 Generative UI Catalog](/docs/components/generative-ui-catalog)。
-- `data.chart` 覆盖 shadcn/ui 当前 61 个 chart recipes 与 9 个 tooltip recipes。
-- 至少 100 个固定 golden prompts，覆盖 KPI、趋势、分类对比、分布、明细、Filter、空状态、审计、流式创建、增量编辑、HostIntent、恢复和冲突。
-- 同一 Query Resource 必须能产生不同但合理的组合，证明系统不是隐藏的固定 Query renderer。
+- 一个 `data.chart` Component Contract，组件目录见[当前 Generative UI Catalog](/docs/components/generative-ui-catalog)。
+- 17 个经过审计的 Recipe：Steps Bars、Pipeline Stage Bars、Sleep Score、Revenue per Account Scatter、Tracked Time Sankey、Visitors Radial、Visitors Radar、Activity Calendar、Revenue Smooth Area、Active Users Heatmap、Sign-up Funnel、Earned so Far Bars、Contributions Heatmap、Sessions + Conversion Combo、Devices Bars、Visitors Stacked Area 与 Activity Rings。
+- 至少 100 个固定 Golden Prompt，覆盖 Recipe 选择、Column Binding、流式创建、增量编辑、恢复、权限变化和冲突。
+- 同一 Query Resource 必须能产生不同但合理的 Recipe，证明系统不是隐藏的固定 Query Renderer。
 
 ## 硬性安全门槛
 
@@ -34,15 +34,19 @@ description: 在抽取 Open Generative 之前，Tessera Agent 必须达到的确
 | 无意义重复组件或装饰 section | 不高于 2% |
 | snapshot 与等价 operations 的 canonical 差异 | 0 |
 
-成功 commit 只是结构门槛。每个 golden case 还必须校验信息是否可扫描、主要视图是否合理、evidence 是否保留，以及 table/chart 是否表达同一资源语义。
+成功 Commit 只是结构门槛。每个 Golden Case 还必须校验 Recipe 选择、Column Mapping、信息层级、
+来源一致性，以及 Equivalent View 是否表达相同 Resource 语义。
 
 ## Renderer 门槛
 
-12 个 Contract 必须具有 exact renderer registration、resolved-props validator、loading/empty/error/unsupported fixture 和 node error boundary。所有 chart 具有稳定尺寸、responsive behavior、reduced motion、accessible summary 和同 snapshot 的 table 或 text 等价视图。Desktop panel、mobile sheet 与 inline placement 共用同一 SurfaceController。
+`data.chart` Contract 必须具有 Exact Renderer Registration、Authoring 与 Resolved Props Validator、
+Resource Fixture、Accessibility Coverage 和 Node Error Boundary。17 个 Recipe 全部必须具有稳定尺寸、
+Responsive Behavior、Reduced Motion、Accessible Name 与 Summary，以及同一份数据的 Table 或 Text
+Equivalent View。可信文档 Gallery 必须把官方 Fixture 经过 `SurfaceController`、`GenerativeSurface`
+与 Verified Registry 渲染出来；文档专用仿制图表不算通过。
 
 ## 可发布证明产物
 
 候选发布必须锁定 Catalog、Contract、renderer 和 chart manifests；100+ golden 结果；replay/resume/conflict/security fixtures；no-payload scan；desktop/mobile visual regression；accessibility report；以及 dependency integrity 和 build provenance。CI 必须能在没有生产 credential 时重放确定性部分。
 
 这些门槛全部通过后，才允许把 framework-neutral core 提炼到独立 Open Generative 项目。
-

@@ -35,7 +35,7 @@ Preview、恢复、冲突、placement 和移动端布局都不能创建另一条
 
 ## 唯一 Component Contract
 
-每个组件只有一个 framework-neutral、immutable、revisioned `ComponentContract`。它同时定义 resolved props schema、可绑定字段、slots、event ports、允许的 Action Contracts、readiness、placement、accessibility、prompt metadata 和 migrations。
+每个组件只有一个 framework-neutral、immutable、revisioned `ComponentContract`。它同时定义 resolved props schema、可绑定字段、slots、event ports、允许的 Action Contracts、readiness、placement、accessibility、prompt metadata 和 migrations。当前 Tessera Agent Catalog 只包含 `data.chart`；17 种设计是 `spec.recipe` 的 Discriminated Union，不是 17 个 Component Contract。
 
 同一个 Contract 必须确定性地产生 provider schema、server validators、canonical validator、client props validator、TypeScript 类型、RendererRegistry 要求、fixtures、docs 和 contract hash。React component 不属于 Contract；React renderer 使用完整 `ContractRef` 注册。
 
@@ -55,9 +55,19 @@ Preview、恢复、冲突、placement 和移动端布局都不能创建另一条
 
 ## 数据和动作
 
-Query rows 只存在于 Resource Gateway。模型看到 model-safe descriptor 和带 hash 的 offer，Document 只保存 binding/evidence ref。Table、Chart、Metric 和 Query Details 分别绑定满足自身精确 Contract 的 typed pinned Resource，并可以共享 evidence/provenance；只有采用相同 Dataset Envelope 与 schema 的 Table/Chart binding 才能引用同一 pinned dataset `resourceVersionId`，任何节点都不能复制 payload。
+Query Row 只存在于 Resource Gateway。`data.chart` Authoring Spec 只保存 Typed Resource Reference；
+Resolved Renderer Projection 才包含当前 Node 与 Revision 已校验的数据集。模型 Proposal 与 Canonical
+Document 都不能复制 Row。
 
 浏览器只执行 Surface-local transition 和 `node.focus`。Document state 写入及所有 HostIntent 都进入 server authority。Capability Broker 负责重新认证、授权、precondition、单次 approval、idempotency、timeout、cancel 和 effect receipt。
+
+## Data Chart 专用层
+
+公共 Contract 固定 Identity、Resource Binding、Accessibility、Equivalent View、Placement 与 Renderer
+Integrity。`spec.recipe` 再把字段收窄为 17 种设计之一，不能携带原始颜色、Class Name、CSS、
+Callback、React Props 或 SVG Markup。Stage Bar、Funnel、Sankey、Heatmap、Calendar、Devices 与 Rings
+按照信息结构使用 Schema-driven DOM/SVG；Area、Bar、Radar、Scatter、Radial 与 Combo 使用 Recharts。
+两种实现都只是同一个 `data.chart` Exact Renderer Registration 内部的实现细节。
 
 ## 唯一 React 渲染链
 

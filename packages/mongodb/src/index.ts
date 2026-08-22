@@ -47,7 +47,7 @@ type NormalizedOptions = Readonly<{
 }>;
 
 const DEFAULT_MAX_CONNECTIONS = 4;
-const DEFAULT_MAX_ROWS = 500;
+const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_SAMPLE_DOCUMENTS = 100;
 const MAX_PIPELINE_BYTES = 250_000;
@@ -90,7 +90,7 @@ export class MongoDbConnector implements DatabaseConnector {
       id: this.id,
       database,
       maxConnections: clampInteger(options.maxConnections ?? DEFAULT_MAX_CONNECTIONS, 1, 20),
-      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 10_000),
+      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 20_000),
       statementTimeoutMs: clampInteger(options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS, 250, 120_000),
       sampleDocuments: clampInteger(options.sampleDocuments ?? DEFAULT_SAMPLE_DOCUMENTS, 1, 1_000),
     };

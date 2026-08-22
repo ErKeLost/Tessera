@@ -12,41 +12,12 @@ import {
   type RendererRegistry,
 } from "@open-generative/react";
 import { DataChartRenderer } from "./chart-renderer";
-import {
-  ContentCalloutRenderer,
-  ContentEmptyRenderer,
-  ContentTextRenderer,
-} from "./content-renderers";
-import {
-  ControlFilterRenderer,
-  ControlGroupRenderer,
-} from "./control-renderers";
-import {
-  DataMetricRenderer,
-  DataQueryDetailsRenderer,
-  DataTableRenderer,
-} from "./data-renderers";
-import { officialRendererEventPorts } from "./events";
-import {
-  LayoutGridRenderer,
-  LayoutSectionRenderer,
-  LayoutStackRenderer,
-} from "./layout-renderers";
 
 export const officialRendererComponents = Object.freeze({
-  "content.callout": ContentCalloutRenderer,
-  "content.empty": ContentEmptyRenderer,
-  "content.text": ContentTextRenderer,
-  "control.filter": ControlFilterRenderer,
-  "control.group": ControlGroupRenderer,
   "data.chart": DataChartRenderer,
-  "data.metric": DataMetricRenderer,
-  "data.query-details": DataQueryDetailsRenderer,
-  "data.table": DataTableRenderer,
-  "layout.grid": LayoutGridRenderer,
-  "layout.section": LayoutSectionRenderer,
-  "layout.stack": LayoutStackRenderer,
 });
+
+export const officialRendererEventPorts = Object.freeze({});
 
 export type OfficialRendererComponentMap = typeof officialRendererComponents;
 export type OfficialRendererRegistration = RendererRegistration;
@@ -95,5 +66,3 @@ export async function createVerifiedOfficialRendererRegistry(
     verifiedRelease.manifest,
   );
 }
-
-export { officialRendererEventPorts };

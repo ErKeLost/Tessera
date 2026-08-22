@@ -12,7 +12,7 @@ import type {
 import { z } from "zod";
 
 export const DATA_AGENT_VERSION = "2" as const;
-export const DATA_AGENT_DEFAULT_MAX_ROWS = 500;
+export const DATA_AGENT_DEFAULT_MAX_ROWS = 1_000;
 export const DATA_AGENT_DEFAULT_TIMEOUT_MS = 15_000;
 export const DATA_AGENT_DEFAULT_CATALOG_TTL_MS = 60_000;
 export const DATA_AGENT_MAX_PROBES_PER_ANALYSIS = 2;
@@ -312,7 +312,7 @@ const analysisDraftCommonShape = {
   primaryEntityId: entityIdSchema,
   relationshipIds: z.array(relationshipIdSchema).max(16).default([]),
   filter: analysisPredicateSchema.optional(),
-  limit: z.number().int().min(1).max(10_000).default(100),
+  limit: z.number().int().min(1).max(20_000).default(100),
 };
 
 /**

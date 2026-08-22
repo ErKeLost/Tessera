@@ -64,20 +64,15 @@ export type OfficialRendererRelease = z.infer<typeof officialRendererReleaseSche
 
 export const officialRendererBuildProfile = deepFreeze({
   rendererId: "open-generative.ui",
-  rendererRevision: "0.3.15",
-  conformanceRevision: "0.3.15",
+  rendererRevision: "0.3.16",
+  conformanceRevision: "0.3.16",
   packageName: "@open-generative/ui",
-  packageVersion: "0.3.15",
+  packageVersion: "0.3.16",
   peerDependencies: {
     react: ">=19.0.0",
     reactDom: ">=19.0.0",
   },
   runtimeDependencies: [
-    {
-      packageName: "lucide-react",
-      version: "1.31.0",
-      integrity: "sha512-G8u2eEtoHUnUa9f8lbvqDhCiORMnYLdUEo06EEG9MQvHQrInKcX3Pa2TH39MM5qyzRcWETxB0+aOwAPI1g1kEg==",
-    },
     {
       packageName: officialChartRecipeSource.rendererPackages.chartEngine.packageName,
       version: officialChartRecipeSource.rendererPackages.chartEngine.version,
@@ -89,11 +84,6 @@ export const officialRendererBuildProfile = deepFreeze({
 const baseRendererFeatures = ["accessibility.semantic-html", "projection.read-only-preview"] as const;
 
 export const officialRendererFeatures: Readonly<Record<OfficialComponentType, readonly string[]>> = deepFreeze({
-  "content.callout": [...baseRendererFeatures, "event.dismiss", "tone.semantic"].sort(),
-  "content.empty": [...baseRendererFeatures, "event.retry", "state.empty"].sort(),
-  "content.text": [...baseRendererFeatures, "content.code", "content.heading"].sort(),
-  "control.filter": [...baseRendererFeatures, "event.apply", "event.change", "event.reset", "filter.date-range", "filter.multi-select"].sort(),
-  "control.group": [...baseRendererFeatures, "event.apply", "event.reset", "layout.control-group"].sort(),
   "data.chart": [
     ...baseRendererFeatures,
     "accessibility.equivalent-view",
@@ -101,12 +91,6 @@ export const officialRendererFeatures: Readonly<Record<OfficialComponentType, re
     "motion.reduced",
     "size.stable",
   ].sort(),
-  "data.metric": [...baseRendererFeatures, "event.select", "format.semantic"].sort(),
-  "data.query-details": [...baseRendererFeatures, "event.copy", "event.export", "query.evidence", "query.freshness", "query.lineage", "query.sql"].sort(),
-  "data.table": [...baseRendererFeatures, "event.export", "event.page-change", "event.row-select", "event.sort-change", "pagination.host-window", "selection.multiple", "selection.single"].sort(),
-  "layout.grid": [...baseRendererFeatures, "layout.responsive-grid"].sort(),
-  "layout.section": [...baseRendererFeatures, "layout.semantic-section"].sort(),
-  "layout.stack": [...baseRendererFeatures, "layout.stack"].sort(),
 });
 
 export function createSingleChunkOfficialRendererArtifactSet(input: Readonly<{

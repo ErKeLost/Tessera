@@ -1,13 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { resourceDatasetPayloadSchema } from "@open-generative/protocol";
 import { resolvedChartDataSchema } from "./chart-spec";
-import { resolvedTableDataSchema } from "./props";
 
-describe("official dataset consumers", () => {
-  test("share the canonical Resource Gateway dataset envelope", () => {
+describe("Data Chart dataset contract", () => {
+  test("uses the canonical Resource Gateway dataset envelope", () => {
     expect(resolvedChartDataSchema).toBe(resourceDatasetPayloadSchema);
-    expect(resolvedTableDataSchema).toBe(resourceDatasetPayloadSchema);
-
     const gatewayWindow = resourceDatasetPayloadSchema.parse({
       columns: [
         { columnId: "month", label: "Month", valueType: "date" },
@@ -18,6 +15,5 @@ describe("official dataset consumers", () => {
       hasMore: true,
     });
     expect(resolvedChartDataSchema.parse(gatewayWindow)).toEqual(gatewayWindow);
-    expect(resolvedTableDataSchema.parse(gatewayWindow)).toEqual(gatewayWindow);
   });
 });

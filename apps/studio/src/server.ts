@@ -83,8 +83,10 @@ import {
 } from "./openrouter-model-catalog";
 import {
   createStudioConsoleLogger,
+  safeStudioErrorDetails,
   silentStudioLogger,
   type StudioApiOperation,
+  type StudioErrorPhase,
   type StudioLogEvent,
   type StudioLogLevel,
   type StudioLogger,
@@ -325,6 +327,16 @@ export type StudioAgentRunInput = Readonly<{
   resumeData?: unknown;
   /** Enables Mastra runtime suspension for UI chat transports. */
   allowRuntimeSuspension?: boolean;
+  /** Server-only diagnostic channel. Implementations must never expose the raw error to the browser or model. */
+  reportDiagnostic?: (diagnostic: StudioAgentDiagnostic) => void;
+}>;
+
+export type StudioAgentDiagnostic = Readonly<{
+  phase: StudioErrorPhase;
+  error: unknown;
+  tool?: TesseraToolName;
+  field?: string;
+  reason?: string;
 }>;
 
 export type StudioAgentRun = z.infer<typeof agentRunSchema>;
@@ -1090,11 +1102,13 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         signal: context.req.raw.signal,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       }));
-    } catch {
+    } catch (error) {
+      const diagnostic = safeStreamDiagnostic("provider", error);
       logAgentEvent(logger, "error", context.get("apiRequest"), runId, {
         stage: "run_failed",
         code: "agent_run_failed",
         durationMs: elapsedMilliseconds(agentStartedAt),
+        ...diagnostic,
       });
       throw new StudioHttpError(502, "agent_run_failed", "The Tessera Agent could not complete this run.");
     }
@@ -1176,6 +1190,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         logger,
       });
 
+      const streamDiagnostics = createStudioStreamDiagnosticCollector();
       const agentInput: StudioAgentRunInput = {
         runId,
         threadId,
@@ -1184,6 +1199,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ...(catalog === undefined ? {} : { catalog: catalogForAgent(catalog) }),
         ...(turnContext === undefined ? {} : { turnContext }),
         signal: context.req.raw.signal,
+        reportDiagnostic: streamDiagnostics.capture,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       };
 
@@ -1191,7 +1207,10 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ?? streamLegacyAgentToUI(runtime.agent, agentInput);
       const durableSource = createUIMessageStream<TesseraUIMessage>({
         execute: ({ writer }) => writer.merge(source),
-        onError: () => "The Tessera Agent could not complete this analysis.",
+        onError: (error) => {
+          streamDiagnostics.capture({ phase: "stream", error });
+          return safeStudioErrorDetails(error).errorMessage;
+        },
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
           // `consumeSseStream` below ensures this callback also runs after an
           // interrupted SSE response.
@@ -1224,6 +1243,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         runId,
         startedAt: streamStartedAt,
         logger,
+        diagnostics: streamDiagnostics,
       });
       const response = createUIMessageStreamResponse({
         stream: stream.source,
@@ -1235,9 +1255,10 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       });
       context.set("deferApiResponseLog", true);
       return withStudioStreamLease(
-        withStudioStreamLogging(response, context.get("apiRequest"), logger, stream.outcome, {
+        withStudioStreamLogging(response, context.get("apiRequest"), logger, stream.snapshot, {
           runId,
           startedAt: streamStartedAt,
+          diagnostics: streamDiagnostics,
         }),
         lease,
       );
@@ -1269,6 +1290,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         .trim();
       if (!message) throw new StudioHttpError(400, "invalid_chat_resume", "The suspended user request is no longer available.");
 
+      const streamDiagnostics = createStudioStreamDiagnosticCollector();
       const source = runtime.agent.streamUI({
         runId: parsed.data.runId,
         threadId: parsed.data.threadId,
@@ -1279,11 +1301,15 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           checkpointId: parsed.data.checkpointId,
         },
         signal: context.req.raw.signal,
+        reportDiagnostic: streamDiagnostics.capture,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       });
       const durableSource = createUIMessageStream<TesseraUIMessage>({
         execute: ({ writer }) => writer.merge(source),
-        onError: () => "The Tessera Agent could not complete this analysis.",
+        onError: (error) => {
+          streamDiagnostics.capture({ phase: "stream", error });
+          return safeStudioErrorDetails(error).errorMessage;
+        },
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
           if (hasSuspendedToolCall(responseMessage)) return;
           if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) return;
@@ -1300,6 +1326,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         runId: parsed.data.runId,
         startedAt: streamStartedAt,
         logger,
+        diagnostics: streamDiagnostics,
       });
       const response = createUIMessageStreamResponse({
         stream: stream.source,
@@ -1308,9 +1335,10 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       });
       context.set("deferApiResponseLog", true);
       return withStudioStreamLease(
-        withStudioStreamLogging(response, context.get("apiRequest"), logger, stream.outcome, {
+        withStudioStreamLogging(response, context.get("apiRequest"), logger, stream.snapshot, {
           runId: parsed.data.runId,
           startedAt: streamStartedAt,
+          diagnostics: streamDiagnostics,
         }),
         lease,
       );
@@ -1354,7 +1382,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       route: context.get("apiRequest")?.operation ?? "unknown",
       code: "internal_error",
     });
-    logStudioError(context, logger, 500, "internal_error");
+    logStudioError(context, logger, 500, "internal_error", error);
     return errorResponse(context, 500, "internal_error", "Tessera Studio could not complete this request.");
   });
 
@@ -2153,10 +2181,12 @@ async function loadAgentCatalog(input: AgentCatalogLoadInput): Promise<DatabaseC
     });
     return catalog;
   } catch (error) {
+    const diagnostic = safeStreamDiagnostic("catalog", error);
     logAgentEvent(input.logger, "error", input.request, input.runId, {
       stage: "catalog_failed",
       code: "catalog_unavailable",
       durationMs: elapsedMilliseconds(startedAt),
+      ...diagnostic,
     });
     throw error;
   }
@@ -2174,6 +2204,21 @@ type AgentLogDetails = Readonly<{
   agentStageStatus?: StudioLogEvent["agentStageStatus"];
   runStatus?: StudioLogEvent["runStatus"];
   finishReason?: StudioLogEvent["finishReason"];
+  diagnosticCode?: string;
+  errorPhase?: StudioLogEvent["errorPhase"];
+  errorType?: string;
+  errorMessage?: string;
+  field?: string;
+  reason?: string;
+  truncated?: boolean;
+  omittedSchemas?: number;
+  omittedTables?: number;
+  omittedColumns?: number;
+  omittedForeignKeys?: number;
+  omittedEntities?: number;
+  omittedFields?: number;
+  omittedMetrics?: number;
+  omittedRelationships?: number;
   status?: number;
 }>;
 
@@ -2201,6 +2246,21 @@ function logAgentEvent(
     ...(details.agentStageStatus === undefined ? {} : { agentStageStatus: details.agentStageStatus }),
     ...(details.runStatus === undefined ? {} : { runStatus: details.runStatus }),
     ...(details.finishReason === undefined ? {} : { finishReason: details.finishReason }),
+    ...(details.diagnosticCode === undefined ? {} : { diagnosticCode: details.diagnosticCode }),
+    ...(details.errorPhase === undefined ? {} : { errorPhase: details.errorPhase }),
+    ...(details.errorType === undefined ? {} : { errorType: details.errorType }),
+    ...(details.errorMessage === undefined ? {} : { errorMessage: details.errorMessage }),
+    ...(details.field === undefined ? {} : { field: details.field }),
+    ...(details.reason === undefined ? {} : { reason: details.reason }),
+    ...(details.truncated === undefined ? {} : { truncated: details.truncated }),
+    ...(details.omittedSchemas === undefined ? {} : { omittedSchemas: details.omittedSchemas }),
+    ...(details.omittedTables === undefined ? {} : { omittedTables: details.omittedTables }),
+    ...(details.omittedColumns === undefined ? {} : { omittedColumns: details.omittedColumns }),
+    ...(details.omittedForeignKeys === undefined ? {} : { omittedForeignKeys: details.omittedForeignKeys }),
+    ...(details.omittedEntities === undefined ? {} : { omittedEntities: details.omittedEntities }),
+    ...(details.omittedFields === undefined ? {} : { omittedFields: details.omittedFields }),
+    ...(details.omittedMetrics === undefined ? {} : { omittedMetrics: details.omittedMetrics }),
+    ...(details.omittedRelationships === undefined ? {} : { omittedRelationships: details.omittedRelationships }),
     ...(details.status === undefined ? {} : { status: details.status }),
   });
 }
@@ -2210,10 +2270,12 @@ function logStudioError(
   logger: StudioLogger,
   status: StudioErrorStatus,
   code: string,
+  error?: unknown,
 ): void {
   const request = context.get("apiRequest");
   if (!request) return;
   context.set("apiErrorLogged", true);
+  const diagnostic = error === undefined ? undefined : safeStreamDiagnostic("transport", error);
   writeStudioLog(logger, "error", {
     event: "error",
     stage: "http_failed",
@@ -2223,6 +2285,7 @@ function logStudioError(
     status,
     code,
     durationMs: elapsedMilliseconds(request.startedAt),
+    ...(diagnostic ?? {}),
   });
 }
 
@@ -2231,14 +2294,82 @@ type StudioStreamLogContext = Readonly<{
   runId: string;
   startedAt: number;
   logger: StudioLogger;
+  diagnostics: StudioStreamDiagnosticCollector;
 }>;
+
+type SafeStudioStreamDiagnostic = Readonly<{
+  diagnosticCode?: string;
+  errorPhase: StudioErrorPhase;
+  errorType: string;
+  errorMessage: string;
+  field?: string;
+  reason?: string;
+}>;
+
+type StudioStreamLogSnapshot = Readonly<{
+  outcome: StudioStreamOutcome;
+  finishReason?: StudioLogEvent["finishReason"];
+  diagnostic?: SafeStudioStreamDiagnostic;
+}>;
+
+type StudioStreamDiagnosticCollector = Readonly<{
+  capture(diagnostic: StudioAgentDiagnostic): void;
+  captureFallback(diagnostic: StudioAgentDiagnostic): void;
+  takeTool(tool: TesseraToolName): SafeStudioStreamDiagnostic | undefined;
+  terminal(): SafeStudioStreamDiagnostic | undefined;
+}>;
+
+function createStudioStreamDiagnosticCollector(): StudioStreamDiagnosticCollector {
+  let terminal: SafeStudioStreamDiagnostic | undefined;
+  const tools = new Map<TesseraToolName, SafeStudioStreamDiagnostic>();
+  const normalize = (diagnostic: StudioAgentDiagnostic): SafeStudioStreamDiagnostic => {
+    const safe = safeStudioErrorDetails(diagnostic.error);
+    return {
+      ...safe,
+      errorPhase: diagnostic.phase,
+      ...(safeDiagnosticToken(diagnostic.field) === undefined ? {} : { field: safeDiagnosticToken(diagnostic.field) }),
+      ...(safeDiagnosticToken(diagnostic.reason) === undefined ? {} : { reason: safeDiagnosticToken(diagnostic.reason) }),
+    };
+  };
+  const store = (diagnostic: StudioAgentDiagnostic, fallback: boolean) => {
+    const safe = normalize(diagnostic);
+    if (diagnostic.tool !== undefined) {
+      const existing = tools.get(diagnostic.tool);
+      if (existing === undefined
+        || (!fallback && diagnosticPriority(safe.errorPhase) > diagnosticPriority(existing.errorPhase))) {
+        tools.set(diagnostic.tool, safe);
+      }
+      return;
+    }
+    if (terminal === undefined
+      || (!fallback && diagnosticPriority(safe.errorPhase) > diagnosticPriority(terminal.errorPhase))) {
+      terminal = safe;
+    }
+  };
+  return {
+    capture(diagnostic) { store(diagnostic, false); },
+    captureFallback(diagnostic) { store(diagnostic, true); },
+    takeTool(tool) {
+      const diagnostic = tools.get(tool);
+      tools.delete(tool);
+      return diagnostic;
+    },
+    terminal() { return terminal; },
+  };
+}
+
+function diagnosticPriority(phase: StudioErrorPhase): number {
+  if (phase === "stream") return 1;
+  if (phase === "transport") return 2;
+  return 3;
+}
 
 function monitorStudioChatStream(
   source: ReadableStream<TesseraUIMessageChunk>,
   context: StudioStreamLogContext,
 ): Readonly<{
   source: ReadableStream<TesseraUIMessageChunk>;
-  outcome(): StudioStreamOutcome;
+  snapshot(): StudioStreamLogSnapshot;
 }> {
   let failed = false;
   let cancelled = false;
@@ -2246,13 +2377,18 @@ function monitorStudioChatStream(
   let finishReason: FinishReason | undefined;
   let emittedFirstEvent = false;
   const activeTools = new Map<string, TesseraToolName>();
-  const logTool = (tool: TesseraToolName, toolState: "started" | "completed" | "blocked" | "failed") => {
+  const logTool = (
+    tool: TesseraToolName,
+    toolState: "started" | "completed" | "blocked" | "failed",
+    details: Partial<AgentLogDetails> = {},
+  ) => {
     logAgentEvent(context.logger, toolState === "failed" ? "error" : "info", context.request, context.runId, {
       event: "stream",
       stage: "tool",
       durationMs: elapsedMilliseconds(context.startedAt),
       tool,
       toolState,
+      ...details,
     });
   };
   return {
@@ -2277,14 +2413,39 @@ function monitorStudioChatStream(
           const tool = activeTools.get(chunk.toolCallId);
           if (tool !== undefined) {
             activeTools.delete(chunk.toolCallId);
-            logTool(tool, publicToolLogState(chunk.output));
+            const toolState = publicToolLogState(chunk.output);
+            const reported = context.diagnostics.takeTool(tool);
+            const outputDiagnostic = toolState === "completed" ? undefined : publicToolDiagnostic(chunk.output);
+            logTool(tool, toolState, {
+              ...(reported ?? outputDiagnostic ?? {}),
+              ...publicToolTruncation(chunk.output),
+            });
           }
         }
         if (chunk.type === "tool-input-error" || chunk.type === "tool-output-error" || chunk.type === "tool-output-denied") {
-          const tool = activeTools.get(chunk.toolCallId);
+          const tool = activeTools.get(chunk.toolCallId)
+            ?? (chunk.type === "tool-input-error" ? asTesseraToolName(chunk.toolName) : undefined);
           if (tool !== undefined) {
             activeTools.delete(chunk.toolCallId);
-            logTool(tool, chunk.type === "tool-output-denied" ? "blocked" : "failed");
+            if (chunk.type === "tool-output-denied") {
+              logTool(tool, "blocked", { reason: "tool_output_denied" });
+            } else {
+              const reported = context.diagnostics.takeTool(tool);
+              const message = chunk.type === "tool-input-error"
+                ? toolInputValidationMessage(chunk.errorText)
+                : chunk.errorText;
+              const fallback = safeStudioErrorDetails({
+                name: chunk.type === "tool-input-error" ? "ToolInputError" : "ToolOutputError",
+                message,
+              });
+              logTool(tool, "failed", {
+                ...(reported ?? {
+                  ...fallback,
+                  errorPhase: chunk.type === "tool-input-error" ? "tool-input" : "tool-output",
+                }),
+                ...(chunk.type !== "tool-input-error" ? {} : { field: toolInputValidationField(chunk.errorText) }),
+              });
+            }
           }
         }
         if (chunk.type === "abort") {
@@ -2300,26 +2461,35 @@ function monitorStudioChatStream(
         }
         if (chunk.type === "error") {
           failed = true;
+          context.diagnostics.captureFallback({
+            phase: "stream",
+            error: { name: "AgentStreamError", message: chunk.errorText },
+          });
         }
         if (chunk.type === "finish") {
           finishReason = chunk.finishReason;
           const suspendedFinish = suspended || (chunk.finishReason as string | undefined) === "suspended";
           if (!suspendedFinish && chunk.finishReason !== undefined && chunk.finishReason !== "stop") failed = true;
-          logAgentEvent(context.logger, suspendedFinish || chunk.finishReason === "stop" ? "info" : "warn", context.request, context.runId, {
-            event: "stream",
-            stage: suspendedFinish ? "suspended" : chunk.finishReason === "stop" ? "completed" : "failed",
-            durationMs: elapsedMilliseconds(context.startedAt),
-            finishReason: chunk.finishReason,
-          });
         }
         controller.enqueue(chunk);
       },
     })),
-    outcome() {
-      if (cancelled) return "cancelled";
-      if (failed) return "failed";
-      if (suspended) return "suspended";
-      return failed || finishReason !== "stop" ? "failed" : "completed";
+    snapshot() {
+      const outcome = cancelled
+        ? "cancelled"
+        : failed
+          ? "failed"
+          : suspended
+            ? "suspended"
+            : finishReason === "stop" ? "completed" : "failed";
+      const safeFinishReason = studioFinishReason(finishReason);
+      return {
+        outcome,
+        ...(safeFinishReason === undefined ? {} : { finishReason: safeFinishReason }),
+        ...(outcome !== "failed" || context.diagnostics.terminal() === undefined
+          ? {}
+          : { diagnostic: context.diagnostics.terminal() }),
+      };
     },
   };
 }
@@ -2328,12 +2498,13 @@ function withStudioStreamLogging(
   response: Response,
   request: StudioApiRequestLog | undefined,
   logger: StudioLogger,
-  completedOutcome: () => StudioStreamOutcome,
-  stream: Readonly<{ runId: string; startedAt: number }>,
+  completedSnapshot: () => StudioStreamLogSnapshot,
+  stream: Readonly<{ runId: string; startedAt: number; diagnostics: StudioStreamDiagnosticCollector }>,
 ): Response {
   if (!request) return response;
 
-  const logCompletion = (outcome: StudioStreamOutcome) => {
+  const logCompletion = (snapshot: StudioStreamLogSnapshot) => {
+    const { outcome } = snapshot;
     logAgentEvent(
       logger,
       outcome === "completed" || outcome === "suspended" ? "info" : outcome === "cancelled" ? "warn" : "error",
@@ -2345,16 +2516,23 @@ function withStudioStreamLogging(
         status: response.status,
         durationMs: elapsedMilliseconds(stream.startedAt),
         outcome,
+        ...(snapshot.finishReason === undefined ? {} : { finishReason: snapshot.finishReason }),
+        ...(snapshot.diagnostic ?? {}),
       },
     );
   };
 
   if (!response.body) {
-    logCompletion(completedOutcome());
+    logCompletion(completedSnapshot());
     return response;
   }
 
-  return new Response(observeStudioStream(response.body, logCompletion, completedOutcome), {
+  return new Response(observeStudioStream(
+    response.body,
+    logCompletion,
+    completedSnapshot,
+    (error) => stream.diagnostics.capture({ phase: "transport", error }),
+  ), {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
@@ -2419,15 +2597,16 @@ async function releaseStudioRouteLease(lease: StudioRouteRuntimeLease): Promise<
 
 function observeStudioStream(
   source: ReadableStream<Uint8Array>,
-  onCompletion: (outcome: StudioStreamOutcome) => void,
-  completedOutcome: () => StudioStreamOutcome,
+  onCompletion: (snapshot: StudioStreamLogSnapshot) => void,
+  completedSnapshot: () => StudioStreamLogSnapshot,
+  onTransportError: (error: unknown) => void,
 ): ReadableStream<Uint8Array> {
   const reader = source.getReader();
   let settled = false;
-  const complete = (outcome: StudioStreamOutcome) => {
+  const complete = (snapshot: StudioStreamLogSnapshot) => {
     if (settled) return;
     settled = true;
-    onCompletion(outcome);
+    onCompletion(snapshot);
   };
 
   return new ReadableStream<Uint8Array>({
@@ -2435,13 +2614,19 @@ function observeStudioStream(
       try {
         const chunk = await reader.read();
         if (chunk.done) {
-          complete(completedOutcome());
+          complete(completedSnapshot());
           controller.close();
           return;
         }
         controller.enqueue(chunk.value);
       } catch (error) {
-        complete("failed");
+        onTransportError(error);
+        const snapshot = completedSnapshot();
+        complete({
+          ...snapshot,
+          outcome: "failed",
+          diagnostic: safeStreamDiagnostic("transport", error),
+        });
         controller.error(error);
       }
     },
@@ -2449,7 +2634,7 @@ function observeStudioStream(
       try {
         await reader.cancel(reason);
       } finally {
-        complete("cancelled");
+        complete({ ...completedSnapshot(), outcome: "cancelled" });
       }
     },
   });
@@ -3172,7 +3357,10 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
   let toolEvent = 0;
   const activeToolIds = new Map<string, string>();
   const stream = createUIMessageStream<TesseraUIMessage>({
-    onError: () => "The Tessera Agent could not complete this analysis.",
+    onError: (error) => {
+      input.reportDiagnostic?.({ phase: "stream", error });
+      return safeStudioErrorDetails(error).errorMessage;
+    },
     execute: async ({ writer }) => {
       const startText = () => {
         if (textStarted) return;
@@ -3242,9 +3430,10 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
         finishText();
 
         writer.write({ type: "finish", finishReason: "stop" });
-      } catch {
+      } catch (error) {
+        input.reportDiagnostic?.({ phase: "provider", error });
         finishText();
-        writer.write({ type: "error", errorText: "The Tessera Agent could not complete this analysis." });
+        writer.write({ type: "error", errorText: safeStudioErrorDetails(error).errorMessage });
         writer.write({ type: "finish", finishReason: "error" });
       }
     },
@@ -3312,6 +3501,80 @@ function publicToolLogState(value: unknown): "completed" | "blocked" | "failed" 
   if (status === "failed") return "failed";
   if (status === "blocked" || status === "unavailable" || status === "rejected") return "blocked";
   return "completed";
+}
+
+function publicToolDiagnostic(value: unknown): SafeStudioStreamDiagnostic | undefined {
+  if (!isRecord(value)) return undefined;
+  const reason = safeDiagnosticToken(value.reason);
+  const status = typeof value.status === "string" ? value.status : "failed";
+  const message = typeof value.message === "string"
+    ? value.message
+    : `The tool returned status ${status}${reason === undefined ? "." : ` with reason ${reason}.`}`;
+  return {
+    ...safeStudioErrorDetails({ name: "ToolResultError", ...(reason === undefined ? {} : { code: reason }), message }),
+    errorPhase: "tool-output",
+    ...(reason === undefined ? {} : { reason }),
+  };
+}
+
+function publicToolTruncation(value: unknown): Partial<AgentLogDetails> {
+  if (!isRecord(value) || value.truncated !== true) return {};
+  const omitted = isRecord(value.omitted) ? value.omitted : undefined;
+  return {
+    truncated: true,
+    ...safeOmittedCount(omitted, "schemas", "omittedSchemas"),
+    ...safeOmittedCount(omitted, "tables", "omittedTables"),
+    ...safeOmittedCount(omitted, "columns", "omittedColumns"),
+    ...safeOmittedCount(omitted, "foreignKeys", "omittedForeignKeys"),
+    ...safeOmittedCount(omitted, "entities", "omittedEntities"),
+    ...safeOmittedCount(omitted, "fields", "omittedFields"),
+    ...safeOmittedCount(omitted, "metrics", "omittedMetrics"),
+    ...safeOmittedCount(omitted, "relationships", "omittedRelationships"),
+  };
+}
+
+function safeOmittedCount(
+  omitted: Record<string, unknown> | undefined,
+  source: string,
+  target: keyof AgentLogDetails,
+): Partial<AgentLogDetails> {
+  const value = omitted?.[source];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? { [target]: value }
+    : {};
+}
+
+function toolInputValidationMessage(errorText: string): string {
+  const explicitMessage = /(?:error message|validation error)\s*:\s*([\s\S]+)$/i.exec(errorText)?.[1]?.trim();
+  if (explicitMessage) return explicitMessage;
+  const argumentsMarker = /\b(?:value|input|arguments)\s*:/i.exec(errorText);
+  if (argumentsMarker?.index !== undefined) {
+    const prefix = errorText.slice(0, argumentsMarker.index).trim();
+    return `${prefix || "Tool input validation failed."} Tool arguments were omitted from the log.`;
+  }
+  return errorText;
+}
+
+function toolInputValidationField(errorText: string): string | undefined {
+  const match = /\bpath\s*[:=]?\s*(?:\[\s*)?["']?([A-Za-z_][A-Za-z0-9_-]{0,127})/i.exec(errorText);
+  return safeDiagnosticToken(match?.[1]);
+}
+
+function safeStreamDiagnostic(phase: StudioErrorPhase, error: unknown): SafeStudioStreamDiagnostic {
+  return { ...safeStudioErrorDetails(error), errorPhase: phase };
+}
+
+function safeDiagnosticToken(value: unknown): string | undefined {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)
+    ? value
+    : undefined;
+}
+
+function studioFinishReason(value: FinishReason | undefined): StudioLogEvent["finishReason"] | undefined {
+  if (value === "stop" || value === "length" || value === "content-filter" || value === "tool-calls" || value === "error" || value === "other") {
+    return value;
+  }
+  return undefined;
 }
 
 function publicToolTitle(tool: TesseraToolName): string {

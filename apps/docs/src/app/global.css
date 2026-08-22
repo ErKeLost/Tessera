@@ -1,7 +1,7 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/shadcn.css";
 @import "fumadocs-ui/css/preset.css";
-@import "@open-generative/ui/styles.css";
+@import "../../../../packages/ui/src/styles.css";
 @source "../../../../packages/react/src";
 
 @custom-variant dark (&:is(.dark *));

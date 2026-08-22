@@ -29,7 +29,7 @@ const baseConfig = defineTesseraConfig({
   database: {
     dialect: "postgres",
     url: `postgresql://readonly:${DATABASE_SECRET}@localhost/warehouse`,
-    maxRows: 500,
+    maxRows: 1_000,
     statementTimeoutMs: 15_000,
   },
   llm: {
@@ -104,7 +104,7 @@ function settingsCandidate(overrides: SettingsCandidateOverrides = {}): TesseraS
       ...llmOverrides,
     },
     limits: {
-      maxRows: 500,
+      maxRows: 1_000,
       timeoutMs: 15_000,
       maxSteps: 4,
       ...(overrides.limits ?? {}),

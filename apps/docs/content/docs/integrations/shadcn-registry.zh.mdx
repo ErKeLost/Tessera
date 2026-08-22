@@ -12,7 +12,7 @@ Tessera Agent 的官方 React Renderer 基于 shadcn/ui Primitive 与 Recharts �
 `@open-generative/ui` 是本地 React 实现 Package。这个名字标记未来抽离边界；
 当前组件和组件文档仍然属于 Tessera Agent 成功证明。
 
-Package 导出 12 个精确 Node Renderer、官方 Registry Factory、共享 UI Primitive 与样式表：
+Package 导出精确的 `data.chart` Node Renderer、官方 Registry Factory、共享 UI Primitive 与样式表：
 
 ```tsx
 import { GenerativeSurface } from "@open-generative/react";
@@ -42,7 +42,7 @@ bun --cwd packages/ui build
 
 Contract 定义来自 `@open-generative/components`，React Renderer Registration 来自
 `@open-generative/ui`。测试必须证明精确 Contract Identity、Resolved Props Validation、
-Event Port Parity、Browser Safety、完整状态 Fixture、Accessibility 与 Chart Recipe Coverage。
+Browser Safety、Accessibility 与全部 17 个 Chart Recipe Fixture。
 
 ## 未来源码分发
 

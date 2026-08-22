@@ -9,7 +9,14 @@ export default async function Layout({ children, params }: LayoutProps<"/[lang]/
   return (
     <HomeLayout {...options}>
       <div className="de-docs-shell">
-        <DocsLayout {...options} links={[]} nav={{ enabled: false }} tree={source.getPageTree(lang)}>
+        <DocsLayout
+          {...options}
+          links={[]}
+          nav={{ enabled: false }}
+          sidebar={{ enabled: false }}
+          tabs={false}
+          tree={source.getPageTree(lang)}
+        >
           {children}
         </DocsLayout>
       </div>

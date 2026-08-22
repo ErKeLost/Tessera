@@ -28,10 +28,10 @@ session. A model cannot configure or expand any of them.
 
 ## Data-agent profile
 
-The current product profile is deliberately fixed to 12 orthogonal Component
-Contracts and the complete supported shadcn/Recharts chart recipe set. Product
-shapes such as trend, funnel, cohort, anomaly, and forecast are recipes over the
-same contracts; they are not extra protocol component types.
+The current product profile is deliberately fixed to one `data.chart`
+Component Contract and 17 audited recipes. The recipes form a strict
+discriminated union over the same Contract; they are not extra protocol
+component types and cannot inject arbitrary presentation values.
 
 Query rows stay in the Resource Gateway. The model receives only bounded,
 policy-approved descriptors and binding references. Renderer props are resolved

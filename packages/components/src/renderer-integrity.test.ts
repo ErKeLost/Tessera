@@ -25,7 +25,7 @@ describe("official renderer integrity", () => {
     const manifest = await createOfficialRendererCapabilityManifest(catalog, artifacts);
 
     expect(manifest.rendererId).toBe(officialRendererBuildProfile.rendererId);
-    expect(manifest.contracts).toHaveLength(12);
+    expect(manifest.contracts).toHaveLength(1);
     expect(new Set(manifest.contracts.map((capability) => capability.chunkHash))).toEqual(new Set([hash("a")]));
     expect(new Set(manifest.contracts.flatMap((capability) => capability.assetHashes))).toEqual(new Set([hash("b")]));
     for (const capability of manifest.contracts) {

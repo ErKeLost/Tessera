@@ -20,7 +20,12 @@ export default async function Page(props: PageProps<"/[lang]/docs/[[...slug]]">)
   const MDX = page.data.body;
   const markdownUrl = getPageMarkdownUrl(page).url;
   return (
-    <DocsPage full={page.data.full} toc={page.data.toc}>
+    <DocsPage
+      breadcrumb={{ enabled: false }}
+      footer={{ enabled: false }}
+      full={page.data.full}
+      toc={page.data.toc}
+    >
       <DocsTitle>{page.data.title}</DocsTitle>
       <DocsDescription className="mb-0">{page.data.description}</DocsDescription>
       <div className="de-docs-page-tools">

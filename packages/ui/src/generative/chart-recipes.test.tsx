@@ -4,66 +4,92 @@ import {
   officialChartAccessibilityFixtures,
   officialChartSpecFixtures,
   officialRendererExpectationFixtures,
-  resolvedChartSpecSchema,
 } from "@open-generative/components";
-import {
-  canonicalNodeSchema,
-  type JsonObject,
-} from "@open-generative/protocol";
+import { canonicalNodeSchema, type JsonObject } from "@open-generative/protocol";
 import type { RendererInput } from "@open-generative/react";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { DataChartRenderer } from "./chart-renderer";
 
-const data = {
-  columns: [
-    { columnId: "month", label: "Month", valueType: "date" },
-    { columnId: "revenue", label: "Revenue", valueType: "number" },
-    { columnId: "cost", label: "Cost", valueType: "number" },
-    { columnId: "channel", label: "Channel", valueType: "string" },
-    { columnId: "dimension", label: "Dimension", valueType: "string" },
-  ],
-  rows: [
-    { month: "2026-05-01", revenue: 120, cost: 74, channel: "Direct", dimension: "Speed" },
-    { month: "2026-06-01", revenue: -36, cost: 81, channel: "Partner", dimension: "Quality" },
-    { month: "2026-07-01", revenue: 154, cost: 96, channel: "Search", dimension: "Coverage" },
-  ],
-  totalRows: 3,
-};
+const nonRechartsRecipes = new Set([
+  "steps-bars",
+  "pipeline-stage-bars",
+  "sleep-score",
+  "tracked-time-sankey",
+  "visitors-radial",
+  "activity-calendar",
+  "active-users-heatmap",
+  "sign-up-funnel",
+  "contributions-heatmap",
+  "devices-bars",
+  "activity-rings",
+]);
 
-describe("all 70 official chart recipes", () => {
-  test("SSR renders every recipe with stable size and its declared semantics", async () => {
+describe("the 17 official data chart recipes", () => {
+  test("SSR renders every strict resolved fixture as real chart output", async () => {
     const catalog = await createOfficialCatalog();
-    expect(officialChartSpecFixtures).toHaveLength(70);
-    expect(officialRendererExpectationFixtures).toHaveLength(70);
-    expect(officialChartAccessibilityFixtures).toHaveLength(70);
+    expect(officialChartSpecFixtures).toHaveLength(17);
+    expect(officialRendererExpectationFixtures).toHaveLength(17);
+    expect(officialChartAccessibilityFixtures).toHaveLength(17);
 
     for (const [index, fixture] of officialChartSpecFixtures.entries()) {
       const expectation = officialRendererExpectationFixtures[index]!;
       const accessibility = officialChartAccessibilityFixtures[index]!;
-      const resolved = resolvedChartSpecSchema.parse(resolveFixtureSpec(fixture.spec));
       const markup = renderToStaticMarkup(createElement(
         DataChartRenderer,
-        chartInput(catalog.components.dataChart, { spec: resolved } as unknown as JsonObject) as never,
+        chartInput(catalog.components.dataChart, { spec: fixture.resolvedSpec } as unknown as JsonObject) as never,
       ));
 
-      expect(markup).toContain('class="recharts-wrapper"');
-      expect(markup).toContain("View data table");
-      expect(markup).toContain(`data-chart-family="${expectation.chartFamily}"`);
+      expect(markup).toContain('data-og-component="data.chart"');
+      expect(markup).toContain(`data-chart-recipe="${fixture.recipeName}"`);
+      expect(markup).toContain(`data-renderer-kind="${expectation.rendererKind}"`);
       expect(markup).toContain('data-chart-stable-size="true"');
       expect(markup).toContain('data-reduced-motion="disable-animation"');
       expect(markup).toContain(`data-equivalent-view="${accessibility.equivalentView}"`);
-      expect(markup).toContain(accessibility.accessibleName);
+      expect(markup).toContain(escapeHtml(fixture.spec.title));
+      expect(markup).toContain("<svg");
+      expect(markup).not.toContain("content.callout");
+      expect(markup).not.toContain("data.table");
 
-      const semanticElements = attributeTokens(markup, "data-semantic-elements");
-      const eventPorts = attributeTokens(markup, "data-event-ports");
-      for (const semanticElement of expectation.semanticElements) expect(semanticElements).toContain(semanticElement);
-      for (const eventPort of expectation.expectedEvents) expect(eventPorts).toContain(eventPort);
-      if (fixture.recipeName === "chart-area-axes") {
-        expect(markup).toContain("Month");
-        expect(markup).toContain("Revenue");
+      for (const semanticElement of expectation.semanticElements) {
+        expect(attributeTokens(markup, "data-semantic-elements")).toContain(semanticElement);
       }
+      if (expectation.rendererKind !== "dom") expect(markup).toContain("<title>");
+      if (!nonRechartsRecipes.has(fixture.recipeName)) expect(markup).toContain('data-renderer-kind="recharts"');
     }
+  });
+
+  test("uses resource-resolved rows without serializing authoring bindings", async () => {
+    const catalog = await createOfficialCatalog();
+    const fixture = officialChartSpecFixtures.find((candidate) => candidate.recipeName === "pipeline-stage-bars")!;
+    const markup = renderToStaticMarkup(createElement(
+      DataChartRenderer,
+      chartInput(catalog.components.dataChart, { spec: fixture.resolvedSpec } as unknown as JsonObject) as never,
+    ));
+
+    expect(markup).toContain("Visits");
+    expect(markup).toContain("Enterprise");
+    expect(markup).not.toContain("fixture.chart.dataset");
+  });
+
+  test("renders steps bars as the selected weekly activity surface", async () => {
+    const catalog = await createOfficialCatalog();
+    const fixture = officialChartSpecFixtures.find((candidate) => candidate.recipeName === "steps-bars")!;
+    const markup = renderToStaticMarkup(createElement(
+      DataChartRenderer,
+      chartInput(catalog.components.dataChart, { spec: fixture.resolvedSpec } as unknown as JsonObject) as never,
+    ));
+
+    expect(markup).toContain('data-renderer-kind="dom"');
+    expect(markup).toContain("Tuesday");
+    expect(markup).toContain("2,200");
+    expect(markup).toContain("29 Jun - 5 Jul");
+    expect(markup).toContain('data-slot="button"');
+    expect(markup).toContain('data-slot="progress"');
+    expect(markup).not.toContain("og-steps-day is-selected");
+    expect(markup).not.toContain("Total steps");
+    expect(markup).not.toContain("Daily progress");
+    expect(markup).not.toContain("Goal 10K");
   });
 });
 
@@ -93,19 +119,6 @@ function attributeTokens(markup: string, attribute: string): string[] {
   return match?.[1]?.split(" ").filter(Boolean) ?? [];
 }
 
-function resolveFixtureSpec(spec: (typeof officialChartSpecFixtures)[number]["spec"]): Record<string, unknown> {
-  const resolved = structuredClone(spec) as Record<string, any>;
-  resolved.data = data;
-  if (resolved.legend?.visibilityState !== undefined) {
-    resolved.legend.visibilityState = resolved.series.map((series: { column: string }) => series.column);
-  }
-  if (resolved.interaction?.state !== undefined) {
-    resolved.interaction.state = resolved.interaction.kind === "range-select"
-      ? { start: 0, end: 2 }
-      : resolved.series[0]?.column ?? null;
-  }
-  if (resolved.centerText?.value !== undefined && typeof resolved.centerText.value === "object") {
-    resolved.centerText.value = 120;
-  }
-  return resolved;
+function escapeHtml(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }

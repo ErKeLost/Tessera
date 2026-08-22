@@ -1,6 +1,5 @@
 {
   "title": "Components",
-  "description": "The Generative UI component catalog for the Tessera Agent Data Agent.",
-  "root": true,
+  "description": "Seventeen Data Chart recipes for Tessera Agent.",
   "pages": ["index", "generative-ui-catalog"]
 }

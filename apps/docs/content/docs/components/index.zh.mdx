@@ -1,34 +1,11 @@
 ---
 title: 组件
-description: Tessera Agent 当前的 data-agent Catalog，以及完整保留的历史设计输入。
+description: Tessera Data Chart 公共组件集合。
 ---
 
-Tessera Agent 现在通过一组小而正交的 Component Contract 生成界面。底层终局架构保持通用，
-但当前 Renderer、Recipe、Fixture 与 proof prompt 只为 data-agent workflow 精心设计。
-
-## 当前 Generative UI Catalog
-
-当前 source of truth 包含 12 个 Contract：
-
-- Layout：`layout.stack`、`layout.grid`、`layout.section`
-- Content：`content.text`、`content.callout`、`content.empty`
-- Data：`data.metric`、`data.table`、`data.chart`、`data.query-details`
-- Controls：`control.filter`、`control.group`
-
-`data.chart` 通过一套严格 ChartSpec 覆盖全部 61 个 shadcn/Recharts Chart Recipe 与 9 个
-Tooltip Recipe。Trend、Breakdown、Anomaly、Forecast、Funnel、Cohort、Experiment 与
-Data Quality 等分析体验都是这些基础组件的 Composition Recipe。
+当前组件目录只聚焦 **Data Chart**。这里包含 17 个具名、面向生产界面的图表设计，
+并通过 Tessera Agent 使用的同一条可信渲染链路输出。
 
 <Cards>
-  <Card title="当前 Catalog 参考" description="查看精确 Contract、Action、Recipe、Fixture 与 Conformance 所有权。" href="/docs/components/generative-ui-catalog" />
-  <Card title="Generative UI 架构" description="理解 Contract 如何经过 Compiler、Controller、Surface 与 Renderer Registry。" href="/docs/agent/architecture/generative-ui" />
-  <Card title="成功证明门槛" description="查看 framework-neutral core 可以被抽取之前必须通过的全部门槛。" href="/docs/agent/architecture/generative-ui-proof" />
+  <Card title="Data Chart" description="浏览全部 17 个图表 Recipe 及其真实 Renderer 输出。" href="/docs/components/generative-ui-catalog" />
 </Cards>
-
-## 保留的历史设计输入
-
-本节其余页面全部有意保留。它们记录当前组合式架构之前探索过的固定 Artifact Recipe、Schema、
-Preview 与交互思路。这些页面是**历史设计输入**，不是当前协议 Contract，也不是公开安装 API。
-
-这些设计仍然重要：它们定义了 Tessera Agent 生成式 Composition 必须达到的产品质量，但不会再让
-每一种分析形态都变成一种独立协议类型。

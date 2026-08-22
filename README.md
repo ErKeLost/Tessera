@@ -30,9 +30,10 @@ is handled as a separate task after the reference contracts are proven here.
 ## Current Proof
 
 The repository is successful only when one governed query execution can publish
-typed, provenance-linked pinned resources and render useful combinations of
-metric, chart, table, query details, filters, and explanatory content without
-copying rows into model proposals, canonical documents, or transport history.
+a typed, provenance-linked pinned dataset and render any of the 17 locked
+Tessera chart recipes through the single `data.chart` Contract without copying
+rows into model proposals, canonical documents, or transport history. Recipe
+selection changes presentation, never the protocol or rendering chain.
 
 The measurable proof plan is documented in
 [`docs/architecture/tessera-data-agent-generative-ui-proof.md`](docs/architecture/tessera-data-agent-generative-ui-proof.md).

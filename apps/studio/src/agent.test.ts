@@ -20,6 +20,8 @@ import {
   createWorkspaceContextProcessor,
   createTesseraStudioAgent,
   DATABASE_SCHEMA_CONTEXT_LIMITS,
+  DATABASE_SCHEMA_INSPECTION_LIMITS,
+  DATABASE_SCHEMA_INVENTORY_LIMITS,
   formatDatabaseConnectionContext,
   formatDatabasePermissionContext,
   formatRuntimeSignalContext,
@@ -164,7 +166,29 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("uses the expanded schema discovery budgets", () => {
+    expect(DATABASE_SCHEMA_CONTEXT_LIMITS).toEqual({
+      maxSchemas: 64,
+      maxTables: 240,
+      maxColumnsPerTable: 96,
+      maxForeignKeysPerTable: 32,
+      maxCharacters: 96_000,
+    });
+    expect(DATABASE_SCHEMA_INVENTORY_LIMITS).toEqual({
+      maxSchemas: 128,
+      maxTables: 512,
+      maxCharacters: 48_000,
+    });
+    expect(DATABASE_SCHEMA_INSPECTION_LIMITS).toEqual({
+      maxTables: 192,
+      maxColumnsPerTable: 128,
+      maxForeignKeysPerTable: 64,
+      maxCharacters: 80_000,
+    });
+  });
+
   test("defines unambiguous list_database operations and structured recovery", () => {
+    expect(listDatabaseInputSchema.parse({})).toEqual({ operation: "list_relations" });
     expect(listDatabaseInputSchema.safeParse({ operation: "list_relations" }).success).toBeTrue();
     expect(listDatabaseInputSchema.safeParse({ operation: "describe_schema", schema: "public" }).success).toBeTrue();
     expect(listDatabaseInputSchema.safeParse({
@@ -234,6 +258,43 @@ describe("Tessera Agent vNext public boundary", () => {
     ]);
     expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
     expect(chunks.some((chunk) => chunk.type === "finish")).toBeFalse();
+  });
+
+  test("does not surface a recovered intermediate stream error as a failed message", async () => {
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-recovered" });
+        controller.enqueue({ type: "error", errorText: "An intermediate tool call was invalid." });
+        controller.enqueue({ type: "text-start", id: "text-recovered" });
+        controller.enqueue({ type: "text-delta", id: "text-recovered", delta: "The corrected query completed." });
+        controller.enqueue({ type: "text-end", id: "text-recovered" });
+        controller.enqueue({ type: "finish", finishReason: "stop" });
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(appendCopilotOutcome(source));
+
+    expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
+    expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "stop" });
+  });
+
+  test("retains a terminal stream error when the model does not recover", async () => {
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-failed" });
+        controller.enqueue({ type: "error", errorText: "The provider stream failed." });
+        controller.enqueue({ type: "finish", finishReason: "error" });
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(appendCopilotOutcome(source));
+
+    expect(chunks.filter((chunk) => chunk.type === "error")).toEqual([
+      { type: "error", errorText: "The provider stream failed." },
+    ]);
+    expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "error" });
   });
 
   test("passes an environment provider key to an explicit gateway model", () => {
@@ -1186,21 +1247,22 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(listDatabaseTool?.description).toContain("one explicit operation");
       const inputSchema = listDatabaseTool?.inputSchema as {
         description?: string;
-        oneOf?: Array<{
-          properties?: Record<string, { const?: string; description?: string }>;
-          required?: string[];
-          additionalProperties?: boolean;
-        }>;
+        properties?: Record<string, { enum?: string[]; default?: string; description?: string }>;
+        required?: string[];
+        additionalProperties?: boolean;
       };
-      expect(inputSchema.description).toContain("Do not omit a required field");
-      const describeSchema = inputSchema.oneOf?.find((branch) => branch.properties?.operation?.const === "describe_schema");
-      const describeRelation = inputSchema.oneOf?.find((branch) => branch.properties?.operation?.const === "describe_relation");
-      expect(describeSchema?.required).toEqual(["operation", "schema"]);
-      expect(describeRelation?.required).toEqual(["operation", "schema", "relation"]);
-      expect(describeSchema?.additionalProperties).toBeFalse();
-      expect(describeRelation?.additionalProperties).toBeFalse();
-      expect(describeSchema?.properties?.schema?.description).toContain("Copy it verbatim");
-      expect(describeRelation?.properties?.relation?.description).toContain("never translate");
+      expect(inputSchema.description).toContain("Empty input safely lists");
+      expect(inputSchema.properties?.operation?.enum).toEqual([
+        "list_relations",
+        "describe_schema",
+        "describe_relation",
+        "current_relation",
+        "capabilities",
+      ]);
+      expect(inputSchema.properties?.operation?.default).toBe("list_relations");
+      expect(inputSchema.additionalProperties).toBeFalse();
+      expect(inputSchema.properties?.schema?.description).toContain("case-preserving");
+      expect(inputSchema.properties?.relation?.description).toContain("verbatim");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });

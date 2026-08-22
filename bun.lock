@@ -12,7 +12,7 @@
       },
     },
     "apps/docs": {
-"name": "@open-tessera/docs",
+      "name": "@open-tessera/docs",
       "version": "0.3.15",
       "dependencies": {
         "@ai-sdk/react": "4.0.79",
@@ -530,7 +530,9 @@
         "@open-generative/components": "workspace:*",
         "@open-generative/protocol": "workspace:*",
         "@open-generative/react": "workspace:*",
+        "class-variance-authority": "^0.7.1",
         "lucide-react": "1.31.0",
+        "radix-ui": "^1.6.7",
         "recharts": "3.10.1",
       },
       "devDependencies": {

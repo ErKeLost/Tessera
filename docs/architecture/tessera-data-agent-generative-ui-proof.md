@@ -16,24 +16,11 @@
 
 ## 2. 当前组件边界
 
-当前只设计 Tessera Agent 真正需要的 12 个正交 Component：
+当前官方 Catalog 只设计 Tessera Agent 当前真正需要的一个 Component：`data.chart`。它只接收严格 ChartSpec 和一个 Resource-backed Dataset binding，不接收内联 rows、样式、renderer props 或可执行内容。
 
-| 类别 | Component | Tessera 中的职责 |
-| --- | --- | --- |
-| Layout | `layout.stack` | 默认分析阅读流 |
-| Layout | `layout.grid` | KPI 与可比较视图 |
-| Layout | `layout.section` | 标题、说明和语义分组 |
-| Content | `content.text` | 标题、解释和 caption |
-| Content | `content.callout` | 洞察、限制、warning |
-| Content | `content.empty` | 无数据、不可用和过滤为空 |
-| Data | `data.metric` | 单个或紧密相关 KPI |
-| Data | `data.table` | Resource-backed 明细和窗口化浏览 |
-| Data | `data.chart` | 统一 ChartSpec 和完整 shadcn chart coverage |
-| Data | `data.query-details` | SQL、lineage、freshness 与 evidence 检查面板 |
-| Control | `control.filter` | Contract 限定的分析 filter state |
-| Control | `control.group` | 少量相关 controls 的语义组合 |
+当前锁定 17 个 `spec.recipe`：`steps-bars`、`pipeline-stage-bars`、`sleep-score`、`revenue-per-account-scatter`、`tracked-time-sankey`、`visitors-radial`、`visitors-radar`、`activity-calendar`、`revenue-smooth-area`、`active-users-heatmap`、`sign-up-funnel`、`earned-so-far-bars`、`contributions-heatmap`、`sessions-conversion-combo`、`devices-bars`、`visitors-stacked-area`、`activity-rings`。
 
-这里不增加 Trend、Anomaly、Forecast、Funnel、Cohort 等固定业务大组件。它们只能成为由这 12 个 Component 组合出来的 Tessera recipe 和 eval case。
+这些名称是一个 Contract 内的严格判别联合，不是 17 个 Component，也不是隐藏的固定 Query renderer。未来增加 Component 只扩展 Catalog，不修改底层协议或渲染链。
 
 ## 3. 必须覆盖的产品场景
 
@@ -41,14 +28,13 @@
 
 | 任务族 | 必须证明的组合能力 | 主要失败风险 |
 | --- | --- | --- |
-| KPI 概览 | metric + comparison + evidence + compact grid | 伪造指标、单位错误、过度卡片化 |
-| 时间趋势 | metric + line/area/bar chart + table equivalent view | 时间列误判、双轴误导、无可访问等价视图 |
-| 分类对比 | bar/pie/radar 的受限选择 + ranking table | 类别过多、错误聚合、图表类型不合适 |
-| 分布分析 | histogram-like bar/area composition + summary | bucket 语义丢失、把明细误当聚合 |
-| 明细检查 | virtualized table + sort/page + query details | rows 进入 Document、越权导出、cursor 伪造 |
-| Filter 探索 | filter/control group + resource re-resolve | client 自行 SQL、state precondition 丢失 |
-| 空与受限数据 | empty/callout + deterministic reason | 用假数据填空、泄露 denied metadata |
-| Query 可审计性 | query details + evidence + freshness | SQL 可见性越权、lineage 与 snapshot 不一致 |
+| 目标与阶段 | steps、pipeline、funnel、devices、earned bars | 阶段乱序、错误 aggregate、标签溢出 |
+| 单值与完成度 | sleep score、radial visitors、activity rings | domain 错误、环形编码误导、中心值伪造 |
+| 时间趋势 | smooth area、stacked area、sessions + conversion | 时间列误判、双指标比例失真、无等价摘要 |
+| 分布与多维比较 | scatter、radar | 数值列角色错误、点数过多、维度不可比 |
+| 流向 | tracked-time Sankey | source/target/value 不完整、空 SVG wrapper |
+| 日期与二维强度 | activity calendar、active users、contributions | bucket 错位、缺失值与零值混淆 |
+| 空与受限数据 | Host-owned deterministic fallback | 用假数据填空、泄露 denied metadata |
 | 流式创建 | progressive layout/content + atomic data nodes | 半截 entity 覆盖 last-good、preview 可交互 |
 | 增量编辑 | selection-scoped operations + revision CAS | local ID remap、旧 revision 静默覆盖 |
 | HostIntent | export/retry/apply + approval/receipt | renderer 直调工具、重复 effect、审批重放 |
@@ -63,7 +49,7 @@
 - Query tool 成功输出只包含 binding/evidence refs 与 model-safe descriptor，不包含 rows。
 - Proposal snapshot、Proposal operations、canonical Document、Revision envelope、Surface history 和普通 observability attributes 不包含 rows。
 - Resource payload 只通过 actor/tenant/Surface-bound grant 与 server cursor 获取。
-- `data.metric`、`data.chart`、`data.table` 和 `data.query-details` 使用满足各自 Contract 的 typed pinned Resources，并共享明确的 evidence/provenance；只有采用相同 Dataset Envelope 与 schema 的 Chart/Table binding 可以引用同一 pinned dataset `resourceVersionId`，任何节点都不复制 payload。
+- `data.chart` 只使用满足 Contract 的 typed pinned Dataset，绑定明确的 evidence/provenance；任何 recipe 都不复制 payload。
 - Filter、projection、sort 和 window 都由 Resource capability 执行，模型不生成 SQL 或 cursor。
 - denied、expired、revoked、schema-incompatible 和 unavailable 状态具有不同且确定的投影。
 - Evidence 与 claim 永远绑定明确 snapshot/content hash；live resource 不回写历史 claim。
@@ -85,14 +71,14 @@
 | 无意义重复组件或空装饰 section | 不高于 2% |
 | 同输入 snapshot 与等价 operation 的 canonical 差异 | 0 |
 
-“成功 commit”不等于“产品质量合格”。每个 golden case 还必须校验关键信息是否可扫描、是否选对主要视图、是否保留 evidence，以及 table/chart 是否表达同一个资源语义。
+“成功 commit”不等于“产品质量合格”。每个 golden case 还必须校验关键信息是否可扫描、是否选择正确 recipe、列角色与 aggregate 是否正确，以及是否保留 evidence。
 
 ## 6. Renderer 与交互门槛
 
-- 12 个 Contract 全部具有 exact renderer registration、resolved-props validator、loading/empty/error/unsupported fixture 和 per-node error boundary。
-- `data.chart` 对锁定的 61 chart + 9 tooltip recipes 逐一具有 valid ChartSpec、renderer fixture、accessibility fixture 和 visual regression fixture。
-- 所有 chart 有稳定尺寸、responsive container、reduced-motion 行为和同 snapshot 的 table 或 text-summary 等价视图。
-- Table 使用 server window 与稳定 row identity；大数据不以内联数组进入 node props。
+- 唯一 `data.chart` Contract 具有 exact renderer registration、resolved-props validator、loading/empty/error/unsupported fixture 和 per-node error boundary。
+- 17 个 recipe 逐一具有 valid ChartSpec、真实 renderer fixture、accessibility fixture 和 visual regression fixture；Sankey/Funnel/Heatmap/Calendar 等不能用空 Recharts wrapper 冒充实现。
+- 所有 chart 有稳定尺寸、responsive constraints、reduced-motion 行为和同 Resource snapshot 的 table 等价视图。
+- 大数据使用 server window、聚合或降采样，不以内联数组进入 node props。
 - Preview node 全部 read-only，不存在 emitter；committed node 的 emitter 只能发送当前 Contract 声明且在该 node 上精确绑定的 event port。任意其他 port 不得误启用 Copy、Export、Apply 或 Reset。
 - surface-local transition 在浏览器 Runtime 原子执行；document state 和 HostIntent 必须走 server authority。
 - desktop panel、mobile sheet 和 inline placement 共用同一个 SurfaceController 状态，不复制 renderer 链。
@@ -123,7 +109,7 @@
 
 产物必须可在无生产 credential 的 CI 中重放；真实 provider eval 可以作为受控外部 job，但其输入 profile 和输出摘要必须版本化。
 
-当前 Tessera Agent 文档站同时提供一层可执行 reference proof：服务端 API 必须通过真实 Resource Gateway 完成 pinned publication、grant、state-bound projection 与 resolve，再发布携带 `ResourceResolutionIdentity` 的 trusted Surface snapshot；浏览器只允许经 `SurfaceController -> GenerativeSurface -> verified RendererRegistry` 消费。该证明固定覆盖 12 个 Component Contracts、全部 70 个 chart/tooltip recipes 和 Query analysis、Filter-bound breakdown、Workspace health 三个 Data Agent composition，并断言 identity-only refs、统一 Dataset Envelope、manifest integrity、no-payload Document 与逐 event-port 交互门控。它是确定性的协议/渲染证明，不替代第 5 项要求的真实浏览器 visual regression 与 accessibility 产物。
+当前 Tessera Agent 文档站同时提供一层可执行 reference proof：服务端 API 必须通过真实 Resource Gateway 完成 pinned publication、grant、projection 与 resolve，再发布携带 `ResourceResolutionIdentity` 的 trusted Surface snapshot；浏览器只允许经 `SurfaceController -> GenerativeSurface -> verified RendererRegistry` 消费。该证明固定覆盖唯一 `data.chart` Contract 与全部 17 个 recipe，并断言 identity-only refs、统一 Dataset Envelope、manifest integrity 和 no-payload Document。它是确定性的协议/渲染证明，不替代第 5 项要求的真实浏览器 visual regression 与 accessibility 产物。
 
 ## 9. 与 Tessera Agent 的接入边界
 

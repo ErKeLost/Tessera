@@ -173,7 +173,7 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
     apiKeySource: "none",
   },
   limits: {
-    maxRows: 500,
+    maxRows: 1_000,
     timeoutMs: 15_000,
     maxSteps: 50,
   },
@@ -949,7 +949,7 @@ function toForm(settings: StudioSettingsSnapshot): SettingsForm {
 }
 
 function buildCandidate(form: SettingsForm): StudioSettingsCandidate | undefined {
-  const maxRows = readBoundedInteger(form.maxRows, 1, 10_000);
+  const maxRows = readBoundedInteger(form.maxRows, 1, 20_000);
   const timeoutMs = readBoundedInteger(form.timeoutMs, 250, 120_000);
   const maxSteps = readBoundedInteger(form.maxSteps, 3, 50);
   const provider = form.provider.trim();
@@ -1007,7 +1007,7 @@ export function readStudioSettingsSnapshot(value: unknown): StudioSettingsSnapsh
         ?? (llm?.apiKeyConfigured === true ? "explicit" : "none"),
     },
     limits: {
-      maxRows: readBoundedInteger(limits?.maxRows, 1, 10_000) ?? DEFAULT_SETTINGS.limits.maxRows,
+      maxRows: readBoundedInteger(limits?.maxRows, 1, 20_000) ?? DEFAULT_SETTINGS.limits.maxRows,
       timeoutMs: readBoundedInteger(limits?.timeoutMs, 250, 120_000) ?? DEFAULT_SETTINGS.limits.timeoutMs,
       maxSteps: readBoundedInteger(limits?.maxSteps, 3, 50) ?? DEFAULT_SETTINGS.limits.maxSteps,
     },

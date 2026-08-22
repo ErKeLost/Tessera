@@ -3,130 +3,35 @@
 import {
   ArrowUpRightIcon,
   ChartNoAxesCombinedIcon,
-  DatabaseIcon,
-  GaugeIcon,
   Grid3X3Icon,
-  InboxIcon,
   LaptopIcon,
-  ListFilterIcon,
-  MessageSquareWarningIcon,
   MinusIcon,
   MousePointer2Icon,
-  PanelsTopLeftIcon,
   PlusIcon,
-  Rows3Icon,
   ScanIcon,
-  SlidersHorizontalIcon,
   SmartphoneIcon,
-  Table2Icon,
   TabletIcon,
-  TypeIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { type CSSProperties, type KeyboardEvent, useId, useState } from "react";
-import { ComponentContractDemo } from "@/components/generative-gallery";
+import { ChartRecipeDemo } from "@/components/generative-gallery";
+import {
+  chartRecipeDocumentation,
+  generativeGalleryConformanceDescriptors,
+  type ChartRecipeName,
+} from "@/components/generative-gallery-model";
 import styles from "./home.module.css";
 import { localizedPath } from "@/lib/i18n";
 
-const items = [
-  {
-    id: "layout-stack",
-    componentType: "layout.stack",
-    label: "Stack",
-    detail: "Ordered reading flow for generated analysis.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: Rows3Icon,
-  },
-  {
-    id: "layout-grid",
-    componentType: "layout.grid",
-    label: "Grid",
-    detail: "Responsive comparison without viewport-specific output.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: Grid3X3Icon,
-  },
-  {
-    id: "layout-section",
-    componentType: "layout.section",
-    label: "Section",
-    detail: "Semantic grouping with stable heading levels.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: PanelsTopLeftIcon,
-  },
-  {
-    id: "content-text",
-    componentType: "content.text",
-    label: "Text",
-    detail: "Safe text roles without markup or executable content.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: TypeIcon,
-  },
-  {
-    id: "content-callout",
-    componentType: "content.callout",
-    label: "Callout",
-    detail: "Evidence-backed insight, warning, or constraint.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: MessageSquareWarningIcon,
-  },
-  {
-    id: "content-empty",
-    componentType: "content.empty",
-    label: "Empty",
-    detail: "Explicit no-data, denied, and unavailable states.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: InboxIcon,
-  },
-  {
-    id: "data-metric",
-    componentType: "data.metric",
-    label: "Metric",
-    detail: "Validated scalar values with comparison and selection.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: GaugeIcon,
-  },
-  {
-    id: "data-table",
-    componentType: "data.table",
-    label: "Table",
-    detail: "Windowed exact rows with sort and pagination.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: Table2Icon,
-  },
-  {
-    id: "data-chart",
-    componentType: "data.chart",
-    label: "Chart",
-    detail: "One strict ChartSpec covering all 70 recipes.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: ChartNoAxesCombinedIcon,
-  },
-  {
-    id: "data-query-details",
-    componentType: "data.query-details",
-    label: "Query details",
-    detail: "Policy-controlled SQL, lineage, freshness, and evidence.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: DatabaseIcon,
-  },
-  {
-    id: "control-filter",
-    componentType: "control.filter",
-    label: "Filter",
-    detail: "State-bound filter inputs over governed options.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: ListFilterIcon,
-  },
-  {
-    id: "control-group",
-    componentType: "control.group",
-    label: "Control group",
-    detail: "Related filters with explicit apply and reset behavior.",
-    href: "/docs/components/generative-ui-catalog",
-    icon: SlidersHorizontalIcon,
-  },
-] as const;
+const items = generativeGalleryConformanceDescriptors.map(descriptor => ({
+  id: descriptor.value,
+  recipeName: descriptor.value,
+  label: chartRecipeDocumentation[descriptor.value].title,
+  detail: chartRecipeDocumentation[descriptor.value].description,
+  href: "/docs/components/generative-ui-catalog",
+  icon: ChartNoAxesCombinedIcon,
+}));
 
 const viewports = [
   { id: "desktop", label: "Desktop preview", size: "Flexible", icon: LaptopIcon },
@@ -134,35 +39,43 @@ const viewports = [
   { id: "mobile", label: "Mobile preview", size: "390 px", icon: SmartphoneIcon },
 ] as const;
 
-const chineseItems = {
-  "layout-stack": { label: "Stack", detail: "为生成式分析提供有序阅读流。" },
-  "layout-grid": { label: "Grid", detail: "无需生成视口专用输出的响应式对比布局。" },
-  "layout-section": { label: "Section", detail: "使用稳定 Heading Level 进行语义分组。" },
-  "content-text": { label: "Text", detail: "不接收 Markup 或可执行内容的安全文本角色。" },
-  "content-callout": { label: "Callout", detail: "由证据支撑的洞察、警告或约束。" },
-  "content-empty": { label: "Empty", detail: "明确表达无数据、拒绝访问与不可用状态。" },
-  "data-metric": { label: "Metric", detail: "带 Comparison 与 Selection 的已验证标量值。" },
-  "data-table": { label: "Table", detail: "支持排序和分页的窗口化精确数据行。" },
-  "data-chart": { label: "Chart", detail: "用一套严格 ChartSpec 覆盖全部 70 个 Recipe。" },
-  "data-query-details": { label: "Query Details", detail: "受策略控制的 SQL、血缘、Freshness 与 Evidence。" },
-  "control-filter": { label: "Filter", detail: "绑定 State、只使用受治理选项的筛选控件。" },
-  "control-group": { label: "Control Group", detail: "组织相关筛选器，并明确 Apply 与 Reset 行为。" },
-} as const;
+const chineseDescriptions: Readonly<Record<ChartRecipeName, string>> = {
+  "steps-bars": "展示选中日期、周范围与七天目标进度。",
+  "pipeline-stage-bars": "在一条有序管线中表达各阶段数量与流失。",
+  "sleep-score": "突出当前睡眠分数，同时保留近期变化。",
+  "revenue-per-account-scatter": "保留离群点的账号收入关系与规模分布。",
+  "tracked-time-sankey": "用加权连接展示工作类别到去向的时间流动。",
+  "visitors-radial": "用克制的径向构图表达访问总量与分类构成。",
+  "visitors-radar": "在同一量纲下比较多维访问者画像。",
+  "activity-calendar": "按熟悉的月历布局展示每日活跃强度。",
+  "revenue-smooth-area": "展示连续收入变化与派生的主要指标。",
+  "active-users-heatmap": "比较不同日期与时间段的活跃集中度。",
+  "sign-up-funnel": "展示注册流程各阶段的转化与流失。",
+  "earned-so-far-bars": "对比累计收入与可选目标或参照值。",
+  "contributions-heatmap": "在紧凑周网格中展示长期每日贡献密度。",
+  "sessions-conversion-combo": "在同一时间轴对齐 Session 数量与转化趋势。",
+  "devices-bars": "通过直接易读的横向条形图表达设备占比。",
+  "visitors-stacked-area": "同时展示访问者构成与总量随时间的变化。",
+  "activity-rings": "在一个紧凑状态界面中展示多项有界进度。",
+};
 
-type ItemId = (typeof items)[number]["id"];
+type ItemId = ChartRecipeName;
 type ViewportId = (typeof viewports)[number]["id"];
 
 export function ComponentCanvas() {
   const { locale = "en" } = useI18n();
   const chinese = locale === "zh";
-  const [active, setActive] = useState<ItemId>("layout-stack");
+  const [active, setActive] = useState<ItemId>("steps-bars");
   const [viewport, setViewport] = useState<ViewportId>("desktop");
   const [showGrid, setShowGrid] = useState(true);
   const [zoom, setZoom] = useState(88);
   const tabsId = useId();
-  const item = items.find((entry) => entry.id === active) ?? items[0];
+  const item = items.find((entry) => entry.id === active) ?? items[0]!;
   const viewportOption = viewports.find((entry) => entry.id === viewport) ?? viewports[0];
-  const itemText = chinese ? chineseItems[item.id] : item;
+  const itemText = {
+    label: item.label,
+    detail: chinese ? chineseDescriptions[item.id] : item.detail,
+  };
   const viewportLabel = viewport === "desktop"
     ? chinese ? "桌面端" : "Desktop"
     : viewport === "tablet"
@@ -190,12 +103,12 @@ export function ComponentCanvas() {
   return (
     <div className={styles.componentCanvas} data-home-canvas>
       <nav
-        aria-label={chinese ? "Component Contract 预览" : "Component Contract previews"}
+        aria-label={chinese ? "Data Chart Recipe 预览" : "Data Chart recipe previews"}
         className={styles.componentRail}
         data-home-canvas-item
         role="tablist"
       >
-        <p>Contracts</p>
+        <p>Recipes</p>
         {items.map(({ icon: ItemIcon, id, label }, index) => (
           <button
             aria-controls={`${tabsId}-${id}-panel`}
@@ -210,7 +123,7 @@ export function ComponentCanvas() {
             type="button"
           >
             <ItemIcon aria-hidden="true" />
-            <span>{chinese ? chineseItems[id].label : label}</span>
+            <span>{label}</span>
           </button>
         ))}
       </nav>
@@ -224,7 +137,7 @@ export function ComponentCanvas() {
       >
         <header>
           <div>
-            <span>{chinese ? "实时组件" : "Live component"} / {itemText.label}</span>
+            <span>{chinese ? "真实 Renderer" : "Live renderer"} / {itemText.label}</span>
             <h3>{itemText.detail}</h3>
           </div>
           <div className={styles.componentTools}>
@@ -257,7 +170,7 @@ export function ComponentCanvas() {
             </div>
           <div className={styles.canvasScene}>
               <span aria-hidden="true" className={styles.canvasSwatch} />
-              <span>{chinese ? "单色画布" : "Monochrome canvas"}</span>
+              <span>{chinese ? "Schema 约束" : "Schema bound"}</span>
             </div>
             <div className={styles.canvasZoom}>
               <button aria-label={chinese ? "缩小" : "Zoom out"} disabled={zoom <= 60} onClick={() => adjustZoom(-6)} title={chinese ? "缩小" : "Zoom out"} type="button"><MinusIcon aria-hidden="true" /></button>
@@ -276,13 +189,13 @@ export function ComponentCanvas() {
               data-viewport={viewport}
               style={{ "--canvas-zoom": zoom / 100 } as CSSProperties}
             >
-              <span className={styles.canvasFrameLabel}>{chinese ? "画框" : "Frame"} / {itemText.label}</span>
+              <span className={styles.canvasFrameLabel}>data.chart / {itemText.label}</span>
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="north-west" />
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="north-east" />
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-west" />
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-east" />
               <div aria-live="polite" className={styles.componentPreview} key={active}>
-                <ComponentContractDemo componentType={item.componentType} />
+                <ChartRecipeDemo recipeName={item.recipeName} />
               </div>
             </div>
             <div className={styles.canvasStatus}>

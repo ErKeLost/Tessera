@@ -100,7 +100,7 @@ type IndexRow = {
   is_constraint: boolean;
 };
 
-const DEFAULT_MAX_ROWS = 500;
+const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_LOCK_TIMEOUT_MS = 1_500;
 const DEFAULT_IDLE_TRANSACTION_TIMEOUT_MS = 20_000;
@@ -126,7 +126,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
       id: this.id,
       applicationName: options.applicationName?.trim() || "data-elements-studio",
       maxConnections: clampInteger(options.maxConnections ?? DEFAULT_MAX_CONNECTIONS, 1, 20),
-      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 10_000),
+      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 20_000),
       statementTimeoutMs: clampInteger(options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS, 250, 120_000),
       lockTimeoutMs: clampInteger(options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS, 100, 30_000),
       idleTransactionTimeoutMs: clampInteger(options.idleTransactionTimeoutMs ?? DEFAULT_IDLE_TRANSACTION_TIMEOUT_MS, 1_000, 120_000),

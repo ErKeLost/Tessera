@@ -14,9 +14,9 @@ export const metadata: Metadata = {
 
 export default function BackgroundLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html className={`${geist.variable} ${mono.variable}`} lang="zh-CN" suppressHydrationWarning>
+    <html className={`${geist.variable} ${mono.variable}`} lang="zh-CN">
       <body className="min-h-screen bg-background font-sans text-foreground antialiased">
-        <RootProvider theme={{ defaultTheme: "light", enableSystem: false }}>{children}</RootProvider>
+        <RootProvider theme={{ enabled: false }}>{children}</RootProvider>
       </body>
     </html>
   );

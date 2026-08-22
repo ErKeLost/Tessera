@@ -36,29 +36,28 @@ Artifact 分叉的渲染路径。原始模型输出永远不会进入 React。
 | Resource Data | `@open-generative/resources` | 仅服务端 Schema、Grant、Projection、Window 与 Evidence |
 | Effect | `@open-generative/capabilities` | 仅服务端 Action Policy、Approval、Idempotency、Effect 与 Receipt |
 | React Binding | `@open-generative/react` | `GenerativeSurface`、精确 `RendererRegistry`、Placement 与 System Surface |
-| Data Agent Contract | `@open-generative/components` | 12 个 Contract、Props Schema、Chart Spec、Recipe 与 Fixture |
-| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts Node Renderer 与 Registry Factory |
+| Data Agent Contract | `@open-generative/components` | `data.chart` Contract、严格 Recipe Union、Resource Schema 与 Fixture |
+| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts `data.chart` Renderer 与 Registry Factory |
 
 Framework Adapter 可以转换 Transport 细节，但不能拥有或替换这些语义。Browser Code 不能引入
 Compiler、Server、Resource、Capability、Credential、Prompt Example 或签名材料。
 
 ## 当前 Component Contract Slice
 
-成功证明使用 12 个正交 Contract：
+Tessera Agent 成功证明的 Catalog 只有一个 Component Contract：`data.chart`。
+它的 `spec.recipe` 是由 17 种产品设计组成的严格 Discriminated Union。Steps、Funnel、Sankey、
+Scatter、Radial、Radar、Calendar、Area、Heatmap、Combo、Device 与 Ring 都是同一 Contract
+内部的 Recipe，不是额外 Component Type，也不是任意 React Props。
 
-- Layout：`layout.stack`、`layout.grid`、`layout.section`
-- Content：`content.text`、`content.callout`、`content.empty`
-- Data：`data.metric`、`data.table`、`data.chart`、`data.query-details`
-- Control：`control.filter`、`control.group`
-
-Trend、Comparison、Funnel、Cohort、Anomaly、Forecast 与 Data Quality 都是 Composition Recipe，
-不是额外协议类型。这样既保持模型可见 Slice 足够小，也能构建产品级分析界面。
+模型只负责选择 Recipe，并把已提供的 Column 映射到受限语义字段。模型不能提供 Row、原始颜色、
+CSS、Callback、SVG Markup、JSX 或 Renderer 名称。Host 解析 Resource Binding，已注册 Renderer
+再为具体 Recipe 选择经过审计的 DOM、SVG 或 Recharts 实现。
 
 ## Commit 与 Preview
 
-Layout 与安全 Content 可以通过经过校验的只读 Preview 渐进出现；Resource-backed Data 与
-State-bound Control 必须原子 Commit。Preview Renderer 不会得到 Event Emitter，因此未完成内容
-不能触发 Host Command。Proposal 失败时继续保留 Last-good Committed Revision。
+完整的 `data.chart` Entity 可以进入经过校验的只读 Preview；Resource-backed Chart Node 必须
+原子 Commit。Preview Renderer 不会得到 Event Emitter，因此未完成内容不能触发 Host Command。
+Proposal 失败时继续保留 Last-good Committed Revision。
 
 Resource Payload 不进入 Canonical Document。`SurfaceController` 只在渲染前，根据可信且绑定 Grant
 的 Projection，为单个 Node Materialize 并校验 Resolved Props。

@@ -45,6 +45,8 @@ export type TesseraListCatalogToolOutput = Readonly<{
   mode?: "search" | "describe";
   entityCount?: number;
   truncated?: boolean;
+  reason?: string;
+  message?: string;
 }>;
 
 export type TesseraExecuteSqlToolOutput = Readonly<{
@@ -64,6 +66,8 @@ export type TesseraRunAnalysisToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
   rowCount?: number;
   truncated?: boolean;
+  reason?: string;
+  message?: string;
 }>;
 
 export type TesseraListRlsPoliciesToolInput = Readonly<{

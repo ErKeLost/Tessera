@@ -17,6 +17,7 @@ export function baseOptions(locale: string): BaseLayoutProps {
   const chinese = locale === "zh";
 
   return {
+    themeSwitch: { enabled: false },
     nav: {
       title: (
         <span className="tessera-brand-lockup">
@@ -28,11 +29,10 @@ export function baseOptions(locale: string): BaseLayoutProps {
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
     links: [
-      { text: chinese ? "文档" : "Docs", url: localizedPath(locale, "/docs") },
-      { text: "Agent", url: localizedPath(locale, "/docs/agent"), active: "nested-url" },
-      { text: chinese ? "组件" : "Components", url: localizedPath(locale, "/docs/components"), active: "nested-url" },
-      { text: chinese ? "示例" : "Examples", url: localizedPath(locale, "/docs/examples"), active: "nested-url" },
-      { text: "Playground", url: "/background" },
+      { text: chinese ? "文档" : "Docs", url: localizedPath(locale, "/docs"), active: "none" },
+      { text: "Agent", url: localizedPath(locale, "/docs/agent"), active: "none" },
+      { text: chinese ? "组件" : "Components", url: localizedPath(locale, "/docs/components"), active: "none" },
+      { text: "Playground", url: "/background", active: "none" },
     ],
   };
 }

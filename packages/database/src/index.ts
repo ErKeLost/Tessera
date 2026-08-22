@@ -286,7 +286,7 @@ export const databaseSqlQueryRequestSchema = z.object({
     z.boolean(),
   ])).max(256).optional(),
   purpose: z.string().min(1).max(1_000),
-  maxRows: z.number().int().positive().max(10_000).optional(),
+  maxRows: z.number().int().positive().max(20_000).optional(),
   timeoutMs: z.number().int().positive().max(120_000).optional(),
 }).strict();
 
@@ -298,7 +298,7 @@ export const databaseMongoQueryRequestSchema = z.object({
   pipeline: z.array(z.record(z.string(), z.unknown())).max(128),
   columns: z.array(z.string().min(1).max(256)).max(2_000).optional(),
   purpose: z.string().min(1).max(1_000),
-  maxRows: z.number().int().positive().max(10_000).optional(),
+  maxRows: z.number().int().positive().max(20_000).optional(),
   timeoutMs: z.number().int().positive().max(120_000).optional(),
 }).strict();
 

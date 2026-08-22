@@ -1,4 +1,4 @@
 {
   "title": "Tessera Agent",
-  "pages": ["index", "agent", "components", "examples", "concepts", "integrations"]
+  "pages": ["index", "agent", "components", "concepts", "integrations"]
 }

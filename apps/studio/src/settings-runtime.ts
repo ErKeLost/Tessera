@@ -106,7 +106,7 @@ export const tesseraStudioSettingsCandidateSchema = z.object({
     baseUrl: baseUrlSchema.optional(),
   }).strict(),
   limits: z.object({
-    maxRows: z.number().int().min(1).max(10_000),
+    maxRows: z.number().int().min(1).max(20_000),
     timeoutMs: z.number().int().min(250).max(120_000),
     maxSteps: z.number().int().min(3).max(50),
   }).strict(),
@@ -138,7 +138,7 @@ export const tesseraStudioSettingsSnapshotSchema = z.object({
     apiKeySource: z.enum(["explicit", "environment", "none"]),
   }).strict(),
   limits: z.object({
-    maxRows: z.number().int().min(1).max(10_000),
+    maxRows: z.number().int().min(1).max(20_000),
     timeoutMs: z.number().int().min(250).max(120_000),
     maxSteps: z.number().int().min(3).max(50),
   }).strict(),
@@ -338,7 +338,7 @@ export function createTesseraStudioSettingsSnapshot(
       apiKeySource,
     },
     limits: {
-      maxRows: config.database.maxRows ?? 500,
+      maxRows: config.database.maxRows ?? 1_000,
       timeoutMs: config.database.statementTimeoutMs ?? 15_000,
       maxSteps: llm.maxSteps,
     },
@@ -811,7 +811,7 @@ export class TesseraStudioRuntimeManager {
         reasoningEffort: llm.reasoningEffort ?? "default",
       },
       limits: {
-        maxRows: this.#current.config.database.maxRows ?? 500,
+        maxRows: this.#current.config.database.maxRows ?? 1_000,
         timeoutMs: this.#current.config.database.statementTimeoutMs ?? 15_000,
         maxSteps: llm.maxSteps,
       },

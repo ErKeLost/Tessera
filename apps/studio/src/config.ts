@@ -104,7 +104,7 @@ const databaseConfigSchema = z.object({
      * non-system schema the configured database credential can read.
      */
     schemas: z.array(nonEmptyString.max(256)).min(1).max(100).optional(),
-    maxRows: z.number().int().min(1).max(10_000).optional(),
+    maxRows: z.number().int().min(1).max(20_000).optional(),
     statementTimeoutMs: z.number().int().min(250).max(120_000).optional(),
     permissions: databasePermissionsConfigSchema.optional(),
   }).strict();

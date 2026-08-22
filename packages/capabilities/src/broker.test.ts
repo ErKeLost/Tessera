@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { createActionContract } from "@open-generative/catalog";
-import { createOfficialCatalog } from "@open-generative/components";
 import {
   actionIdSchema,
   actionTypeSchema,
@@ -231,35 +230,4 @@ describe("CapabilityBroker", () => {
     expect(completed.receipt?.outcome).toEqual({ status: "cancelled" });
   });
 
-  test("validates the official data.export result and contract receipt independently", async () => {
-    const instance = broker();
-    const official = await createOfficialCatalog();
-    const actionContract = official.actions.dataExport;
-    const contentHash = hash("c");
-    await instance.register(actionContract, async () => ({
-      result: {
-        downloadId: "download:official",
-        expiresAt: "2026-08-23T00:00:00.000Z",
-      },
-      receipt: { contentHash, rowCount: 42 },
-    }));
-
-    const completed = await instance.trigger({
-      requestId: "request:official-export",
-      actionId: actionIdSchema.parse("action:official-export"),
-      contract: actionContract.ref,
-      normalizedInput: { bindingId: "binding:results", format: "csv" },
-      idempotencyKey: "idempotency:official-export",
-      authority,
-      statePreconditions: {},
-      resourcePreconditions: {},
-    });
-
-    expect(completed.status.status).toBe("succeeded");
-    expect(completed.receipt?.outcome).toMatchObject({
-      status: "succeeded",
-      result: { downloadId: "download:official" },
-      receipt: { contentHash, rowCount: 42 },
-    });
-  });
 });

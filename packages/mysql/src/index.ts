@@ -95,7 +95,7 @@ type ForeignKeyRow = {
   referenced_column: string;
 };
 
-const DEFAULT_MAX_ROWS = 500;
+const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_CONNECTIONS = 4;
 
@@ -124,7 +124,7 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
         1,
         20,
       ),
-      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 10_000),
+      maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 20_000),
       statementTimeoutMs: clampInteger(
         options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS,
         250,

@@ -13,6 +13,7 @@ import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { TesseraUIMessage } from "./protocol";
+import { sanitizeStudioErrorText } from "./studio-logger";
 
 const SESSION_DIRECTORY = ".tessera";
 const SESSION_DATABASE_FILE = "memory.db";
@@ -328,13 +329,13 @@ function sanitizeListDatabaseToolPart(
   const input = { action: "list_database" as const };
   const output = asRecord(part.output);
   const status = sanitizedListDatabaseToolStatus(output?.status);
-  if (part.state !== "output-available" || status === "failed") {
+  if (part.state !== "output-available") {
     return {
       type: "tool-list_database",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
-      errorText: HISTORY_TOOL_FAILURE,
+      errorText: historyToolFailure(part),
       providerExecuted: true,
       title: "List database context",
     };
@@ -388,19 +389,21 @@ function sanitizeListCatalogToolPart(
   const input = { action: "list_catalog" as const };
   const output = asRecord(part.output);
   const status = sanitizedToolStatus(output?.status);
-  if (part.state !== "output-available" || status === "failed") {
+  if (part.state !== "output-available") {
     return {
       type: "tool-list_catalog",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
-      errorText: HISTORY_TOOL_FAILURE,
+      errorText: historyToolFailure(part),
       providerExecuted: true,
       title: "List data catalog",
     };
   }
   const mode = output?.mode === "search" || output?.mode === "describe" ? output.mode : undefined;
   const entityCount = safeInteger(output?.entityCount, 0, 10_000);
+  const reason = sanitizeDisplayText(output?.reason, 128);
+  const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-list_catalog",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
@@ -411,6 +414,8 @@ function sanitizeListCatalogToolPart(
       ...(mode === undefined ? {} : { mode }),
       ...(entityCount === undefined ? {} : { entityCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
     },
     providerExecuted: true,
     title: "List data catalog",
@@ -431,13 +436,13 @@ function sanitizeExecuteSqlToolPart(
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
-      errorText: HISTORY_TOOL_FAILURE,
+      errorText: historyToolFailure(part),
       providerExecuted: true,
       title: "Execute SQL",
     };
   }
   const mode = output?.mode === "read" || output?.mode === "mutation" ? output.mode : undefined;
-  const rowCount = safeInteger(output?.rowCount, 0, 10_000);
+  const rowCount = safeInteger(output?.rowCount, 0, 20_000);
   const affectedRows = safeInteger(output?.affectedRows, 0, 10_000);
   const requestId = safeOpaqueHandle(output?.requestId);
   const checkpointId = safeOpaqueHandle(output?.checkpointId);
@@ -493,18 +498,20 @@ function sanitizeAnalysisToolPart(
   const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
     ? output.status
     : "failed";
-  if (part.state !== "output-available" || status === "failed") {
+  if (part.state !== "output-available") {
     return {
       type: "tool-run_analysis",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
-      errorText: HISTORY_TOOL_FAILURE,
+      errorText: historyToolFailure(part),
       providerExecuted: true,
       title: "Run governed analysis",
     };
   }
-  const rowCount = safeInteger(output?.rowCount, 0, 10_000);
+  const rowCount = safeInteger(output?.rowCount, 0, 20_000);
+  const reason = sanitizeDisplayText(output?.reason, 128);
+  const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-run_analysis",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
@@ -514,10 +521,18 @@ function sanitizeAnalysisToolPart(
       status,
       ...(rowCount === undefined ? {} : { rowCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
     },
     providerExecuted: true,
     title: "Run governed analysis",
   };
+}
+
+function historyToolFailure(part: Record<string, unknown>): string {
+  if (typeof part.errorText !== "string") return HISTORY_TOOL_FAILURE;
+  const safe = sanitizeStudioErrorText(part.errorText);
+  return safe?.slice(0, 1_000) || HISTORY_TOOL_FAILURE;
 }
 
 function boundedTranscript(messages: readonly TesseraSessionMessage[]): StoredUiTranscript {

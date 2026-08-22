@@ -183,7 +183,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
   const now = options.now ?? (() => new Date());
   const requestIdFactory = options.requestIdFactory ?? defaultRequestId;
   const ttlMs = boundedInteger(options.catalog?.ttlMs, DATA_AGENT_DEFAULT_CATALOG_TTL_MS, 0, 24 * 60 * 60 * 1_000);
-  const maxRows = boundedInteger(options.query?.maxRows, DATA_AGENT_DEFAULT_MAX_ROWS, 1, 10_000);
+  const maxRows = boundedInteger(options.query?.maxRows, DATA_AGENT_DEFAULT_MAX_ROWS, 1, 20_000);
   const timeoutMs = boundedInteger(options.query?.timeoutMs, DATA_AGENT_DEFAULT_TIMEOUT_MS, 250, 120_000);
   type RuntimeCatalogSnapshot = Readonly<{
     snapshot: DataAgentCatalogSnapshot;

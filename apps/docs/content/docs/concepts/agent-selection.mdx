@@ -26,21 +26,20 @@ allowed `present_ui` tool schema and prompt from that slice.
 
 ## Current selection vocabulary
 
-The complete Tessera Agent proof catalog contains 12 contracts, but a turn may
-receive fewer:
+The complete Tessera Agent proof Catalog offers only `data.chart`. Selection
+happens inside its strict recipe union:
 
-| Need | Offered contracts |
+| Analytical need | Recipe examples |
 | --- | --- |
-| Narrative answer | `layout.stack`, `layout.section`, `content.text`, `content.callout` |
-| KPI summary | `layout.grid`, `data.metric` |
-| Trend or comparison | `data.chart` with a valid ChartSpec recipe |
-| Row inspection | `data.table` and, when useful, `data.query-details` |
-| Refinement | `control.group`, `control.filter`, and a Host-offered action binding |
-| No usable result | `content.empty` |
+| Ordered progress | Steps bars, pipeline stage bars, sign-up funnel |
+| Trend and comparison | Revenue smooth area, visitors stacked area, sessions and conversion combo |
+| Distribution and relationship | Revenue per account scatter, tracked time Sankey |
+| Cycles and intensity | Activity calendar, active users heatmap, contributions heatmap |
+| Compact status | Sleep score, visitors radial, visitors radar, devices bars, activity rings |
 
-Trend, funnel, cohort, anomaly, forecast, ranking, and data-quality are not
-selectable protocol component names. They are evaluated composition recipes
-over this vocabulary.
+These names are `spec.recipe` values, not Component Contract names. The Host
+may narrow the recipe enum and the offered column bindings for a turn without
+creating a second schema or renderer path.
 
 ## Selection invariants
 

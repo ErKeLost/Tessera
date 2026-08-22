@@ -14,19 +14,18 @@ import {
   ScanSearchIcon,
   ShieldCheckIcon,
   SparklesIcon,
-  Table2Icon,
 } from "lucide-react";
 import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { useId, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { TesseraAgentLogo } from "@/components/tessera-agent-logo";
-import {
-  ChartDemo,
-  MetricsDemo,
-  TableDemo,
-} from "@/components/examples";
+import { ChartRecipeDemo } from "@/components/generative-gallery";
+import type { ChartRecipeName } from "@/components/generative-gallery-model";
 
-type ResultView = "chart" | "table" | "metrics";
+type HeroRecipe = Extract<
+  ChartRecipeName,
+  "revenue-smooth-area" | "sessions-conversion-combo" | "activity-rings"
+>;
 
 const suggestions = [
   "Show revenue by day for the last 30 days",
@@ -35,9 +34,9 @@ const suggestions = [
 ] as const;
 
 const views = [
-  { id: "chart", label: "Chart", icon: LineChartIcon },
-  { id: "table", label: "Table", icon: Table2Icon },
-  { id: "metrics", label: "Metrics", icon: BarChart3Icon },
+  { id: "revenue-smooth-area", label: "Revenue", icon: LineChartIcon },
+  { id: "sessions-conversion-combo", label: "Conversion", icon: BarChart3Icon },
+  { id: "activity-rings", label: "Activity", icon: CircleCheckIcon },
 ] as const;
 
 const runSteps = [
@@ -54,9 +53,9 @@ const chineseSuggestions = [
 ] as const;
 
 const chineseViews = {
-  chart: "图表",
-  table: "表格",
-  metrics: "指标",
+  "revenue-smooth-area": "收入趋势",
+  "sessions-conversion-combo": "转化表现",
+  "activity-rings": "活跃进度",
 } as const;
 
 const chineseRunSteps = [
@@ -72,7 +71,7 @@ export function HeroChat() {
   const localizedSuggestions = chinese ? chineseSuggestions : suggestions;
   const [input, setInput] = useState("");
   const [question, setQuestion] = useState<string>(localizedSuggestions[0]);
-  const [activeView, setActiveView] = useState<ResultView>("chart");
+  const [activeView, setActiveView] = useState<HeroRecipe>("revenue-smooth-area");
   const [showSql, setShowSql] = useState(false);
   const tabsId = useId();
 
@@ -81,19 +80,19 @@ export function HeroChat() {
     const next = input.trim();
     if (!next) return;
     setQuestion(next);
-    setActiveView(inferView(next));
+    setActiveView(inferRecipe(next));
     setInput("");
   }
 
   function chooseSuggestion(suggestion: string) {
     setQuestion(suggestion);
-    setActiveView(inferView(suggestion));
+    setActiveView(inferRecipe(suggestion));
     setShowSql(false);
   }
 
   function startNewAnalysis() {
     setQuestion(localizedSuggestions[0]);
-    setActiveView("chart");
+    setActiveView("revenue-smooth-area");
     setInput("");
     setShowSql(false);
   }
@@ -178,7 +177,7 @@ export function HeroChat() {
                 ))}
               </ol>
 
-              <div className="heroChatTabs" role="tablist" aria-label={chinese ? "结果视图" : "Result view"}>
+              <div className="heroChatTabs" role="tablist" aria-label={chinese ? "图表 Recipe" : "Chart recipe"}>
                 {views.map(({ id, label, icon: Icon }, index) => (
                   <button
                     aria-controls={`${tabsId}-${id}-panel`}
@@ -205,9 +204,7 @@ export function HeroChat() {
                 key={activeView}
                 role="tabpanel"
               >
-                {activeView === "chart" && <ChartDemo height={132} />}
-                {activeView === "table" && <TableDemo />}
-                {activeView === "metrics" && <MetricsDemo />}
+                <ChartRecipeDemo recipeName={activeView} />
               </div>
 
               <footer className="heroChatEvidence">
@@ -256,9 +253,13 @@ export function HeroChat() {
   );
 }
 
-function inferView(question: string): ResultView {
+function inferRecipe(question: string): HeroRecipe {
   const normalized = question.toLowerCase();
-  if (normalized.includes("compare") || normalized.includes("metric") || normalized.includes("kpi") || normalized.includes("比较") || normalized.includes("指标")) return "metrics";
-  if (normalized.includes("table") || normalized.includes("rows") || normalized.includes("list") || normalized.includes("表格") || normalized.includes("列表")) return "table";
-  return "chart";
+  if (normalized.includes("compare") || normalized.includes("conversion") || normalized.includes("比较") || normalized.includes("转化")) {
+    return "sessions-conversion-combo";
+  }
+  if (normalized.includes("activity") || normalized.includes("kpi") || normalized.includes("活跃") || normalized.includes("指标")) {
+    return "activity-rings";
+  }
+  return "revenue-smooth-area";
 }

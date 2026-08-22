@@ -176,7 +176,7 @@ export function compileAnalysisSpec(input: CompileAnalysisSpecInput): CompiledQu
     semanticCatalog,
     bindings,
     spec,
-    maxRows: clamp(input.limits?.maxRows, 500, 1, 10_000),
+    maxRows: clamp(input.limits?.maxRows, 1_000, 1, 20_000),
     maxJoins: clamp(input.limits?.maxJoins, 8, 0, 16),
   });
 }

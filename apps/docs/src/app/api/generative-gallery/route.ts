@@ -11,17 +11,7 @@ export async function GET(request: Request) {
       url.searchParams.get("kind"),
       url.searchParams.get("value"),
     );
-    const filter = url.searchParams.get("filter");
-    if (filter !== null && filter !== "north" && filter !== "south") {
-      return NextResponse.json(
-        { error: "Unknown filter value." },
-        { status: 400, headers: noStoreHeaders() },
-      );
-    }
-    const event = await createGenerativeGalleryEvent(
-      descriptor,
-      filter === null ? {} : { filterValue: filter },
-    );
+    const event = await createGenerativeGalleryEvent(descriptor);
     return NextResponse.json(event, { headers: noStoreHeaders() });
   } catch (error) {
     return NextResponse.json(

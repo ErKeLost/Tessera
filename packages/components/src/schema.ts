@@ -3,7 +3,6 @@ import {
   type ColumnId,
   type JSONSchema,
   type ResourceBindingId,
-  type StateId,
 } from "@open-generative/protocol";
 import { z } from "zod";
 
@@ -18,7 +17,6 @@ function portableId<TId extends string>() {
 
 export const columnIdValueSchema = portableId<ColumnId>();
 export const resourceBindingIdValueSchema = portableId<ResourceBindingId>();
-export const stateIdValueSchema = portableId<StateId>();
 
 export const expressionPathSegmentSchema = z.union([
   z.string().min(1).max(1_024),
@@ -30,50 +28,6 @@ export const resourceBindingExprSchema = z.object({
   bindingId: resourceBindingIdValueSchema,
   path: z.array(expressionPathSegmentSchema).max(64).optional(),
 }).strict();
-
-export const stateBindingExprSchema = z.object({
-  kind: z.literal("state-ref"),
-  stateId: stateIdValueSchema,
-  path: z.array(expressionPathSegmentSchema).max(64).optional(),
-}).strict();
-
-export const scalarLiteralExprSchema = z.object({
-  kind: z.literal("literal"),
-  value: z.union([z.null(), z.boolean(), z.string().max(16_384), z.number().finite()]),
-}).strict();
-
-export const scalarValueExprSchema = z.union([
-  scalarLiteralExprSchema,
-  stateBindingExprSchema,
-  resourceBindingExprSchema,
-]);
-
-export const semanticColorTokens = [
-  "chart.1",
-  "chart.2",
-  "chart.3",
-  "chart.4",
-  "chart.5",
-  "semantic.accent",
-  "semantic.info",
-  "semantic.negative",
-  "semantic.neutral",
-  "semantic.positive",
-  "semantic.warning",
-] as const;
-export const semanticColorTokenSchema = z.enum(semanticColorTokens);
-
-export const chartIconTokens = [
-  "activity",
-  "calendar",
-  "circle",
-  "database",
-  "dollar-sign",
-  "percent",
-  "trending-down",
-  "trending-up",
-] as const;
-export const chartIconTokenSchema = z.enum(chartIconTokens);
 
 const fractionDigitsSchema = z.number().int().min(0).max(12);
 const numberFormatSchema = z.object({
@@ -128,11 +82,6 @@ export const formatTokenSchema = z.discriminatedUnion("kind", [
 ]);
 
 export type ResourceBindingExpr = z.infer<typeof resourceBindingExprSchema>;
-export type StateBindingExpr = z.infer<typeof stateBindingExprSchema>;
-export type ScalarLiteralExpr = z.infer<typeof scalarLiteralExprSchema>;
-export type ScalarValueExpr = z.infer<typeof scalarValueExprSchema>;
-export type SemanticColorToken = z.infer<typeof semanticColorTokenSchema>;
-export type ChartIconToken = z.infer<typeof chartIconTokenSchema>;
 export type FormatToken = z.infer<typeof formatTokenSchema>;
 
 export function toStrictJsonSchema(schema: z.ZodType): JSONSchema {
