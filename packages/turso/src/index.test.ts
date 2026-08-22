@@ -9,6 +9,7 @@ describe("TursoConnector", () => {
     });
     expect(connector.dialect).toBe("turso");
     expect(connector.id).toBe("turso:warehouse-example.turso.io");
+    expect(typeof connector.inspectExtensions).toBe("function");
     await connector.close();
   });
 

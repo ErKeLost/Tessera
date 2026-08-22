@@ -120,7 +120,7 @@ describe("Tessera Studio database action routes", () => {
     }
   });
 
-  test("exposes typed capabilities and executes an authenticated insert without raw SQL", async () => {
+  test("exposes typed capabilities and returns the server-compiled SQL review", async () => {
     const { connector, catalog, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({
       connector,
@@ -153,7 +153,10 @@ describe("Tessera Studio database action routes", () => {
       requestId: "route-insert-1",
     }));
     expect(response.status).toBe(200);
-    expect(await response.text()).not.toContain("INSERT INTO");
+    const responseText = await response.text();
+    expect(responseText).toContain('INSERT INTO \\"public\\".\\"orders\\"');
+    expect(responseText).toContain('"affectedRows":1');
+    expect(responseText).not.toContain(connector.id);
     expect(mutations).toHaveLength(1);
   });
 
@@ -195,6 +198,8 @@ describe("Tessera Studio database action routes", () => {
     expect(pending.status).toBe(202);
     const pendingText = await pending.text();
     expect(pendingText).not.toContain(catalog.connectorId);
+    expect(pendingText).toContain('UPDATE \\"public\\".\\"orders\\"');
+    expect(pendingText).toContain('"parameters":["archived","order-1"]');
     const pendingBody = JSON.parse(pendingText) as { approval?: { checkpointId?: string } };
     expect(pendingBody.approval?.checkpointId).toBeString();
     expect(mutations).toHaveLength(0);

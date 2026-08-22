@@ -28,6 +28,8 @@ import {
   bindDatabaseActionRowPredicates,
   createDatabaseActionHash,
   databaseActionSchema,
+  databaseCompiledMutationSchema,
+  databaseMutationActionSchema,
   databaseRowPredicateBindingSchema,
   databaseMutationResultSchema,
   evaluateDatabaseActionPolicy,
@@ -35,7 +37,9 @@ import {
   type DatabaseAction,
   type DatabaseActionPermissionGrant,
   type DatabaseCatalog,
+  type DatabaseCompiledMutation,
   type DatabaseConnector,
+  type DatabaseMutationAction,
   type DatabaseMutationResult,
   type DatabasePermissionActor,
   type DatabaseRowPredicateBinding,
@@ -68,6 +72,12 @@ const databaseActionInvocationSchema = z.object({
 const databaseActionResultSchema = databaseMutationResultSchema.extend({
   actionHash: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   catalogFingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+}).strict();
+
+const databaseActionReviewSchema = z.object({
+  action: databaseMutationActionSchema,
+  purpose: z.string().trim().min(1).max(1_000),
+  compiled: databaseCompiledMutationSchema.optional(),
 }).strict();
 
 const databaseActionInputSchema = boundedObjectSchema({
@@ -142,8 +152,17 @@ export type TesseraDatabaseActionResult = DatabaseMutationResult & Readonly<{
   catalogFingerprint: `sha256:${string}`;
 }>;
 
+export type TesseraDatabaseActionReview = Readonly<{
+  /** Browser-safe action metadata. The physical connector id remains private. */
+  action: DatabaseMutationAction;
+  purpose: string;
+  /** The exact parameterized statement compiled by the server for approval. */
+  compiled?: DatabaseCompiledMutation;
+}>;
+
 export type TesseraDatabaseActionEffect = EffectExecutionResult & Readonly<{
   result?: TesseraDatabaseActionResult;
+  review?: TesseraDatabaseActionReview;
 }>;
 
 export type TesseraDatabaseActionSubmitInput = Readonly<{
@@ -213,6 +232,7 @@ export type CreateTesseraDatabaseActionServiceOptions = Readonly<{
 export type TesseraDatabaseActionService = Readonly<{
   submit(input: TesseraDatabaseActionSubmitInput): Promise<TesseraDatabaseActionEffect>;
   get(input: TesseraDatabaseActionGetInput): Promise<TesseraDatabaseActionEffect>;
+  retry(input: TesseraDatabaseActionGetInput): Promise<TesseraDatabaseActionEffect>;
   approve(input: TesseraDatabaseActionApprovalInput): Promise<TesseraDatabaseActionEffect>;
   reject(input: TesseraDatabaseActionApprovalInput): Promise<TesseraDatabaseActionEffect>;
   cancel(input: TesseraDatabaseActionCancelInput): Promise<EffectCancellationReceipt>;
@@ -469,6 +489,14 @@ export function createTesseraDatabaseActionService(
       state: options.state,
       storagePrefix: `tessera.database-actions.results.${partition}`,
     });
+    const reviews = new DurableDatabaseActionReviewStore({
+      state: options.state,
+      storagePrefix: `tessera.database-actions.reviews.${partition}`,
+    });
+    const retries = new DurableDatabaseActionRetryStore({
+      state: options.state,
+      storagePrefix: `tessera.database-actions.retries.${partition}`,
+    });
     const grant = await ensureMutationGrant({
       grants,
       actor,
@@ -495,7 +523,7 @@ export function createTesseraDatabaseActionService(
         outputCommit,
       },
     });
-    return { actor, broker, grant, outputCommit };
+    return { actor, broker, effects, grant, outputCommit, retries, reviews };
   };
 
   const bind = async (input: TesseraDatabaseActionActor) => bindActor(await toActorContext(input));
@@ -503,79 +531,169 @@ export function createTesseraDatabaseActionService(
   const withResult = async (
     execution: EffectExecutionResult,
     outputCommit: DurableDatabaseActionOutputCommitter,
+    effects: DurableEffectStore,
+    reviews: DurableDatabaseActionReviewStore,
   ): Promise<TesseraDatabaseActionEffect> => {
-    if (execution.summary.status !== "succeeded") return execution;
-    const result = await outputCommit.get(execution.summary.requestId);
-    return result === undefined ? execution : { ...execution, result };
+    const requestId = execution.summary.requestId;
+    let review = await reviews.get(requestId);
+    if (review === undefined) {
+      const stored = await effects.get(requestId);
+      const invocation = stored === undefined
+        ? undefined
+        : databaseActionInvocationSchema.safeParse(stored.request.resolvedInput);
+      if (invocation?.success && invocation.data.action.kind !== "data.read") {
+        const publicAction = publicDatabaseAction(invocation.data.action);
+        review = databaseActionReviewSchema.parse({
+          action: publicAction,
+          purpose: invocation.data.purpose,
+        }) as TesseraDatabaseActionReview;
+        try {
+          const catalog = await getCatalog();
+          const effectiveAction = bindDatabaseActionRowPredicates(
+            assertDatabaseActionCatalogBinding(invocation.data.action, catalog),
+            invocation.data.boundRowPredicates ?? [],
+          );
+          if (effectiveAction.kind !== "data.read") {
+            review = createDatabaseActionReview(publicAction, effectiveAction, catalog, invocation.data.purpose);
+          }
+        } catch {
+          // Older durable effects can outlive their catalog snapshot. Their
+          // action metadata is still useful even when SQL cannot be rebuilt.
+        }
+        await reviews.set(requestId, review);
+      }
+    }
+    if (execution.summary.status !== "succeeded") {
+      return review === undefined ? execution : { ...execution, review };
+    }
+    const result = await outputCommit.get(requestId);
+    return {
+      ...execution,
+      ...(result === undefined ? {} : { result }),
+      ...(review === undefined ? {} : { review }),
+    };
+  };
+
+  const submit = async (input: TesseraDatabaseActionSubmitInput): Promise<TesseraDatabaseActionEffect> => {
+    const inputInvocation = databaseActionInvocationSchema.parse({
+      action: input.action,
+      purpose: input.purpose,
+      requireApproval: input.requireApproval ?? false,
+    });
+    if (inputInvocation.action.kind === "data.read") throw new TypeError("Read actions must use the existing Data Agent.");
+    const actor = await toActorContext(input.actor);
+    const [permissionActor, catalog] = await Promise.all([resolvePermissionActor(actor), getCatalog()]);
+    const invocation = databaseActionInvocationSchema.parse({
+      action: normalizeConnectionRef(inputInvocation.action),
+      purpose: inputInvocation.purpose,
+      requireApproval: inputInvocation.requireApproval,
+    });
+    const bound = await bindAction(invocation.action, catalog, permissionActor);
+    const { broker, effects, grant, outputCommit, reviews } = await bindActor(actor);
+    const requestId = input.requestId ?? id("database-action-request");
+    if (invocation.action.kind === "data.read" || bound.action.kind === "data.read") {
+      throw new TypeError("Read actions must use the existing Data Agent.");
+    }
+    const review = createDatabaseActionReview(
+      publicDatabaseAction(invocation.action),
+      bound.action,
+      catalog,
+      invocation.purpose,
+    );
+    const execution = await broker.submit({
+      requestId,
+      invocationId: input.invocationId ?? id("database-action-invocation"),
+      stepId: input.stepId ?? id("database-action-step"),
+      documentId,
+      branchId: "main",
+      revisionId: (await resolvePolicy()).policyHash,
+      expectedHeadToken: bound.action.catalogFingerprint,
+      nodeId: "database-mutation",
+      eventPort: "submit",
+      actionId: input.actionId ?? createDatabaseActionHash(bound.action),
+      capabilityId: grant.capabilityId,
+      grantVersion: grant.grantVersion,
+      grantSetVersion: grant.grantSetVersion,
+      input: toJsonValue({
+        action: invocation.action,
+        purpose: invocation.purpose,
+        requireApproval: invocation.requireApproval,
+        boundRowPredicates: bound.bindings,
+      }),
+      statePreconditions: {},
+      idempotencyKey: input.idempotencyKey ?? requestId,
+    }, actor);
+    await reviews.set(requestId, review);
+    return withResult(execution, outputCommit, effects, reviews);
   };
 
   return Object.freeze({
-    async submit(input: TesseraDatabaseActionSubmitInput): Promise<TesseraDatabaseActionEffect> {
-      const inputInvocation = databaseActionInvocationSchema.parse({
-        action: input.action,
-        purpose: input.purpose,
-        requireApproval: input.requireApproval ?? false,
-      });
-      if (inputInvocation.action.kind === "data.read") throw new TypeError("Read actions must use the existing Data Agent.");
-      const actor = await toActorContext(input.actor);
-      const [permissionActor, catalog] = await Promise.all([resolvePermissionActor(actor), getCatalog()]);
-      const invocation = databaseActionInvocationSchema.parse({
-        action: normalizeConnectionRef(inputInvocation.action),
-        purpose: inputInvocation.purpose,
-        requireApproval: inputInvocation.requireApproval,
-      });
-      const bound = await bindAction(invocation.action, catalog, permissionActor);
-      const { broker, grant, outputCommit } = await bindActor(actor);
-      const requestId = input.requestId ?? id("database-action-request");
-      const execution = await broker.submit({
-        requestId,
-        invocationId: input.invocationId ?? id("database-action-invocation"),
-        stepId: input.stepId ?? id("database-action-step"),
-        documentId,
-        branchId: "main",
-        revisionId: (await resolvePolicy()).policyHash,
-        expectedHeadToken: bound.action.catalogFingerprint,
-        nodeId: "database-mutation",
-        eventPort: "submit",
-        actionId: input.actionId ?? createDatabaseActionHash(bound.action),
-        capabilityId: grant.capabilityId,
-        grantVersion: grant.grantVersion,
-        grantSetVersion: grant.grantSetVersion,
-        input: toJsonValue({
-          action: invocation.action,
-          purpose: invocation.purpose,
-          requireApproval: invocation.requireApproval,
-          boundRowPredicates: bound.bindings,
-        }),
-        statePreconditions: {},
-        idempotencyKey: input.idempotencyKey ?? requestId,
-      }, actor);
-      return withResult(execution, outputCommit);
-    },
+    submit,
 
     async get(input: TesseraDatabaseActionGetInput): Promise<TesseraDatabaseActionEffect> {
-      const { actor, broker, outputCommit } = await bind(input.actor);
-      return withResult(await broker.getEffect(input.requestId, actor), outputCommit);
+      const { actor, broker, effects, outputCommit, retries, reviews } = await bind(input.actor);
+      let requestId = input.requestId;
+      let execution = await broker.getEffect(requestId, actor);
+      const visited = new Set([requestId]);
+      for (let depth = 0; depth < 16; depth += 1) {
+        const nextRequestId = await retries.get(requestId);
+        if (nextRequestId === undefined) break;
+        if (visited.has(nextRequestId)) throw new Error("Database action retry chain is invalid.");
+        visited.add(nextRequestId);
+        requestId = nextRequestId;
+        execution = await broker.getEffect(requestId, actor);
+      }
+      return withResult(execution, outputCommit, effects, reviews);
+    },
+
+    async retry(input: TesseraDatabaseActionGetInput): Promise<TesseraDatabaseActionEffect> {
+      const { actor, broker, effects, outputCommit, retries, reviews } = await bind(input.actor);
+      const execution = await broker.getEffect(input.requestId, actor);
+      const existingRetryRequestId = await retries.get(input.requestId);
+      if (existingRetryRequestId !== undefined) {
+        return withResult(
+          await broker.getEffect(existingRetryRequestId, actor),
+          outputCommit,
+          effects,
+          reviews,
+        );
+      }
+      if (execution.summary.status !== "failed"
+        && execution.summary.status !== "denied"
+        && execution.summary.status !== "cancelled") {
+        throw new TypeError("Only a terminal database action can be retried.");
+      }
+      const previous = await withResult(execution, outputCommit, effects, reviews);
+      if (previous.review === undefined) throw new Error("Database action review is unavailable.");
+      const next = await submit({
+        actor: input.actor,
+        action: previous.review.action,
+        purpose: previous.review.purpose,
+        requireApproval: true,
+        requestId: `database-action-retry-${stableToken(input.requestId)}`,
+      });
+      await retries.set(input.requestId, next.summary.requestId);
+      return next;
     },
 
     async approve(input: TesseraDatabaseActionApprovalInput): Promise<TesseraDatabaseActionEffect> {
-      const { actor, broker, outputCommit } = await bind(input.actor);
+      const { actor, broker, effects, outputCommit, reviews } = await bind(input.actor);
       return withResult(await broker.respondToApproval({
         requestId: input.requestId,
         checkpointId: input.checkpointId,
         decision: "approve",
         approver: actor,
-      }), outputCommit);
+      }), outputCommit, effects, reviews);
     },
 
     async reject(input: TesseraDatabaseActionApprovalInput): Promise<TesseraDatabaseActionEffect> {
-      const { actor, broker, outputCommit } = await bind(input.actor);
+      const { actor, broker, effects, outputCommit, reviews } = await bind(input.actor);
       return withResult(await broker.respondToApproval({
         requestId: input.requestId,
         checkpointId: input.checkpointId,
         decision: "reject",
         approver: actor,
-      }), outputCommit);
+      }), outputCommit, effects, reviews);
     },
 
     async cancel(input: TesseraDatabaseActionCancelInput): Promise<EffectCancellationReceipt> {
@@ -668,6 +786,84 @@ async function ensureMutationGrant(input: EnsureMutationGrantInput): Promise<Cap
   };
   await input.grants.setCapability(grant);
   return grant;
+}
+
+function publicDatabaseAction(action: DatabaseMutationAction): DatabaseMutationAction {
+  return databaseMutationActionSchema.parse({
+    ...action,
+    connectionRef: "tessera",
+  });
+}
+
+function createDatabaseActionReview(
+  publicAction: DatabaseMutationAction,
+  effectiveAction: DatabaseMutationAction,
+  catalog: DatabaseCatalog,
+  purpose: string,
+): TesseraDatabaseActionReview {
+  const plan = compileDatabaseMutation({ action: effectiveAction, catalog, purpose });
+  return databaseActionReviewSchema.parse({
+    action: publicAction,
+    purpose,
+    compiled: plan.compiled,
+  }) as TesseraDatabaseActionReview;
+}
+
+class DurableDatabaseActionReviewStore {
+  readonly #state: DurableStateStorePort;
+  readonly #storagePrefix: string;
+
+  constructor(input: { state: DurableStateStorePort; storagePrefix: string }) {
+    this.#state = input.state;
+    this.#storagePrefix = input.storagePrefix;
+  }
+
+  async set(requestId: string, review: TesseraDatabaseActionReview): Promise<void> {
+    const value = databaseActionReviewSchema.parse(review) as TesseraDatabaseActionReview;
+    const key = this.#key(requestId);
+    await this.#state.transaction([key], async (transaction) => {
+      await transaction.set(key, value);
+    });
+  }
+
+  async get(requestId: string): Promise<TesseraDatabaseActionReview | undefined> {
+    const value = await this.#state.read<unknown>(this.#key(requestId));
+    return value === undefined
+      ? undefined
+      : databaseActionReviewSchema.parse(value) as TesseraDatabaseActionReview;
+  }
+
+  #key(requestId: string): string {
+    return `${this.#storagePrefix}.${stableToken(requestId)}`;
+  }
+}
+
+class DurableDatabaseActionRetryStore {
+  readonly #state: DurableStateStorePort;
+  readonly #storagePrefix: string;
+
+  constructor(input: { state: DurableStateStorePort; storagePrefix: string }) {
+    this.#state = input.state;
+    this.#storagePrefix = input.storagePrefix;
+  }
+
+  async set(requestId: string, retryRequestId: string): Promise<void> {
+    const key = this.#key(requestId);
+    await this.#state.transaction([key], async (transaction) => {
+      await transaction.set(key, retryRequestId);
+    });
+  }
+
+  async get(requestId: string): Promise<string | undefined> {
+    const value = await this.#state.read<unknown>(this.#key(requestId));
+    return typeof value === "string" && value.length > 0 && value.length <= 256
+      ? value
+      : undefined;
+  }
+
+  #key(requestId: string): string {
+    return `${this.#storagePrefix}.${stableToken(requestId)}`;
+  }
 }
 
 class DurableDatabaseActionOutputCommitter implements CapabilityOutputCommitPort {

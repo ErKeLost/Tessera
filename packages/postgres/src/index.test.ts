@@ -14,6 +14,8 @@ describe("PostgresConnector", () => {
     });
     expect(connector.id).toBe("postgres:localhost");
     expect(typeof connector.mutate).toBe("function");
+    expect(typeof connector.inspectExtensions).toBe("function");
+    expect(typeof connector.inspectRlsPolicies).toBe("function");
   });
 
   test("rejects a plan for another connection before opening a database session", async () => {

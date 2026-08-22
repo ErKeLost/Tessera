@@ -114,7 +114,7 @@ function request(path: string, init?: RequestInit): Request {
   return new Request(`http://127.0.0.1:4317${path}`, init);
 }
 
-describe("Tessera Studio Hono app", () => {
+describe("Tessera Studio Nitro app", () => {
   test("uses Bun's maximum global idle allowance for Studio requests", () => {
     expect(TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS).toBe(255);
   });

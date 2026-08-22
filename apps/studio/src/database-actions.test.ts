@@ -62,6 +62,14 @@ describe("Tessera database action service", () => {
     });
 
     expect(pending.summary.status).toBe("awaiting-approval");
+    expect(pending.review).toEqual({
+      action: { ...insertAction(catalog), connectionRef: "tessera" },
+      purpose: "Create one order from the Data Agent",
+      compiled: {
+        sql: 'INSERT INTO "public"."orders" ("id", "status") VALUES ($1, $2)',
+        parameters: ["order-1", "new"],
+      },
+    });
     expect(mutations).toHaveLength(0);
 
     const approved = await service.approve({
@@ -70,6 +78,59 @@ describe("Tessera database action service", () => {
       checkpointId: pending.approval!.checkpointId,
     });
     expect(approved.summary.status).toBe("succeeded");
+    expect(approved.result).toMatchObject({ affectedRows: 1, durationMs: 3 });
+    expect(approved.review).toEqual(pending.review);
+    expect(mutations).toHaveLength(1);
+  });
+
+  test("keeps the compiled review and database diagnostic when execution fails", async () => {
+    const { connector, catalog, mutations } = createConnector();
+    connector.mutate = async (request) => {
+      mutations.push(request);
+      throw new Error('update or delete on table "orders" violates foreign key constraint "items_order_id_fkey"');
+    };
+    const service = createTesseraDatabaseActionService({
+      connector,
+      state: new InMemoryDurableStateStore(),
+      policy: createDatabaseScopedPermissionPolicy({ profile: "normal" }),
+      idFactory: deterministicIds(),
+    });
+    const pending = await service.submit({
+      actor: ACTOR,
+      requestId: "failed-order-update",
+      action: updateAction(catalog),
+      purpose: "Archive one order",
+    });
+
+    const failed = await service.approve({
+      actor: ACTOR,
+      requestId: pending.summary.requestId,
+      checkpointId: pending.approval!.checkpointId,
+    });
+
+    expect(failed.summary.status).toBe("failed");
+    expect(failed.review?.compiled).toEqual({
+      sql: 'UPDATE "public"."orders" SET "status" = $1 WHERE "id" = $2',
+      parameters: ["archived", "order-1"],
+    });
+    expect(failed.receipt?.diagnostic).toMatchObject({
+      code: "capability.execution-failed",
+      message: expect.stringContaining("items_order_id_fkey"),
+    });
+    expect(mutations).toHaveLength(1);
+
+    const retried = await service.retry({ actor: ACTOR, requestId: failed.summary.requestId });
+    expect(retried.summary.status).toBe("awaiting-approval");
+    expect(retried.summary.requestId).not.toBe(failed.summary.requestId);
+    expect(retried.review).toEqual(failed.review);
+    expect(mutations).toHaveLength(1);
+
+    const restoredFromOriginal = await service.get({ actor: ACTOR, requestId: failed.summary.requestId });
+    expect(restoredFromOriginal.summary.requestId).toBe(retried.summary.requestId);
+    expect(restoredFromOriginal.summary.status).toBe("awaiting-approval");
+
+    const replayedRetry = await service.retry({ actor: ACTOR, requestId: failed.summary.requestId });
+    expect(replayedRetry.summary.requestId).toBe(retried.summary.requestId);
     expect(mutations).toHaveLength(1);
   });
 

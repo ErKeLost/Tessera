@@ -35,6 +35,7 @@ import {
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
+  toMastraModelConfig,
 } from "./agent";
 import { RequestContext } from "@mastra/core/request-context";
 import type { TesseraLlmConfig } from "./config";
@@ -150,6 +151,29 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("passes an environment provider key to an explicit gateway model", () => {
+    const previous = process.env.OPENROUTER_API_KEY;
+    process.env.OPENROUTER_API_KEY = "environment-provider-secret";
+    try {
+      expect(toMastraModelConfig({
+        model: "openrouter/qwen/qwen3.8-27b",
+        baseUrl: "https://openrouter.ai/api/v1",
+        headers: {},
+        temperature: 0.1,
+        maxOutputTokens: 1_024,
+        maxSteps: 3,
+        maxRetries: 0,
+      })).toEqual({
+        id: "openrouter/qwen/qwen3.8-27b",
+        url: "https://openrouter.ai/api/v1",
+        apiKey: "environment-provider-secret",
+      });
+    } finally {
+      if (previous === undefined) delete process.env.OPENROUTER_API_KEY;
+      else process.env.OPENROUTER_API_KEY = previous;
+    }
+  });
+
   test("loads a bounded physical schema context without exposing connection metadata", async () => {
     const catalog = {
       connectorId: "secret-connector",
@@ -566,6 +590,19 @@ describe("Tessera Agent vNext public boundary", () => {
       nextAction: "list_database",
     });
 
+    const truncatedInventory = {
+      kind: "database-schema-inventory",
+      dialect: "postgres",
+      schemas: [{ name: "analytics", tableCount: 1, tables: [] }],
+      truncated: true,
+      omitted: { schemas: 0, tables: 1 },
+    } as NonNullable<Parameters<typeof inspectDatabaseSchema>[2]>;
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" }, truncatedInventory)).toMatchObject({
+      status: "completed",
+      schema: { tables: [{ name: "orders" }] },
+      tableCount: 1,
+    });
+
     const hostileInventory = buildDatabaseSchemaInventory({
       dialect: "postgres",
       schemas: [{
@@ -717,6 +754,9 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("invoke it immediately without waiting for the user");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
+    expect(instructions).toContain("system/catalog relations");
+    expect(instructions).not.toContain("information_schema");
+    expect(instructions).not.toContain("pg_tables");
   });
 
   test("injects runtime authorization and transient system signals outside the base prompt", async () => {
@@ -1670,6 +1710,22 @@ describe("Tessera Agent vNext public boundary", () => {
       evidence: { sampleRows: [{ email: "customer@example.test" }] },
       rawCommand: "select raw_sql_marker from private.orders",
     })).toEqual({ status: "completed", rowCount: 2 });
+
+    expect(publicToolOutput("list_rls_policies", "completed", {
+      dialect: "postgres",
+      relations: [{ schema: "public", table: "orders", policies: [{ name: "tenant", usingExpression: "secret" }] }],
+      policyCount: 1,
+      connectionString: "postgres://user:password@private-host/warehouse",
+    })).toEqual({ status: "completed", dialect: "postgres", relationCount: 1, policyCount: 1 });
+
+    expect(publicToolOutput("list_extensions", "completed", {
+      dialect: "postgres",
+      extensions: [
+        { name: "pgcrypto", installed: true },
+        { name: "postgis", installed: false },
+      ],
+      connectionString: "postgres://user:password@private-host/warehouse",
+    })).toEqual({ status: "completed", dialect: "postgres", extensionCount: 2, installedCount: 1 });
   });
 
 });

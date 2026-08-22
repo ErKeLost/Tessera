@@ -57,6 +57,10 @@ describe("SqliteConnector", () => {
         referencedColumns: ["id"],
       });
 
+      const extensions = await connector.inspectExtensions();
+      expect(extensions.dialect).toBe("sqlite");
+      expect(extensions.extensions.every((extension) => extension.kind === "module")).toBe(true);
+
       const result = await connector.query({
         sql: "SELECT id, total FROM main.orders WHERE total >= ? ORDER BY id",
         parameters: [10],

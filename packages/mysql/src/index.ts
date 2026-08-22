@@ -4,6 +4,8 @@ import {
   databaseMutationResultSchema,
   createAbortResilientAsyncCache,
   databaseCapabilitiesSchema,
+  databaseExtensionInspectionInputSchema,
+  databaseExtensionInspectionSchema,
   finalizeCatalog,
   validateDatabaseMutationPlan,
   type AbortResilientAsyncCache,
@@ -12,6 +14,7 @@ import {
   type DatabaseCatalog,
   type DatabaseCapabilities,
   type DatabaseConnector,
+  type DatabaseExtensionInspectionInput,
   type DatabaseMutationExecutor,
   type DatabaseMutationRequest,
   type DatabaseMutationResult,
@@ -293,6 +296,63 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
       components,
       truncated,
       warnings: result.pluginWarning ? [result.pluginWarning] : [],
+    });
+  }
+
+  async inspectExtensions(
+    input: DatabaseExtensionInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = databaseExtensionInspectionInputSchema.parse(input);
+    const result = await this.#withReadOnlyTransaction(signal, async (client) => {
+      const database = await queryDatabaseName(client);
+      const names = parsed.names ?? [];
+      const where = names.length
+        ? " WHERE PLUGIN_NAME IN (" + names.map(() => "?").join(", ") + ")"
+        : "";
+      try {
+        const rows = await queryRows<{
+          plugin_name: string;
+          plugin_version: string | null;
+          plugin_status: string | null;
+          plugin_type: string | null;
+        }>(client, `
+          SELECT PLUGIN_NAME AS plugin_name,
+            PLUGIN_VERSION AS plugin_version,
+            PLUGIN_STATUS AS plugin_status,
+            PLUGIN_TYPE AS plugin_type
+          FROM information_schema.PLUGINS${where}
+          ORDER BY PLUGIN_NAME
+          LIMIT 513
+        `, names);
+        return { database, rows, warning: undefined as string | undefined };
+      } catch {
+        return {
+          database,
+          rows: [],
+          warning: "MySQL plugin metadata was not available to this credential.",
+        };
+      }
+    });
+    const extensions = result.rows.slice(0, 512).map((row) => ({
+      name: row.plugin_name,
+      kind: "plugin" as const,
+      installed: true,
+      ...(row.plugin_version ? { installedVersion: row.plugin_version } : {}),
+      ...(row.plugin_status ? { status: row.plugin_status } : {}),
+      ...(row.plugin_type ? { type: row.plugin_type } : {}),
+    }));
+    return databaseExtensionInspectionSchema.parse({
+      kind: "database-extensions",
+      connectorId: this.id,
+      dialect: "mysql",
+      ...(result.database ? { databaseName: result.database } : {}),
+      extensions,
+      truncated: result.rows.length > 512,
+      warnings: [
+        ...(result.warning ? [result.warning] : []),
+        "MySQL exposes installed server plugins; it does not expose an available-plugin catalog.",
+      ],
     });
   }
 

@@ -4,6 +4,7 @@ import type {
   ModelVisibleGrantSet,
 } from "@data-elements/capability-broker";
 import type {
+  DatabaseCompiledMutation,
   DatabaseMutationAction,
   DatabaseMutationResult,
 } from "@data-elements/database";
@@ -73,6 +74,7 @@ export type StudioSettingsStatus = Readonly<{
   llm: Readonly<{
     provider: string;
     apiKeyConfigured: boolean;
+    apiKeySource: "explicit" | "environment" | "none";
   }>;
 }>;
 
@@ -88,8 +90,15 @@ export type StudioDatabaseActionResult = DatabaseMutationResult & Readonly<{
   catalogFingerprint: `sha256:${string}`;
 }>;
 
+export type StudioDatabaseActionReview = Readonly<{
+  action: StudioDatabaseAction;
+  purpose: string;
+  compiled?: DatabaseCompiledMutation;
+}>;
+
 export type StudioDatabaseActionEffect = EffectExecutionResult & Readonly<{
   result?: StudioDatabaseActionResult;
+  review?: StudioDatabaseActionReview;
 }>;
 
 export type StudioDatabaseActionCapabilities = ModelVisibleGrantSet;
@@ -97,6 +106,8 @@ export type StudioDatabaseActionCapabilities = ModelVisibleGrantSet;
 export type StudioDatabaseActionSubmitInput = Readonly<{
   action: StudioDatabaseAction;
   purpose: string;
+  /** Can tighten policy for a retry, but can never bypass required approval. */
+  requireApproval?: boolean;
   /** Stable request identity makes retries replay-safe. */
   requestId?: string;
   invocationId?: string;
@@ -162,6 +173,17 @@ export function fetchStudioDatabaseAction(
   return requestJson<StudioDatabaseActionEffect>(
     `/api/database-actions/${encodeURIComponent(requestId)}`,
     { signal },
+  );
+}
+
+export function retryStudioDatabaseAction(
+  requestId: string,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return requestJson<StudioDatabaseActionEffect>(
+    `/api/database-actions/${encodeURIComponent(requestId)}/retry`,
+    { method: "POST", signal },
+    { acceptedStatuses: [202] },
   );
 }
 
@@ -273,17 +295,23 @@ export async function fetchStudioSettingsStatus(signal?: AbortSignal): Promise<S
   const databaseConfigured = database?.urlConfigured;
   const provider = llm?.provider;
   const apiKeyConfigured = llm?.apiKeyConfigured;
+  const apiKeySource = readApiKeySource(llm?.apiKeySource);
   if (
     typeof databaseConfigured !== "boolean"
     || typeof provider !== "string"
     || typeof apiKeyConfigured !== "boolean"
+    || apiKeySource === undefined
   ) {
     throw new Error("settings_response_invalid");
   }
   return {
     database: { urlConfigured: databaseConfigured },
-    llm: { provider, apiKeyConfigured },
+    llm: { provider, apiKeyConfigured, apiKeySource },
   };
+}
+
+function readApiKeySource(value: unknown): StudioSettingsStatus["llm"]["apiKeySource"] | undefined {
+  return value === "explicit" || value === "environment" || value === "none" ? value : undefined;
 }
 
 export function publicError(error: unknown): string {

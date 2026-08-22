@@ -201,6 +201,7 @@ describe("Tessera Studio settings runtime", () => {
     expect(publicJson).not.toContain("baseline-database-secret");
     expect(publicJson).toContain("gateway.example.test");
     expect(publicJson).toContain('"reasoningEffort":"low"');
+    expect(createTesseraStudioSettingsSnapshot(next.config, next.accessMode).llm.apiKeySource).toBe("explicit");
     const providerSwitch = normalizeTesseraStudioSettings(baseConfig, candidate({
       llm: { provider: "openai", model: "gpt-5" },
     }));
@@ -212,6 +213,33 @@ describe("Tessera Studio settings runtime", () => {
         url: "mysql://readonly:not-for-error-text@localhost/analytics",
       },
     }))).toThrow("does not match");
+  });
+
+  test("distinguishes environment model credentials from locally configured keys", () => {
+    const previous = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "environment-provider-secret";
+    try {
+      const config = defineTesseraConfig({
+        database: {
+          dialect: "postgres",
+          url: "postgresql://readonly:database-secret@localhost/warehouse",
+        },
+        llm: {
+          model: "openai/gpt-5",
+          baseUrl: "https://api.openai.com/v1",
+        },
+      });
+      const snapshot = createTesseraStudioSettingsSnapshot(config);
+
+      expect(snapshot.llm).toMatchObject({
+        apiKeyConfigured: true,
+        apiKeySource: "environment",
+      });
+      expect(JSON.stringify(snapshot)).not.toContain("environment-provider-secret");
+    } finally {
+      if (previous === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previous;
+    }
   });
 
   test("keeps Turso tokens server-only and enforces read-only access", () => {

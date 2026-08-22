@@ -193,6 +193,77 @@ export const databaseCapabilitiesSchema = z.object({
   warnings: z.array(z.string().min(1).max(1_000)).max(16),
 }).strict();
 
+/** Read-only database-specific extension, plugin, or compiled-module metadata. */
+export const databaseExtensionSchema = z.object({
+  name: z.string().min(1).max(256),
+  /** The database-native mechanism represented by this inventory item. */
+  kind: z.enum(["extension", "plugin", "module"]).default("extension"),
+  schema: z.string().min(1).max(256).optional(),
+  installed: z.boolean(),
+  installedVersion: z.string().min(1).max(256).optional(),
+  defaultVersion: z.string().min(1).max(256).optional(),
+  /** Native status/type values when the database exposes them. */
+  status: z.string().min(1).max(128).optional(),
+  type: z.string().min(1).max(128).optional(),
+}).strict();
+
+export const databaseExtensionInspectionInputSchema = z.object({
+  names: z.array(z.string().trim().min(1).max(256)).max(128).optional(),
+  includeAvailable: z.boolean().default(true),
+}).strict();
+
+export const databaseExtensionInspectionSchema = z.object({
+  kind: z.literal("database-extensions"),
+  connectorId: z.string().min(1).max(256),
+  dialect: databaseDialectSchema,
+  databaseName: z.string().min(1).max(256).optional(),
+  extensions: z.array(databaseExtensionSchema).max(512),
+  truncated: z.boolean(),
+  warnings: z.array(z.string().min(1).max(1_000)).max(16),
+}).strict();
+
+/** PostgreSQL row-level security metadata. Expressions are optional because
+ * policy predicates can contain sensitive business rules and are unnecessary
+ * for a simple policy inventory. */
+export const databaseRlsPolicySchema = z.object({
+  schema: z.string().min(1).max(256),
+  table: z.string().min(1).max(256),
+  name: z.string().min(1).max(256),
+  permissive: z.enum(["permissive", "restrictive"]),
+  roles: z.array(z.string().min(1).max(256)).max(64),
+  command: z.enum(["select", "insert", "update", "delete", "all"]),
+  usingExpression: z.string().max(8_000).optional(),
+  checkExpression: z.string().max(8_000).optional(),
+}).strict();
+
+export const databaseRlsRelationSchema = z.object({
+  schema: z.string().min(1).max(256),
+  table: z.string().min(1).max(256),
+  rlsEnabled: z.boolean(),
+  rlsForced: z.boolean(),
+  policies: z.array(databaseRlsPolicySchema).max(256),
+}).strict();
+
+export const databaseRlsPolicyInspectionInputSchema = z.object({
+  schemas: z.array(z.string().trim().min(1).max(256)).max(64).optional(),
+  relations: z.array(z.object({
+    schema: z.string().trim().min(1).max(256),
+    table: z.string().trim().min(1).max(256),
+  }).strict()).max(128).optional(),
+  includeExpressions: z.boolean().default(false),
+}).strict();
+
+export const databaseRlsPolicyInspectionSchema = z.object({
+  kind: z.literal("database-rls-policies"),
+  connectorId: z.string().min(1).max(256),
+  dialect: databaseDialectSchema,
+  databaseName: z.string().min(1).max(256).optional(),
+  relations: z.array(databaseRlsRelationSchema).max(512),
+  policyCount: z.number().int().nonnegative(),
+  truncated: z.boolean(),
+  warnings: z.array(z.string().min(1).max(1_000)).max(16),
+}).strict();
+
 export const connectionAssessmentSchema = z.object({
   connectorId: z.string().min(1).max(256),
   dialect: databaseDialectSchema,
@@ -264,6 +335,13 @@ export type DatabaseSchema = Omit<ParsedDatabaseSchema, "tables"> & { tables: Da
 export type DatabaseCatalog = Omit<ParsedDatabaseCatalog, "schemas"> & { schemas: DatabaseSchema[] };
 export type DatabaseCapabilityComponent = z.infer<typeof databaseCapabilityComponentSchema>;
 export type DatabaseCapabilities = z.infer<typeof databaseCapabilitiesSchema>;
+export type DatabaseExtension = z.infer<typeof databaseExtensionSchema>;
+export type DatabaseExtensionInspectionInput = z.input<typeof databaseExtensionInspectionInputSchema>;
+export type DatabaseExtensionInspection = z.infer<typeof databaseExtensionInspectionSchema>;
+export type DatabaseRlsPolicy = z.infer<typeof databaseRlsPolicySchema>;
+export type DatabaseRlsRelation = z.infer<typeof databaseRlsRelationSchema>;
+export type DatabaseRlsPolicyInspectionInput = z.input<typeof databaseRlsPolicyInspectionInputSchema>;
+export type DatabaseRlsPolicyInspection = z.infer<typeof databaseRlsPolicyInspectionSchema>;
 export type ConnectionAssessment = z.infer<typeof connectionAssessmentSchema>;
 export type DatabaseSqlQueryRequest = z.infer<typeof databaseSqlQueryRequestSchema>;
 export type DatabaseMongoQueryRequest = z.infer<typeof databaseMongoQueryRequestSchema>;
@@ -287,6 +365,16 @@ export interface DatabaseConnector {
   /** Optional read-only runtime capability probe. Older/custom connectors may
    * omit it; callers must treat the result as unavailable in that case. */
   inspectCapabilities?(signal?: AbortSignal): Promise<DatabaseCapabilities>;
+  /** Optional database-specific read-only extension inventory. */
+  inspectExtensions?(
+    input?: DatabaseExtensionInspectionInput,
+    signal?: AbortSignal,
+  ): Promise<DatabaseExtensionInspection>;
+  /** Optional database-specific read-only RLS/policy inventory. */
+  inspectRlsPolicies?(
+    input?: DatabaseRlsPolicyInspectionInput,
+    signal?: AbortSignal,
+  ): Promise<DatabaseRlsPolicyInspection>;
   query(request: DatabaseQueryRequest, signal?: AbortSignal): Promise<DatabaseQueryResult>;
   close(): Promise<void>;
 }

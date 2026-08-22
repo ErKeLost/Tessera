@@ -16,6 +16,7 @@ describe("MongoDbConnector", () => {
     const connector = createMongoDbConnector({ connectionString: "mongodb://localhost/warehouse" });
     expect(connector.id).toBe("mongodb:localhost/warehouse");
     expect(connector.dialect).toBe("mongodb");
+    expect(typeof connector.inspectExtensions).toBe("function");
     await connector.close();
   });
 });

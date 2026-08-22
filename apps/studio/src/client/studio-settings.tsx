@@ -50,6 +50,7 @@ export type StudioDatabaseAccessMode = "read-only" | "read-write";
 export type StudioSettingsTab = "database" | "model" | "limits" | "permissions";
 export type StudioReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "none";
 export type StudioReasoningSelection = "default" | StudioReasoningEffort;
+export type StudioApiKeySource = "explicit" | "environment" | "none";
 export type StudioPermissionProfile = "normal" | "auto" | "dangerous";
 export type StudioPermissionLevel = "allow" | "ask" | "deny";
 export type StudioPermissionClass = "read" | "write" | "destructive" | "unknown";
@@ -97,6 +98,7 @@ export type StudioSettingsSnapshot = Readonly<{
     reasoningEffort: StudioReasoningSelection;
     baseUrl?: string;
     apiKeyConfigured: boolean;
+    apiKeySource: StudioApiKeySource;
   }>;
   limits: Readonly<{
     maxRows: number;
@@ -168,6 +170,7 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
     model: "qwen/qwen3.8-27b",
     reasoningEffort: "low",
     apiKeyConfigured: false,
+    apiKeySource: "none",
   },
   limits: {
     maxRows: 500,
@@ -633,14 +636,21 @@ export function StudioSettingsDialog({
                 <Field>
                   <Label htmlFor="settings-api-key"><StudioIcon icon="solar:key-linear" size={14} />API key</Label>
                   <SecretInput
-                    configured={settings.llm.apiKeyConfigured}
+                    configured={settings.llm.apiKeySource === "explicit"}
                     disabled={busy}
-                    emptyPlaceholder="Optional provider key"
+                    emptyPlaceholder={settings.llm.apiKeySource === "environment"
+                      ? "Using server environment credential"
+                      : "Optional provider key"}
                     id="settings-api-key"
                     name="apiKey"
                     onChange={(event) => updateForm("apiKey", event.target.value)}
                     value={form.apiKey}
                   />
+                  {settings.llm.apiKeySource === "environment" && !form.apiKey ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Using the server environment credential. Enter a key here to save a local override.
+                    </p>
+                  ) : null}
                 </Field>
                 <Field>
                   <Label htmlFor="settings-base-url"><StudioIcon icon="solar:link-linear" size={14} />Base URL</Label>
@@ -689,7 +699,7 @@ export function StudioSettingsDialog({
           <div className="min-w-0 space-y-1">
             <h3 className="text-sm font-medium" id="settings-reset-title">Reset local settings</h3>
             <p className="text-xs leading-5 text-muted-foreground">
-              Remove locally saved API keys, database connection details, permissions, and other settings overrides.
+              Remove locally saved API keys, database connection details, permissions, and other settings overrides. Server environment variables are unchanged.
               Remote database data will not be changed.
             </p>
           </div>
@@ -993,6 +1003,8 @@ export function readStudioSettingsSnapshot(value: unknown): StudioSettingsSnapsh
       reasoningEffort: readReasoningSelection(llm?.reasoningEffort) ?? DEFAULT_SETTINGS.llm.reasoningEffort,
       ...(baseUrl === undefined ? {} : { baseUrl }),
       apiKeyConfigured: llm?.apiKeyConfigured === true,
+      apiKeySource: readApiKeySource(llm?.apiKeySource)
+        ?? (llm?.apiKeyConfigured === true ? "explicit" : "none"),
     },
     limits: {
       maxRows: readBoundedInteger(limits?.maxRows, 1, 10_000) ?? DEFAULT_SETTINGS.limits.maxRows,
@@ -1001,6 +1013,10 @@ export function readStudioSettingsSnapshot(value: unknown): StudioSettingsSnapsh
     },
     permissions: permissions ?? DEFAULT_SETTINGS.permissions,
   };
+}
+
+function readApiKeySource(value: unknown): StudioApiKeySource | undefined {
+  return value === "explicit" || value === "environment" || value === "none" ? value : undefined;
 }
 
 function readPermissions(value: unknown): StudioPermissionSettings | undefined {

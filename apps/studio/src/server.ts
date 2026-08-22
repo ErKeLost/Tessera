@@ -32,10 +32,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Hono, type Context } from "hono";
-import { serve as serveNode } from "@hono/node-server";
-import type { Server as NodeServer } from "node:http";
-import type { AddressInfo } from "node:net";
+import { HTTPError } from "h3";
+import { serve, type Server, type ServerRequest } from "srvx";
 import { z } from "zod";
 import { createTesseraStudioAgent } from "./agent";
 import {
@@ -92,6 +90,7 @@ import {
   type StudioLogger,
   type StudioStreamOutcome,
 } from "./studio-logger";
+import { StudioHttpApp, type StudioHttpContext } from "./studio-http";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
@@ -101,6 +100,8 @@ const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "list_catalog",
   "execute_sql",
   "run_analysis",
+  "list_rls_policies",
+  "list_extensions",
 ]);
 /** A table browser is intentionally narrower than governed Agent analysis. */
 const TABLE_PREVIEW_MAX_ROWS = 100;
@@ -126,7 +127,7 @@ const tablePreviewQuerySchema = z.object({
   direction: z.enum(["asc", "desc"]).default("asc"),
   filters: z.string().max(32_000).default("[]"),
 }).strict();
-const DEFAULT_STUDIO_CLIENT_ROOT = fileURLToPath(new URL("../dist/client", import.meta.url));
+const DEFAULT_STUDIO_CLIENT_ROOT = fileURLToPath(new URL("../dist/nitro/public", import.meta.url));
 /** Bun defaults to 10 seconds; use its maximum global idle allowance for Studio HTTP requests. */
 export const TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS = 255;
 const STUDIO_CHAT_RETRY_TTL_MS = 10 * 60_000;
@@ -175,7 +176,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["list_database", "list_catalog", "execute_sql", "run_analysis"]),
+    tool: z.enum(["list_database", "list_catalog", "execute_sql", "run_analysis", "list_rls_policies", "list_extensions"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -183,6 +184,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
 const databaseActionSubmitRequestSchema = z.object({
   action: databaseActionSchema,
   purpose: z.string().trim().min(1).max(1_000),
+  requireApproval: z.boolean().optional(),
   requestId: z.string().trim().min(1).max(256).optional(),
   invocationId: z.string().trim().min(1).max(256).optional(),
   stepId: z.string().trim().min(1).max(256).optional(),
@@ -230,6 +232,8 @@ type StudioEnv = {
     apiErrorLogged: boolean | undefined;
   };
 };
+type StudioContext = StudioHttpContext<StudioEnv["Variables"]>;
+type StudioApp = StudioHttpApp<StudioEnv["Variables"]>;
 
 type StudioErrorStatus = 400 | 401 | 403 | 404 | 413 | 415 | 422 | 500 | 502 | 503;
 
@@ -409,7 +413,7 @@ export type CreateTesseraStudioRuntimeOptions = Omit<StudioAppDependencies, "con
 }>;
 
 export type TesseraStudioRuntime = Readonly<{
-  app: Hono<StudioEnv>;
+  app: StudioApp;
   connector: DatabaseConnector;
   dataAgent: DataAgent;
   databaseActions?: TesseraDatabaseActionService;
@@ -417,7 +421,7 @@ export type TesseraStudioRuntime = Readonly<{
 }>;
 
 export type TesseraStudioServer = Readonly<{
-  app: Hono<StudioEnv>;
+  app: StudioApp;
   connector: DatabaseConnector;
   host: string;
   port: number;
@@ -429,8 +433,8 @@ export type TesseraStudioServer = Readonly<{
  * Creates the transport layer for the Tessera Studio. It deliberately contains
  * no provider credentials, model construction, or direct SQL route.
  */
-export function createStudioApp(dependencies: StudioAppDependencies): Hono<StudioEnv> {
-  const app = new Hono<StudioEnv>();
+export function createStudioApp(dependencies: StudioAppDependencies): StudioApp {
+  const app = new StudioHttpApp<StudioEnv["Variables"]>();
   const logger = dependencies.logger ?? silentStudioLogger;
   const chatRetries = createStudioChatRetryRegistry();
   const modelCatalog = dependencies.modelCatalog ?? createOpenRouterModelCatalogProvider();
@@ -644,7 +648,8 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
   /**
    * Database mutations are deliberately exposed as typed actions only. The
    * service owns catalog binding, policy evaluation, approval and execution;
-   * this transport never accepts or forwards SQL text.
+   * this transport never accepts raw mutation SQL. It can return the exact
+   * server-compiled statement to the authorized actor for review.
    */
   app.get("/api/database-actions/capabilities", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
     const service = runtime.databaseActions;
@@ -663,6 +668,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
         actor: databaseActionActor(context),
         action: parsed.data.action,
         purpose: parsed.data.purpose,
+        ...(parsed.data.requireApproval === undefined ? {} : { requireApproval: parsed.data.requireApproval }),
         ...(parsed.data.requestId === undefined ? {} : { requestId: parsed.data.requestId }),
         ...(parsed.data.invocationId === undefined ? {} : { invocationId: parsed.data.invocationId }),
         ...(parsed.data.stepId === undefined ? {} : { stepId: parsed.data.stepId }),
@@ -680,6 +686,19 @@ export function createStudioApp(dependencies: StudioAppDependencies): Hono<Studi
     const requestId = parseDatabaseActionRequestId(context.req.param("requestId"));
     try {
       return databaseActionEffectResponse(context, await service.get({
+        actor: databaseActionActor(context),
+        requestId,
+      }));
+    } catch (error) {
+      throw databaseActionHttpError(error);
+    }
+  }));
+
+  app.post("/api/database-actions/:requestId/retry", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const service = requireDatabaseActionService(runtime.databaseActions);
+    const requestId = parseDatabaseActionRequestId(context.req.param("requestId"));
+    try {
+      return databaseActionEffectResponse(context, await service.retry({
         actor: databaseActionActor(context),
         requestId,
       }));
@@ -1297,7 +1316,7 @@ function requireSettingsRuntime(value: TesseraStudioRuntimeManager | undefined):
  * also explicitly decide who may alter credentials, policy, or write mode.
  */
 async function authorizeSettingsChange(
-  context: Context<StudioEnv>,
+  context: StudioContext,
   dependencies: StudioAppDependencies,
   kind: StudioSettingsChangeKind,
 ): Promise<void> {
@@ -1415,7 +1434,7 @@ export function createStudioCatalogProvider(
 /**
  * Adapts the Data Agent's catalog cache to Studio navigation and table
  * previews. This keeps the Data Agent as the single owner of introspection
- * policy while preserving the small provider contract used by Hono routes.
+ * policy while preserving the small provider contract used by HTTP routes.
  */
 export function createDataAgentCatalogProvider(dataAgent: DataAgent): StudioCatalogProvider {
   return {
@@ -1523,6 +1542,7 @@ export function createTesseraStudioRuntime(
   const agent = options.agent ?? (isTesseraLlmConfigured(config)
     ? createTesseraStudioAgent({
       dataAgent,
+      databaseDialect: config.database.dialect,
       memory: sessionMemory.memory,
       llm: resolveTesseraLlmConfig(config),
       ...(databaseActions === undefined ? {} : { databaseActions }),
@@ -1594,21 +1614,19 @@ export function createTesseraDatabaseConnector(config: TesseraConfig): DatabaseC
   });
 }
 
-export async function startTesseraStudioServer(
+/**
+ * Creates the managed Studio application without binding a network listener.
+ * Nitro deployments and the standalone CLI share this lifecycle boundary.
+ */
+export async function createTesseraStudioService(
   config: TesseraConfig,
   options: CreateTesseraStudioRuntimeOptions = {},
-): Promise<TesseraStudioServer> {
-  const startedAt = performance.now();
-  const logger = options.logger ?? createStudioConsoleLogger();
-  let runtime: TesseraStudioRuntime | undefined;
-  let settingsRuntime: TesseraStudioRuntimeManager | undefined;
-  let ownsSettingsRuntime = false;
+): Promise<TesseraStudioRuntime> {
+  let settingsRuntime = options.settingsRuntime;
   let durableState: TesseraDurableStateStore | undefined;
-  let server: StudioListeningServer | undefined;
+  let runtime: TesseraStudioRuntime | undefined;
   try {
-    settingsRuntime = options.settingsRuntime;
     if (!settingsRuntime) {
-      ownsSettingsRuntime = true;
       durableState = createTesseraDurableStateStore();
       settingsRuntime = await createTesseraStudioRuntimeManager({
         config,
@@ -1617,7 +1635,41 @@ export async function startTesseraStudioServer(
         databaseState: durableState.state,
       });
     }
-    runtime = createTesseraStudioRuntime(config, { ...options, settingsRuntime, logger });
+    runtime = createTesseraStudioRuntime(config, { ...options, settingsRuntime });
+  } catch (error) {
+    await runtime?.close().catch(() => undefined);
+    if (!runtime && options.settingsRuntime === undefined) {
+      await settingsRuntime?.close().catch(() => undefined);
+    }
+    await durableState?.close().catch(() => undefined);
+    throw error;
+  }
+
+  let closed = false;
+  return {
+    ...runtime,
+    async close() {
+      if (closed) return;
+      closed = true;
+      try {
+        await runtime.close();
+      } finally {
+        await durableState?.close();
+      }
+    },
+  };
+}
+
+export async function startTesseraStudioServer(
+  config: TesseraConfig,
+  options: CreateTesseraStudioRuntimeOptions = {},
+): Promise<TesseraStudioServer> {
+  const startedAt = performance.now();
+  const logger = options.logger ?? createStudioConsoleLogger();
+  let runtime: TesseraStudioRuntime | undefined;
+  let server: StudioListeningServer | undefined;
+  try {
+    runtime = await createTesseraStudioService(config, { ...options, logger });
     const fetch = createStudioFetchHandler(runtime.app);
     try {
       server = await startStudioListeningServer(
@@ -1643,16 +1695,6 @@ export async function startTesseraStudioServer(
       await runtime?.close();
     } catch {
       // Startup failures remain redacted even if a driver rejects shutdown.
-    }
-    if (!runtime && ownsSettingsRuntime) {
-      try {
-        await settingsRuntime?.close();
-      } catch {
-        // The original startup error remains the only observable failure.
-      }
-    }
-    if (!runtime) {
-      await durableState?.close().catch(() => undefined);
     }
     throw error;
   }
@@ -1681,7 +1723,6 @@ export async function startTesseraStudioServer(
       const shutdownAt = performance.now();
       await server.stop();
       await runtime.close();
-      await durableState?.close();
       writeStudioLog(logger, "info", {
         event: "shutdown",
         stage: "stopped",
@@ -1696,80 +1737,33 @@ type StudioListeningServer = Readonly<{
   stop(): Promise<void>;
 }>;
 
-type StudioRequestTimeoutController = Readonly<{
-  timeout(request: Request, seconds: number): void;
-}>;
-
-type StudioFetch = (
-  request: Request,
-  server: StudioRequestTimeoutController,
-) => Response | Promise<Response>;
-
-type BunServerRuntime = Readonly<{
-  serve(options: Readonly<{
-    hostname: string;
-    port: number;
-    idleTimeout: number;
-    fetch: StudioFetch;
-  }>): Readonly<{
-    port?: number;
-    stop(closeActiveConnections?: boolean): void;
-  }>;
-}>;
+type StudioFetch = (request: Request) => Response | Promise<Response>;
 
 async function startStudioListeningServer(
   hostname: string,
   port: number,
   fetch: StudioFetch,
 ): Promise<StudioListeningServer> {
-  const bun = (globalThis as typeof globalThis & { Bun?: BunServerRuntime }).Bun;
-  if (bun) {
-    const server = bun.serve({
-      hostname,
-      port,
-      idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS,
-      fetch,
-    });
-    return {
-      port: server.port ?? port,
-      async stop() {
-        server.stop(true);
-      },
-    };
-  }
-
-  const nodeFetch = (request: Request) => fetch(request, { timeout() {} });
-  const server = await new Promise<NodeServer>((resolveServer, rejectServer) => {
-    const candidate = serveNode({ fetch: nodeFetch, hostname, port }) as NodeServer;
-    const cleanup = () => {
-      candidate.off("error", onError);
-      candidate.off("listening", onListening);
-    };
-    const onError = (error: Error) => {
-      cleanup();
-      rejectServer(error);
-    };
-    const onListening = () => {
-      cleanup();
-      resolveServer(candidate);
-    };
-    candidate.once("error", onError);
-    candidate.once("listening", onListening);
+  const server: Server = serve({
+    fetch,
+    hostname,
+    port,
+    silent: true,
+    gracefulShutdown: false,
+    bun: { idleTimeout: TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS },
   });
-  server.keepAliveTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
-  server.requestTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
-  const address = server.address() as AddressInfo | string | null;
-  const listeningPort = typeof address === "object" && address !== null
-    ? address.port
-    : port;
+  await server.ready();
+  const nodeServer = server.node?.server;
+  if (nodeServer && "keepAliveTimeout" in nodeServer && "requestTimeout" in nodeServer) {
+    nodeServer.keepAliveTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
+    nodeServer.requestTimeout = TESSERA_STUDIO_IDLE_TIMEOUT_SECONDS * 1_000;
+  }
+  const listeningPort = server.url === undefined
+    ? port
+    : Number.parseInt(new URL(server.url).port, 10) || port;
   return {
     port: listeningPort,
-    stop: () => new Promise<void>((resolveStop, rejectStop) => {
-      server.close((error) => {
-        if (error) rejectStop(error);
-        else resolveStop();
-      });
-    }),
+    stop: () => server.close(true),
   };
 }
 
@@ -1800,13 +1794,14 @@ export async function startTesseraStudioFromDatabaseUrl(
   return startTesseraStudioServer(createTesseraConfigFromDatabaseUrl(url), options);
 }
 
-function createStudioFetchHandler(app: Hono<StudioEnv>): StudioFetch {
-  return async (request, server) => {
+function createStudioFetchHandler(app: StudioApp): StudioFetch {
+  return async (request) => {
     if (isLongRunningStudioRequest(request)) {
       // Bun's default 10 second idle timer also applies before an LLM emits
       // its first SSE byte. The server has a generous 255 second default, but
       // Agent requests remain open indefinitely while a provider is quiet.
-      server.timeout(request, 0);
+      const server = (request as ServerRequest).runtime?.bun?.server;
+      if (server) server.timeout(request, 0);
     }
     const response = await app.fetch(request);
     if (response.status !== 404 || request.method !== "GET" && request.method !== "HEAD") {
@@ -1885,7 +1880,7 @@ function contentTypeForPath(path: string): string {
   }
 }
 
-function createStudioApiRequestLog(context: Context<StudioEnv>): StudioApiRequestLog {
+function createStudioApiRequestLog(context: StudioContext): StudioApiRequestLog {
   return {
     requestId: context.get("requestId") ?? "unknown",
     method: context.req.method,
@@ -1914,7 +1909,7 @@ function requireSessionMemory(value: TesseraSessionMemory | undefined): TesseraS
   return value;
 }
 
-function resourceIdForContext(context: Context<StudioEnv>): string {
+function resourceIdForContext(context: StudioContext): string {
   return tesseraSessionResourceId(context.get("identity"));
 }
 
@@ -1930,7 +1925,7 @@ async function ensureStudioSession(
   memory: TesseraSessionMemory | undefined,
   threadId: string,
   message: string,
-  context: Context<StudioEnv>,
+  context: StudioContext,
 ): Promise<void> {
   if (!memory) return;
   const validThreadId = parseThreadId(threadId);
@@ -2100,7 +2095,7 @@ function logAgentEvent(
 }
 
 function logStudioError(
-  context: Context<StudioEnv>,
+  context: StudioContext,
   logger: StudioLogger,
   status: StudioErrorStatus,
   code: string,
@@ -2245,7 +2240,7 @@ function withStudioStreamLogging(
 
 /**
  * A managed runtime must survive until the browser has consumed or cancelled
- * an Agent stream. Releasing it in the Hono handler would allow a Settings
+ * an Agent stream. Releasing it in the route handler would allow a Settings
  * replacement to close its connector while Mastra is still producing chunks.
  */
 function withStudioStreamLease(response: Response, lease: StudioRouteRuntimeLease): Response {
@@ -2353,13 +2348,13 @@ function writeStudioLog(logger: StudioLogger, level: StudioLogLevel, event: Stud
   }
 }
 
-class StudioHttpError extends Error {
+class StudioHttpError extends HTTPError {
   constructor(
     readonly status: StudioErrorStatus,
     readonly code: string,
     readonly publicMessage: string,
   ) {
-    super(publicMessage);
+    super({ message: publicMessage, status });
   }
 }
 
@@ -2370,7 +2365,7 @@ function requireDatabaseActionService(value: TesseraDatabaseActionService | unde
   return value;
 }
 
-function databaseActionActor(context: Context<StudioEnv>): {
+function databaseActionActor(context: StudioContext): {
   tenantRef: string;
   actorRef: string;
   roleRefs?: readonly string[];
@@ -2393,7 +2388,7 @@ function parseDatabaseActionRequestId(value: string | undefined): string {
 }
 
 function databaseActionEffectResponse(
-  context: Context<StudioEnv>,
+  context: StudioContext,
   effect: TesseraDatabaseActionEffect,
 ): Response {
   const status = effect.summary.status === "awaiting-approval"
@@ -2420,7 +2415,7 @@ function databaseActionHttpError(error: unknown): StudioHttpError {
 }
 
 function errorResponse(
-  context: Context<StudioEnv>,
+  context: StudioContext,
   status: StudioErrorStatus,
   code: string,
   message: string,
@@ -3184,7 +3179,9 @@ function publicToolInput(tool: TesseraToolName): Record<string, string> {
   if (tool === "list_database") return { action: "list_database" };
   if (tool === "list_catalog") return { action: "list_catalog" };
   if (tool === "execute_sql") return { action: "execute_sql" };
-  return { action: "run_governed_analysis" };
+  if (tool === "run_analysis") return { action: "run_governed_analysis" };
+  if (tool === "list_rls_policies") return { action: "list_rls_policies" };
+  return { action: "list_extensions" };
 }
 
 function publicToolLogState(value: unknown): "completed" | "blocked" | "failed" {
@@ -3198,7 +3195,9 @@ function publicToolTitle(tool: TesseraToolName): string {
   if (tool === "list_database") return "List database context";
   if (tool === "list_catalog") return "List data catalog";
   if (tool === "execute_sql") return "Execute SQL";
-  return "Run governed analysis";
+  if (tool === "run_analysis") return "Run governed analysis";
+  if (tool === "list_rls_policies") return "List RLS policies";
+  return "List database extensions";
 }
 
 function asTesseraToolName(value: unknown): TesseraToolName | undefined {

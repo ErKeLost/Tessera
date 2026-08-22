@@ -1,9 +1,13 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   databaseCapabilitiesSchema,
+  databaseExtensionInspectionSchema,
+  databaseRlsPolicyInspectionSchema,
   databaseQueryResultSchema,
   findCatalogTable,
   type DatabaseDialect,
+  type DatabaseExtensionInspectionInput,
+  type DatabaseRlsPolicyInspectionInput,
   type DatabaseQueryResult,
 } from "@data-elements/database";
 import {
@@ -224,6 +228,43 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
       throw toDataAgentError(error);
     }));
     return waitForAbort(task, signal);
+  }
+
+  async function inspectExtensions(
+    input: DatabaseExtensionInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    throwIfAborted(signal);
+    if (!options.connector.inspectExtensions) {
+      return databaseExtensionInspectionSchema.parse({
+        kind: "database-extensions",
+        connectorId: options.connector.id,
+        dialect: options.connector.dialect,
+        extensions: [],
+        truncated: false,
+        warnings: ["This connector does not expose database extension inspection."],
+      });
+    }
+    return databaseExtensionInspectionSchema.parse(await options.connector.inspectExtensions(input, signal));
+  }
+
+  async function inspectRlsPolicies(
+    input: DatabaseRlsPolicyInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    throwIfAborted(signal);
+    if (!options.connector.inspectRlsPolicies) {
+      return databaseRlsPolicyInspectionSchema.parse({
+        kind: "database-rls-policies",
+        connectorId: options.connector.id,
+        dialect: options.connector.dialect,
+        relations: [],
+        policyCount: 0,
+        truncated: false,
+        warnings: ["This connector does not expose row-level security inspection."],
+      });
+    }
+    return databaseRlsPolicyInspectionSchema.parse(await options.connector.inspectRlsPolicies(input, signal));
   }
 
   async function inspectCatalog(
@@ -796,7 +837,10 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
 
   return Object.freeze({
     connectorId: options.connector.id,
+    dialect: options.connector.dialect,
     inspectCapabilities,
+    ...(options.connector.inspectExtensions === undefined ? {} : { inspectExtensions }),
+    ...(options.connector.inspectRlsPolicies === undefined ? {} : { inspectRlsPolicies }),
     inspectCatalog,
     inspectPlanningCatalog,
     inspectRelationPlanningCatalog,

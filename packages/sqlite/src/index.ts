@@ -5,12 +5,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   finalizeCatalog,
   databaseCapabilitiesSchema,
+  databaseExtensionInspectionInputSchema,
+  databaseExtensionInspectionSchema,
   type CatalogIntrospectionOptions,
   type ConnectionAssessment,
   type DatabaseCatalog,
   type DatabaseCapabilities,
   type DatabaseConnector,
   type DatabaseDialect,
+  type DatabaseExtensionInspectionInput,
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
   type DatabaseTable,
@@ -223,6 +226,70 @@ export class LibSqlConnector implements DatabaseConnector {
       components,
       truncated: false,
       warnings: result.optionWarning ? [result.optionWarning] : [],
+    });
+  }
+
+  async inspectExtensions(
+    input: DatabaseExtensionInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = databaseExtensionInspectionInputSchema.parse(input);
+    const result = await this.#withReadTransaction(async (transaction) => {
+      const versionResult = await transaction.execute("SELECT sqlite_version() AS version");
+      let options: ResultSet | undefined;
+      let optionWarning: string | undefined;
+      try {
+        options = await transaction.execute("PRAGMA compile_options");
+      } catch {
+        optionWarning = "SQLite compile-option metadata was not available.";
+      }
+      return {
+        version: resultRows<{ version: string }>(versionResult)[0]?.version,
+        options: options ? resultRows<Record<string, unknown>>(options) : [],
+        optionWarning,
+      };
+    }, signal, this.#options.statementTimeoutMs);
+    if (!result.version) throw new Error("SQLite did not return a runtime version.");
+    const version = parseSqliteVersion(result.version);
+    const requested = parsed.names?.map(normalizeName);
+    const matches = (name: string) => {
+      if (!requested?.length) return true;
+      const raw = name.toLocaleUpperCase("en-US");
+      return requested.includes(name) || requested.includes(raw.toLocaleLowerCase("en-US"))
+        || requested.includes("enable_" + name);
+    };
+    const options = result.options
+      .flatMap((row) => Object.values(row))
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.split("=", 1)[0]!.trim())
+      .filter((value) => value.toLocaleUpperCase("en-US").startsWith("ENABLE_"))
+      .map((value) => value.slice("ENABLE_".length).toLocaleLowerCase("en-US"));
+    const names = new Set(options);
+    // JSON1 became built into SQLite in 3.38 and is often absent from
+    // PRAGMA compile_options even though the extension is available.
+    if (versionAtLeast(version, 3, 38, 0)) names.add("json1");
+    const extensions = [...names]
+      .filter((name) => matches(name))
+      .sort()
+      .slice(0, 512)
+      .map((name) => ({
+        name,
+        kind: "module" as const,
+        installed: true,
+        status: name === "json1" && !options.includes("json1") ? "built-in" : "compiled",
+        type: "compile_option",
+      }));
+    return databaseExtensionInspectionSchema.parse({
+      kind: "database-extensions",
+      connectorId: this.id,
+      dialect: this.dialect,
+      databaseName: this.#options.databaseName,
+      extensions,
+      truncated: names.size > 512,
+      warnings: [
+        ...(result.optionWarning ? [result.optionWarning] : []),
+        "SQLite/libSQL exposes compiled or built-in modules; it does not expose an available-module catalog.",
+      ],
     });
   }
 

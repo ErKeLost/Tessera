@@ -3,6 +3,10 @@ import type {
   DatabaseCatalog,
   DatabaseCapabilities,
   DatabaseConnector,
+  DatabaseExtensionInspection,
+  DatabaseExtensionInspectionInput,
+  DatabaseRlsPolicyInspection,
+  DatabaseRlsPolicyInspectionInput,
   DatabaseQueryResult,
 } from "@data-elements/database";
 import { z } from "zod";
@@ -711,7 +715,10 @@ export type DataAgentOptions = Readonly<{
 
 export type DataAgent = Readonly<{
   readonly connectorId: string;
+  readonly dialect?: DatabaseCatalog["dialect"];
   inspectCapabilities(signal?: AbortSignal): Promise<DataAgentCapabilitiesSnapshot>;
+  inspectExtensions?(input?: DatabaseExtensionInspectionInput, signal?: AbortSignal): Promise<DatabaseExtensionInspection>;
+  inspectRlsPolicies?(input?: DatabaseRlsPolicyInspectionInput, signal?: AbortSignal): Promise<DatabaseRlsPolicyInspection>;
   inspectCatalog(input?: DataAgentCatalogInput, signal?: AbortSignal): Promise<DataAgentCatalogSnapshot>;
   inspectPlanningCatalog(input?: DataAgentPlanningCatalogInput, signal?: AbortSignal): Promise<DataAgentPlanningCatalogSnapshot>;
   inspectRelationPlanningCatalog(input: DataAgentRelationPlanningCatalogInput, signal?: AbortSignal): Promise<DataAgentRelationPlanningCatalogSnapshot>;

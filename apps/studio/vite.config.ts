@@ -1,9 +1,16 @@
 import { readFileSync } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { fileURLToPath, URL } from "node:url";
+import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
 
+const studioRoot = fileURLToPath(new URL("./", import.meta.url));
 const clientRoot = fileURLToPath(new URL("./src/client", import.meta.url));
-const clientDist = fileURLToPath(new URL("./dist/client", import.meta.url));
+const nitroDist = fileURLToPath(new URL("./dist/nitro", import.meta.url));
+const nitroPublicIndex = fileURLToPath(new URL("./dist/nitro/public/index.html", import.meta.url));
+const nitroServerEntry = fileURLToPath(new URL("./src/nitro-server.ts", import.meta.url));
+const nitroLifecyclePlugin = fileURLToPath(new URL("./src/nitro-plugin.ts", import.meta.url));
+const rendererTemplate = fileURLToPath(new URL("./src/client/index.html", import.meta.url));
 const publicDirectory = fileURLToPath(new URL("./public", import.meta.url));
 const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 // Studio must render the workspace source during development and production
@@ -12,8 +19,6 @@ const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 // been rebuilt yet.
 const dataElementsReactSource = fileURLToPath(new URL("../../packages/react/src/index.ts", import.meta.url));
 const dataElementsReactStyles = fileURLToPath(new URL("../../packages/react/src/styles.css", import.meta.url));
-const apiPort = Number.parseInt(process.env.TESSERA_STUDIO_API_PORT ?? "4317", 10);
-const apiTarget = `http://127.0.0.1:${Number.isInteger(apiPort) ? apiPort : 4317}`;
 const studioPackage = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
@@ -21,6 +26,25 @@ const studioPackage = JSON.parse(
 export default defineConfig({
   root: clientRoot,
   publicDir: publicDirectory,
+  plugins: [
+    nitro({
+      compatibilityDate: "2026-08-22",
+      defaultPreset: "node-server",
+      hooks: {
+        async compiled(nitroApp) {
+          const template = nitroApp.options.renderer?.template;
+          if (!template) throw new Error("Nitro did not generate the Studio renderer template.");
+          await copyFile(template, nitroPublicIndex);
+        },
+      },
+      output: { dir: nitroDist },
+      plugins: [nitroLifecyclePlugin],
+      renderer: { template: rendererTemplate },
+      rootDir: studioRoot,
+      serverDir: false,
+      serverEntry: nitroServerEntry,
+    }),
+  ],
   define: {
     __TESSERA_STUDIO_VERSION__: JSON.stringify(studioPackage.version),
   },
@@ -36,36 +60,16 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 4318,
+    port: 4317,
     fs: {
       allow: [workspaceRoot],
     },
-    proxy: {
-      "/api": {
-        changeOrigin: true,
-        // Client-side imports from `src/client/api` resolve to `/api/*.ts`.
-        // Keep those source modules in Vite instead of forwarding them to the
-        // Studio API, whose route namespace intentionally has no `.ts` files.
-        bypass(request) {
-          const url = request.url ?? "";
-          return /\.(?:[cm]?[jt]sx?|css)(?:$|\?)/.test(url) ? url : undefined;
-        },
-        // The browser talks to Vite on :4318, while the API deliberately
-        // accepts only its own loopback origin. Keep the dev proxy same-origin
-        // from the API's perspective without widening the API allowlist.
-        headers: {
-          origin: apiTarget,
-        },
-        target: apiTarget,
-      },
-    },
-    // Let a second local dev session move to the next available client port
+    // Let a second local dev session move to the next available port
     // instead of failing before the settings-first UI can open.
     strictPort: false,
   },
   build: {
     emptyOutDir: true,
-    outDir: clientDist,
     sourcemap: false,
   },
 });

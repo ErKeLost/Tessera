@@ -17,6 +17,7 @@ import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
   getTesseraProviderBaseUrl,
+  getTesseraProviderEnvironmentApiKey,
   inferTesseraDatabaseDialect,
   isTesseraLlmConfigured,
   isTesseraStudioUnconfigured,
@@ -37,6 +38,18 @@ describe("Tessera configuration", () => {
     expect(getTesseraProviderBaseUrl("anthropic")).toBe("https://api.anthropic.com/v1");
     expect(getTesseraProviderBaseUrl("google")).toBe("https://generativelanguage.googleapis.com/v1beta");
     expect(getTesseraProviderBaseUrl("custom")).toBeUndefined();
+  });
+
+  test("resolves provider credentials from a server environment without exposing unrelated values", () => {
+    const environment = {
+      OPENROUTER_API_KEY: "  environment-provider-secret  ",
+      OPENAI_API_KEY: "openai-provider-secret",
+      UNRELATED_SECRET: "unrelated-secret",
+    };
+
+    expect(getTesseraProviderEnvironmentApiKey("OpenRouter", environment)).toBe("environment-provider-secret");
+    expect(getTesseraProviderEnvironmentApiKey("openai", environment)).toBe("openai-provider-secret");
+    expect(getTesseraProviderEnvironmentApiKey("custom", environment)).toBeUndefined();
   });
 
   test("uses a local listener and a server-side OpenRouter fallback by default", () => {

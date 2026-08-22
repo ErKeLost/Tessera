@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  databaseExtensionInspectionInputSchema,
+  databaseExtensionInspectionSchema,
   databaseCapabilitiesSchema,
   finalizeCatalog,
   type CatalogIntrospectionOptions,
@@ -8,6 +10,7 @@ import {
   type DatabaseCapabilities,
   type DatabaseColumn,
   type DatabaseConnector,
+  type DatabaseExtensionInspectionInput,
   type DatabaseMongoQueryRequest,
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
@@ -168,6 +171,44 @@ export class MongoDbConnector implements DatabaseConnector {
       components,
       truncated: modules.length > 253,
       warnings: [],
+    });
+  }
+
+  async inspectExtensions(
+    input: DatabaseExtensionInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = databaseExtensionInspectionInputSchema.parse(input);
+    throwIfAborted(signal);
+    await waitForAbort(this.#client.connect(), signal);
+    const buildInfo = await waitForAbort(
+      this.#client.db(this.#options.database).command({ buildInfo: 1 }),
+      signal,
+    ) as { modules?: unknown };
+    const modules = Array.isArray(buildInfo.modules)
+      ? buildInfo.modules.filter((value): value is string => typeof value === "string")
+      : [];
+    const requested = new Set(parsed.names ?? []);
+    const extensions = modules
+      .filter((name) => requested.size === 0 || requested.has(name))
+      .slice(0, 512)
+      .map((name) => ({
+        name,
+        kind: "module" as const,
+        installed: true,
+        status: "compiled",
+        type: "server_module",
+      }));
+    return databaseExtensionInspectionSchema.parse({
+      kind: "database-extensions",
+      connectorId: this.id,
+      dialect: "mongodb",
+      databaseName: this.#options.database,
+      extensions,
+      truncated: modules.length > 512,
+      warnings: [
+        "MongoDB exposes server modules from buildInfo; it does not expose a database-level extension catalog.",
+      ],
     });
   }
 

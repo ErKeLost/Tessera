@@ -40,8 +40,10 @@ import { createTesseraSessionMemory, type TesseraSessionMemory } from "./session
 import {
   defineTesseraConfig,
   getTesseraProviderBaseUrl,
+  getTesseraProviderEnvironmentApiKey,
   inferTesseraDatabaseDialect,
   isTesseraLlmConfigured,
+  resolveTesseraLlmApiKey,
   resolveTesseraLlmConfig,
   TESSERA_OPENROUTER_REASONING_EFFORTS,
   type TesseraConfig,
@@ -133,6 +135,7 @@ export const tesseraStudioSettingsSnapshotSchema = z.object({
     reasoningEffort: studioReasoningSelectionSchema,
     baseUrl: baseUrlSchema.optional(),
     apiKeyConfigured: z.boolean(),
+    apiKeySource: z.enum(["explicit", "environment", "none"]),
   }).strict(),
   limits: z.object({
     maxRows: z.number().int().min(1).max(10_000),
@@ -312,6 +315,12 @@ export function createTesseraStudioSettingsSnapshot(
   const [provider, ...modelSegments] = llm.model.split("/");
   const model = modelSegments.join("/");
   const effectiveBaseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider);
+  const environmentApiKey = getTesseraProviderEnvironmentApiKey(provider);
+  const apiKeySource = llm.apiKey
+    ? "explicit" as const
+    : environmentApiKey
+      ? "environment" as const
+      : "none" as const;
   const snapshot = {
     database: {
       dialect: config.database.dialect,
@@ -325,7 +334,8 @@ export function createTesseraStudioSettingsSnapshot(
       model: model || llm.model,
       reasoningEffort: llm.reasoningEffort ?? "default",
       ...(effectiveBaseUrl === undefined ? {} : { baseUrl: effectiveBaseUrl }),
-      apiKeyConfigured: Boolean(llm.apiKey) || hasEnvironmentProviderKey(provider),
+      apiKeyConfigured: apiKeySource !== "none",
+      apiKeySource,
     },
     limits: {
       maxRows: config.database.maxRows ?? 500,
@@ -462,6 +472,7 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
       const agent = isTesseraLlmConfigured(config)
         ? createTesseraStudioAgent({
           dataAgent,
+          databaseDialect: config.database.dialect,
           memory: sessionMemory.memory,
           llm: resolveTesseraLlmConfig(config),
           ...(databaseActions === undefined ? {} : { databaseActions }),
@@ -972,7 +983,7 @@ async function assessOpenRouterModel(config: TesseraConfig, signal?: AbortSignal
   if (provider !== "openrouter" || modelSegments.length < 2) {
     throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenRouter models can be tested here.");
   }
-  const apiKey = llm.apiKey ?? environmentProviderKey(provider);
+  const apiKey = resolveTesseraLlmApiKey(llm);
   if (!apiKey) {
     throw new TesseraSettingsRuntimeError("model_unavailable", "An OpenRouter API key is required to test this model.");
   }
@@ -1114,29 +1125,6 @@ function normalizeBaseUrl(value: string): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function hasEnvironmentProviderKey(provider: string | undefined): boolean {
-  return environmentProviderKey(provider) !== undefined;
-}
-
-function environmentProviderKey(provider: string | undefined): string | undefined {
-  const variables: Record<string, readonly string[]> = {
-    openrouter: ["OPENROUTER_API_KEY"],
-    openai: ["OPENAI_API_KEY"],
-    anthropic: ["ANTHROPIC_API_KEY"],
-    google: ["GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"],
-    groq: ["GROQ_API_KEY"],
-    mistral: ["MISTRAL_API_KEY"],
-    xai: ["XAI_API_KEY"],
-    together: ["TOGETHER_API_KEY", "TOGETHERAI_API_KEY"],
-    deepseek: ["DEEPSEEK_API_KEY"],
-  };
-  for (const name of variables[provider?.toLocaleLowerCase("en-US") ?? ""] ?? []) {
-    const value = process.env[name]?.trim();
-    if (value) return value;
-  }
-  return undefined;
 }
 
 function isMissingFile(error: unknown): error is NodeJS.ErrnoException {

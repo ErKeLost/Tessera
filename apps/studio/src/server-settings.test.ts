@@ -239,7 +239,7 @@ describe("Tessera Studio Settings routes", () => {
       expect(JSON.parse(getBody)).toMatchObject({
         settings: {
           database: { urlConfigured: true },
-          llm: { apiKeyConfigured: true },
+          llm: { apiKeyConfigured: true, apiKeySource: "explicit" },
         },
       });
       expect(getBody).not.toContain(DATABASE_SECRET);

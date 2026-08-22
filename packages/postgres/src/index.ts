@@ -3,6 +3,10 @@ import {
   classifyDatabaseAction,
   createAbortResilientAsyncCache,
   databaseCapabilitiesSchema,
+  databaseExtensionInspectionInputSchema,
+  databaseExtensionInspectionSchema,
+  databaseRlsPolicyInspectionInputSchema,
+  databaseRlsPolicyInspectionSchema,
   databaseMutationRequestSchema,
   databaseMutationResultSchema,
   finalizeCatalog,
@@ -13,6 +17,9 @@ import {
   type DatabaseCatalog,
   type DatabaseCapabilities,
   type DatabaseConnector,
+  type DatabaseExtensionInspectionInput,
+  type DatabaseRlsPolicy,
+  type DatabaseRlsPolicyInspectionInput,
   type DatabaseMutationExecutor,
   type DatabaseMutationRequest,
   type DatabaseMutationResult,
@@ -222,13 +229,32 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
             current_setting('server_version_num')::int8 AS version_number
         `,
       });
-      let extensions: Array<{
-        name: string;
-        schema: string | null;
-        default_version: string | null;
-        installed_version: string | null;
-      }> = [];
-      let extensionWarning: string | undefined;
+      return { version: version.rows[0] };
+    });
+    if (!result.version) throw new Error("PostgreSQL did not return a server version.");
+    const versionNumber = Number(result.version.version_number);
+    return databaseCapabilitiesSchema.parse({
+      kind: "database-capabilities",
+      connectorId: this.id,
+      dialect: "postgres",
+      databaseName: result.version.database_name,
+      availability: "available",
+      serverVersion: result.version.server_version,
+      ...(Number.isFinite(versionNumber) ? { serverVersionNumber: versionNumber } : {}),
+      components: postgresVersionComponents(Number.isFinite(versionNumber) ? versionNumber : undefined),
+      truncated: false,
+      warnings: [],
+    });
+  }
+
+  async inspectExtensions(
+    input: DatabaseExtensionInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = databaseExtensionInspectionInputSchema.parse(input);
+    const names = parsed.names?.map(normalizeIdentifier);
+    const result = await this.#withReadOnlyTransaction(signal, async (client) => {
+      const database = await queryDatabaseName(client);
       try {
         const extensionResult = await client.query<{
           name: string;
@@ -245,45 +271,173 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
             FROM pg_available_extensions() AS available(name, default_version, comment)
             LEFT JOIN pg_extension AS installed ON installed.extname = available.name
             LEFT JOIN pg_namespace AS namespace ON namespace.oid = installed.extnamespace
+            WHERE ($1::text[] IS NULL OR available.name = ANY($1::text[]))
+              AND ($2::boolean OR installed.extname IS NOT NULL)
             ORDER BY available.name
+            LIMIT 513
           `,
+          values: [names?.length ? names : null, parsed.includeAvailable],
         });
-        extensions = extensionResult.rows;
+        return { database, rows: extensionResult.rows, warning: undefined as string | undefined };
       } catch {
-        extensionWarning = "PostgreSQL extension metadata was not available to this credential.";
+        return {
+          database,
+          rows: [],
+          warning: "PostgreSQL extension metadata was not available to this credential.",
+        };
       }
-      return { version: version.rows[0], extensions, extensionWarning };
     });
-    if (!result.version) throw new Error("PostgreSQL did not return a server version.");
-    const versionNumber = Number(result.version.version_number);
-    const components = postgresVersionComponents(Number.isFinite(versionNumber) ? versionNumber : undefined);
-    let truncated = false;
-    for (const extension of result.extensions) {
-      if (components.length >= 256) {
-        truncated = true;
-        break;
-      }
-      if (!extension.name || !extension.default_version) continue;
-      components.push({
-        id: `extension:${extension.name}`,
-        kind: "extension",
-        status: extension.installed_version ? "installed" : "available",
-        ...(extension.installed_version ? { version: extension.installed_version } : {}),
-        defaultVersion: extension.default_version,
-        ...(extension.schema ? { schema: extension.schema } : {}),
-      });
-    }
-    return databaseCapabilitiesSchema.parse({
-      kind: "database-capabilities",
+    const truncated = result.rows.length > 512;
+    const extensions = result.rows.slice(0, 512).map((row) => ({
+      name: row.name,
+      kind: "extension" as const,
+      ...(row.schema ? { schema: row.schema } : {}),
+      installed: row.installed_version !== null,
+      ...(row.installed_version ? { installedVersion: row.installed_version } : {}),
+      ...(row.default_version ? { defaultVersion: row.default_version } : {}),
+    }));
+    return databaseExtensionInspectionSchema.parse({
+      kind: "database-extensions",
       connectorId: this.id,
       dialect: "postgres",
-      databaseName: result.version.database_name,
-      availability: "available",
-      serverVersion: result.version.server_version,
-      ...(Number.isFinite(versionNumber) ? { serverVersionNumber: versionNumber } : {}),
-      components,
+      databaseName: result.database,
+      extensions,
       truncated,
-      warnings: result.extensionWarning ? [result.extensionWarning] : [],
+      warnings: result.warning ? [result.warning] : [],
+    });
+  }
+
+  async inspectRlsPolicies(
+    input: DatabaseRlsPolicyInspectionInput = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = databaseRlsPolicyInspectionInputSchema.parse(input);
+    const allowedSchemas = await this.#getAllowedSchemas(signal);
+    const schemas = (parsed.schemas?.length ? normalizeSchemas(parsed.schemas) : allowedSchemas)
+      .filter((schema) => allowedSchemas.includes(schema));
+    const relations = (parsed.relations ?? [])
+      .map((relation) => ({ schema: normalizeIdentifier(relation.schema), table: normalizeIdentifier(relation.table) }))
+      .filter((relation) => schemas.includes(relation.schema));
+    if (schemas.length === 0) {
+      return databaseRlsPolicyInspectionSchema.parse({
+        kind: "database-rls-policies",
+        connectorId: this.id,
+        dialect: "postgres",
+        relations: [],
+        policyCount: 0,
+        truncated: false,
+        warnings: ["No readable PostgreSQL schemas are available to this connection."],
+      });
+    }
+    const result = await this.#withReadOnlyTransaction(signal, async (client) => {
+      const database = await queryDatabaseName(client);
+      const relationWhere = relations.length === 0
+        ? "TRUE"
+        : relations.map((_, index) => `(namespace.nspname = $${index * 2 + 2} AND relation.relname = $${index * 2 + 3})`).join(" OR ");
+      const relationValues = relations.flatMap((relation) => [relation.schema, relation.table]);
+      const relationResult = await client.query<{
+        schema_name: string;
+        table_name: string;
+        rls_enabled: boolean;
+        rls_forced: boolean;
+      }>({
+        text: `
+          SELECT
+            namespace.nspname AS schema_name,
+            relation.relname AS table_name,
+            relation.relrowsecurity AS rls_enabled,
+            relation.relforcerowsecurity AS rls_forced
+          FROM pg_class relation
+          JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+          WHERE namespace.nspname = ANY($1::text[])
+            AND relation.relkind IN ('r', 'p')
+            AND has_table_privilege(relation.oid, 'SELECT')
+            AND (${relationWhere})
+          ORDER BY namespace.nspname, relation.relname
+          LIMIT 513
+        `,
+        values: [schemas, ...relationValues],
+      });
+      const policyWhere = relations.length === 0
+        ? "TRUE"
+        : relations.map((_, index) => `(policies.schemaname = $${index * 2 + 2} AND policies.tablename = $${index * 2 + 3})`).join(" OR ");
+      const policyResult = await client.query<{
+        schema_name: string;
+        table_name: string;
+        policy_name: string;
+        permissive: string;
+        roles: string[];
+        command: string;
+        using_expression: string | null;
+        check_expression: string | null;
+      }>({
+        text: `
+          SELECT
+            policies.schemaname AS schema_name,
+            policies.tablename AS table_name,
+            policies.policyname AS policy_name,
+            policies.permissive,
+            policies.roles::text[] AS roles,
+            lower(policies.cmd) AS command,
+            policies.qual AS using_expression,
+            policies.with_check AS check_expression
+          FROM pg_policies AS policies
+          WHERE policies.schemaname = ANY($1::text[])
+            AND (${policyWhere})
+          ORDER BY policies.schemaname, policies.tablename, policies.policyname
+          LIMIT 513
+        `,
+        values: [schemas, ...relationValues],
+      });
+      return { database, relationRows: relationResult.rows, policyRows: policyResult.rows };
+    });
+    const policiesByRelation = new Map<string, DatabaseRlsPolicy[]>();
+    let policyCount = 0;
+    let truncated = result.policyRows.length > 512;
+    const visibleRelationKeys = new Set(
+      result.relationRows.slice(0, 512).map((row) => `${row.schema_name}\u0000${row.table_name}`),
+    );
+    for (const row of result.policyRows.slice(0, 512)) {
+      const key = `${row.schema_name}\u0000${row.table_name}`;
+      if (!visibleRelationKeys.has(key)) continue;
+      const command: DatabaseRlsPolicy["command"] = row.command === "select" || row.command === "insert" || row.command === "update" || row.command === "delete" ? row.command : "all";
+      const permissive: DatabaseRlsPolicy["permissive"] = row.permissive.toLowerCase() === "restrictive" ? "restrictive" : "permissive";
+      const policy = {
+        schema: row.schema_name,
+        table: row.table_name,
+        name: row.policy_name,
+        permissive,
+        roles: row.roles ?? [],
+        command,
+        ...(parsed.includeExpressions && row.using_expression !== null ? { usingExpression: row.using_expression.slice(0, 8_000) } : {}),
+        ...(parsed.includeExpressions && row.check_expression !== null ? { checkExpression: row.check_expression.slice(0, 8_000) } : {}),
+      };
+      const list = policiesByRelation.get(key) ?? [];
+      if (list.length >= 256) {
+        truncated = true;
+        continue;
+      }
+      list.push(policy);
+      policiesByRelation.set(key, list);
+      policyCount += 1;
+    }
+    const outputRelations = result.relationRows.slice(0, 512).map((row) => ({
+      schema: row.schema_name,
+      table: row.table_name,
+      rlsEnabled: row.rls_enabled,
+      rlsForced: row.rls_forced,
+      policies: policiesByRelation.get(`${row.schema_name}\u0000${row.table_name}`) ?? [],
+    }));
+    if (result.relationRows.length > 512) truncated = true;
+    return databaseRlsPolicyInspectionSchema.parse({
+      kind: "database-rls-policies",
+      connectorId: this.id,
+      dialect: "postgres",
+      databaseName: result.database,
+      relations: outputRelations,
+      policyCount,
+      truncated,
+      warnings: [],
     });
   }
 

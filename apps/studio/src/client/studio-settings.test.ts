@@ -11,6 +11,7 @@ describe("Studio settings permissions", () => {
           model: "qwen/qwen3.8-27b",
           reasoningEffort: "low",
           apiKeyConfigured: true,
+          apiKeySource: "environment",
         },
         limits: { maxRows: 1_000, timeoutMs: 30_000, maxSteps: 12 },
         permissions: {
@@ -33,6 +34,10 @@ describe("Studio settings permissions", () => {
         destructive: "ask",
         unknown: "deny",
       },
+    });
+    expect(settings.llm).toMatchObject({
+      apiKeyConfigured: true,
+      apiKeySource: "environment",
     });
   });
 

@@ -12,17 +12,24 @@ import {
   CheckIcon,
   DatabaseZapIcon,
   LoaderCircleIcon,
+  RotateCcwIcon,
   ShieldAlertIcon,
   XCircleIcon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { approveStudioDatabaseAction, rejectStudioDatabaseAction } from "./api/studio-api";
+import {
+  approveStudioDatabaseAction,
+  fetchStudioDatabaseAction,
+  rejectStudioDatabaseAction,
+  retryStudioDatabaseAction,
+  type StudioDatabaseActionEffect,
+} from "./api/studio-api";
 import { ToolCall } from "./components/elements/tool-call";
 
 type SafeToolResult = Record<string, unknown>;
-type ApprovalState = "idle" | "working" | "approved" | "rejected" | "failed";
+type ApprovalState = "loading" | "idle" | "working" | "approved" | "rejected" | "failed";
 type NativeToolProps = ToolCallMessagePartProps<Record<string, unknown>, SafeToolResult>;
 
 const NativeTesseraTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
@@ -37,32 +44,73 @@ function TesseraToolCall({
   toolName,
 }: NativeToolProps) {
   const running = status.type === "running";
-  const [approvalState, setApprovalState] = useState<ApprovalState>("idle");
-  const approvalHandles = sqlApprovalHandles(result);
-  const needsApproval = (status.type === "requires-action" || approvalHandles !== undefined)
-    && approvalState !== "approved"
-    && approvalState !== "rejected";
-  const shouldAutoOpen = running || needsApproval;
+  const initialApprovalHandles = sqlApprovalHandles(result);
+  const [approvalState, setApprovalState] = useState<ApprovalState>(
+    initialApprovalHandles === undefined ? "idle" : "loading",
+  );
+  const [effect, setEffect] = useState<StudioDatabaseActionEffect>();
+  const [clientError, setClientError] = useState<string>();
+  const [retrying, setRetrying] = useState(false);
+  const approvalHandles = effect === undefined
+    ? initialApprovalHandles
+    : effectApprovalHandles(effect);
+  // The approval surface is the review UI. Keep the implementation payload
+  // collapsed while waiting so users see the action summary first, not a raw
+  // JSON envelope.
+  const shouldAutoOpen = running;
   const [open, setOpen] = useState(shouldAutoOpen);
 
   useEffect(() => {
     setOpen(shouldAutoOpen);
   }, [shouldAutoOpen]);
 
+  useEffect(() => {
+    if (initialApprovalHandles === undefined) return;
+    const controller = new AbortController();
+    setApprovalState("loading");
+    setClientError(undefined);
+    void fetchStudioDatabaseAction(initialApprovalHandles.requestId, controller.signal)
+      .then((nextEffect) => {
+        setEffect(nextEffect);
+        setApprovalState(approvalStateFromEffect(nextEffect));
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        setClientError(errorMessage(error));
+        setApprovalState("failed");
+      });
+    return () => controller.abort();
+  }, [initialApprovalHandles?.requestId]);
+
   const respondToApproval = async (decision: "approve" | "reject") => {
     if (approvalHandles === undefined || approvalState === "working") return;
     setApprovalState("working");
+    setClientError(undefined);
     try {
-      const effect = decision === "approve"
+      const nextEffect = decision === "approve"
         ? await approveStudioDatabaseAction(approvalHandles.requestId, approvalHandles.checkpointId)
         : await rejectStudioDatabaseAction(approvalHandles.requestId, approvalHandles.checkpointId);
-      if (decision === "reject" || effect.summary.status === "cancelled") {
-        setApprovalState("rejected");
-      } else {
-        setApprovalState(effect.summary.status === "succeeded" ? "approved" : "failed");
-      }
-    } catch {
+      setEffect(nextEffect);
+      setApprovalState(decision === "reject" ? "rejected" : approvalStateFromEffect(nextEffect));
+    } catch (error) {
+      setClientError(errorMessage(error));
       setApprovalState("failed");
+    }
+  };
+
+  const retryApproval = async () => {
+    if (effect?.review === undefined || retrying) return;
+    setRetrying(true);
+    setClientError(undefined);
+    try {
+      const nextEffect = await retryStudioDatabaseAction(effect.summary.requestId);
+      setEffect(nextEffect);
+      setApprovalState(approvalStateFromEffect(nextEffect));
+    } catch (error) {
+      setClientError(errorMessage(error));
+      setApprovalState("failed");
+    } finally {
+      setRetrying(false);
     }
   };
 
@@ -78,13 +126,17 @@ function TesseraToolCall({
         result={formatToolValue(result)}
         running={running}
       />
-      {approvalHandles !== undefined ? (
+      {initialApprovalHandles !== undefined ? (
         <ApprovalCard
           args={args}
+          clientError={clientError}
+          effect={effect}
+          retrying={retrying}
           state={approvalState}
           result={result}
           onApprove={() => void respondToApproval("approve")}
           onReject={() => void respondToApproval("reject")}
+          onRetry={() => void retryApproval()}
         />
       ) : null}
     </>
@@ -93,85 +145,186 @@ function TesseraToolCall({
 
 function ApprovalCard({
   args,
+  clientError,
+  effect,
   result,
+  retrying,
   state,
   onApprove,
   onReject,
+  onRetry,
 }: {
   args: Record<string, unknown>;
+  clientError?: string;
+  effect?: StudioDatabaseActionEffect;
   result?: SafeToolResult;
+  retrying: boolean;
   state: ApprovalState;
   onApprove(): void;
   onReject(): void;
+  onRetry(): void;
 }) {
-  const busy = state === "working";
-  const operation = mutationSummary(args);
-  const diagnostic = typeof result?.message === "string" ? result.message : undefined;
-  const reason = typeof result?.reason === "string" ? result.reason : undefined;
+  const busy = state === "loading" || state === "working" || retrying;
+  const { operation, target } = mutationDetails(effect?.review?.action ?? args.mutation);
+  const diagnostic = effect?.receipt?.diagnostic?.message
+    ?? (typeof result?.message === "string" ? result.message : undefined)
+    ?? clientError;
+  const reason = effect?.receipt?.diagnostic?.code
+    ?? (typeof result?.reason === "string" ? result.reason : undefined);
+  const compiled = effect?.review?.compiled;
+  const executionResult = effect?.result;
   const isApproved = state === "approved";
   const isRejected = state === "rejected";
   const isFailed = state === "failed";
-  const tone = isApproved
-    ? "border-emerald-500/30 bg-emerald-500/5"
+  const stateLabel = isApproved
+    ? "Completed"
     : isRejected
-      ? "border-muted-foreground/20 bg-muted/30"
+      ? "Declined"
       : isFailed
-        ? "border-destructive/35 bg-destructive/5"
-        : "border-amber-500/35 bg-amber-500/5";
+        ? "Execution failed"
+        : state === "working"
+          ? "Executing"
+          : state === "loading"
+            ? "Loading"
+          : "Awaiting approval";
+  const title = isApproved
+    ? "Database change completed"
+    : isRejected
+      ? "Database change declined"
+      : isFailed
+        ? "Database change failed"
+        : "Review database change";
+  const description = isApproved
+    ? "The approved operation was applied successfully."
+    : isRejected
+      ? "No database changes were applied."
+      : isFailed
+        ? "The database did not complete this operation."
+        : "This action can change data. Review the scope before continuing.";
   return (
-    <div className={`mt-3 ms-5 overflow-hidden rounded-lg border shadow-sm ${tone}`}>
-      <div className="flex items-start gap-3 px-4 py-3">
-        <div className="mt-0.5 rounded-md bg-background/80 p-2 shadow-xs">
-          {isApproved ? <CheckCircle2Icon className="size-4 text-emerald-600" />
-            : isRejected ? <XCircleIcon className="size-4 text-muted-foreground" />
-              : isFailed ? <AlertTriangleIcon className="size-4 text-destructive" />
-                : <ShieldAlertIcon className="size-4 text-amber-600" />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <DatabaseZapIcon className="size-4 text-foreground/70" />
-            {isApproved ? "数据库变更已执行" : isRejected ? "数据库变更已拒绝" : isFailed ? "数据库变更执行失败" : "需要确认数据库变更"}
+    <section className="tessera-approval-card" data-state={state} aria-live="polite">
+      <div className="tessera-approval-card-accent" aria-hidden="true" />
+      <div className="tessera-approval-card-main">
+        <header className="tessera-approval-card-header">
+          <div className="tessera-approval-card-icon" aria-hidden="true">
+            {isApproved ? <CheckCircle2Icon />
+              : isRejected ? <XCircleIcon />
+                : isFailed ? <AlertTriangleIcon />
+                  : <ShieldAlertIcon />}
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {isApproved ? "操作已通过审批并完成。" : isRejected ? "未执行任何数据库变更。" : isFailed ? "数据库没有完成这次变更。" : "这项操作会修改数据，请确认后再继续。"}
-          </p>
-          <div className="mt-2 flex items-center gap-2 rounded-md bg-background/60 px-2.5 py-2 text-xs">
-            <span className="text-muted-foreground">操作</span>
-            <span className="truncate font-medium">{operation}</span>
-          </div>
-          {isFailed && (diagnostic || reason) ? (
-            <div className="mt-2 rounded-md border border-destructive/20 bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
-              <span className="font-medium">{reason ? `${reason}: ` : ""}</span>{diagnostic ?? "请检查数据库连接和变更条件。"}
+          <div className="tessera-approval-card-heading">
+            <div className="tessera-approval-card-kicker">
+              <span>Database action</span>
+              <span className="tessera-approval-card-status">{stateLabel}</span>
             </div>
-          ) : null}
+            <h3>{title}</h3>
+            <p>{description}</p>
+          </div>
+        </header>
+
+        <div className="tessera-approval-card-details" aria-label="Change details">
+          <div>
+            <span>Operation</span>
+            <strong>{operation}</strong>
+          </div>
+          <div>
+            <span>Target</span>
+            <strong>{target}</strong>
+          </div>
         </div>
+
+        {compiled !== undefined ? (
+          <div className="tessera-approval-card-query">
+            <span className="tessera-approval-card-section-label">SQL</span>
+            <pre><code>{compiled.sql}</code></pre>
+            {compiled.parameters.length > 0 ? (
+              <details>
+                <summary>Parameters ({compiled.parameters.length})</summary>
+                <pre><code>{JSON.stringify(compiled.parameters, null, 2)}</code></pre>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!isApproved && !isRejected && !isFailed ? (
+          <div className="tessera-approval-card-warning">
+            <DatabaseZapIcon aria-hidden="true" />
+            <span>Nothing has changed yet. Approval is required before execution.</span>
+          </div>
+        ) : null}
+
+        {isFailed && (diagnostic || reason) ? (
+          <div className="tessera-approval-card-error" role="alert">
+            <span className="tessera-approval-card-error-label">Execution error</span>
+            <span><strong>{reason ? `${reason}: ` : ""}</strong>{diagnostic ?? "Check the database connection and change conditions."}</span>
+          </div>
+        ) : null}
+
+        {isApproved && executionResult !== undefined ? (
+          <div className="tessera-approval-card-result" aria-label="Execution result">
+            <div className="tessera-approval-card-result-summary">
+              <div><span>Affected rows</span><strong>{executionResult.affectedRows}</strong></div>
+              <div><span>Duration</span><strong>{formatDuration(executionResult.durationMs)}</strong></div>
+            </div>
+            {executionResult.rows.length > 0 ? (
+              <details open>
+                <summary>Returned rows ({executionResult.rows.length})</summary>
+                <pre><code>{JSON.stringify(executionResult.rows, null, 2)}</code></pre>
+              </details>
+            ) : null}
+          </div>
+        ) : null}
+
+        {!isApproved && !isRejected && !isFailed ? (
+          <footer className="tessera-approval-card-actions">
+            <span className="tessera-approval-card-footnote">You can review the request details above.</span>
+            <div>
+              <Button className="tessera-approval-card-reject" disabled={busy} onClick={onReject} type="button" variant="ghost">
+                <XIcon />
+                Decline
+              </Button>
+              <Button className="tessera-approval-card-approve" disabled={busy} onClick={onApprove} type="button">
+                {busy ? <LoaderCircleIcon className="animate-spin" /> : <CheckIcon />}
+                {busy ? "Working" : "Approve & run"}
+              </Button>
+            </div>
+          </footer>
+        ) : null}
+
+        {isFailed ? (
+          <footer className="tessera-approval-card-actions">
+            <span className="tessera-approval-card-footnote">Retrying creates a new approval request.</span>
+            <div>
+              <Button
+                className="tessera-approval-card-retry"
+                disabled={busy || effect?.review === undefined}
+                onClick={onRetry}
+                type="button"
+                variant="outline"
+              >
+                {retrying ? <LoaderCircleIcon className="animate-spin" /> : <RotateCcwIcon />}
+                {retrying ? "Working" : "Try again"}
+              </Button>
+            </div>
+          </footer>
+        ) : null}
       </div>
-      {!isApproved && !isRejected && !isFailed ? (
-        <div className="flex items-center justify-end gap-2 border-t border-border/60 bg-background/35 px-4 py-2.5">
-          <Button disabled={busy} onClick={onReject} size="sm" type="button" variant="outline">
-            <XIcon className="size-3.5" />
-            拒绝
-          </Button>
-          <Button disabled={busy} onClick={onApprove} size="sm" type="button">
-            {busy ? <LoaderCircleIcon className="size-3.5 animate-spin" /> : <CheckIcon className="size-3.5" />}
-            {busy ? "处理中" : "批准执行"}
-          </Button>
-        </div>
-      ) : null}
-    </div>
+    </section>
   );
 }
 
-function mutationSummary(args: Record<string, unknown>): string {
-  const mutation = args.mutation;
-  if (!mutation || typeof mutation !== "object") return "已请求的数据库变更";
+function mutationDetails(mutation: unknown): { operation: string; target: string } {
+  if (!mutation || typeof mutation !== "object") return { operation: "Database change", target: "Unknown target" };
   const value = mutation as Record<string, unknown>;
   const relation = value.relation;
-  const table = relation && typeof relation === "object" && typeof (relation as Record<string, unknown>).table === "string"
-    ? String((relation as Record<string, unknown>).table)
-    : undefined;
-  const kind = typeof value.kind === "string" ? value.kind.replace(/^data\./, "") : "变更";
-  return table ? `${kind} · ${table}` : kind;
+  const relationValue = relation && typeof relation === "object" ? relation as Record<string, unknown> : undefined;
+  const table = typeof relationValue?.table === "string" ? relationValue.table : undefined;
+  const schema = typeof relationValue?.schema === "string" ? relationValue.schema : undefined;
+  const kind = typeof value.kind === "string" ? value.kind.replace(/^data\./, "") : "change";
+  return {
+    operation: kind.charAt(0).toUpperCase() + kind.slice(1),
+    target: table ? (schema ? `${schema}.${table}` : table) : "Unknown target",
+  };
 }
 
 function formatToolInput(args: Record<string, unknown>, argsText: string, running: boolean): string {
@@ -191,6 +344,33 @@ function sqlApprovalHandles(result: SafeToolResult | undefined): Readonly<{ requ
     && typeof result.checkpointId === "string"
     ? { requestId: result.requestId, checkpointId: result.checkpointId }
     : undefined;
+}
+
+function effectApprovalHandles(effect: StudioDatabaseActionEffect): Readonly<{ requestId: string; checkpointId: string }> | undefined {
+  return effect.summary.status === "awaiting-approval"
+    && effect.approval?.status === "pending"
+    ? { requestId: effect.summary.requestId, checkpointId: effect.approval.checkpointId }
+    : undefined;
+}
+
+function approvalStateFromEffect(effect: StudioDatabaseActionEffect): ApprovalState {
+  if (effect.summary.status === "succeeded") return "approved";
+  if (effect.summary.status === "awaiting-approval") return "idle";
+  if (effect.approval?.status === "rejected" || effect.summary.status === "cancelled") return "rejected";
+  if (effect.summary.status === "pending" || effect.summary.status === "approved" || effect.summary.status === "running" || effect.summary.status === "cancel-requested") {
+    return "working";
+  }
+  return "failed";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message
+    ? error.message
+    : "Tessera could not load this database action.";
+}
+
+function formatDuration(durationMs: number): string {
+  return durationMs < 1_000 ? `${Math.round(durationMs)} ms` : `${(durationMs / 1_000).toFixed(2)} s`;
 }
 
 export const tesseraStudioToolkit: Toolkit = defineToolkit({

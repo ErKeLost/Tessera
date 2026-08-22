@@ -45,9 +45,19 @@ bun install
 bun run dev
 ```
 
-The API listens on `http://127.0.0.1:4317` and the Vite client is available at
-`http://127.0.0.1:4318`. Run `bun test src` for the Studio test suite or
-`bun run build:client` to create a production client build.
+Nitro serves both the API and Vite client at `http://127.0.0.1:4317`. Run
+`bun test src` for the Studio test suite or `bun run build` to create the CLI,
+library, and deployable Nitro server.
+
+The Nitro production output is written to `dist/nitro`. Start it with Node.js
+24 or Bun:
+
+```bash
+node dist/nitro/server/index.mjs
+```
+
+The standalone `tessera studio` CLI remains available and uses the same H3
+application and Studio runtime as the Nitro deployment.
 
 The package exports the server factory and the `./main` command entry for
 integrations that embed Tessera Studio.

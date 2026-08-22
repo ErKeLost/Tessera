@@ -1,7 +1,7 @@
 import type { UIMessage, UIMessageChunk } from "ai";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis";
+export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis" | "list_rls_policies" | "list_extensions";
 
 /**
  * These are intentionally summaries, rather than the model's raw tool args.
@@ -62,6 +62,30 @@ export type TesseraRunAnalysisToolOutput = Readonly<{
   truncated?: boolean;
 }>;
 
+export type TesseraListRlsPoliciesToolInput = Readonly<{
+  action: "list_rls_policies";
+}>;
+
+export type TesseraListRlsPoliciesToolOutput = Readonly<{
+  status: "completed" | "blocked" | "failed";
+  dialect?: string;
+  relationCount?: number;
+  policyCount?: number;
+  truncated?: boolean;
+}>;
+
+export type TesseraListExtensionsToolInput = Readonly<{
+  action: "list_extensions";
+}>;
+
+export type TesseraListExtensionsToolOutput = Readonly<{
+  status: "completed" | "blocked" | "failed";
+  dialect?: string;
+  extensionCount?: number;
+  installedCount?: number;
+  truncated?: boolean;
+}>;
+
 /** The native AI SDK tool parts expected by assistant-ui renderers. */
 export type TesseraUITools = {
   list_database: {
@@ -79,6 +103,14 @@ export type TesseraUITools = {
   run_analysis: {
     input: TesseraRunAnalysisToolInput;
     output: TesseraRunAnalysisToolOutput;
+  };
+  list_rls_policies: {
+    input: TesseraListRlsPoliciesToolInput;
+    output: TesseraListRlsPoliciesToolOutput;
+  };
+  list_extensions: {
+    input: TesseraListExtensionsToolInput;
+    output: TesseraListExtensionsToolOutput;
   };
 };
 

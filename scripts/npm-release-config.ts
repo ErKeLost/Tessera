@@ -19,7 +19,13 @@ export const npmReleasePackages: readonly PublishPackage[] = [
   { directory: "packages/data-agent", files: ["dist/index.mjs", "dist/index.d.mts"] },
   {
     directory: "apps/studio",
-    files: ["dist/index.mjs", "dist/main.mjs", "dist/client/index.html"],
+    files: [
+      "dist/index.mjs",
+      "dist/main.mjs",
+      "dist/nitro/public/index.html",
+      "dist/nitro/server/index.mjs",
+      "dist/nitro/server/package.json",
+    ],
     dependencies: [
       "@data-elements/capability-broker",
       "@data-elements/compiler",

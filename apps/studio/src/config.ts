@@ -31,6 +31,17 @@ export const TESSERA_PROVIDER_BASE_URLS = Object.freeze({
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
 } as const);
+const TESSERA_PROVIDER_API_KEY_ENVIRONMENT_VARIABLES = Object.freeze({
+  openrouter: ["OPENROUTER_API_KEY"],
+  openai: ["OPENAI_API_KEY"],
+  anthropic: ["ANTHROPIC_API_KEY"],
+  google: ["GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"],
+  groq: ["GROQ_API_KEY"],
+  mistral: ["MISTRAL_API_KEY"],
+  xai: ["XAI_API_KEY"],
+  together: ["TOGETHER_API_KEY", "TOGETHERAI_API_KEY"],
+  deepseek: ["DEEPSEEK_API_KEY"],
+} as const);
 /** OpenRouter's documented reasoning effort vocabulary, including provider-specific `max`. */
 export const TESSERA_OPENROUTER_REASONING_EFFORTS = [
   "minimal",
@@ -120,7 +131,7 @@ const llmHeadersSchema = z.record(llmHeaderNameSchema, llmHeaderValueSchema).ref
 );
 const llmConfigSchema = z.object({
   model: modelIdSchema,
-  /** Server-only credential. Omit it to let Mastra resolve the provider environment variable. */
+  /** Server-only credential. Omit it to use the provider environment variable. */
   apiKey: nonEmptyString.max(8_192).optional(),
   /** Enables any OpenAI-compatible gateway while preserving Mastra provider routing otherwise. */
   baseUrl: llmBaseUrlSchema.optional(),
@@ -303,6 +314,27 @@ export function getTesseraProviderBaseUrl(provider: string | undefined): string 
   return normalized === undefined ? undefined : TESSERA_PROVIDER_BASE_URLS[normalized];
 }
 
+/** Resolves a provider credential from server-only environment variables. */
+export function getTesseraProviderEnvironmentApiKey(
+  provider: string | undefined,
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+): string | undefined {
+  const normalized = provider?.trim().toLocaleLowerCase("en-US") as
+    | keyof typeof TESSERA_PROVIDER_API_KEY_ENVIRONMENT_VARIABLES
+    | undefined;
+  if (normalized === undefined) return undefined;
+  for (const name of TESSERA_PROVIDER_API_KEY_ENVIRONMENT_VARIABLES[normalized] ?? []) {
+    const value = environment[name]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/** Returns the explicit model key, falling back to the provider's server environment key. */
+export function resolveTesseraLlmApiKey(llm: TesseraLlmConfig): string | undefined {
+  return llm.apiKey ?? getTesseraProviderEnvironmentApiKey(llm.model.split("/", 1)[0]);
+}
+
 /**
  * Explicit LLM configuration may use any credential source supported by
  * Mastra. The legacy local default intentionally requires OPENROUTER_API_KEY
@@ -468,7 +500,7 @@ export async function loadTesseraConfig(options: LoadTesseraConfigOptions = {}):
 
   let module: Record<string, unknown>;
   try {
-    module = await import(pathToFileURL(path).href) as Record<string, unknown>;
+    module = await import(/* @vite-ignore */ pathToFileURL(path).href) as Record<string, unknown>;
   } catch {
     throw new TesseraConfigError(`Tessera configuration could not be loaded from ${path}.`);
   }
