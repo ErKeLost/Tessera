@@ -1,6 +1,6 @@
 {
-  "name": "@tessera/studio",
-  "version": "0.3.3",
+  "name": "@open-tessera/studio",
+  "version": "0.3.4",
   "license": "MIT",
   "homepage": "https://data-elements.dev",
   "repository": {

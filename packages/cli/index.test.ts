@@ -182,11 +182,11 @@ describe("data-elements CLI", () => {
       existsSync: () => false,
       resolvePackage: (specifier: string) => {
         lookups.push(specifier);
-        if (specifier === "@tessera/studio/main") return "/opt/tessera/studio/dist/main.mjs";
+        if (specifier === "@open-tessera/studio/main") return "/opt/tessera/studio/dist/main.mjs";
         throw new Error("not installed");
       },
     })).toBe("/opt/tessera/studio/dist/main.mjs");
-    expect(lookups).toEqual(["@tessera/studio/main"]);
+    expect(lookups).toEqual(["@open-tessera/studio/main"]);
   });
 
   test("spawns Studio through Bun without a shell and before components.json lookup", async () => {
