@@ -14,7 +14,6 @@ import { DataChartRenderer } from "./chart-renderer";
 const nonRechartsRecipes = new Set([
   "steps-bars",
   "pipeline-stage-bars",
-  "sleep-score",
   "tracked-time-sankey",
   "visitors-radial",
   "activity-calendar",
@@ -90,6 +89,48 @@ describe("the 17 official data chart recipes", () => {
     expect(markup).not.toContain("Total steps");
     expect(markup).not.toContain("Daily progress");
     expect(markup).not.toContain("Goal 10K");
+  });
+
+  test("renders pipeline as six shadcn-backed stages and summary cards", async () => {
+    const catalog = await createOfficialCatalog();
+    const fixture = officialChartSpecFixtures.find((candidate) => candidate.recipeName === "pipeline-stage-bars")!;
+    const markup = renderToStaticMarkup(createElement(
+      DataChartRenderer,
+      chartInput(catalog.components.dataChart, { spec: fixture.resolvedSpec } as unknown as JsonObject) as never,
+    ));
+
+    expect(markup).toContain('data-renderer-kind="dom"');
+    expect(markup).toContain("1,180");
+    expect(markup).toContain("+2.4%");
+    expect(markup).toContain("Last 7 days");
+    expect(markup).toContain('data-slot="badge"');
+    expect(markup).toContain('data-slot="button"');
+    expect(markup).toContain('data-slot="card"');
+    expect(markup).toContain('data-slot="progress"');
+    expect(markup).not.toContain("Total pipeline");
+    expect(markup).not.toContain("Opportunities by stage");
+  });
+
+  test("renders sleep score as a Recharts-backed segmented scorecard", async () => {
+    const catalog = await createOfficialCatalog();
+    const fixture = officialChartSpecFixtures.find((candidate) => candidate.recipeName === "sleep-score")!;
+    const markup = renderToStaticMarkup(createElement(
+      DataChartRenderer,
+      chartInput(catalog.components.dataChart, { spec: fixture.resolvedSpec } as unknown as JsonObject) as never,
+    ));
+
+    expect(markup).toContain('data-renderer-kind="recharts"');
+    expect(markup).toContain("Excellent");
+    expect(markup).toContain("29 Jun - 5 Jul");
+    expect(markup).toContain("Duration: 7h 50m");
+    expect(markup).toContain("Bedtime: 20m earlier");
+    expect(markup).toContain("Interruptions: 5m wake up");
+    expect(markup).toContain("49/50");
+    expect(markup).toContain('data-slot="chart"');
+    expect(markup).toContain('data-slot="card"');
+    expect(markup).toContain('data-slot="button"');
+    expect(markup).not.toContain("Recent score");
+    expect(markup).not.toContain("Last 7 nights");
   });
 });
 

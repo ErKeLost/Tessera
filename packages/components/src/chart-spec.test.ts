@@ -53,4 +53,20 @@ describe("Data Chart spec", () => {
     incompleteWeek.data.totalRows = incompleteWeek.data.rows.length;
     expect(resolvedChartSpecSchema.safeParse(incompleteWeek).success).toBe(false);
   });
+
+  test("requires the fixed pipeline and sleep-score row semantics", () => {
+    const pipeline = structuredClone(officialChartSpecFixtures[1]!.resolvedSpec) as Record<string, any>;
+    pipeline.data.rows.pop();
+    pipeline.data.totalRows = pipeline.data.rows.length;
+    expect(resolvedChartSpecSchema.safeParse(pipeline).success).toBe(false);
+
+    const sleep = structuredClone(officialChartSpecFixtures[2]!.resolvedSpec) as Record<string, any>;
+    sleep.periodEnd = "2026-06-28";
+    expect(resolvedChartSpecSchema.safeParse(sleep).success).toBe(false);
+
+    sleep.periodEnd = "2026-07-05";
+    sleep.data.rows.pop();
+    sleep.data.totalRows = sleep.data.rows.length;
+    expect(resolvedChartSpecSchema.safeParse(sleep).success).toBe(false);
+  });
 });

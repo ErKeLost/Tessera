@@ -41,8 +41,8 @@ const viewports = [
 
 const chineseDescriptions: Readonly<Record<ChartRecipeName, string>> = {
   "steps-bars": "展示选中日期、周范围与七天目标进度。",
-  "pipeline-stage-bars": "在一条有序管线中表达各阶段数量与流失。",
-  "sleep-score": "突出当前睡眠分数，同时保留近期变化。",
+  "pipeline-stage-bars": "展示六个管线阶段的转化进度、周期变化与汇总数据。",
+  "sleep-score": "把三项睡眠贡献分数合成为一个分段总分。",
   "revenue-per-account-scatter": "保留离群点的账号收入关系与规模分布。",
   "tracked-time-sankey": "用加权连接展示工作类别到去向的时间流动。",
   "visitors-radial": "用克制的径向构图表达访问总量与分类构成。",

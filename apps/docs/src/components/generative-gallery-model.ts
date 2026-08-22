@@ -43,11 +43,11 @@ export const chartRecipeDocumentation = Object.freeze({
   },
   "pipeline-stage-bars": {
     title: "Pipeline stage bars",
-    description: "Stage volume and falloff in one ordered horizontal pipeline.",
+    description: "Six pipeline stages with conversion progress, period change, and compact totals.",
   },
   "sleep-score": {
     title: "Sleep score",
-    description: "A compact score history with a prominent current summary.",
+    description: "Three scored sleep contributors combined into one segmented daily score.",
   },
   "revenue-per-account-scatter": {
     title: "Revenue per account",
