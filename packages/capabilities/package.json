@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/capabilities",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "description": "Server-only Open Generative action authorization, approval, idempotency, and receipts.",
   "license": "MIT",
   "type": "module",

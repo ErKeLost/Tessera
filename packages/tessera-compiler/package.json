@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/compiler",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
