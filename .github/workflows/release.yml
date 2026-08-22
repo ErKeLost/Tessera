@@ -179,10 +179,10 @@ jobs:
               --connect-timeout 10 \
               --max-time 30 \
               --header "Cache-Control: no-cache" \
-              "https://registry.npmjs.org/data-elements/${RELEASE_VERSION}?cache_bust=${cache_bust}" \
+              "https://registry.npmjs.org/%40open-tessera%2Fstudio/${RELEASE_VERSION}?cache_bust=${cache_bust}" \
               >/dev/null \
               && npm_config_cache="$verify_dir/npm-cache-$attempt" \
-                npx --yes "data-elements@$RELEASE_VERSION" studio --help; then
+                npx --yes "@open-tessera/studio@$RELEASE_VERSION" --help; then
               exit 0
             fi
             sleep 10

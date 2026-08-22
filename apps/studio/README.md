@@ -1,11 +1,11 @@
 # Tessera Studio
 
 Tessera Studio is the local web workspace for exploring and analyzing a
-PostgreSQL, MySQL, SQLite, or Turso database. It is normally started through the `tessera`
-command shipped by the `data-elements` package:
+PostgreSQL, MySQL, SQLite, or Turso database. It is started directly from the
+scoped npm package:
 
 ```bash
-npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/warehouse
 ```
 
 ## What Studio does
@@ -23,7 +23,7 @@ database results.
 
 The Studio server and its local session store run on Node.js 24 or later and
 Bun 1.3 or later. A project can keep the connection string and model-provider settings in a server-only
-`tessera.config.ts` file and then run `npx data-elements@latest studio` from
+`tessera.config.ts` file and then run `npx @open-tessera/studio@latest` from
 that project directory.
 
 SQLite accepts an existing local database through `file:` or `sqlite:`. Turso
@@ -32,8 +32,8 @@ accepts `libsql:` or `turso:` and reads its separate server-only credential from
 always read-only in Studio.
 
 ```bash
-npx data-elements@latest studio file:/absolute/path/to/warehouse.db
-TURSO_AUTH_TOKEN=... npx data-elements@latest studio libsql://warehouse-org.turso.io
+npx @open-tessera/studio@latest file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... npx @open-tessera/studio@latest libsql://warehouse-org.turso.io
 ```
 
 ## Local development

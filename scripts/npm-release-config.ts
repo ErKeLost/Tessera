@@ -40,9 +40,4 @@ export const npmReleasePackages: readonly PublishPackage[] = [
       "@data-elements/schema",
     ],
   },
-  {
-    directory: "packages/cli",
-    files: ["index.js", "README.md", "LICENSE"],
-    dependencies: ["@open-tessera/studio"],
-  },
 ];

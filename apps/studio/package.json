@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/studio",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "license": "MIT",
   "homepage": "https://data-elements.dev",
   "repository": {
@@ -10,7 +10,10 @@
   },
   "description": "Local-first Nitro server for the Tessera database analysis workspace on Node.js and Bun.",
   "type": "module",
-  "files": ["dist", "README.md", "LICENSE"],
+  "files": ["dist", "bin", "README.md", "LICENSE"],
+  "bin": {
+    "studio": "./bin/open-tessera-studio.mjs"
+  },
   "engines": {
     "bun": ">=1.3",
     "node": ">=24"

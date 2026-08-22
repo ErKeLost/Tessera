@@ -8,7 +8,22 @@ import chalk from "chalk";
 export { parseStudioCommandLine, resolveStudioConfig } from "./studio-command";
 export type { StudioCommandLine } from "./studio-command";
 
-async function main(): Promise<void> {
+const STUDIO_HELP = `Usage: npx @open-tessera/studio [database-url] [--config <path>] [--host <host>] [--port <port>]
+
+Starts Tessera Studio against PostgreSQL, MySQL, SQLite, Turso/libSQL, or MongoDB.
+
+Options:
+  database-url                          One supported database URL for this run
+  --config <path>                       Path to a Tessera TypeScript config file
+  --host <host>                         Host interface for the local server
+  --port <port>                         TCP port from 1 through 65535
+  -h, --help                            Show this help`;
+
+export async function main(): Promise<void> {
+  if (process.argv.slice(2).some((argument) => argument === "--help" || argument === "-h")) {
+    console.log(STUDIO_HELP);
+    return;
+  }
   const arguments_ = parseStudioCommandLine(process.argv.slice(2));
   const studio = await startTesseraStudioServer(withTesseraStudioOverrides(await resolveStudioConfig(arguments_), arguments_.overrides));
   console.log(formatStudioStartupNotice(studio.url));

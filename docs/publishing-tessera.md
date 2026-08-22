@@ -29,12 +29,12 @@ The `Release npm packages` workflow also supports manual dispatch. Enter a
 version that exactly matches the committed package manifests. It builds the
 workspace, verifies Bun's generated publish tarballs contain no `workspace:*`
 range, publishes in dependency order, and runs an
-`npx data-elements@<version> studio --help` smoke check.
+`npx @open-tessera/studio@<version> --help` smoke check.
 
 After publishing, verify from an empty directory with Node.js 24+ or Bun 1.3+ installed:
 
 ```bash
-npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/warehouse
 ```
 
 Tessera listens on `http://127.0.0.1:4317` by default. Prefer a read-only
