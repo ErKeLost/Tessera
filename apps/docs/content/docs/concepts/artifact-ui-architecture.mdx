@@ -73,17 +73,17 @@ interface, but it is not externally usable until the npm packages and registry
 host are published:
 
 ```bash
-npx data-elements@latest add artifact-ui
+npx tessera-agent@latest add artifact-ui
 ```
 
 The command installs the editable shadcn-based React source and pins exact
 protocol/runtime/artifact-contract package versions. The server adapter is an
 explicit application dependency; the default example uses
-`@data-elements/ai-sdk`. The server creates one long-lived, request-stateless
+`@open-generative/ai-sdk`. The server creates one long-lived, request-stateless
 configuration object and prepares a fresh catalog slice for every model turn:
 
 ```tsx
-import { createArtifactUI } from "@data-elements/ai-sdk"
+import { createArtifactUI } from "@open-generative/ai-sdk"
 import { streamText } from "ai"
 
 const artifactUI = createArtifactUI()
@@ -108,8 +108,8 @@ chunks or tool input. The browser validates that transport value once before
 rendering:
 
 ```tsx
-import { decodeArtifactPart } from "@data-elements/runtime"
-import { ArtifactRenderer } from "@/components/data-elements/artifact-ui"
+import { decodeArtifactPart } from "@open-generative/runtime"
+import { ArtifactRenderer } from "@/components/tessera-agent/artifact-ui"
 
 const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
   contractFingerprint: dataArtifactPart.data.contractFingerprint,
@@ -125,7 +125,7 @@ capability descriptors for exactly one model call. `toUIMessageStreamResponse`
 performs adapter validation and emits only the fingerprinted wire envelope and
 trusted server events. `decodeArtifactPart()` revalidates and applies the local
 brand after transport. `ArtifactRenderer` accepts `ArtifactPart`, a committed
-`ArtifactDocument`, or the explicit v1 compatibility type; it never parses raw
+`Document`, or the explicit v1 compatibility type; it never parses raw
 model text, proposal chunks, or an unbranded network wire.
 
 Shared state, resume, and effects use one optional provider around all rendered
@@ -135,7 +135,7 @@ parts:
 import {
   ArtifactRenderer,
   ArtifactUIProvider,
-} from "@/components/data-elements/artifact-ui"
+} from "@/components/tessera-agent/artifact-ui"
 
 <ArtifactUIProvider runtimeTransport={artifactCommandTransport}>
   <ArtifactRenderer value={artifactPart} />
@@ -183,10 +183,10 @@ the official node contract, not optional application work.
 
 ## What the OpenUI study changes
 
-OpenUI proves several architectural ideas that Data Elements should adopt. Its
+OpenUI proves several architectural ideas that Tessera Agent should adopt. Its
 visual design is irrelevant to this decision.
 
-| OpenUI mechanism | Data Elements decision |
+| OpenUI mechanism | Tessera Agent decision |
 | --- | --- |
 | Component definitions generate schemas and prompt signatures | **Adopt.** A node contract becomes the source for schemas, prompt metadata, docs, fixtures, and compatibility data. |
 | Framework-neutral language core with renderer bindings | **Adopt.** The IR, validator, patch engine, and diagnostics cannot import React. |
@@ -203,7 +203,7 @@ visual design is irrelevant to this decision.
 OpenUI's package graph also provides a useful separation reference:
 `lang-core` owns language behavior, framework packages bind renderers,
 `react-headless` owns chat state and stream adapters, and observability,
-devtools, integrations, and CLI are separate products. Data Elements should
+devtools, integrations, and CLI are separate products. Tessera Agent should
 keep those boundaries while retaining stronger data semantics and governance.
 
 The legacy gaps that motivated this architecture are now guarded by the local
@@ -401,8 +401,8 @@ type RevisionIdentity = {
   stateTransitionReceiptIds: string[]
 }
 
-type ArtifactDocument = {
-  protocol: "data-elements.artifact"
+type Document = {
+  protocol: "tessera-agent.artifact"
   protocolVersion: "2.0"
   documentId: string
   revision: RevisionIdentity
@@ -424,26 +424,26 @@ type ArtifactDocument = {
 }
 
 type ArtifactSemanticContent = {
-  protocol: ArtifactDocument["protocol"]
-  protocolVersion: ArtifactDocument["protocolVersion"]
+  protocol: Document["protocol"]
+  protocolVersion: Document["protocolVersion"]
   policy: Omit<DocumentPolicy, "expiresAt">
-  catalog: ArtifactDocument["catalog"]
-  renderMode: ArtifactDocument["renderMode"]
-  root: ArtifactDocument["root"]
-  nodes: ArtifactDocument["nodes"]
+  catalog: Document["catalog"]
+  renderMode: Document["renderMode"]
+  root: Document["root"]
+  nodes: Document["nodes"]
   state: Record<
     StateId,
     Omit<StateDefinition, "policy"> & {
       policy: Omit<StatePolicy, "expiresAt">
     }
   >
-  actions: ArtifactDocument["actions"]
+  actions: Document["actions"]
   resources: Record<ResourceId, Omit<ResourceReference, "expiresAt">>
   evidence: Record<
     EvidenceId,
     Omit<EvidenceReference, "observedAt" | "recordedAt" | "expiresAt">
   >
-  claims: ArtifactDocument["claims"]
+  claims: Document["claims"]
   meta: ArtifactMeta
 }
 
@@ -496,7 +496,7 @@ type ProposalTarget =
     }
 
 type SchemaProfileBinding = {
-  profileId: "data-elements.schema-core"
+  profileId: "tessera-agent.schema-core"
   profileVersion: number
   profileHash: string
 }
@@ -668,7 +668,7 @@ type CommitCommand =
   | { type: "abort"; transactionId: string; reason?: string }
 
 type BootstrapHello = {
-  bootstrapProtocol: "data-elements.bootstrap/1"
+  bootstrapProtocol: "tessera-agent.bootstrap/1"
   type: "hello"
   requestId: string
   offer: CompatibilityOffer
@@ -676,21 +676,21 @@ type BootstrapHello = {
 
 type BootstrapResponse =
   | {
-      bootstrapProtocol: "data-elements.bootstrap/1"
+      bootstrapProtocol: "tessera-agent.bootstrap/1"
       type: "ready"
       requestId: string
       streamId: string
       selection: CompatibilitySelection
     }
   | {
-      bootstrapProtocol: "data-elements.bootstrap/1"
+      bootstrapProtocol: "tessera-agent.bootstrap/1"
       type: "incompatible"
       requestId: string
       reasons: { code: string; message: string }[]
     }
 
 type RuntimeSnapshot = {
-  document: ArtifactDocument
+  document: Document
   branchHead: BranchHeadPrecondition
   state: StateRecord[]
   pendingActions: ClientActionInvocationSummary[]
@@ -701,7 +701,7 @@ type RuntimeSnapshot = {
 }
 
 type ServerEvent<T> = {
-  streamProtocol: "data-elements.stream/2.0"
+  streamProtocol: "tessera-agent.stream/2.0"
   streamId: string
   seq: number
   eventId: string
@@ -735,11 +735,11 @@ type ArtifactPart = (
 
 type ArtifactRendererValue =
   | ArtifactPart
-  | ArtifactDocument
-  | import("@data-elements/schema").Artifact // explicit v1 compatibility
+  | Document
+  | import("@open-generative/protocol").Artifact // explicit v1 compatibility
 
 type ClientCommand<T> = {
-  streamProtocol: "data-elements.stream/2.0"
+  streamProtocol: "tessera-agent.stream/2.0"
   streamId: string
   contractFingerprint: string
   payload: T
@@ -757,7 +757,7 @@ type ClientArtifactCommand = ClientCommand<
 >
 
 type ClientResourceDataEnvelope = {
-  resourceProtocol: "data-elements.resource/1.0"
+  resourceProtocol: "tessera-agent.resource/1.0"
   requestId: string
   contractFingerprint: string
   documentId: string
@@ -1191,7 +1191,7 @@ type StateTransitionReceipt = {
 type ClientStateTransitionReceipt = Omit<StateTransitionReceipt, "auditRef">
 ```
 
-Every `JSONSchema` in this architecture uses the closed, budgeted Data Elements
+Every `JSONSchema` in this architecture uses the closed, budgeted Tessera Agent
 Schema Core profile, not an arbitrary JSON Schema document. The selected
 compatibility manifest pins its profile ID, version, and hash; the contract and
 prompt-bundle fingerprints include that binding, and every standalone
@@ -1902,7 +1902,7 @@ response cannot attach to another revision. Preloaded bindings are delivered as
 one or more independent `ClientResourceDataEnvelope`s after the value-free
 snapshot; they are never nested in `RuntimeSnapshot`, `ArtifactPart`, a stream
 base, or another cursor-bearing event. Without a transport, `ArtifactPart` and
-`ArtifactDocument` can use only literals and bounded inline previews and
+`Document` can use only literals and bounded inline previews and
 otherwise show the contract's unavailable state.
 
 Every client-visible resource value must fit `maxResolvedResourceBytes`. A
@@ -2024,21 +2024,21 @@ current packages and be extracted only after APIs stabilize.
 
 | Boundary | Responsibility |
 | --- | --- |
-| `@data-elements/protocol` | IR, stream frames, diagnostics, version types, JSON Schemas |
-| `@data-elements/catalog` | `defineNodeContract`, catalog validation, fingerprints, migrations |
-| `@data-elements/codec-json` | Credential-free snapshot/JSONL decoding and encoding, syntax limits, canonical draft/content projections |
-| `@data-elements/runtime-core` | Credential-free normalization, validation, draft/commit reducer, document store, state/binding evaluation, scoped resource-binding cache, action invocation, and effect intents; no network access |
-| `@data-elements/compiler` | Server/build-only prompt and repair bundles, provider schemas, examples, and task-specific catalog slicing |
-| `@data-elements/capability-broker` | Server-only grants, authorization, policy decisions, approvals, idempotency, and effect receipts |
-| `@data-elements/resources` | Server-side resource/evidence resolution, schema checks, redaction, expiry, and provenance receipts |
-| `@data-elements/react` | React renderer, error boundaries, hooks, official renderer bindings |
-| `@data-elements/artifacts` | Framework-neutral semantic artifact contracts and invariants |
-| `@data-elements/ai-sdk`, `@data-elements/mastra`, `@data-elements/ag-ui` | Thin transport integrations |
-| `@data-elements/observability` | Event vocabulary and sink API |
-| `@data-elements/evals` | Golden tasks, conformance suites, graders, provider matrices |
-| `@data-elements/registry-tools` | Private registry/code-generation build tooling and dependency-closure checks |
-| `@data-elements/codec-text` | Optional future compact codec; never the canonical representation |
-| `data-elements` CLI | shadcn registry install, compatibility checks, migrations, diagnostics |
+| `@open-generative/protocol` | IR, stream frames, diagnostics, version types, JSON Schemas |
+| `@open-generative/catalog` | `defineNodeContract`, catalog validation, fingerprints, migrations |
+| `@open-generative/protocol` | Credential-free snapshot/JSONL decoding and encoding, syntax limits, canonical draft/content projections |
+| `@open-generative/runtime` | Credential-free normalization, validation, draft/commit reducer, document store, state/binding evaluation, scoped resource-binding cache, action invocation, and effect intents; no network access |
+| `@open-generative/compiler` | Server/build-only prompt and repair bundles, provider schemas, examples, and task-specific catalog slicing |
+| `@open-generative/capabilities` | Server-only grants, authorization, policy decisions, approvals, idempotency, and effect receipts |
+| `@open-generative/resources` | Server-side resource/evidence resolution, schema checks, redaction, expiry, and provenance receipts |
+| `@open-generative/react` | React renderer, error boundaries, hooks, official renderer bindings |
+| `@open-generative/components` | Framework-neutral semantic artifact contracts and invariants |
+| `@open-generative/ai-sdk`, `@open-generative/mastra`, `@open-generative/ag-ui` | Thin transport integrations |
+| `Tessera server observability` | Event vocabulary and sink API |
+| `Tessera proof harness` | Golden tasks, conformance suites, graders, provider matrices |
+| `Tessera distribution tooling` | Private registry/code-generation build tooling and dependency-closure checks |
+| `@open-generative/protocol` | Optional future compact codec; never the canonical representation |
+| `tessera-agent` CLI | shadcn registry install, compatibility checks, migrations, diagnostics |
 
 The dependency direction is enforced: protocol and codecs are leaves; catalog
 depends only on protocol/schema utilities; runtime core depends on protocol,
@@ -2049,9 +2049,9 @@ prompt examples, capability broker, resource resolver, Node built-ins,
 credentials, or policy implementation. Logical modules may be extracted later,
 but this environment boundary is enforced from the first v2 implementation.
 
-The existing `@data-elements/schema` remains the v1 compatibility facade,
-`@data-elements/core` owns the v1 catalog and safe calculator foundation, and
-`@data-elements/runtime` owns the v2 protocol/runtime. Existing v1 schemas contain envelope fields such
+The existing `@open-generative/protocol` remains the v1 compatibility facade,
+`@open-generative/catalog` owns the v1 catalog and safe calculator foundation, and
+`@open-generative/runtime` owns the v2 protocol/runtime. Existing v1 schemas contain envelope fields such
 as `protocolVersion`, `kind`, and `id`, so a defined `v1 envelope → v2 props`
 projection reuses their semantic fields; the entire v1 object is not treated as
 v2 node props.
@@ -2062,8 +2062,8 @@ AI-framework adapter exposes `createArtifactUI`, and React exposes
 presets.
 
 The current repository intentionally consolidates some logical boundaries:
-`@data-elements/runtime` owns protocol, JSON codec, and runtime-core behavior,
-while `@data-elements/schema` and `@data-elements/core` own the v1 contracts and
+`@open-generative/runtime` owns protocol, JSON codec, and runtime-core behavior,
+while `@open-generative/protocol` and `@open-generative/catalog` own the v1 contracts and
 catalog foundation. Logical names in the table are responsibilities, not a
 claim that every row is already a separately published npm package.
 
@@ -2081,8 +2081,8 @@ runtime.
 The default `artifact-ui` item installs a real `artifact-ui.tsx` public barrel,
 `ArtifactUIProvider`, `ArtifactRenderer`, official bindings, shadcn primitives,
 artifact recipes, semantic tokens, and the catalog lock. Its registry metadata
-pins `@data-elements/schema`, `@data-elements/core`, and
-`@data-elements/runtime` to exact versions; framework adapters are selected
+pins `@open-generative/protocol`, `@open-generative/catalog`, and
+`@open-generative/runtime` to exact versions; framework adapters are selected
 separately on the server. Individual artifact items install only the exact
 runtime-package subset required by their source closure, while sharing the same
 managed lock path.

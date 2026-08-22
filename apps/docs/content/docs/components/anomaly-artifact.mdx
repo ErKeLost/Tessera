@@ -9,7 +9,7 @@ never grants the model arbitrary visual styling.
 
 <ComponentPreview
   filename="anomaly-artifact-example.tsx"
-  code={`import { AnomalyArtifact } from "@/components/data-elements/anomaly-artifact"
+  code={`import { AnomalyArtifact } from "@/components/tessera-agent/anomaly-artifact"
 
 export function RevenueAnomalies() {
   return (
@@ -58,14 +58,14 @@ surface remains auditable.
   filename="components/anomaly-review.tsx"
   code={`"use client"
 
-import { AnomalyArtifact } from "@/components/data-elements/anomaly-artifact"
-import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { AnomalyArtifact } from "@/components/tessera-agent/anomaly-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
 
 export function AnomalyReview({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => openInvestigation(event)}>
+    <TesseraPreviewProvider onAction={(event) => openInvestigation(event)}>
       <AnomalyArtifact artifact={artifact} locale="en-US" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

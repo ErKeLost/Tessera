@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DataAgentError, fieldIdFor, semanticCatalogSchema, type AnalysisDraft, type DataAgent } from "@data-elements/data-agent";
+import { DataAgentError, fieldIdFor, semanticCatalogSchema, type AnalysisDraft, type DataAgent } from "@open-tessera/data-agent";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,7 +40,7 @@ import {
 import { RequestContext } from "@mastra/core/request-context";
 import type { TesseraLlmConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
-import type { DatabaseCatalog, DatabaseQueryResult } from "@data-elements/database";
+import type { DatabaseCatalog, DatabaseQueryResult } from "@open-tessera/database";
 import { createTesseraSessionMemory, tesseraSessionResourceId } from "./session-memory";
 
 function streamOnlyTestModel() {

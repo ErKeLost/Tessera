@@ -9,7 +9,7 @@ model to compose arbitrary layout primitives.
 
 <ComponentPreview
   filename="timeline-artifact-example.tsx"
-  code={`import { TimelineArtifact } from "@/components/data-elements/timeline-artifact"
+  code={`import { TimelineArtifact } from "@/components/tessera-agent/timeline-artifact"
 
 export function RolloutTimeline() {
   return (
@@ -62,14 +62,14 @@ order, while `timeZone` controls deterministic date formatting.
   filename="components/rollout-timeline.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { TimelineArtifact } from "@/components/data-elements/timeline-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { TimelineArtifact } from "@/components/tessera-agent/timeline-artifact"
 
 export function RolloutTimeline({ artifact }) {
   return (
-    <DataElementsProvider onAction={({ payload }) => inspectEvent(payload.eventId)}>
+    <TesseraPreviewProvider onAction={({ payload }) => inspectEvent(payload.eventId)}>
       <TimelineArtifact artifact={artifact} locale="en-US" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

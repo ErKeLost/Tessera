@@ -1,1457 +1,924 @@
-import { z, ZodError, type ZodType } from "zod";
-import { canonicalize, deepFreeze, escapeJsonPointer, utf8Bytes } from "./canonical";
-import { CompilerCatalog } from "./catalog";
-import { matchesActionContractVersion } from "./contract-version";
 import {
-  compilerDiagnostic,
-  CompilerDiagnosticError,
-  diagnosticsFromUnknown,
-} from "./diagnostics";
+  HASH_DOMAINS,
+  ProtocolError,
+  actionDefinitionSchema,
+  authoringSnapshotProposalSchema,
+  canonicalNodeSchema,
+  canonicalOperationEnvelopeSchema,
+  canonicalStringify,
+  claimBindingSchema,
+  documentContentSchema,
+  evidenceBindingSchema,
+  hashCanonical,
+  hashDocumentContent,
+  proposalOperationEnvelopeSchema,
+  resourceBindingDeclarationSchema,
+  stateDefinitionSchema,
+  toProposalEntityKey,
+  valueExprSchema,
+  type ActionDefinition,
+  type AuthoringActionDefinition,
+  type AuthoringEntityRef,
+  type AuthoringOperationNodeBody,
+  type AuthoringProposalOperation,
+  type AuthoringResourceBinding,
+  type AuthoringSnapshotNode,
+  type AuthoringSnapshotProposal,
+  type AuthoringValue,
+  type CanonicalEntityOperation,
+  type CanonicalEntityRef,
+  type CanonicalNode,
+  type ClaimBinding,
+  type DocumentContent,
+  type EntityRevisionId,
+  type EvidenceBinding,
+  type HashProvider,
+  type JsonValue,
+  type OperationId,
+  type ProposalEntityKind,
+  type ProposalOperationEnvelope,
+  type ResourceBindingDeclaration,
+  type Sha256Hash,
+  type StateDefinition,
+  type TransactionIdentityMap,
+  type ValueExpr,
+} from "@open-generative/protocol";
+import {
+  applyCanonicalOperationChecked,
+  type EntityRevisionIndex,
+} from "@open-generative/runtime";
+import { cloneCanonical, compareCanonical, diagnostic, exhaustive, offerKey, refKey } from "./internal";
+import {
+  createActionAuthoringInputSchema,
+  schemaIssueSummary,
+  validateJsonSchema,
+} from "./schema";
 import type {
-  ArtifactMeta,
-  ArtifactProposal,
-  ArtifactValue,
-  AuthoringActionPlan,
-  AuthoringActionStep,
-  AuthoringNavigationTarget,
-  AuthoringStateDefinition,
-  AuthoringValue,
-  CatalogSlice,
-  Diagnostic,
-  GenerationLimits,
-  JSONSchema,
-  JsonValue,
-  NodeContract,
-  NormalizedActionPlan,
-  NormalizedActionStep,
-  NormalizedArtifactNode,
-  NormalizedArtifactProposal,
+  CompilerCatalogLike,
+  FlowClassification,
+  IdentityAllocationBatch,
+  IdentityAllocationRequest,
+  NormalizedCompilerOperation,
+  NormalizedCompilerProposal,
+  ProposalNormalizerInput,
 } from "./types";
 
-export const DEFAULT_GENERATION_LIMITS: Readonly<GenerationLimits> = Object.freeze({
-  maxDocumentBytes: 256_000,
-  maxNodes: 64,
-  maxDepth: 12,
-  maxStringBytes: 16_000,
-  maxCollectionItems: 2_000,
-  maxObjectKeys: 256,
-  maxTotalValues: 20_000,
-  maxNodeTypes: 12,
-  maxExamples: 2,
-  maxRepairFragmentBytes: 32_000,
-  maxRepairAttempts: 1,
-});
+const ENTITY_KINDS = ["node", "state", "action", "resource", "evidence", "claim"] as const;
+const CLASSIFICATION_RANK: Record<FlowClassification, number> = {
+  public: 0,
+  internal: 1,
+  confidential: 2,
+  restricted: 3,
+};
 
-const absoluteLimitCeilings: Readonly<GenerationLimits> = Object.freeze({
-  maxDocumentBytes: 4_000_000,
-  maxNodes: 1_000,
-  maxDepth: 64,
-  maxStringBytes: 1_000_000,
-  maxCollectionItems: 20_000,
-  maxObjectKeys: 4_096,
-  maxTotalValues: 1_000_000,
-  maxNodeTypes: 256,
-  maxExamples: 8,
-  maxRepairFragmentBytes: 128_000,
-  maxRepairAttempts: 3,
-});
+export class ProposalNormalizer {
+  readonly #input: ProposalNormalizerInput;
+  readonly #baseDocument: DocumentContent;
+  #document: DocumentContent;
+  #entityRevisions: EntityRevisionIndex;
+  #identityMap: TransactionIdentityMap = {};
+  #nextSequence = 1;
+  readonly #operationIds = new Set<OperationId>();
+  readonly #createdLocalEntities = new Set<string>();
+  readonly #classifications = new Map<string, FlowClassification>();
 
-const identifierPattern = /^[A-Za-z][A-Za-z0-9_.:-]{0,127}$/;
-const forbiddenKeys = new Set(["__proto__", "constructor", "prototype"]);
-const authoringPathSchema = z.array(z.union([
-  z.string().min(1).refine((value) => !forbiddenKeys.has(value)),
-  z.number().int().nonnegative(),
-])).max(64);
-const propsReferenceSchema = z.union([
-  z.object({
-    $ref: z.enum(["state", "resource"]),
-    id: z.string().regex(identifierPattern),
-    path: authoringPathSchema.optional(),
-  }).strict(),
-  z.object({
-    $ref: z.literal("context"),
-    key: z.enum(["locale", "timezone"]),
-  }).strict(),
-]);
-const presentationConditionSchema = z.object({
-  $condition: z.object({
-    op: z.enum(["eq", "neq", "lt", "lte", "gt", "gte", "and", "or", "not"]),
-    args: z.array(z.unknown()).min(1),
-  }).strict(),
-}).strict();
-const bindingSchemaCache = new WeakMap<NodeContract, ZodType<Record<string, unknown>>>();
+  constructor(input: ProposalNormalizerInput) {
+    this.#input = input;
+    this.#baseDocument = cloneCanonical(input.baseDocument);
+    this.#document = cloneCanonical(input.baseDocument);
+    this.#entityRevisions = cloneCanonical(input.baseEntityRevisions);
+    this.#seedAuthorityClassifications();
+  }
 
-export function resolveGenerationLimits(
-  overrides: Partial<GenerationLimits> = {},
-): Readonly<GenerationLimits> {
-  const limits = { ...DEFAULT_GENERATION_LIMITS, ...overrides };
-  for (const [name, value] of Object.entries(limits) as [keyof GenerationLimits, number][]) {
-    if (!Number.isSafeInteger(value) || value < 0 || value > absoluteLimitCeilings[name]) {
-      throw new TypeError(
-        `${name} must be an integer between 0 and ${absoluteLimitCeilings[name]}.`,
+  get document(): DocumentContent {
+    return cloneCanonical(this.#document);
+  }
+
+  get entityRevisions(): EntityRevisionIndex {
+    return cloneCanonical(this.#entityRevisions);
+  }
+
+  get finalOperationSequence(): number {
+    return this.#nextSequence - 1;
+  }
+
+  async normalizeOperation(input: ProposalOperationEnvelope): Promise<NormalizedCompilerOperation> {
+    const proposalEnvelope = proposalOperationEnvelopeSchema.parse(input);
+    const proposalPayloadHash = await hashCanonical(
+      HASH_DOMAINS.operationPayload,
+      proposalEnvelope.operation,
+      this.#input.hashProvider,
+    );
+    if (proposalPayloadHash !== proposalEnvelope.payloadHash) {
+      throw compilerError("authoring", "proposal-operation.payload-hash-mismatch", "Authoring operation payload hash is invalid.");
+    }
+    if (proposalEnvelope.sequence !== this.#nextSequence) {
+      throw compilerError(
+        "normalize",
+        "proposal-operation.sequence-invalid",
+        "Authoring operation sequences must be contiguous and start at one.",
+        "/sequence",
+        this.#nextSequence,
       );
     }
-  }
-  if (limits.maxNodes < 1 || limits.maxDepth < 1 || limits.maxNodeTypes < 1) {
-    throw new TypeError("Node, depth, and node-type limits must be positive.");
-  }
-  return Object.freeze(limits);
-}
-
-export type NormalizeSurfaceOptions = {
-  catalog?: CompilerCatalog | CatalogSlice;
-  limits?: Partial<GenerationLimits>;
-  allowedResourceIds?: readonly string[];
-  capabilityIds?: readonly string[];
-  messageTemplateIds?: readonly string[];
-};
-
-type NormalizeContext = {
-  contracts: ReadonlyMap<string, NodeContract>;
-  limits: Readonly<GenerationLimits>;
-  nodes: Record<string, NormalizedArtifactNode>;
-  instanceCounts: Map<string, number>;
-  stateIds: ReadonlySet<string>;
-  resourceIds: ReadonlySet<string>;
-  capabilityIds: ReadonlySet<string>;
-  messageTemplateIds: ReadonlySet<string>;
-};
-
-function fail(input: Parameters<typeof compilerDiagnostic>[0]): never {
-  throw new CompilerDiagnosticError([compilerDiagnostic(input)]);
-}
-
-function summarize(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return "array";
-  return typeof value;
-}
-
-function recordAt(value: unknown, path: string): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return fail({
-      phase: "decode",
-      code: "authoring.expected_object",
-      message: "Expected an object.",
-      path,
-      actualSummary: summarize(value),
-    });
-  }
-  const prototype = Object.getPrototypeOf(value);
-  if (prototype !== Object.prototype && prototype !== null) {
-    return fail({
-      phase: "decode",
-      code: "authoring.non_plain_object",
-      message: "Authoring input must contain only plain JSON objects.",
-      path,
-      modelCorrectable: false,
-      actualSummary: Object.prototype.toString.call(value),
-    });
-  }
-  return value as Record<string, unknown>;
-}
-
-function rejectUnknownKeys(
-  value: Record<string, unknown>,
-  allowed: ReadonlySet<string>,
-  path: string,
-): void {
-  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
-  if (unknown.length) {
-    fail({
-      phase: "validate",
-      code: "authoring.unknown_field",
-      message: `Unknown field "${unknown.sort()[0]}".`,
-      path: `${path}/${escapeJsonPointer(unknown.sort()[0]!)}`,
-      hint: "Remove fields that are not declared by the authoring schema.",
-    });
-  }
-}
-
-function stringAt(value: unknown, path: string): string {
-  if (typeof value !== "string" || value.length === 0) {
-    return fail({
-      phase: "decode",
-      code: "authoring.expected_string",
-      message: "Expected a non-empty string.",
-      path,
-      actualSummary: summarize(value),
-    });
-  }
-  return value;
-}
-
-function identifierAt(value: unknown, path: string): string {
-  const id = stringAt(value, path);
-  if (!identifierPattern.test(id)) {
-    return fail({
-      phase: "validate",
-      code: "authoring.invalid_identifier",
-      message: "Identifiers must be stable ASCII names of at most 128 characters.",
-      path,
-      hint: "Start with a letter and use letters, numbers, dot, colon, underscore, or hyphen.",
-    });
-  }
-  return id;
-}
-
-function inspectJson(value: unknown, limits: GenerationLimits): asserts value is JsonValue {
-  let totalValues = 0;
-  const ancestors = new Set<object>();
-
-  const visit = (current: unknown, path: string): void => {
-    totalValues += 1;
-    if (totalValues > limits.maxTotalValues) {
-      fail({
-        phase: "decode",
-        code: "limit.total_values_exceeded",
-        message: "The artifact contains too many values.",
-        path,
-        expected: limits.maxTotalValues,
-      });
+    if (this.#operationIds.has(proposalEnvelope.operationId)) {
+      throw compilerError("normalize", "proposal-operation.id-conflict", "Operation ID is already used in this proposal.", "/operationId");
     }
-    if (current === null || typeof current === "boolean") return;
-    if (typeof current === "string") {
-      if (utf8Bytes(current) > limits.maxStringBytes) {
-        fail({
-          phase: "decode",
-          code: "limit.string_bytes_exceeded",
-          message: "A string exceeds the configured UTF-8 byte limit.",
-          path,
-          expected: limits.maxStringBytes,
-        });
-      }
-      return;
-    }
-    if (typeof current === "number") {
-      if (!Number.isFinite(current)) {
-        fail({
-          phase: "decode",
-          code: "authoring.non_finite_number",
-          message: "Numbers must be finite.",
-          path,
-        });
-      }
-      return;
-    }
-    if (!current || typeof current !== "object") {
-      fail({
-        phase: "decode",
-        code: "authoring.non_json_value",
-        message: "The authoring document must contain only JSON values.",
-        path,
-        modelCorrectable: false,
-        actualSummary: summarize(current),
-      });
-    }
-    if (ancestors.has(current)) {
-      fail({
-        phase: "decode",
-        code: "authoring.cyclic_value",
-        message: "The authoring document cannot contain cyclic values.",
-        path,
-        modelCorrectable: false,
-      });
-    }
-    ancestors.add(current);
-    if (Array.isArray(current)) {
-      if (current.length > limits.maxCollectionItems) {
-        fail({
-          phase: "decode",
-          code: "limit.collection_items_exceeded",
-          message: "An array exceeds the configured item limit.",
-          path,
-          expected: limits.maxCollectionItems,
-        });
-      }
-      current.forEach((item, index) => visit(item, `${path}/${index}`));
-    } else {
-      const object = recordAt(current, path);
-      const keys = Object.keys(object);
-      if (keys.length > limits.maxObjectKeys) {
-        fail({
-          phase: "decode",
-          code: "limit.object_keys_exceeded",
-          message: "An object exceeds the configured key limit.",
-          path,
-          expected: limits.maxObjectKeys,
-        });
-      }
-      for (const key of keys) {
-        if (forbiddenKeys.has(key)) {
-          fail({
-            phase: "decode",
-            code: "authoring.forbidden_object_key",
-            message: "The authoring document contains a forbidden object key.",
-            path: `${path}/${escapeJsonPointer(key)}`,
-            modelCorrectable: false,
-          });
-        }
-        visit(object[key], `${path}/${escapeJsonPointer(key)}`);
+    for (const dependency of proposalEnvelope.dependsOn) {
+      if (!this.#operationIds.has(dependency)) {
+        throw compilerError("normalize", "proposal-operation.dependency-unavailable", "An operation dependency has not been accepted.", "/dependsOn");
       }
     }
-    ancestors.delete(current);
-  };
 
-  visit(value, "");
-  const bytes = utf8Bytes(canonicalize(value as JsonValue));
-  if (bytes > limits.maxDocumentBytes) {
-    fail({
-      phase: "decode",
-      code: "limit.document_bytes_exceeded",
-      message: "The artifact exceeds the configured document byte limit.",
-      path: "",
-      expected: limits.maxDocumentBytes,
-      actualSummary: `${bytes} UTF-8 bytes`,
+    const create = localCreateTarget(proposalEnvelope.operation);
+    if (create) {
+      const key = `${create.kind}:${create.localId}`;
+      if (this.#createdLocalEntities.has(key)) {
+        throw compilerError("normalize", "proposal-entity.duplicate-create", "A proposal-local entity can be created only once.", "/operation/target");
+      }
+      if (!this.#input.writeScope.creatable.includes(create.kind)) {
+        throw compilerError("policy", "write-scope.create-denied", `Creating ${create.kind} entities is outside the frozen WriteScope.`, "/operation/target");
+      }
+    }
+
+    const allocation = await this.#allocateIdentities(proposalEnvelope);
+    const operation = await this.#canonicalizeOperation(proposalEnvelope.operation, allocation);
+    const envelope = canonicalOperationEnvelopeSchema.parse({
+      transactionId: this.#input.transactionId,
+      operationId: proposalEnvelope.operationId,
+      sequence: proposalEnvelope.sequence,
+      dependsOn: proposalEnvelope.dependsOn,
+      payloadHash: await hashCanonical(HASH_DOMAINS.operationPayload, operation, this.#input.hashProvider),
+      operation,
     });
-  }
-}
-
-function matchesPath(path: string, patterns: readonly string[] | undefined): boolean {
-  return (patterns ?? []).some((pattern) => {
-    const expected = pattern.split("/");
-    const actual = path.split("/");
-    return expected.length === actual.length && expected.every(
-      (segment, index) => segment === "*" || segment === actual[index],
+    const applied = await applyCanonicalOperationChecked(
+      this.#document,
+      this.#entityRevisions,
+      operation,
+      this.#input.hashProvider,
     );
-  });
-}
-
-function pathSegments(value: unknown, path: string): (string | number)[] | undefined {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value)) {
-    return fail({
-      phase: "normalize",
-      code: "reference.invalid_path",
-      message: "A reference path must be an array.",
-      path,
-    });
-  }
-  return value.map((segment, index) => {
-    if (typeof segment === "string" && segment.length > 0 && !forbiddenKeys.has(segment)) {
-      return segment;
+    if (!applied.ok) {
+      throw compilerError("normalize", applied.conflict.code, applied.conflict.message, "/operation");
     }
-    if (typeof segment === "number" && Number.isSafeInteger(segment) && segment >= 0) {
-      return segment;
-    }
-    return fail({
-      phase: "normalize",
-      code: "reference.invalid_path_segment",
-      message: "Reference paths accept non-empty property names and non-negative integer indexes.",
-      path: `${path}/${index}`,
-    });
-  });
-}
 
-type LowerOptions = {
-  context: NormalizeContext;
-  path: string;
-  bindingPath: string;
-  contract?: NodeContract;
-  allowEventReference: boolean;
-};
+    this.#document = applied.content;
+    this.#entityRevisions = applied.entityRevisions;
+    this.#identityMap = allocation.identityMap;
+    this.#operationIds.add(proposalEnvelope.operationId);
+    if (create) this.#createdLocalEntities.add(`${create.kind}:${create.localId}`);
+    this.#nextSequence += 1;
+    this.#enforceGenerationLimits();
+    return { envelope, identityMapDelta: allocation.identityMapDelta };
+  }
 
-function lowerValue(value: AuthoringValue, options: LowerOptions): ArtifactValue {
-  if (value === null || typeof value === "string" || typeof value === "boolean") {
-    return { kind: "literal", value };
+  async normalizeOperations(
+    operations: readonly ProposalOperationEnvelope[],
+  ): Promise<NormalizedCompilerProposal> {
+    const normalized: NormalizedCompilerOperation[] = [];
+    for (const operation of operations) normalized.push(await this.normalizeOperation(operation));
+    return this.finalize(normalized);
   }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) {
-      return fail({
-        phase: "normalize",
-        code: "authoring.non_finite_number",
-        message: "Numbers must be finite.",
-        path: options.path,
-      });
+
+  async normalizeSnapshot(input: AuthoringSnapshotProposal): Promise<NormalizedCompilerProposal> {
+    if (this.#nextSequence !== 1) {
+      throw compilerError("normalize", "snapshot.non-empty-transaction", "Snapshot normalization requires an empty compiler transaction.");
     }
-    return { kind: "literal", value };
+    const snapshot = authoringSnapshotProposalSchema.parse(input);
+    const authoringOperations = flattenSnapshot(snapshot);
+    const normalized: NormalizedCompilerOperation[] = [];
+    let previousOperationId: OperationId | undefined;
+
+    for (const [index, entry] of authoringOperations.entries()) {
+      const envelope = await this.#snapshotEnvelope(entry.label, entry.operation, index + 1, previousOperationId);
+      normalized.push(await this.normalizeOperation(envelope));
+      previousOperationId = envelope.operationId;
+    }
+
+    const rootRef: AuthoringEntityRef<"node"> = { kind: "node", localId: snapshot.root.localId };
+    const rootOperation: AuthoringProposalOperation = {
+      op: "set-root",
+      node: rootRef,
+      expectedRootId: this.#document.rootNodeId,
+    };
+    const rootEnvelope = await this.#snapshotEnvelope("set-root", rootOperation, this.#nextSequence, previousOperationId);
+    normalized.push(await this.normalizeOperation(rootEnvelope));
+    previousOperationId = rootEnvelope.operationId;
+
+    const metaOperation: AuthoringProposalOperation = {
+      op: "set-meta",
+      expectedMetaHash: this.#entityRevisions.metaHash,
+      value: snapshot.meta,
+    };
+    const metaEnvelope = await this.#snapshotEnvelope("set-meta", metaOperation, this.#nextSequence, previousOperationId);
+    normalized.push(await this.normalizeOperation(metaEnvelope));
+    previousOperationId = metaEnvelope.operationId;
+
+    const retained = collectSnapshotRetainedEntities(snapshot, this.#identityMap);
+    for (const removal of snapshotRemovals(this.#baseDocument, this.#entityRevisions, retained)) {
+      const envelope = await this.#snapshotEnvelope(removal.label, removal.operation, this.#nextSequence, previousOperationId);
+      normalized.push(await this.normalizeOperation(envelope));
+      previousOperationId = envelope.operationId;
+    }
+    return this.finalize(normalized);
   }
-  if (Array.isArray(value)) {
+
+  async finalize(
+    operations: readonly NormalizedCompilerOperation[] = [],
+  ): Promise<NormalizedCompilerProposal> {
+    const parsed = documentContentSchema.safeParse(this.#document);
+    if (!parsed.success) {
+      throw compilerError(
+        "validate",
+        "document.invalid",
+        parsed.error.issues[0]?.message ?? "Normalized document is invalid.",
+        parsed.error.issues[0] ? `/${parsed.error.issues[0]!.path.join("/")}` : "",
+      );
+    }
+    this.#document = parsed.data;
+    this.#validateCanonicalContracts();
+    this.#validateInformationFlow();
+    const contentHash = await hashDocumentContent(this.#document, this.#input.hashProvider);
     return {
-      kind: "array",
-      items: value.map((item, index) => lowerValue(item, {
-        ...options,
-        path: `${options.path}/${index}`,
-        bindingPath: `${options.bindingPath}/*`,
-      })),
+      operations: [...operations],
+      document: cloneCanonical(this.#document),
+      entityRevisions: cloneCanonical(this.#entityRevisions),
+      finalOperationSequence: this.finalOperationSequence,
+      contentHash,
     };
   }
 
-  const object = recordAt(value, options.path);
-  const dollarKeys = Object.keys(object).filter((key) => key.startsWith("$"));
-  if ("$ref" in object) {
-    if (
-      dollarKeys.length !== 1
-      || (!options.allowEventReference && !matchesPath(
-        options.bindingPath,
-        options.contract?.bindings?.referencePaths,
-      ))
-    ) {
-      return fail({
-        phase: "normalize",
-        code: "binding.reference_not_allowed",
-        message: "This contract field does not allow references.",
-        path: options.path,
-      });
-    }
-    const ref = stringAt(object.$ref, `${options.path}/$ref`);
-    const path = pathSegments(object.path, `${options.path}/path`);
-    if (ref === "state" || ref === "resource") {
-      rejectUnknownKeys(object, new Set(["$ref", "id", "path"]), options.path);
-      const id = identifierAt(object.id, `${options.path}/id`);
-      if (ref === "state" && !options.context.stateIds.has(id)) {
-        return fail({
-          phase: "validate",
-          code: "reference.unknown_state",
-          message: `State "${id}" is not declared by this proposal.`,
-          path: `${options.path}/id`,
-        });
+  async #allocateIdentities(envelope: ProposalOperationEnvelope): Promise<IdentityAllocationBatch> {
+    const entities = collectIdentityRequests(envelope.operation);
+    const allocation = await this.#input.identityAllocator.claim({
+      transactionId: this.#input.transactionId,
+      operationId: envelope.operationId,
+      entities,
+    });
+    for (const request of entities) {
+      const ref = allocation.identityMap[toProposalEntityKey(request.kind, request.localId)];
+      if (!ref || ref.kind !== request.kind) {
+        throw compilerError("normalize", "identity-map.missing", "Identity allocator did not return an exact kind-safe mapping.");
       }
-      if (ref === "resource" && !options.context.resourceIds.has(id)) {
-        return fail({
-          phase: "policy",
-          code: "reference.resource_not_granted",
-          message: `Resource "${id}" is not in the sealed proposal context.`,
-          path: `${options.path}/id`,
-          recoverable: false,
-          modelCorrectable: false,
-        });
-      }
-      return ref === "state"
-        ? { kind: "state-ref", stateId: id, ...(path ? { path } : {}) }
-        : { kind: "resource-ref", resourceId: id, ...(path ? { path } : {}) };
     }
-    if (ref === "event") {
-      if (!options.allowEventReference) {
-        return fail({
-          phase: "validate",
-          code: "reference.event_outside_action",
-          message: "Event references are allowed only inside action plans.",
-          path: options.path,
-        });
+    return allocation;
+  }
+
+  async #canonicalizeOperation(
+    operation: AuthoringProposalOperation,
+    allocation: IdentityAllocationBatch,
+  ): Promise<CanonicalEntityOperation> {
+    const map = allocation.identityMap;
+    switch (operation.op) {
+      case "put-node": {
+        const target = this.#putTarget("node", operation.target, map);
+        return {
+          op: "put-node",
+          nodeId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: this.#canonicalizeNode(operation.value, map),
+        };
       }
-      rejectUnknownKeys(object, new Set(["$ref", "port", "path"]), options.path);
-      const port = identifierAt(object.port, `${options.path}/port`);
-      return { kind: "event-ref", port, ...(path ? { path } : {}) };
-    }
-    if (ref === "context") {
-      rejectUnknownKeys(object, new Set(["$ref", "key"]), options.path);
-      if (object.key !== "locale" && object.key !== "timezone") {
-        return fail({
-          phase: "normalize",
-          code: "reference.invalid_context_key",
-          message: "Context references are limited to locale and timezone.",
-          path: `${options.path}/key`,
-        });
+      case "remove-node": {
+        const target = this.#updateTarget("node", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-node", nodeId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
       }
-      return { kind: "context-ref", key: object.key };
+      case "put-state": {
+        const target = this.#putTarget("state", operation.target, map);
+        const value = await this.#canonicalizeState(target.id, operation.target, operation.value);
+        this.#classifications.set(`state:${target.id}`, value.classification);
+        return {
+          op: "put-state",
+          stateId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: value.definition,
+        };
+      }
+      case "remove-state": {
+        const target = this.#updateTarget("state", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-state", stateId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
+      }
+      case "put-action": {
+        const target = this.#putTarget("action", operation.target, map);
+        return {
+          op: "put-action",
+          actionId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: this.#canonicalizeAction(operation.value, map),
+        };
+      }
+      case "remove-action": {
+        const target = this.#updateTarget("action", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-action", actionId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
+      }
+      case "put-resource-binding": {
+        const target = this.#putTarget("resource", operation.target, map);
+        const value = this.#canonicalizeResource(operation.value, map, target.id);
+        return {
+          op: "put-resource-binding",
+          bindingId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: value.declaration,
+        };
+      }
+      case "remove-resource-binding": {
+        const target = this.#updateTarget("resource", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-resource-binding", bindingId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
+      }
+      case "put-evidence": {
+        const target = this.#putTarget("evidence", operation.target, map);
+        const value = this.#canonicalizeEvidence(operation.value.source, target.id);
+        return {
+          op: "put-evidence",
+          evidenceId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: value.binding,
+        };
+      }
+      case "remove-evidence": {
+        const target = this.#updateTarget("evidence", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-evidence", evidenceId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
+      }
+      case "put-claim": {
+        const target = this.#putTarget("claim", operation.target, map);
+        return {
+          op: "put-claim",
+          claimId: target.id as never,
+          ...(target.expectedEntityRevision === undefined ? {} : { expectedEntityRevision: target.expectedEntityRevision }),
+          value: claimBindingSchema.parse({
+            nodeId: this.#resolveRef(operation.value.node, map),
+            path: operation.value.path,
+            kind: operation.value.kind,
+            evidenceIds: operation.value.evidence.map((ref) => this.#resolveRef(ref, map)).sort(),
+          }),
+        };
+      }
+      case "remove-claim": {
+        const target = this.#updateTarget("claim", operation.target.canonicalId, operation.target.expectedEntityRevision);
+        return { op: "remove-claim", claimId: target.id as never, expectedEntityRevision: target.expectedEntityRevision };
+      }
+      case "set-root": {
+        if (operation.expectedRootId === undefined) {
+          throw compilerError("policy", "write-scope.root-precondition-required", "set-root requires the frozen root precondition.");
+        }
+        if (this.#input.writeScope.root?.expectedRootId !== operation.expectedRootId) {
+          throw compilerError("policy", "write-scope.root-denied", "Root precondition is outside the frozen WriteScope.");
+        }
+        return {
+          op: "set-root",
+          nodeId: this.#resolveRef(operation.node, map) as never,
+          expectedRootId: operation.expectedRootId,
+        };
+      }
+      case "set-meta": {
+        if (operation.expectedMetaHash === undefined) {
+          throw compilerError("policy", "write-scope.meta-precondition-required", "set-meta requires the frozen metadata precondition.");
+        }
+        if (this.#input.writeScope.meta?.expectedMetaHash !== operation.expectedMetaHash) {
+          throw compilerError("policy", "write-scope.meta-denied", "Metadata precondition is outside the frozen WriteScope.");
+        }
+        return { op: "set-meta", expectedMetaHash: operation.expectedMetaHash, value: operation.value };
+      }
+      default:
+        return exhaustive(operation);
     }
-    return fail({
-      phase: "normalize",
-      code: "reference.invalid_kind",
-      message: `Unknown reference kind "${ref}".`,
-      path: `${options.path}/$ref`,
+  }
+
+  #canonicalizeNode(value: AuthoringOperationNodeBody, map: TransactionIdentityMap): CanonicalNode {
+    const contract = this.#input.catalog.componentBySliceId(value.component);
+    if (!contract) {
+      throw compilerError("normalize", "catalog.component-not-offered", "Node references a component outside the frozen CatalogSetSlice.", "/component");
+    }
+    const propsResult = validateJsonSchema(this.#input.catalog.authoringPropsSchema(contract.ref), value.props);
+    if (!propsResult.success) {
+      throw compilerError("authoring", "component.props-invalid", schemaIssueSummary(propsResult), "/props");
+    }
+    for (const slotName of Object.keys(value.slots)) {
+      if (!contract.slots[slotName]) {
+        throw compilerError("authoring", "component.slot-unknown", `Slot ${slotName} is not declared by the exact Component Contract.`, `/slots/${slotName}`);
+      }
+    }
+    for (const [slotName, slot] of Object.entries(contract.slots)) {
+      const count = value.slots[slotName]?.length ?? 0;
+      if (count < slot.min || count > slot.max) {
+        throw compilerError("authoring", "component.slot-cardinality", `Slot ${slotName} violates its frozen cardinality.`, `/slots/${slotName}`);
+      }
+    }
+    for (const event of Object.keys(value.events)) {
+      if (!(event in contract.events)) {
+        throw compilerError("authoring", "component.event-unknown", `Event ${event} is not declared by the exact Component Contract.`, `/events/${event}`);
+      }
+    }
+    return canonicalNodeSchema.parse({
+      contract: contract.ref,
+      props: Object.fromEntries(Object.entries(value.props).map(([key, authoring]) => [key, this.#canonicalizeValue(authoring, map)])),
+      slots: Object.fromEntries(Object.entries(value.slots).map(([key, refs]) => [key, refs.map((ref) => this.#resolveRef(ref, map))])),
+      events: Object.fromEntries(Object.entries(value.events).map(([key, ref]) => [key, this.#resolveRef(ref, map)])),
+      evidence: value.evidence.map((ref) => this.#resolveRef(ref, map)).sort(),
     });
   }
 
-  if ("$condition" in object) {
-    if (
-      dollarKeys.length !== 1
-      || (!options.allowEventReference && !matchesPath(
-        options.bindingPath,
-        options.contract?.bindings?.conditionPaths,
-      ))
-    ) {
-      return fail({
-        phase: "normalize",
-        code: "binding.condition_not_allowed",
-        message: "This contract field does not allow conditions.",
-        path: options.path,
+  async #canonicalizeState(
+    stateId: string,
+    target: { localId: string } | { canonicalId: string },
+    value: { schema: import("@open-generative/protocol").JSONSchema; initial: JsonValue },
+  ): Promise<{ definition: StateDefinition; classification: FlowClassification }> {
+    const initial = validateJsonSchema(value.schema, value.initial);
+    if (!initial.success) {
+      throw compilerError("authoring", "state.initial-invalid", schemaIssueSummary(initial), "/value/initial");
+    }
+    const decision = await this.#input.authority.statePolicy.decide({
+      transactionId: this.#input.transactionId,
+      stateId: stateId as never,
+      ...( "localId" in target ? { proposalLocalId: target.localId as never } : {}),
+      schema: value.schema,
+      initial: value.initial,
+    });
+    this.#assertDocumentClassification(decision.classification, "State classification exceeds the document policy.");
+    const schemaHash = await hashCanonical(
+      HASH_DOMAINS.operationPayload,
+      { kind: "state-schema", schema: value.schema },
+      this.#input.hashProvider,
+    );
+    return {
+      classification: decision.classification,
+      definition: stateDefinitionSchema.parse({
+        schema: value.schema,
+        schemaHash,
+        initial: value.initial,
+        scope: decision.scope,
+        persistence: decision.persistence,
+        sensitivity: decision.sensitivity,
+        modelVisibility: decision.modelVisibility,
+        retention: decision.retention,
+      }),
+    };
+  }
+
+  #canonicalizeAction(value: AuthoringActionDefinition, map: TransactionIdentityMap): ActionDefinition {
+    if (value.kind === "local-transition") {
+      return actionDefinitionSchema.parse({
+        kind: "local-transition",
+        transitions: value.transitions.map((transition) => {
+          if (transition.type === "node.focus") {
+            return { type: transition.type, nodeId: this.#resolveRef(transition.node, map) };
+          }
+          if (transition.type === "state.reset") {
+            return { type: transition.type, stateId: this.#resolveRef(transition.state, map) };
+          }
+          return {
+            type: transition.type,
+            stateId: this.#resolveRef(transition.state, map),
+            value: this.#canonicalizeValue(transition.value, map),
+          };
+        }),
       });
     }
-    rejectUnknownKeys(object, new Set(["$condition"]), options.path);
-    const condition = recordAt(object.$condition, `${options.path}/$condition`);
-    rejectUnknownKeys(condition, new Set(["op", "args"]), `${options.path}/$condition`);
-    const operator = stringAt(condition.op, `${options.path}/$condition/op`);
-    const operators = new Set(["eq", "neq", "lt", "lte", "gt", "gte", "and", "or", "not"]);
-    if (!operators.has(operator) || !Array.isArray(condition.args)) {
-      return fail({
-        phase: "normalize",
-        code: "condition.invalid_shape",
-        message: "The condition operator or argument list is invalid.",
-        path: `${options.path}/$condition`,
+    const contract = this.#input.catalog.actionBySliceId(value.action);
+    if (!contract) {
+      throw compilerError("normalize", "catalog.action-not-offered", "Action references an ID outside the frozen CatalogSetSlice.", "/action");
+    }
+    const authority = this.#input.authority.actions.find((offer) => refKey(offer.contract) === refKey(contract.ref));
+    if (!authority) {
+      throw compilerError("policy", "action.offer-denied", "Exact Action Contract is not authorized for this turn.", "/action");
+    }
+    const authoringInput = validateJsonSchema(createActionAuthoringInputSchema(contract.normalizedInputSchema), value.input);
+    if (!authoringInput.success) {
+      throw compilerError("authoring", "action.input-invalid", schemaIssueSummary(authoringInput), "/input");
+    }
+    return actionDefinitionSchema.parse({
+      kind: "host-intent",
+      contract: contract.ref,
+      input: Object.fromEntries(Object.entries(value.input).map(([key, authoring]) => [key, this.#canonicalizeValue(authoring, map)])),
+    });
+  }
+
+  #canonicalizeResource(
+    value: AuthoringResourceBinding,
+    map: TransactionIdentityMap,
+    targetId: string,
+  ): { declaration: ResourceBindingDeclaration; classification: FlowClassification } {
+    const slice = this.#input.catalog.slice.resources.find((entry) => entry.sliceResourceId === value.source);
+    if (!slice) {
+      throw compilerError("normalize", "catalog.resource-not-offered", "Resource references an ID outside the frozen CatalogSetSlice.", "/source");
+    }
+    const authority = this.#input.authority.resources.find((offer) => offerKey(offer.source) === offerKey(slice.source));
+    if (!authority) {
+      throw compilerError("policy", "resource.offer-hash-denied", "Resource offer identity or offerHash is not authorized for this turn.", "/source");
+    }
+    this.#assertDocumentClassification(authority.classification, "Resource classification exceeds the document policy.");
+    const requested = value.selector;
+    const policy = slice.selectorPolicy;
+    const offeredColumns = new Set(slice.descriptor.columns.map((column) => String(column.columnId)));
+    if (requested?.projection !== undefined) {
+      if (!policy.allowProjection) throw compilerError("policy", "resource.projection-denied", "Resource projection is not offered.");
+      if (requested.projection.length > policy.maxProjectedColumns) {
+        throw compilerError("policy", "resource.projection-limit", "Resource projection exceeds the offered column limit.");
+      }
+      if (requested.projection.some((column) => !offeredColumns.has(column))) {
+        throw compilerError("policy", "resource.column-denied", "Resource projection contains a column outside the offer.");
+      }
+    }
+    if (requested?.filterState !== undefined && !policy.allowFilterState) {
+      throw compilerError("policy", "resource.filter-denied", "Resource filter state is not offered.");
+    }
+    if (requested?.sort !== undefined) {
+      if (!policy.allowSort) throw compilerError("policy", "resource.sort-denied", "Resource sorting is not offered.");
+      if (requested.sort.length > policy.maxSortKeys) {
+        throw compilerError("policy", "resource.sort-limit", "Resource sort exceeds the offered key limit.");
+      }
+      if (requested.sort.some((sort) => !offeredColumns.has(sort.columnId))) {
+        throw compilerError("policy", "resource.sort-column-denied", "Resource sort contains a column outside the offer.");
+      }
+    }
+    if (requested?.windowLimit !== undefined && requested.windowLimit > policy.maxWindowItems) {
+      throw compilerError("policy", "resource.window-denied", "Resource window exceeds the offered maximum.");
+    }
+    const selector = {
+      ...authority.declaration.selector,
+      ...(requested?.projection === undefined ? {} : { projection: requested.projection }),
+      ...(requested?.filterState === undefined ? {} : { filterStateRef: this.#resolveRef(requested.filterState, map) }),
+      ...(requested?.sort === undefined ? {} : { sort: requested.sort }),
+      ...(requested?.windowLimit === undefined ? {} : { windowLimit: requested.windowLimit }),
+    };
+    this.#classifications.set(`resource:${targetId}`, authority.classification);
+    return {
+      classification: authority.classification,
+      declaration: resourceBindingDeclarationSchema.parse({
+        ...authority.declaration,
+        selector,
+      }),
+    };
+  }
+
+  #canonicalizeEvidence(source: string, targetId: string): { binding: EvidenceBinding; classification: FlowClassification } {
+    const slice = this.#input.catalog.slice.evidence.find((entry) => entry.sliceEvidenceId === source);
+    if (!slice) {
+      throw compilerError("normalize", "catalog.evidence-not-offered", "Evidence references an ID outside the frozen CatalogSetSlice.", "/source");
+    }
+    const authority = this.#input.authority.evidence.find((offer) => offerKey(offer.source) === offerKey(slice.source));
+    if (!authority) {
+      throw compilerError("policy", "evidence.offer-hash-denied", "Evidence offer identity or offerHash is not authorized for this turn.", "/source");
+    }
+    this.#assertDocumentClassification(authority.classification, "Evidence classification exceeds the document policy.");
+    this.#classifications.set(`evidence:${targetId}`, authority.classification);
+    return { binding: evidenceBindingSchema.parse(authority.binding), classification: authority.classification };
+  }
+
+  #canonicalizeValue(value: AuthoringValue, map: TransactionIdentityMap): ValueExpr {
+    if (value === null || typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      return { kind: "literal", value };
+    }
+    if (Array.isArray(value)) {
+      return valueExprSchema.parse({ kind: "array", items: value.map((item) => this.#canonicalizeValue(item, map)) });
+    }
+    if ("object" in value) {
+      return valueExprSchema.parse({
+        kind: "object",
+        entries: Object.fromEntries(Object.entries(value.object).map(([key, item]) => [key, this.#canonicalizeValue(item, map)])),
       });
     }
-    const count = condition.args.length;
-    const validArity = operator === "not" ? count === 1
-      : operator === "and" || operator === "or" ? count >= 2
-      : count === 2;
-    if (!validArity) {
-      return fail({
-        phase: "validate",
-        code: "condition.invalid_arity",
-        message: `Condition operator "${operator}" received the wrong number of arguments.`,
-        path: `${options.path}/$condition/args`,
+    if ("condition" in value) {
+      return valueExprSchema.parse({
+        kind: "condition",
+        op: value.condition.op,
+        args: value.condition.args.map((item) => this.#canonicalizeValue(item, map)),
       });
     }
-    if (["lt", "lte", "gt", "gte"].includes(operator)) {
-      for (const [index, item] of condition.args.entries()) {
-        if (typeof item !== "object" && typeof item !== "number") {
-          return fail({
-            phase: "validate",
-            code: "condition.expected_number",
-            message: "Ordered comparisons accept only numbers or numeric references.",
-            path: `${options.path}/$condition/args/${index}`,
-          });
+    if (value.ref === "state") {
+      return valueExprSchema.parse({ kind: "state-ref", stateId: this.#resolveRef(value.target, map), ...(value.path ? { path: value.path } : {}) });
+    }
+    if (value.ref === "resource") {
+      return valueExprSchema.parse({ kind: "resource-ref", bindingId: this.#resolveRef(value.target, map), ...(value.path ? { path: value.path } : {}) });
+    }
+    if (value.ref === "event") {
+      return valueExprSchema.parse({ kind: "event-ref", port: value.port, ...(value.path ? { path: value.path } : {}) });
+    }
+    return { kind: "context-ref", key: value.key };
+  }
+
+  #resolveRef<TKind extends ProposalEntityKind>(
+    ref: AuthoringEntityRef<TKind>,
+    map: TransactionIdentityMap,
+  ): string {
+    if ("localId" in ref) {
+      const resolved = map[toProposalEntityKey(ref.kind, ref.localId)];
+      if (!resolved || resolved.kind !== ref.kind) {
+        throw compilerError("normalize", "identity-map.reference-missing", "Proposal-local reference has no kind-safe transaction mapping.");
+      }
+      return resolved.id;
+    }
+    if (!this.#isReadable(ref.kind, ref.canonicalId)) {
+      throw compilerError("policy", "write-scope.read-denied", `Canonical ${ref.kind} reference is outside the frozen read scope.`);
+    }
+    return ref.canonicalId;
+  }
+
+  #putTarget(
+    kind: ProposalEntityKind,
+    target: { kind: ProposalEntityKind; localId: string } | { kind: ProposalEntityKind; canonicalId: string; expectedEntityRevision: EntityRevisionId },
+    map: TransactionIdentityMap,
+  ): { id: string; expectedEntityRevision?: EntityRevisionId } {
+    if ("localId" in target) {
+      const resolved = map[toProposalEntityKey(kind, target.localId)];
+      if (!resolved || resolved.kind !== kind) throw compilerError("normalize", "identity-map.target-missing", "Create target has no kind-safe identity mapping.");
+      return { id: resolved.id };
+    }
+    return this.#updateTarget(kind, target.canonicalId, target.expectedEntityRevision);
+  }
+
+  #updateTarget(
+    kind: ProposalEntityKind,
+    canonicalId: string,
+    expectedEntityRevision: EntityRevisionId,
+  ): { id: string; expectedEntityRevision: EntityRevisionId } {
+    const expected = this.#input.writeScope.writable[kind][canonicalId];
+    if (expected !== expectedEntityRevision) {
+      throw compilerError("policy", "write-scope.update-denied", `Canonical ${kind} update is outside the frozen WriteScope.`);
+    }
+    return { id: canonicalId, expectedEntityRevision };
+  }
+
+  #isReadable(kind: ProposalEntityKind, id: string): boolean {
+    return this.#input.writeScope.readable[kind].includes(id as never)
+      || this.#input.writeScope.writable[kind][id] !== undefined;
+  }
+
+  #enforceGenerationLimits(): void {
+    const limits = this.#input.catalog.slice.limits;
+    if (Object.keys(this.#document.nodes).length > limits.maxNodes) throw compilerError("validate", "limit.nodes", "Document exceeds the frozen node limit.");
+    if (Object.keys(this.#document.actions).length > limits.maxActions) throw compilerError("validate", "limit.actions", "Document exceeds the frozen action limit.");
+    if (Object.keys(this.#document.resourceBindings).length > limits.maxResourceBindings) throw compilerError("validate", "limit.resources", "Document exceeds the frozen resource-binding limit.");
+    if (Object.keys(this.#document.evidenceBindings).length > limits.maxEvidenceBindings) throw compilerError("validate", "limit.evidence", "Document exceeds the frozen evidence-binding limit.");
+    if (this.finalOperationSequence > limits.maxOperations) throw compilerError("validate", "limit.operations", "Proposal exceeds the frozen operation limit.");
+  }
+
+  #validateCanonicalContracts(): void {
+    for (const [nodeId, node] of Object.entries(this.#document.nodes)) {
+      const contract = this.#input.catalog.componentByRef(node.contract);
+      if (!contract) throw compilerError("validate", "catalog.component-contract-missing", "Canonical node contract is outside the frozen CatalogSetSlice.", `/nodes/${nodeId}/contract`);
+      for (const [slotName, children] of Object.entries(node.slots)) {
+        const slot = contract.slots[slotName];
+        if (!slot) throw compilerError("validate", "component.slot-unknown", `Canonical slot ${slotName} is not declared.`, `/nodes/${nodeId}/slots/${slotName}`);
+        if (children.length < slot.min || children.length > slot.max) throw compilerError("validate", "component.slot-cardinality", `Canonical slot ${slotName} violates cardinality.`, `/nodes/${nodeId}/slots/${slotName}`);
+        const accepted = new Set(slot.accepts.map((selector) => refKey(selector.contract)));
+        for (const childId of children) {
+          const child = this.#document.nodes[childId];
+          if (child && !accepted.has(refKey(child.contract))) {
+            throw compilerError("validate", "component.slot-contract-denied", "Child Component Contract is not accepted by the exact slot contract.", `/nodes/${nodeId}/slots/${slotName}`);
+          }
+        }
+      }
+      for (const [eventPort, actionId] of Object.entries(node.events)) {
+        const event = Object.entries(contract.events).find(([port]) => port === eventPort)?.[1];
+        if (!event) throw compilerError("validate", "component.event-unknown", `Canonical event ${eventPort} is not declared.`, `/nodes/${nodeId}/events/${eventPort}`);
+        const action = this.#document.actions[actionId];
+        if (action?.kind === "host-intent" && !event.actionContracts.some((candidate) => refKey(candidate) === refKey(action.contract))) {
+          throw compilerError("validate", "component.event-action-denied", "Event is bound to an Action Contract not accepted by the component.", `/nodes/${nodeId}/events/${eventPort}`);
         }
       }
     }
-    return {
-      kind: "condition",
-      op: operator as "eq",
-      args: (condition.args as AuthoringValue[]).map((item, index) => lowerValue(item, {
-        ...options,
-        path: `${options.path}/$condition/args/${index}`,
-      })),
-    };
   }
 
-  if (dollarKeys.length) {
-    return fail({
-      phase: "normalize",
-      code: "authoring.reserved_key",
-      message: `Unknown reserved authoring key "${dollarKeys.sort()[0]}".`,
-      path: `${options.path}/${escapeJsonPointer(dollarKeys.sort()[0]!)}`,
+  #validateInformationFlow(): void {
+    const policy = this.#input.authority.informationFlow;
+    for (const [nodeId, node] of Object.entries(this.#document.nodes)) {
+      const sink = policy.componentSinks?.find((entry) => refKey(entry.contract) === refKey(node.contract))?.maxClassification
+        ?? policy.maxDocumentClassification;
+      for (const expression of Object.values(node.props)) this.#assertSink(expressionClassification(expression, this.#classifications), sink, `/nodes/${nodeId}/props`);
+      for (const evidenceId of node.evidence) this.#assertSink(this.#classifications.get(`evidence:${evidenceId}`) ?? "public", sink, `/nodes/${nodeId}/evidence`);
+    }
+    for (const [actionId, action] of Object.entries(this.#document.actions)) {
+      if (action.kind !== "host-intent") continue;
+      const authority = this.#input.authority.actions.find((offer) => refKey(offer.contract) === refKey(action.contract));
+      const sink = minClassification(
+        authority?.maxInputClassification ?? policy.maxDocumentClassification,
+        policy.actionSinks?.find((entry) => refKey(entry.contract) === refKey(action.contract))?.maxClassification
+          ?? policy.maxDocumentClassification,
+      );
+      for (const expression of Object.values(action.input)) this.#assertSink(expressionClassification(expression, this.#classifications), sink, `/actions/${actionId}/input`);
+    }
+  }
+
+  #assertSink(source: FlowClassification, sink: FlowClassification, path: string): void {
+    if (CLASSIFICATION_RANK[source] > CLASSIFICATION_RANK[sink]) {
+      throw compilerError("policy", "information-flow.sink-denied", "Information classification exceeds the authorized sink.", path);
+    }
+  }
+
+  #assertDocumentClassification(classification: FlowClassification, message: string): void {
+    if (CLASSIFICATION_RANK[classification] > CLASSIFICATION_RANK[this.#input.authority.informationFlow.maxDocumentClassification]) {
+      throw compilerError("policy", "information-flow.document-denied", message);
+    }
+  }
+
+  #seedAuthorityClassifications(): void {
+    for (const offer of this.#input.authority.resources) {
+      this.#classifications.set(`resource:${offer.source.bindingId}`, offer.classification);
+      for (const id of offer.existingBindingIds ?? []) this.#classifications.set(`resource:${id}`, offer.classification);
+    }
+    for (const offer of this.#input.authority.evidence) {
+      this.#classifications.set(`evidence:${offer.source.evidenceId}`, offer.classification);
+      for (const id of offer.existingEvidenceIds ?? []) this.#classifications.set(`evidence:${id}`, offer.classification);
+    }
+  }
+
+  async #snapshotEnvelope(
+    label: string,
+    operation: AuthoringProposalOperation,
+    sequence: number,
+    dependency?: OperationId,
+  ): Promise<ProposalOperationEnvelope> {
+    const identity = await hashCanonical(HASH_DOMAINS.operationPayload, { label, operation }, this.#input.hashProvider);
+    return proposalOperationEnvelopeSchema.parse({
+      operationId: `snapshot-${identity.slice("sha256:".length)}`,
+      sequence,
+      dependsOn: dependency ? [dependency] : [],
+      payloadHash: await hashCanonical(HASH_DOMAINS.operationPayload, operation, this.#input.hashProvider),
+      operation,
     });
   }
+}
 
-  return {
-    kind: "object",
-    entries: Object.fromEntries(Object.keys(object).sort().map((key) => [
-      key,
-      lowerValue(object[key] as AuthoringValue, {
-        ...options,
-        path: `${options.path}/${escapeJsonPointer(key)}`,
-        bindingPath: `${options.bindingPath}/${escapeJsonPointer(key)}`,
-      }),
-    ])),
+function collectIdentityRequests(operation: AuthoringProposalOperation): IdentityAllocationRequest[] {
+  const requests: IdentityAllocationRequest[] = [];
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.kind === "string" && typeof record.localId === "string" && ENTITY_KINDS.includes(record.kind as never)) {
+      requests.push({ kind: record.kind as ProposalEntityKind, localId: record.localId });
+    }
+    Object.values(record).forEach(visit);
   };
-}
-
-function lowerRecord(
-  value: Record<string, unknown>,
-  context: NormalizeContext,
-  path: string,
-  contract?: NodeContract,
-  allowEventReference = false,
-): Record<string, ArtifactValue> {
-  return Object.fromEntries(Object.keys(value).sort().map((key) => [
-    key,
-    lowerValue(value[key] as AuthoringValue, {
-      context,
-      contract,
-      allowEventReference,
-      path: `${path}/${escapeJsonPointer(key)}`,
-      bindingPath: `/${escapeJsonPointer(key)}`,
-    }),
-  ]));
-}
-
-type CloneableZod = ZodType & {
-  readonly def: Record<string, unknown> & { type?: string };
-  readonly shape?: Readonly<Record<string, ZodType>>;
-  readonly element?: ZodType;
-  clone(def: Record<string, unknown>): ZodType;
-};
-
-function decodeBindingPath(path: string): string[] {
-  return path.slice(1).split("/").map((segment) => (
-    segment.replaceAll("~1", "/").replaceAll("~0", "~")
+  visit(operation);
+  return requests.sort(compareCanonical).filter((entry, index, values) => (
+    index === 0 || `${entry.kind}:${entry.localId}` !== `${values[index - 1]!.kind}:${values[index - 1]!.localId}`
   ));
 }
 
-function patchZodBindingPath(
-  schema: ZodType,
-  segments: readonly string[],
-  bindingSchema: ZodType,
-  index = 0,
-): ZodType | undefined {
-  if (index === segments.length) return z.union([schema, bindingSchema]);
-
-  const candidate = schema as CloneableZod;
-  const type = candidate.def.type;
-  if (type === "object") {
-    const segment = segments[index]!;
-    if (segment === "*") return undefined;
-    const shape = candidate.shape;
-    const property = shape?.[segment];
-    if (!shape || !property) return undefined;
-    const patched = patchZodBindingPath(property, segments, bindingSchema, index + 1);
-    if (!patched) return undefined;
-    return candidate.clone({ ...candidate.def, shape: { ...shape, [segment]: patched } });
-  }
-  if (type === "array") {
-    if (segments[index] !== "*" || !candidate.element) return undefined;
-    const patched = patchZodBindingPath(candidate.element, segments, bindingSchema, index + 1);
-    if (!patched) return undefined;
-    return candidate.clone({ ...candidate.def, element: patched });
-  }
-  if (["optional", "nullable", "default", "prefault", "catch", "readonly", "nonoptional"].includes(type ?? "")) {
-    const innerType = candidate.def.innerType;
-    if (!innerType || typeof innerType !== "object") return undefined;
-    const patched = patchZodBindingPath(innerType as ZodType, segments, bindingSchema, index);
-    if (!patched) return undefined;
-    return candidate.clone({ ...candidate.def, innerType: patched });
-  }
-  return undefined;
+function localCreateTarget(operation: AuthoringProposalOperation): { kind: ProposalEntityKind; localId: string } | undefined {
+  if (!("target" in operation) || !("localId" in operation.target)) return undefined;
+  return { kind: operation.target.kind, localId: operation.target.localId };
 }
 
-function bindingAwarePropsSchema(contract: NodeContract): ZodType<Record<string, unknown>> {
-  const cached = bindingSchemaCache.get(contract);
-  if (cached) return cached;
+type SnapshotOperation = { label: string; operation: AuthoringProposalOperation };
 
-  let schema = contract.propsSchema;
-  const bindings = [
-    ...(contract.bindings?.referencePaths ?? []).map((path) => ({ path, schema: propsReferenceSchema })),
-    ...(contract.bindings?.conditionPaths ?? []).map((path) => ({ path, schema: presentationConditionSchema })),
-  ].sort((left, right) => left.path.localeCompare(right.path));
-  for (const binding of bindings) {
-    const patched = patchZodBindingPath(schema, decodeBindingPath(binding.path), binding.schema);
-    if (!patched) {
-      throw new TypeError(
-        `Node contract "${contract.type}" binding path "${binding.path}" is not present in its props schema.`,
-      );
-    }
-    schema = patched as ZodType<Record<string, unknown>>;
+function flattenSnapshot(snapshot: AuthoringSnapshotProposal): SnapshotOperation[] {
+  const output: SnapshotOperation[] = [];
+  for (const entity of [...snapshot.stateDefinitions].sort(compareCanonical)) {
+    output.push({ label: `put-state:${entity.localId}`, operation: { op: "put-state", target: { kind: "state", localId: entity.localId }, value: entity.value } });
   }
-  bindingSchemaCache.set(contract, schema);
-  return schema;
-}
-
-function assertContractBindingsAllowed(
-  value: unknown,
-  contract: NodeContract,
-  path: string,
-  bindingPath = "",
-): void {
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => assertContractBindingsAllowed(
-      item,
-      contract,
-      `${path}/${index}`,
-      `${bindingPath}/*`,
-    ));
-    return;
+  for (const entity of [...snapshot.resourceBindings].sort(compareCanonical)) {
+    output.push({ label: `put-resource:${entity.localId}`, operation: { op: "put-resource-binding", target: { kind: "resource", localId: entity.localId }, value: entity.value } });
   }
-  if (value === null || typeof value !== "object") return;
-  const object = value as Record<string, unknown>;
-  if ("$ref" in object) {
-    if (!matchesPath(bindingPath, contract.bindings?.referencePaths)) {
-      fail({
-        phase: "normalize",
-        code: "binding.reference_not_allowed",
-        message: "This contract field does not allow references.",
-        path,
+  for (const entity of [...snapshot.evidenceBindings].sort(compareCanonical)) {
+    output.push({ label: `put-evidence:${entity.localId}`, operation: { op: "put-evidence", target: { kind: "evidence", localId: entity.localId }, value: entity.value } });
+  }
+  for (const entity of [...snapshot.actions].sort(compareCanonical)) {
+    output.push({ label: `put-action:${entity.localId}`, operation: { op: "put-action", target: { kind: "action", localId: entity.localId }, value: entity.value } });
+  }
+  const visitNode = (node: AuthoringSnapshotNode): void => {
+    const slots: AuthoringOperationNodeBody["slots"] = {};
+    for (const [slot, children] of Object.entries(node.slots ?? {})) {
+      slots[slot] = children.map((child) => {
+        if ("component" in child) {
+          visitNode(child);
+          return { kind: "node", localId: child.localId };
+        }
+        return child;
       });
     }
-    return;
-  }
-  if ("$condition" in object) {
-    if (!matchesPath(bindingPath, contract.bindings?.conditionPaths)) {
-      fail({
-        phase: "normalize",
-        code: "binding.condition_not_allowed",
-        message: "This contract field does not allow conditions.",
-        path,
-      });
-    }
-    return;
-  }
-  for (const [key, child] of Object.entries(object)) {
-    assertContractBindingsAllowed(
-      child,
-      contract,
-      `${path}/${escapeJsonPointer(key)}`,
-      `${bindingPath}/${escapeJsonPointer(key)}`,
-    );
-  }
-}
-
-function parseContractProps(
-  contract: NodeContract,
-  value: unknown,
-  path: string,
-): Record<string, unknown> {
-  assertContractBindingsAllowed(value, contract, path);
-  try {
-    return bindingAwarePropsSchema(contract).parse(value);
-  } catch (error) {
-    if (!(error instanceof ZodError)) throw error;
-    const diagnostics = error.issues.slice(0, 20).map((issue) => compilerDiagnostic({
-      phase: "validate",
-      code: "node.invalid_props",
-      message: issue.message,
-      path: `${path}${issue.path.map((segment) => `/${escapeJsonPointer(String(segment))}`).join("")}`,
-      actualSummary: issue.code,
-      hint: `Use the generated props schema for "${contract.type}@${contract.version}".`,
-    }));
-    throw new CompilerDiagnosticError(diagnostics);
-  }
-}
-
-function contractMap(catalog: CompilerCatalog | CatalogSlice | undefined): ReadonlyMap<string, NodeContract> {
-  const contracts = catalog instanceof CompilerCatalog
-    ? catalog.contracts()
-    : catalog?.contracts ?? [];
-  return new Map(contracts.map((contract) => [contract.type, contract]));
-}
-
-function normalizeStates(
-  raw: unknown,
-): Record<string, AuthoringStateDefinition> {
-  if (raw === undefined) return {};
-  const states = recordAt(raw, "/state");
-  return Object.fromEntries(Object.keys(states).sort().map((stateId) => {
-    identifierAt(stateId, `/state/${escapeJsonPointer(stateId)}`);
-    const state = recordAt(states[stateId], `/state/${escapeJsonPointer(stateId)}`);
-    rejectUnknownKeys(state, new Set(["schema", "initial"]), `/state/${escapeJsonPointer(stateId)}`);
-    const schema = recordAt(state.schema, `/state/${escapeJsonPointer(stateId)}/schema`);
-    const initial = state.initial as JsonValue;
-    rejectReservedPlainKeys(initial, `/state/${escapeJsonPointer(stateId)}/initial`);
-    return [stateId, {
-      schema: cloneJson(schema as unknown as JsonValue) as AuthoringStateDefinition["schema"],
-      initial: cloneJson(initial),
-    }];
-  }));
-}
-
-function rejectReservedPlainKeys(value: JsonValue, path: string): void {
-  if (!value || typeof value !== "object") return;
-  if (Array.isArray(value)) {
-    value.forEach((item, index) => rejectReservedPlainKeys(item, `${path}/${index}`));
-    return;
-  }
-  for (const [key, child] of Object.entries(value)) {
-    if (key.startsWith("$")) {
-      fail({
-        phase: "normalize",
-        code: "authoring.reserved_key",
-        message: `Reserved key "${key}" is not allowed in a literal value.`,
-        path: `${path}/${escapeJsonPointer(key)}`,
-      });
-    }
-    rejectReservedPlainKeys(child, `${path}/${escapeJsonPointer(key)}`);
-  }
-}
-
-function cloneJson<T extends JsonValue>(value: T): T {
-  return JSON.parse(canonicalize(value)) as T;
-}
-
-function normalizeActionStep(
-  raw: unknown,
-  path: string,
-  context: NormalizeContext,
-): NormalizedActionStep {
-  const step = recordAt(raw, path);
-  const stepId = identifierAt(step.stepId, `${path}/stepId`);
-  const type = stringAt(step.type, `${path}/type`) as AuthoringActionStep["type"];
-  const common = { stepId, type };
-
-  if (type === "state.set") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "stateId", "value"]), path);
-    const stateId = identifierAt(step.stateId, `${path}/stateId`);
-    if (!context.stateIds.has(stateId)) {
-      return fail({
-        phase: "validate",
-        code: "action.unknown_state",
-        message: `State "${stateId}" is not declared.`,
-        path: `${path}/stateId`,
-      });
-    }
-    return {
-      ...common,
-      type,
-      stateId,
-      value: lowerValue(step.value as AuthoringValue, {
-        context,
-        allowEventReference: true,
-        path: `${path}/value`,
-        bindingPath: "/value",
-      }),
-    };
-  }
-  if (type === "state.reset") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "stateIds"]), path);
-    if (!Array.isArray(step.stateIds) || step.stateIds.length === 0) {
-      return fail({
-        phase: "validate",
-        code: "action.invalid_state_reset",
-        message: "state.reset requires at least one state id.",
-        path: `${path}/stateIds`,
-      });
-    }
-    const stateIds = step.stateIds.map((id, index) => identifierAt(id, `${path}/stateIds/${index}`));
-    if (stateIds.some((id) => !context.stateIds.has(id))) {
-      return fail({
-        phase: "validate",
-        code: "action.unknown_state",
-        message: "state.reset references an undeclared state.",
-        path: `${path}/stateIds`,
-      });
-    }
-    return { ...common, type, stateIds };
-  }
-  if (type === "node.focus") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "nodeId"]), path);
-    return { ...common, type, nodeId: identifierAt(step.nodeId, `${path}/nodeId`) };
-  }
-  if (type === "agent.message") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "templateGrantId", "values"]), path);
-    const templateGrantId = identifierAt(step.templateGrantId, `${path}/templateGrantId`);
-    if (!context.messageTemplateIds.has(templateGrantId)) {
-      return fail({
-        phase: "policy",
-        code: "action.message_template_not_granted",
-        message: "The message template is not in the sealed proposal context.",
-        path: `${path}/templateGrantId`,
-        recoverable: false,
-        modelCorrectable: false,
-      });
-    }
-    return {
-      ...common,
-      type,
-      templateGrantId,
-      values: lowerRecord(recordAt(step.values ?? {}, `${path}/values`), context, `${path}/values`, undefined, true),
-    };
-  }
-  if (type === "capability.request") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "capabilityId", "input"]), path);
-    const capabilityId = identifierAt(step.capabilityId, `${path}/capabilityId`);
-    assertCapability(context, capabilityId, `${path}/capabilityId`);
-    return {
-      ...common,
-      type,
-      capabilityId,
-      input: lowerRecord(recordAt(step.input, `${path}/input`), context, `${path}/input`, undefined, true),
-    };
-  }
-  if (type === "navigation.request") {
-    rejectUnknownKeys(step, new Set(["stepId", "type", "target"]), path);
-    return {
-      ...common,
-      type,
-      target: normalizeNavigationTarget(step.target as AuthoringNavigationTarget, `${path}/target`, context),
-    };
-  }
-  return fail({
-    phase: "validate",
-    code: "action.unknown_step_type",
-    message: `Unknown action step type "${String(type)}".`,
-    path: `${path}/type`,
-  });
-}
-
-function assertCapability(context: NormalizeContext, id: string, path: string): void {
-  if (!context.capabilityIds.has(id)) {
-    fail({
-      phase: "policy",
-      code: "action.capability_not_granted",
-      message: "The capability is not in the sealed proposal context.",
-      path,
-      recoverable: false,
-      modelCorrectable: false,
+    output.push({
+      label: `put-node:${node.localId}`,
+      operation: {
+        op: "put-node",
+        target: { kind: "node", localId: node.localId },
+        value: {
+          component: node.component,
+          props: node.props ?? {},
+          slots,
+          events: node.events ?? {},
+          evidence: node.evidence ?? [],
+        },
+      },
     });
-  }
-}
-
-function normalizeNavigationTarget(
-  raw: AuthoringNavigationTarget,
-  path: string,
-  context: NormalizeContext,
-): Extract<NormalizedActionStep, { type: "navigation.request" }>["target"] {
-  const target = recordAt(raw, path);
-  const kind = stringAt(target.kind, `${path}/kind`);
-  const capabilityId = identifierAt(target.capabilityId, `${path}/capabilityId`);
-  assertCapability(context, capabilityId, `${path}/capabilityId`);
-  if (kind === "route") {
-    rejectUnknownKeys(target, new Set(["kind", "capabilityId", "routeId", "params"]), path);
-    return {
-      kind,
-      capabilityId,
-      routeId: identifierAt(target.routeId, `${path}/routeId`),
-      params: lowerRecord(recordAt(target.params ?? {}, `${path}/params`), context, `${path}/params`, undefined, true),
-    };
-  }
-  if (kind === "resource") {
-    rejectUnknownKeys(target, new Set(["kind", "capabilityId", "resourceId"]), path);
-    const resourceId = identifierAt(target.resourceId, `${path}/resourceId`);
-    if (!context.resourceIds.has(resourceId)) {
-      return fail({
-        phase: "policy",
-        code: "reference.resource_not_granted",
-        message: "The navigation target resource is not in the sealed context.",
-        path: `${path}/resourceId`,
-        recoverable: false,
-        modelCorrectable: false,
-      });
-    }
-    return { kind, capabilityId, resourceId };
-  }
-  if (kind === "external") {
-    rejectUnknownKeys(target, new Set(["kind", "capabilityId", "input"]), path);
-    return {
-      kind,
-      capabilityId,
-      input: lowerRecord(recordAt(target.input, `${path}/input`), context, `${path}/input`, undefined, true),
-    };
-  }
-  return fail({
-    phase: "validate",
-    code: "action.invalid_navigation_target",
-    message: "Unknown navigation target kind.",
-    path: `${path}/kind`,
-  });
-}
-
-function normalizeActions(raw: unknown, context: NormalizeContext): Record<string, NormalizedActionPlan> {
-  if (raw === undefined) return {};
-  const actions = recordAt(raw, "/actions");
-  return Object.fromEntries(Object.keys(actions).sort().map((actionId) => {
-    identifierAt(actionId, `/actions/${escapeJsonPointer(actionId)}`);
-    const path = `/actions/${escapeJsonPointer(actionId)}`;
-    const action = recordAt(actions[actionId], path) as AuthoringActionPlan & Record<string, unknown>;
-    rejectUnknownKeys(action, new Set(["contractId", "contractVersion", "steps", "onError"]), path);
-    const contractId = identifierAt(action.contractId, `${path}/contractId`);
-    const contractVersion = action.contractVersion ?? 1;
-    if (!Number.isSafeInteger(contractVersion) || contractVersion < 1) {
-      return fail({
-        phase: "validate",
-        code: "action.invalid_contract_version",
-        message: "Action contract versions must be positive integers.",
-        path: `${path}/contractVersion`,
-      });
-    }
-    if (!Array.isArray(action.steps) || action.steps.length === 0) {
-      return fail({
-        phase: "validate",
-        code: "action.empty_plan",
-        message: "An action plan needs at least one step.",
-        path: `${path}/steps`,
-      });
-    }
-    const steps = action.steps.map((step, index) => normalizeActionStep(step, `${path}/steps/${index}`, context));
-    const stepIds = new Set<string>();
-    for (const step of steps) {
-      if (stepIds.has(step.stepId)) {
-        return fail({
-          phase: "validate",
-          code: "action.duplicate_step_id",
-          message: `Step id "${step.stepId}" is duplicated in one action plan.`,
-          path: `${path}/steps`,
-        });
-      }
-      stepIds.add(step.stepId);
-    }
-    if (action.onError !== undefined && action.onError !== "halt" && action.onError !== "continue") {
-      return fail({
-        phase: "validate",
-        code: "action.invalid_error_policy",
-        message: "onError must be halt or continue.",
-        path: `${path}/onError`,
-      });
-    }
-    return [actionId, {
-      contractId,
-      contractVersion,
-      steps,
-      onError: action.onError ?? "halt",
-    }];
-  }));
-}
-
-function slotAccepts(parent: NodeContract, slotName: string, child: NodeContract): boolean {
-  const slot = parent.slots[slotName]!;
-  return Boolean(
-    slot.accepts?.includes(child.type)
-    || slot.categories?.includes(child.category)
-    || (child.category.startsWith("extension:") && slot.categories?.includes("extension:*")),
-  );
-}
-
-function normalizeNode(
-  raw: unknown,
-  path: string,
-  depth: number,
-  context: NormalizeContext,
-): string {
-  if (depth > context.limits.maxDepth) {
-    return fail({
-      phase: "normalize",
-      code: "limit.node_depth_exceeded",
-      message: "The nested surface exceeds the configured depth limit.",
-      path,
-      expected: context.limits.maxDepth,
-    });
-  }
-  const node = recordAt(raw, path);
-  rejectUnknownKeys(node, new Set(["id", "type", "typeVersion", "props", "slots", "events", "evidence"]), path);
-  const id = identifierAt(node.id, `${path}/id`);
-  if (context.nodes[id]) {
-    return fail({
-      phase: "normalize",
-      code: "node.duplicate_id",
-      message: `Node id "${id}" is duplicated.`,
-      path: `${path}/id`,
-    });
-  }
-  if (Object.keys(context.nodes).length >= context.limits.maxNodes) {
-    return fail({
-      phase: "normalize",
-      code: "limit.node_count_exceeded",
-      message: "The surface exceeds the configured node limit.",
-      path,
-      expected: context.limits.maxNodes,
-    });
-  }
-  const type = stringAt(node.type, `${path}/type`);
-  const contract = context.contracts.get(type);
-  if (!contract) {
-    return fail({
-      phase: "validate",
-      code: "catalog.node_not_in_slice",
-      message: `Node type "${type}" is not in the active catalog slice.`,
-      path: `${path}/type`,
-      hint: "Choose a type from the provider schema for this turn.",
-    });
-  }
-  const typeVersion = node.typeVersion ?? contract.version;
-  if (typeVersion !== contract.version) {
-    return fail({
-      phase: "validate",
-      code: "catalog.node_version_mismatch",
-      message: `Node type "${type}" requires version ${contract.version}.`,
-      path: `${path}/typeVersion`,
-      expected: contract.version,
-    });
-  }
-  const count = (context.instanceCounts.get(type) ?? 0) + 1;
-  if (contract.maxInstances !== undefined && count > contract.maxInstances) {
-    return fail({
-      phase: "validate",
-      code: "limit.node_instances_exceeded",
-      message: `Node type "${type}" exceeds its instance limit.`,
-      path,
-      expected: contract.maxInstances,
-    });
-  }
-  context.instanceCounts.set(type, count);
-
-  const parsedProps = parseContractProps(contract, node.props ?? {}, `${path}/props`);
-  const normalized: NormalizedArtifactNode = {
-    type,
-    typeVersion,
-    props: lowerRecord(parsedProps, context, `${path}/props`, contract),
   };
-  context.nodes[id] = normalized;
-
-  const rawSlots = node.slots === undefined ? {} : recordAt(node.slots, `${path}/slots`);
-  const unknownSlots = Object.keys(rawSlots).filter((name) => !contract.slots[name]);
-  if (unknownSlots.length) {
-    return fail({
-      phase: "validate",
-      code: "slot.unknown",
-      message: `Slot "${unknownSlots.sort()[0]}" is not declared by "${type}".`,
-      path: `${path}/slots/${escapeJsonPointer(unknownSlots.sort()[0]!)}`,
-    });
+  visitNode(snapshot.root);
+  for (const entity of [...snapshot.claims].sort(compareCanonical)) {
+    output.push({ label: `put-claim:${entity.localId}`, operation: { op: "put-claim", target: { kind: "claim", localId: entity.localId }, value: entity.value } });
   }
-  const slots: Record<string, string[]> = {};
-  for (const [slotName, slotContract] of Object.entries(contract.slots).sort(([left], [right]) => left.localeCompare(right))) {
-    const children = rawSlots[slotName] ?? [];
-    if (!Array.isArray(children)) {
-      return fail({
-        phase: "validate",
-        code: "slot.expected_array",
-        message: `Slot "${slotName}" must be an array of nested nodes.`,
-        path: `${path}/slots/${escapeJsonPointer(slotName)}`,
-      });
-    }
-    if (children.length < (slotContract.min ?? 0) || children.length > (slotContract.max ?? Number.MAX_SAFE_INTEGER)) {
-      return fail({
-        phase: "validate",
-        code: "slot.cardinality",
-        message: `Slot "${slotName}" has an invalid number of children.`,
-        path: `${path}/slots/${escapeJsonPointer(slotName)}`,
-        expected: { min: slotContract.min ?? 0, max: slotContract.max ?? null },
-      });
-    }
-    const childIds = children.map((child, index) => {
-      const childPath = `${path}/slots/${escapeJsonPointer(slotName)}/${index}`;
-      const childRecord = recordAt(child, childPath);
-      const childType = stringAt(childRecord.type, `${childPath}/type`);
-      const childContract = context.contracts.get(childType);
-      if (!childContract || !slotAccepts(contract, slotName, childContract)) {
-        return fail({
-          phase: "validate",
-          code: "slot.child_not_allowed",
-          message: `Node type "${childType}" is not allowed in "${type}.${slotName}".`,
-          path: `${childPath}/type`,
-        });
-      }
-      return normalizeNode(child, childPath, depth + 1, context);
-    });
-    if (childIds.length) slots[slotName] = childIds;
-  }
-  if (Object.keys(slots).length) normalized.slots = slots;
-
-  if (node.events !== undefined) {
-    const events = recordAt(node.events, `${path}/events`);
-    const normalizedEvents: Record<string, string> = {};
-    for (const port of Object.keys(events).sort()) {
-      if (!contract.events?.[port]) {
-        return fail({
-          phase: "validate",
-          code: "event.unknown_port",
-          message: `Event port "${port}" is not declared by "${type}".`,
-          path: `${path}/events/${escapeJsonPointer(port)}`,
-        });
-      }
-      normalizedEvents[port] = identifierAt(events[port], `${path}/events/${escapeJsonPointer(port)}`);
-    }
-    if (Object.keys(normalizedEvents).length) normalized.events = normalizedEvents;
-  }
-
-  if (node.evidence !== undefined) {
-    if (!Array.isArray(node.evidence)) {
-      return fail({
-        phase: "validate",
-        code: "evidence.expected_array",
-        message: "Evidence bindings must be an array of ids.",
-        path: `${path}/evidence`,
-      });
-    }
-    const evidence = node.evidence.map((value, index) => identifierAt(value, `${path}/evidence/${index}`));
-    if (new Set(evidence).size !== evidence.length) {
-      return fail({
-        phase: "validate",
-        code: "evidence.duplicate_id",
-        message: "A node cannot bind the same evidence more than once.",
-        path: `${path}/evidence`,
-      });
-    }
-    if (evidence.length) normalized.evidence = evidence;
-  }
-  return id;
-}
-
-function validateActionReferences(
-  nodes: Record<string, NormalizedArtifactNode>,
-  actions: Record<string, NormalizedActionPlan>,
-  contracts: ReadonlyMap<string, NodeContract>,
-): void {
-  const boundActions = new Set<string>();
-  for (const [nodeId, node] of Object.entries(nodes)) {
-    for (const [port, actionId] of Object.entries(node.events ?? {})) {
-      const action = actions[actionId];
-      if (!action) {
-        fail({
-          phase: "validate",
-          code: "event.unknown_action",
-          message: `Event "${nodeId}.${port}" references undeclared action "${actionId}".`,
-          path: `/nodes/${escapeJsonPointer(nodeId)}/events/${escapeJsonPointer(port)}`,
-        });
-      }
-      boundActions.add(actionId);
-      const eventContract = contracts.get(node.type)?.events?.[port];
-      if (!eventContract) {
-        fail({
-          phase: "validate",
-          code: "event.unknown_port",
-          message: `Event port "${port}" is not declared by "${node.type}".`,
-          path: `/nodes/${escapeJsonPointer(nodeId)}/events/${escapeJsonPointer(port)}`,
-        });
-      }
-      const versionRange = eventContract.actionContracts[action.contractId];
-      if (!versionRange) {
-        fail({
-          phase: "validate",
-          code: "event.action_contract_not_allowed",
-          message: `Event "${nodeId}.${port}" does not accept action contract "${action.contractId}".`,
-          path: `/actions/${escapeJsonPointer(actionId)}/contractId`,
-        });
-      }
-      if (!matchesActionContractVersion(action.contractVersion, versionRange)) {
-        fail({
-          phase: "validate",
-          code: "event.action_contract_version_mismatch",
-          message: `Event "${nodeId}.${port}" does not accept action contract version ${action.contractVersion}.`,
-          path: `/actions/${escapeJsonPointer(actionId)}/contractVersion`,
-        });
-      }
-      visitActionEventReferences(actionId, action, (reference, path) => {
-        if (reference.port !== port) {
-          fail({
-            phase: "validate",
-            code: "event.reference_port_mismatch",
-            message: `Action "${actionId}" must reference its bound event port "${port}".`,
-            path: `${path}/port`,
-          });
-        }
-        if (!eventPayloadPathExists(eventContract.payloadSchema, reference.path ?? [])) {
-          fail({
-            phase: "validate",
-            code: "event.reference_path_not_found",
-            message: `Event payload path is not declared by "${node.type}.${port}".`,
-            path: `${path}/path`,
-          });
-        }
-      });
-    }
-  }
-  for (const [actionId, action] of Object.entries(actions)) {
-    for (const [index, step] of action.steps.entries()) {
-      if (step.type === "node.focus" && !nodes[step.nodeId]) {
-        fail({
-          phase: "validate",
-          code: "action.unknown_node",
-          message: `Action "${actionId}" focuses undeclared node "${step.nodeId}".`,
-          path: `/actions/${escapeJsonPointer(actionId)}/steps/${index}/nodeId`,
-        });
-      }
-    }
-    if (!boundActions.has(actionId)) {
-      visitActionEventReferences(actionId, action, (_reference, path) => {
-        fail({
-          phase: "validate",
-          code: "event.reference_unbound_action",
-          message: `Action "${actionId}" cannot read an event payload unless a node binds it.`,
-          path,
-        });
-      });
-    }
-  }
-}
-
-function visitActionEventReferences(
-  actionId: string,
-  action: NormalizedActionPlan,
-  visit: (reference: Extract<ArtifactValue, { kind: "event-ref" }>, path: string) => void,
-): void {
-  const actionPath = `/actions/${escapeJsonPointer(actionId)}`;
-  for (const [index, step] of action.steps.entries()) {
-    const path = `${actionPath}/steps/${index}`;
-    if (step.type === "state.set") {
-      visitEventReferences(step.value, `${path}/value`, visit);
-    } else if (step.type === "agent.message") {
-      for (const [key, value] of Object.entries(step.values)) {
-        visitEventReferences(value, `${path}/values/${escapeJsonPointer(key)}`, visit);
-      }
-    } else if (step.type === "capability.request") {
-      for (const [key, value] of Object.entries(step.input)) {
-        visitEventReferences(value, `${path}/input/${escapeJsonPointer(key)}`, visit);
-      }
-    } else if (step.type === "navigation.request") {
-      const values = step.target.kind === "route"
-        ? step.target.params
-        : step.target.kind === "external" ? step.target.input : undefined;
-      for (const [key, value] of Object.entries(values ?? {})) {
-        visitEventReferences(value, `${path}/target/${step.target.kind === "route" ? "params" : "input"}/${escapeJsonPointer(key)}`, visit);
-      }
-    }
-  }
-}
-
-function visitEventReferences(
-  value: ArtifactValue,
-  path: string,
-  visit: (reference: Extract<ArtifactValue, { kind: "event-ref" }>, path: string) => void,
-): void {
-  if (value.kind === "event-ref") {
-    visit(value, path);
-  } else if (value.kind === "array") {
-    value.items.forEach((item, index) => visitEventReferences(item, `${path}/${index}`, visit));
-  } else if (value.kind === "object") {
-    for (const [key, item] of Object.entries(value.entries)) {
-      visitEventReferences(item, `${path}/${escapeJsonPointer(key)}`, visit);
-    }
-  } else if (value.kind === "condition") {
-    value.args.forEach((item, index) => visitEventReferences(item, `${path}/args/${index}`, visit));
-  }
-}
-
-function eventPayloadPathExists(payloadSchema: ZodType<unknown>, path: readonly (string | number)[]): boolean {
-  const schema = z.toJSONSchema(payloadSchema, {
-    target: "draft-2020-12",
-    reused: "inline",
-  }) as unknown as JSONSchema;
-  return jsonSchemaPathExists(schema, path, schema, new Set());
-}
-
-function jsonSchemaPathExists(
-  schema: JSONSchema,
-  path: readonly (string | number)[],
-  root: JSONSchema,
-  seenRefs: Set<string>,
-): boolean {
-  if (path.length === 0) return true;
-  if (typeof schema.$ref === "string" && schema.$ref.startsWith("#/$defs/")) {
-    if (seenRefs.has(schema.$ref)) return false;
-    const key = schema.$ref.slice("#/$defs/".length).replaceAll("~1", "/").replaceAll("~0", "~");
-    const definitions = root.$defs;
-    if (!definitions || typeof definitions !== "object" || Array.isArray(definitions)) return false;
-    const target = definitions[key];
-    if (!target || typeof target !== "object" || Array.isArray(target)) return false;
-    const nextSeen = new Set(seenRefs);
-    nextSeen.add(schema.$ref);
-    return jsonSchemaPathExists(target as JSONSchema, path, root, nextSeen);
-  }
-
-  for (const keyword of ["oneOf", "anyOf"] as const) {
-    const branches = schema[keyword];
-    if (Array.isArray(branches) && branches.length > 0) {
-      return branches.every((branch) => (
-        branch !== null && typeof branch === "object" && !Array.isArray(branch)
-          && jsonSchemaPathExists(branch as JSONSchema, path, root, new Set(seenRefs))
-      ));
-    }
-  }
-  if (Array.isArray(schema.allOf) && schema.allOf.length > 0) {
-    return schema.allOf.some((branch) => (
-      branch !== null && typeof branch === "object" && !Array.isArray(branch)
-        && jsonSchemaPathExists(branch as JSONSchema, path, root, new Set(seenRefs))
-    ));
-  }
-
-  const [segment, ...remaining] = path;
-  if (typeof segment === "string") {
-    const properties = schema.properties;
-    if (properties && typeof properties === "object" && !Array.isArray(properties)) {
-      const property = properties[segment];
-      if (property && typeof property === "object" && !Array.isArray(property)) {
-        return jsonSchemaPathExists(property as JSONSchema, remaining, root, seenRefs);
-      }
-    }
-    const additional = schema.additionalProperties;
-    return additional !== null && typeof additional === "object" && !Array.isArray(additional)
-      ? jsonSchemaPathExists(additional as JSONSchema, remaining, root, seenRefs)
-      : false;
-  }
-  const items = schema.items;
-  return items !== null && typeof items === "object" && !Array.isArray(items)
-    ? jsonSchemaPathExists(items as JSONSchema, remaining, root, seenRefs)
-    : false;
-}
-
-function normalizeStringArray(raw: unknown, path: string): string[] {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw)) {
-    return fail({
-      phase: "validate",
-      code: "authoring.expected_array",
-      message: "Expected an array of identifiers.",
-      path,
-    });
-  }
-  const result = raw.map((item, index) => identifierAt(item, `${path}/${index}`));
-  if (new Set(result).size !== result.length) {
-    return fail({
-      phase: "validate",
-      code: "authoring.duplicate_identifier",
-      message: "Identifier arrays cannot contain duplicates.",
-      path,
-    });
-  }
-  return result.sort();
-}
-
-function normalizeMeta(raw: unknown): ArtifactMeta {
-  if (raw === undefined) return {};
-  const meta = recordAt(raw, "/meta");
-  rejectUnknownKeys(meta, new Set(["title", "description", "locale", "tags"]), "/meta");
-  const output: ArtifactMeta = {};
-  if (meta.title !== undefined) output.title = stringAt(meta.title, "/meta/title");
-  if (meta.description !== undefined) output.description = stringAt(meta.description, "/meta/description");
-  if (meta.locale !== undefined) output.locale = stringAt(meta.locale, "/meta/locale");
-  if (meta.tags !== undefined) output.tags = normalizeStringArray(meta.tags, "/meta/tags");
   return output;
 }
 
-export function normalizeSurface(
-  input: unknown,
-  options: NormalizeSurfaceOptions = {},
-): Readonly<NormalizedArtifactProposal> {
-  const limits = resolveGenerationLimits(options.limits);
-  inspectJson(input, limits);
-  const proposal = recordAt(input, "") as ArtifactProposal & Record<string, unknown>;
-  rejectUnknownKeys(proposal, new Set(["root", "state", "actions", "claims", "resourceIds", "meta"]), "");
-
-  const contracts = contractMap(options.catalog);
-  if (contracts.size === 0) {
-    return fail({
-      phase: "validate",
-      code: "catalog.empty",
-      message: "Normalization requires a non-empty compiler catalog or catalog slice.",
-      path: "/root/type",
-      modelCorrectable: false,
-    });
+function collectSnapshotRetainedEntities(
+  snapshot: AuthoringSnapshotProposal,
+  identityMap: TransactionIdentityMap,
+): Record<ProposalEntityKind, Set<string>> {
+  const retained = Object.fromEntries(ENTITY_KINDS.map((kind) => [kind, new Set<string>()])) as Record<ProposalEntityKind, Set<string>>;
+  for (const [key, ref] of Object.entries(identityMap)) {
+    if (key.includes(":")) retained[ref.kind].add(ref.id);
   }
-  const state = normalizeStates(proposal.state);
-  const declaredResources = normalizeStringArray(proposal.resourceIds, "/resourceIds");
-  const grantedResources = options.allowedResourceIds
-    ? new Set(options.allowedResourceIds)
-    : new Set(declaredResources);
-  for (const resourceId of declaredResources) {
-    if (!grantedResources.has(resourceId)) {
-      return fail({
-        phase: "policy",
-        code: "reference.resource_not_granted",
-        message: `Resource "${resourceId}" is not in the sealed proposal context.`,
-        path: "/resourceIds",
-        recoverable: false,
-        modelCorrectable: false,
-      });
+  const visit = (value: unknown): void => {
+    if (Array.isArray(value)) return value.forEach(visit);
+    if (!value || typeof value !== "object") return;
+    const record = value as Record<string, unknown>;
+    if (typeof record.kind === "string" && typeof record.canonicalId === "string" && ENTITY_KINDS.includes(record.kind as never)) {
+      retained[record.kind as ProposalEntityKind].add(record.canonicalId);
     }
-  }
-
-  const context: NormalizeContext = {
-    contracts,
-    limits,
-    nodes: {},
-    instanceCounts: new Map(),
-    stateIds: new Set(Object.keys(state)),
-    resourceIds: new Set(declaredResources),
-    capabilityIds: new Set(options.capabilityIds ?? []),
-    messageTemplateIds: new Set(options.messageTemplateIds ?? []),
+    Object.values(record).forEach(visit);
   };
-  const root = normalizeNode(proposal.root, "/root", 1, context);
-  const actions = normalizeActions(proposal.actions, context);
-  validateActionReferences(context.nodes, actions, context.contracts);
-
-  const claims = proposal.claims === undefined
-    ? {}
-    : cloneJson(recordAt(proposal.claims, "/claims") as unknown as JsonValue) as Record<string, JsonValue>;
-  const result: NormalizedArtifactProposal = {
-    root,
-    nodes: context.nodes,
-    state,
-    actions,
-    claims,
-    resourceIds: declaredResources,
-    meta: normalizeMeta(proposal.meta),
-  };
-  return deepFreeze(result);
+  visit(snapshot);
+  return retained;
 }
 
-export function safeNormalizeSurface(
-  input: unknown,
-  options: NormalizeSurfaceOptions = {},
-):
-  | { success: true; data: Readonly<NormalizedArtifactProposal> }
-  | { success: false; diagnostics: readonly Diagnostic[] } {
-  try {
-    return { success: true, data: normalizeSurface(input, options) };
-  } catch (error) {
-    return { success: false, diagnostics: diagnosticsFromUnknown(error) };
-  }
+function snapshotRemovals(
+  base: DocumentContent,
+  revisions: EntityRevisionIndex,
+  retained: Record<ProposalEntityKind, Set<string>>,
+): SnapshotOperation[] {
+  const output: SnapshotOperation[] = [];
+  const add = (
+    kind: ProposalEntityKind,
+    records: Record<string, unknown>,
+    revisionMap: Record<string, EntityRevisionId>,
+    op: "remove-node" | "remove-state" | "remove-action" | "remove-resource-binding" | "remove-evidence" | "remove-claim",
+  ): void => {
+    for (const id of Object.keys(records).sort()) {
+      if (retained[kind].has(id)) continue;
+      const revision = revisionMap[id];
+      if (!revision) continue;
+      output.push({
+        label: `${op}:${id}`,
+        operation: { op, target: { kind, canonicalId: id, expectedEntityRevision: revision } } as AuthoringProposalOperation,
+      });
+    }
+  };
+  add("claim", base.claims, revisions.claims, "remove-claim");
+  add("node", base.nodes, revisions.nodes, "remove-node");
+  add("action", base.actions, revisions.actions, "remove-action");
+  add("evidence", base.evidenceBindings, revisions.evidence, "remove-evidence");
+  add("resource", base.resourceBindings, revisions.resources, "remove-resource-binding");
+  add("state", base.stateDefinitions, revisions.states, "remove-state");
+  return output;
+}
+
+function expressionClassification(
+  expression: ValueExpr,
+  classifications: ReadonlyMap<string, FlowClassification>,
+): FlowClassification {
+  if (expression.kind === "state-ref") return classifications.get(`state:${expression.stateId}`) ?? "public";
+  if (expression.kind === "resource-ref") return classifications.get(`resource:${expression.bindingId}`) ?? "public";
+  if (expression.kind === "array") return maxClassification(expression.items.map((item) => expressionClassification(item, classifications)));
+  if (expression.kind === "object") return maxClassification(Object.values(expression.entries).map((item) => expressionClassification(item, classifications)));
+  if (expression.kind === "condition") return maxClassification(expression.args.map((item) => expressionClassification(item, classifications)));
+  return "public";
+}
+
+function maxClassification(values: readonly FlowClassification[]): FlowClassification {
+  return values.reduce<FlowClassification>((current, value) => (
+    CLASSIFICATION_RANK[value] > CLASSIFICATION_RANK[current] ? value : current
+  ), "public");
+}
+
+function minClassification(left: FlowClassification, right: FlowClassification): FlowClassification {
+  return CLASSIFICATION_RANK[left] < CLASSIFICATION_RANK[right] ? left : right;
+}
+
+function compilerError(
+  phase: Parameters<typeof diagnostic>[0]["phase"],
+  code: string,
+  message: string,
+  path?: string,
+  expected?: JsonValue,
+): ProtocolError {
+  return new ProtocolError(diagnostic({ phase, code, message, path, expected }));
+}
+
+export async function normalizeAuthoringProposal(
+  input: ProposalNormalizerInput,
+  proposal: AuthoringSnapshotProposal | readonly ProposalOperationEnvelope[],
+): Promise<NormalizedCompilerProposal> {
+  const normalizer = new ProposalNormalizer(input);
+  return Array.isArray(proposal)
+    ? normalizer.normalizeOperations(proposal)
+    : normalizer.normalizeSnapshot(proposal as AuthoringSnapshotProposal);
+}
+
+export async function createAuthoringOperationEnvelope(input: {
+  operationId: OperationId;
+  sequence: number;
+  dependsOn?: readonly OperationId[];
+  operation: AuthoringProposalOperation;
+  hashProvider?: HashProvider;
+}): Promise<ProposalOperationEnvelope> {
+  return proposalOperationEnvelopeSchema.parse({
+    operationId: input.operationId,
+    sequence: input.sequence,
+    dependsOn: input.dependsOn ?? [],
+    payloadHash: await hashCanonical(HASH_DOMAINS.operationPayload, input.operation, input.hashProvider),
+    operation: input.operation,
+  });
 }

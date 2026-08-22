@@ -9,7 +9,7 @@ conversion semantics are part of the schema.
 
 <ComponentPreview
   filename="funnel-artifact-example.tsx"
-  code={`import { FunnelArtifact } from "@/components/data-elements/funnel-artifact"
+  code={`import { FunnelArtifact } from "@/components/tessera-agent/funnel-artifact"
 
 export function ActivationFunnel() {
   return (
@@ -48,14 +48,14 @@ from adjacent values when `conversionFromPrevious` is omitted.
   filename="components/activation-funnel.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { FunnelArtifact } from "@/components/data-elements/funnel-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { FunnelArtifact } from "@/components/tessera-agent/funnel-artifact"
 
 export function ActivationFunnel({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => drillIntoStep(event.payload)}>
+    <TesseraPreviewProvider onAction={(event) => drillIntoStep(event.payload)}>
       <FunnelArtifact artifact={artifact} />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

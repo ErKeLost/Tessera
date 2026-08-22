@@ -9,7 +9,7 @@ asking the model to invent an arbitrary card layout.
 
 <ComponentPreview
   filename="insight-artifact-example.tsx"
-  code={`import { InsightArtifact } from "@/components/data-elements/insight-artifact"
+  code={`import { InsightArtifact } from "@/components/tessera-agent/insight-artifact"
 
 export function WeeklyInsights() {
   return (
@@ -51,14 +51,14 @@ the component itself.
   filename="components/weekly-insights.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { InsightArtifact } from "@/components/data-elements/insight-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { InsightArtifact } from "@/components/tessera-agent/insight-artifact"
 
 export function WeeklyInsights({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => continueAnalysis(event)}>
+    <TesseraPreviewProvider onAction={(event) => continueAnalysis(event)}>
       <InsightArtifact artifact={artifact} />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

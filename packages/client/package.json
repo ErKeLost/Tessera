@@ -1,0 +1,34 @@
+{
+  "name": "@open-generative/client",
+  "version": "0.3.5",
+  "description": "Browser-safe Open Generative SurfaceController and trusted stream reducer.",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsdown --config ../../tsdown.package.config.ts",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@open-generative/protocol": "workspace:*",
+    "@open-generative/catalog": "workspace:*",
+    "@open-generative/runtime": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

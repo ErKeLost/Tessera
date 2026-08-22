@@ -24,20 +24,10 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Restore Bun download cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -58,134 +48,59 @@ jobs:
           REF_NAME: ${{ github.ref_name }}
         shell: bash
         run: |
+          set -euo pipefail
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             version="$INPUT_VERSION"
           else
             version="${REF_NAME#v}"
           fi
-          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
             echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+          root_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+          if [ "$version" != "$root_version" ]; then
+            echo "Release $version does not match root package version $root_version." >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Match repository version
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check product naming
+        run: bun run check:naming
+
+      - name: Check package boundaries
+        run: bun run check:boundaries
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Test
+        run: bun run test
+
+      - name: Build
+        run: bun run build
+
+      - name: Check release artifacts
+        run: bun run release:check
+
+      - name: Stage and pack release
+        id: stage
         env:
           RELEASE_VERSION: ${{ steps.release.outputs.version }}
         shell: bash
         run: |
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$package_version" != "$RELEASE_VERSION" ]; then
-            echo "Release $RELEASE_VERSION does not match root package version $package_version." >&2
-            exit 1
-          fi
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build and verify workspace
-        run: bun run release:check
-
-      - name: Prepare npm dependency ranges
-        run: bun scripts/prepare-npm-release.ts
-
-      - name: Verify Bun publish manifests
-        shell: bash
-        run: |
           set -euo pipefail
-          pack_dir="$(mktemp -d)"
-          mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
-          for package_path in "${packages[@]}"; do
-            archive="$(bun pm pack --cwd "$package_path" --destination "$pack_dir" --ignore-scripts --quiet | tail -n 1)"
-            if tar -xOf "$archive" package/package.json | grep -q 'workspace:'; then
-              echo "Bun publish manifest still contains workspace protocol: $package_path" >&2
-              exit 1
-            fi
-          done
+          release_directory="$RUNNER_TEMP/open-generative-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          bun scripts/release-stage.ts --version "$RELEASE_VERSION" --output "$release_directory"
+          echo "manifest=$release_directory/release-manifest.json" >> "$GITHUB_OUTPUT"
+
+      - name: Validate packed release
+        run: bun scripts/release-publish.ts --manifest "${{ steps.stage.outputs.manifest }}" --verify-only
 
       - name: Publish packages in dependency order
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
-            echo "NPM_TOKEN is not available to this workflow." >&2
-            exit 1
-          fi
-
-          registry_has_version() {
-            local package_name="$1"
-            local package_version="$2"
-            local encoded_name="${package_name//\//%2f}"
-            local cache_bust
-            cache_bust="$(date +%s%N)"
-            curl --fail --silent --location \
-              --connect-timeout 10 \
-              --max-time 30 \
-              --header "Cache-Control: no-cache" \
-              "https://registry.npmjs.org/${encoded_name}/${package_version}?cache_bust=${cache_bust}" \
-              >/dev/null
-          }
-
-          mapfile -t packages < <(bun -e "import { npmReleasePackages } from './scripts/npm-release-config.ts'; console.log(npmReleasePackages.map(({ directory }) => directory).join('\\n'))")
-          for package_path in "${packages[@]}"; do
-            package_name="$(node -p "require('./$package_path/package.json').name")"
-            publish_confirmed=false
-
-            if registry_has_version "$package_name" "$RELEASE_VERSION"; then
-              echo "$package_name@$RELEASE_VERSION is already available; skipping publish."
-              publish_confirmed=true
-            fi
-
-            for publish_attempt in $(seq 1 5); do
-              if [ "$publish_confirmed" = true ]; then
-                break
-              fi
-              if (
-                cd "$package_path"
-                npm publish --access public --ignore-scripts
-              ); then
-                publish_confirmed=true
-                echo "npm accepted $package_name@$RELEASE_VERSION."
-                break
-              fi
-              if registry_has_version "$package_name" "$RELEASE_VERSION"; then
-                echo "$package_name@$RELEASE_VERSION became available after npm returned an error."
-                publish_confirmed=true
-                break
-              fi
-              sleep 20
-            done
-            if [ "$publish_confirmed" != true ]; then
-              echo "npm publish failed for $package_name@$RELEASE_VERSION." >&2
-              exit 1
-            fi
-          done
-
-      - name: Verify published CLI metadata
-        env:
-          RELEASE_VERSION: ${{ steps.release.outputs.version }}
-        shell: bash
-        run: |
-          verify_dir="$(mktemp -d)"
-          trap 'find "$verify_dir" -depth -delete' EXIT
-          cd "$verify_dir"
-          npm init --yes >/dev/null
-          for attempt in $(seq 1 60); do
-            cache_bust="$(date +%s%N)"
-            if curl --fail --silent --location \
-              --connect-timeout 10 \
-              --max-time 30 \
-              --header "Cache-Control: no-cache" \
-              "https://registry.npmjs.org/data-elements/${RELEASE_VERSION}?cache_bust=${cache_bust}" \
-              >/dev/null \
-              && npm_config_cache="$verify_dir/npm-cache-$attempt" \
-                npx --yes "data-elements@$RELEASE_VERSION" studio --help; then
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "The published CLI did not become installable from npm within 10 minutes." >&2
-          exit 1
+        run: bun scripts/release-publish.ts --manifest "${{ steps.stage.outputs.manifest }}" --provenance

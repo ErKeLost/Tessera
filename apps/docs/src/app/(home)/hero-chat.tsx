@@ -109,11 +109,11 @@ export function HeroChat() {
   }
 
   return (
-    <div className="heroChat" aria-label={chinese ? "Artifact Agent 交互式预览" : "Interactive Artifact Agent preview"} data-home-chat>
-      <aside className="heroChatSidebar" aria-label={chinese ? "Artifact Agent 导航" : "Artifact Agent navigation"} data-home-chat-sidebar>
+    <div className="heroChat" aria-label={chinese ? "Tessera Agent 交互式预览" : "Interactive Tessera Agent preview"} data-home-chat>
+      <aside className="heroChatSidebar" aria-label={chinese ? "Tessera Agent 导航" : "Tessera Agent navigation"} data-home-chat-sidebar>
         <div className="heroChatBrand">
           <ArtifactAgentLogo className="heroChatBrandLogo" />
-          <strong>Artifact Agent</strong>
+          <strong>Tessera Agent</strong>
         </div>
         <button className="heroChatNew" onClick={startNewAnalysis} type="button">
           <PlusIcon aria-hidden="true" />
@@ -158,7 +158,7 @@ export function HeroChat() {
             <div className="heroChatAnswerBody">
               <div className="heroChatAnswerIntro">
                 <div>
-                  <span>Artifact Agent</span>
+                  <span>Tessera Agent</span>
                   <h2>{chinese ? "收入总体呈上升趋势，其间出现两次短暂回落。" : "Revenue is trending up, with two short pullbacks."}</h2>
                 </div>
                 <small>{chinese ? "基于 2 个获准来源回答" : "Answered from 2 approved sources"}</small>

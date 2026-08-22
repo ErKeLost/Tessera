@@ -3,7 +3,7 @@ title: 简介
 description: 嵌入现有业务系统、可持久化并持续编辑的业务 Artifact Runtime。
 ---
 
-Data Elements 是嵌入现有业务系统、可持久化并持续编辑的语义业务 Artifact Runtime。模型只能组合
+Tessera Agent 是嵌入现有业务系统、可持久化并持续编辑的语义业务 Artifact Runtime。模型只能组合
 宿主选出的 Surface 与语义 Node；校验、授权、计算、交互、渲染、持久化和所有外部 Effect 都由宿主掌控。
 
 <CalculatorDemo />
@@ -13,20 +13,20 @@ Data Elements 是嵌入现有业务系统、可持久化并持续编辑的语义
 以下命令是 npm Package 与远程 Registry 发布后的公开安装接口，目前尚不可用；本仓库当前是
 本地参考实现。
 
-发布后，可通过 Artifact Agent CLI 安装全部可编辑组件：
+发布后，可通过 Tessera Agent CLI 安装全部可编辑组件：
 
 ```bash
-npx data-elements@latest
+npx tessera-agent@latest
 ```
 
 发布后，也可以只安装所需的 Artifact：
 
 ```bash
-npx data-elements@latest add query-artifact metric-artifact
+npx tessera-agent@latest add query-artifact metric-artifact
 ```
 
 该命令届时会使用现有的 `components.json`，把源码安装到其中配置的组件别名下，并通过
-生成的 primitives 自动引入 Artifact Agent 样式。目前请使用 `bun install`、
+生成的 primitives 自动引入 Tessera Agent 样式。目前请使用 `bun install`、
 `bun run registry:build` 与 `bun run dev` 验证本地实现。
 
 ## 核心不变量
@@ -34,12 +34,12 @@ npx data-elements@latest add query-artifact metric-artifact
 系统不生成 App。智能体不会编写 JSX、JavaScript、HTML、CSS 或可执行公式，只输出当前任务专属的声明式
 Surface DSL。服务端 Compiler 对 Proposal 执行 Normalize、Validate、Authorize 与 Commit，
 生成带本地 Brand 的 v2 `ArtifactPart`。序列化后的 Wire Part 必须由
-`@data-elements/runtime` 使用预期 Contract Fingerprint 再次 Decode，可信 React Renderer
+`@open-generative/runtime` 使用预期 Contract Fingerprint 再次 Decode，可信 React Renderer
 才会接收它。
 
 <Cards>
   <Card title="目标架构" description="理解持久化 Artifact 生命周期、宿主边界、编辑模型与生产准入门槛。" href="/docs/concepts/embedded-artifact-runtime" />
-  <Card title="Tessera Data Agent" description="进入独立 Agent 文档，从配置一直阅读到生产架构。" href="/docs/agent" />
+  <Card title="Tessera Agent" description="进入独立 Agent 文档，从配置一直阅读到生产架构。" href="/docs/agent" />
   <Card title="Agent 架构" description="理解智能体循环、安全模型、证据和生产准入门槛。" href="/docs/agent/architecture" />
   <Card title="示例" description="每个完整组合都有独立实现和预览页面。" href="/docs/examples" />
   <Card title="组件" description="分别查看每个组件的 Schema、API、预览和集成说明。" href="/docs/components" />

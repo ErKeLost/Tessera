@@ -1,12 +1,5 @@
-import {
-  createArtifactUI,
-  type ArtifactUIStreamResult,
-  type PreparedArtifactUITurn,
-} from "@data-elements/ai-sdk";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
-  generateText,
-  Output,
   safeValidateUIMessages,
   streamText,
   type UIMessage,
@@ -48,19 +41,18 @@ export type BackgroundStreamInput = {
   apiKey: string;
   abortSignal: AbortSignal;
   model: BackgroundModel;
-  turn: PreparedArtifactUITurn<BackgroundTurnMessage>;
+  turn: Readonly<{
+    messages: readonly BackgroundTurnMessage[];
+    system: string;
+  }>;
   performance?: BackgroundStreamPerformance;
 };
 
-export type BackgroundRepairInput = {
-  apiKey: string;
-  abortSignal: AbortSignal;
-  model: BackgroundModel;
-};
-
-type BackgroundRepairProvider = {
-  readonly id: string;
-  repair(request: { prompt: string }): Promise<unknown>;
+export type BackgroundStreamResult = {
+  toResponse(input: Readonly<{
+    originalMessages: readonly UIMessage[];
+    serverTiming: string;
+  }>): Response;
 };
 
 export type BackgroundProviderPerformance = {
@@ -94,48 +86,20 @@ export type BackgroundStreamPerformance = {
 export type BackgroundRouteDependencies = {
   readApiKey(): string | undefined;
   admitRequest?(request: Request): Promise<BackgroundAdmission>;
-  createRepairProvider?(input: BackgroundRepairInput): BackgroundRepairProvider;
-  startStream(input: BackgroundStreamInput): ArtifactUIStreamResult | Promise<ArtifactUIStreamResult>;
+  startStream(input: BackgroundStreamInput): BackgroundStreamResult | Promise<BackgroundStreamResult>;
   observePerformance?(report: BackgroundPerformanceReport): void;
 };
 
-const artifactUI = createArtifactUI();
 const encoder = new TextEncoder();
 
 const defaultDependencies: BackgroundRouteDependencies = {
   readApiKey: () => process.env.OPENROUTER_API_KEY,
-  createRepairProvider: ({ apiKey, abortSignal, model }) => {
-    const openrouter = createOpenRouter({ apiKey });
-    return {
-      id: `openrouter:${model.id}:artifact-repair`,
-      async repair(request) {
-        const result = await generateText({
-          model: openrouter(model.id),
-          system: [
-            "You repair a Data Elements Artifact Authoring DSL JSON snapshot.",
-            "Return only one complete JSON replacement snapshot.",
-            "Do not add prose, Markdown, HTML, JavaScript, CSS, SQL, credentials, or new capabilities.",
-          ].join(" "),
-          prompt: request.prompt,
-          output: Output.json(),
-          maxOutputTokens: 6_144,
-          maxRetries: 0,
-          timeout: 25_000,
-          abortSignal,
-          providerOptions: BACKGROUND_STREAM_PROVIDER_OPTIONS,
-        });
-        return result.output;
-      },
-    };
-  },
   startStream: ({ apiKey, abortSignal, model, turn, performance: streamPerformance }) => {
     const openrouter = createOpenRouter({ apiKey });
-    return streamText({
+    const result = streamText({
       model: openrouter(model.id),
       messages: [...turn.messages],
       system: turn.system,
-      tools: turn.tools,
-      toolChoice: { type: "tool", toolName: "renderArtifact" },
       maxOutputTokens: 4_096,
       maxRetries: 1,
       timeout: 45_000,
@@ -152,12 +116,6 @@ const defaultDependencies: BackgroundRouteDependencies = {
           reasoningTokens: usage.outputTokenDetails.reasoningTokens,
         });
       },
-      onToolExecutionEnd: ({ toolCall, toolExecutionMs, toolOutput }) => {
-        if (toolCall.toolName === "renderArtifact") {
-          streamPerformance?.markArtifactValidated(toolExecutionMs);
-          if (toolOutput.type === "tool-error") streamPerformance?.markStreamFailed();
-        }
-      },
       onEnd: () => streamPerformance?.finish(),
       onAbort: () => streamPerformance?.finish("cancelled"),
       // Provider errors are surfaced through a generic stream error below.
@@ -166,6 +124,18 @@ const defaultDependencies: BackgroundRouteDependencies = {
         streamPerformance?.finish("failed");
       },
     });
+    return {
+      toResponse: ({ originalMessages, serverTiming }) => result.toUIMessageStreamResponse({
+        originalMessages: [...originalMessages],
+        sendReasoning: false,
+        sendSources: false,
+        headers: {
+          "Cache-Control": "no-store",
+          "Server-Timing": serverTiming,
+        },
+        onError: () => "background:model_request_failed",
+      }),
+    };
   },
   observePerformance: backgroundPerformanceObserver,
 };
@@ -197,16 +167,14 @@ export function createBackgroundPostHandler(
 
       const model = BACKGROUND_MODEL;
       const modelMessages = toBackgroundTurnMessages(messages);
-      const repairProvider = (dependencies.createRepairProvider ?? defaultDependencies.createRepairProvider)!({
-        apiKey,
-        abortSignal: request.signal,
-        model,
-      });
       const compileStartedAt = performance.now();
-      const turn = await artifactUI.prepareTurn({
+      const turn = Object.freeze({
         messages: modelMessages,
-        profile: "analysis",
-        repairProvider,
+        system: [
+          "You are the Tessera Agent documentation playground.",
+          "Answer data-analysis questions concisely.",
+          "This route does not publish Generative UI until the trusted Surface pipeline is connected.",
+        ].join(" "),
       });
       performance.markCompileCompleted(performance.now() - compileStartedAt);
       const streamSetupStartedAt = performance.now();
@@ -219,16 +187,9 @@ export function createBackgroundPostHandler(
       });
       performance.markStreamSetupCompleted(performance.now() - streamSetupStartedAt);
 
-      const response = turn.toUIMessageStreamResponse(result, {
+      const response = result.toResponse({
         originalMessages: messages,
-        sendReasoning: false,
-        sendSources: false,
-        headers: {
-          "Cache-Control": "no-store",
-          "Server-Timing": performance.toServerTiming(),
-        },
-        onError: () => "background:model_request_failed",
-        onArtifactError: formatArtifactValidationError,
+        serverTiming: performance.toServerTiming(),
       });
       return releaseOnResponseCompletion(response, release);
     } catch (error) {
@@ -473,14 +434,6 @@ function validateTransportMetadata(payload: Record<string, unknown>): void {
     && (typeof payload.messageId !== "string" || payload.messageId.length > 128)) {
     throw invalidRequest();
   }
-}
-
-function formatArtifactValidationError(error: unknown): string {
-  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
-  const code = message.match(/\b(?:authoring|catalog|node|slot|condition|action|limit|repair|compiler)\.[a-z0-9_.-]+\b/i)?.[0];
-  return code
-    ? `Artifact validation failed (${code}).`
-    : "Artifact validation failed.";
 }
 
 function toBackgroundTurnMessages(messages: UIMessage[]): BackgroundTurnMessage[] {

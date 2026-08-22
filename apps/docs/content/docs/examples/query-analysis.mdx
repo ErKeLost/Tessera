@@ -9,10 +9,10 @@ executable browser input.
 
 <ComponentPreview
   filename="examples/credit-flow.tsx"
-  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+  code={`import { QueryResultSurface } from "@/components/tessera-agent/query-artifact"
 
 export function CreditFlow({ artifact }) {
-  return <QueryArtifact artifact={artifact} defaultView="table" />
+  return <QueryResultSurface artifact={artifact} defaultView="table" />
 }`}
 >
   <QueryDemo />

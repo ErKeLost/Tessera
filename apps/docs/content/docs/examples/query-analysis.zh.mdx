@@ -8,10 +8,10 @@ SQL 与血缘保持可审查，但不会成为浏览器中的可执行输入。
 
 <ComponentPreview
   filename="examples/credit-flow.tsx"
-  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+  code={`import { QueryResultSurface } from "@/components/tessera-agent/query-artifact"
 
 export function CreditFlow({ artifact }) {
-  return <QueryArtifact artifact={artifact} defaultView="table" />
+  return <QueryResultSurface artifact={artifact} defaultView="table" />
 }`}
 >
   <QueryDemo />

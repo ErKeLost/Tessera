@@ -8,11 +8,11 @@ to inspect both a visualization and exact values. The displayed SQL is always
 read-only—the component never executes it.
 
 <ComponentPreview
-  code={`import { QueryArtifact } from "@/components/data-elements/query-artifact"
+  code={`import { QueryResultSurface } from "@/components/tessera-agent/query-artifact"
 
 export function RevenueQuery() {
   return (
-    <QueryArtifact
+    <QueryResultSurface
       artifact={{
         protocolVersion: "1.0",
         kind: "query",
@@ -47,20 +47,20 @@ export function RevenueQuery() {
 
 ## Usage
 
-Wrap artifacts with `DataElementsProvider` once, then render validated data.
+Wrap artifacts with `TesseraPreviewProvider` once, then render validated data.
 
 <CodeExample
   filename="app/analytics/page.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge";
-import { QueryArtifact } from "@/components/data-elements/query-artifact";
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge";
+import { QueryResultSurface } from "@/components/tessera-agent/query-artifact";
 
 export default function AnalyticsPage() {
   return (
-    <DataElementsProvider onAction={(event) => sendToAgent(event)}>
-      <QueryArtifact artifact={queryResult} defaultView="chart" />
-    </DataElementsProvider>
+    <TesseraPreviewProvider onAction={(event) => sendToAgent(event)}>
+      <QueryResultSurface artifact={queryResult} defaultView="chart" />
+    </TesseraPreviewProvider>
   )
 }`}
 />
@@ -68,11 +68,11 @@ export default function AnalyticsPage() {
 ## API Reference
 
 <ApiReference
-  name="QueryArtifact"
+  name="QueryResultSurface"
   properties={[
     {
       name: "artifact",
-      type: "QueryArtifactData",
+      type: "QueryResultSurfaceData",
       required: true,
       description:
         "Validated query payload containing rows, columns, provenance, and an optional chart specification.",

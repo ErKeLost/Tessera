@@ -1,0 +1,64 @@
+---
+title: 当前 Generative UI Catalog
+description: 为 Tessera Agent data-agent 成功证明而实现的 12 个 Component Contracts。
+---
+
+当前 Catalog 只包含 Tessera Agent 的 data-agent workflow 真正需要的 12 个正交 Component。底层协议是终局架构，但组件范围保持克制：Trend、Anomaly、Forecast、Funnel、Cohort 等分析形态由这些基础组件组合为 recipe，不成为固定业务大组件。
+
+## Layout
+
+| Contract | 作用 | Commit |
+| --- | --- | --- |
+| `layout.stack` | 默认有序阅读流，适合作为多段分析根节点 | progressive |
+| `layout.grid` | 响应式对比布局，列数只使用语义 token | progressive |
+| `layout.section` | 标题、说明和语义分组，保持正确 heading level | progressive |
+
+## Content
+
+| Contract | 作用 | Commit |
+| --- | --- | --- |
+| `content.text` | heading、body、caption 或 code text，不接受 markup | progressive |
+| `content.callout` | 洞察、限制、warning 或 critical message | progressive |
+| `content.empty` | no-data、filtered、unavailable、not-configured 的明确状态 | progressive |
+
+## Data
+
+| Contract | 绑定和交互 | Commit |
+| --- | --- | --- |
+| `data.metric` | Resource/state-backed scalar，可带受验证 comparison；`select` | atomic |
+| `data.table` | windowed Resource，稳定 columns、selection、sort、pagination；`export`、`rowSelect`、`sortChange`、`pageChange` | atomic |
+| `data.chart` | 严格 ChartSpec 和 Resource data；`select`、`rangeChange`、`legendToggle` | atomic |
+| `data.query-details` | policy-controlled SQL、lineage、freshness、evidence；`copy`、`export` | atomic |
+
+## Control
+
+| Contract | 绑定和交互 | Commit |
+| --- | --- | --- |
+| `control.filter` | state-bound text、number、select、multi-select、date、date-range；`change`、`apply`、`reset` | atomic |
+| `control.group` | 相关 filters 的语义 fieldset；immediate 或 explicit submit；`apply`、`reset` | atomic |
+
+## Action Contracts
+
+Catalog 当前只发布三个 HostIntent contracts：`data.export`、`surface.retry` 和 `control.apply`。普通选择、折叠、legend toggle 与 Surface-local state 不会被伪装成 server effect。Renderer 只发出 Contract 声明的 event port；Host 再根据已提交 node binding 决定是否存在 Action。
+
+## 数据边界
+
+Metric、Chart、Table 与 Query Details 可以共享一个 pinned Resource version，但它们只保存 binding。Table rows 和 Chart data 只在 Resource Gateway resolve 后进入 node-scoped render projection；不会进入模型 proposal 或 canonical Document。
+
+## 组合而非业务大组件
+
+```text
+KPI overview
+= layout.grid + data.metric + data.chart + content.callout
+
+query analysis
+= layout.stack + data.metric + data.chart + data.table + data.query-details
+
+filtered breakdown
+= control.group + control.filter + layout.grid + data.chart + data.table
+```
+
+这些 recipe 属于 Tessera Agent proof fixtures。模型仍必须根据问题和资源形状选择组合，不能把 recipe 当作固定 renderer。
+
+Contract、props schema、ChartSpec、70 recipes、fixtures 和 manifest 由 `@open-generative/components` 导出。React 页面由 `@open-generative/components-react` 使用 shadcn/ui primitives 与 Recharts 实现。文档中的字段、event 和 coverage 必须由同一 Contract 生成或经过 conformance test 验证。
+

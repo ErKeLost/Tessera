@@ -1,2 +1,2 @@
-export const appName = "Artifact Agent";
-export const gitConfig = { user: "data-elements", repo: "data-elements", branch: "main" };
+export const appName = "Tessera Agent";
+export const gitConfig = { user: "ErKeLost", repo: "Tessera", branch: "main" };

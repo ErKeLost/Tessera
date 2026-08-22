@@ -7,7 +7,6 @@ node_modules
 .tessera
 dist
 coverage
-apps/docs/.registry
 registry/generated
 *.tsbuildinfo
 .DS_Store

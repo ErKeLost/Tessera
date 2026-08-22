@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createDatabaseMutationPlan } from "@data-elements/database";
+import { createDatabaseMutationPlan } from "@open-tessera/database";
 import { createMySqlConnector } from "./index";
 
 describe("MySqlConnector", () => {

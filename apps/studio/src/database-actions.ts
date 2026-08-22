@@ -20,8 +20,8 @@ import {
   type PublicationResult,
   type Sensitivity,
   type ValidatedOutputCommit,
-} from "@data-elements/capability-broker";
-import { compilerSchemaProfile } from "@data-elements/compiler";
+} from "@open-tessera/capabilities";
+import { compilerSchemaProfile } from "@open-tessera/compiler";
 import {
   compileDatabaseMutation,
   assertDatabaseActionCatalogBinding,
@@ -44,13 +44,13 @@ import {
   type DatabasePermissionActor,
   type DatabaseRowPredicateBinding,
   type DatabaseScopedPermissionPolicy,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   canonicalHash,
   canonicalize,
   type DurableStateStorePort,
   type JsonValue,
-} from "@data-elements/runtime";
+} from "@open-tessera/runtime";
 import { z } from "zod";
 
 const HANDLER_REF = "studio.database-mutate";

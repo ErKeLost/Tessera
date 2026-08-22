@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createDataAgent } from "@data-elements/data-agent";
+import { createDataAgent } from "@open-tessera/data-agent";
 import {
   finalizeCatalog,
   type ConnectionAssessment,
   type DatabaseConnector,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { defineTesseraConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
 import {

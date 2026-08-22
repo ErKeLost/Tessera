@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { ArtifactTelemetryEvent, ArtifactTelemetrySink } from "@data-elements/observability";
-import { createBackgroundPerformanceObserver } from "./background-observability";
+import {
+  createBackgroundPerformanceObserver,
+  type BackgroundTelemetryEvent,
+  type BackgroundTelemetrySink,
+} from "./background-observability";
 
 const report = {
   outcome: "succeeded" as const,
@@ -26,9 +29,8 @@ describe("background performance observer", () => {
   });
 
   test("publishes only redacted model-turn metrics without blocking the caller", async () => {
-    const events: ArtifactTelemetryEvent[] = [];
-    const sink: ArtifactTelemetrySink = {
-      id: "test",
+    const events: BackgroundTelemetryEvent[] = [];
+    const sink: BackgroundTelemetrySink = {
       emit(event) {
         events.push(event);
       },

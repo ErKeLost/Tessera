@@ -3,13 +3,13 @@ title: Chart
 description: A shadcn Chart API and Recharts renderer for trusted query visualizations.
 ---
 
-Artifact Agent uses the **shadcn Chart API**, implemented by `ChartContainer`,
+Tessera Agent uses the **shadcn Chart API**, implemented by `ChartContainer`,
 `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, and `ChartLegendContent`,
 with **Recharts** as the visualization engine. It does not use Apache ECharts.
 
 <ComponentPreview
   filename="data-chart-example.tsx"
-  code={`import { DataChart } from "@/components/data-elements/data-chart"
+  code={`import { DataChart } from "@/components/tessera-agent/data-chart"
 
 export function CreditFlowChart({ rows }) {
   return (
@@ -49,7 +49,7 @@ renderer in your own catalog.
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
-} from "@/components/data-elements/chart"
+} from "@/components/tessera-agent/chart"
 import { Area, AreaChart, CartesianGrid, XAxis } from "recharts"
 
 const config = {
@@ -75,7 +75,7 @@ export function RevenueChart({ data }) {
 <ApiReference
   name="DataChart"
   properties={[
-    { name: "rows", type: "QueryArtifact['rows']", required: true, description: "Validated records passed to the Recharts data prop." },
+    { name: "rows", type: "QueryResultSurface['rows']", required: true, description: "Validated records passed to the Recharts data prop." },
     { name: "chart", type: "ChartSpec", description: "Trusted line, bar, or area specification with one x key and up to eight y keys." },
     { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for axes and tooltip formatting." },
     { name: "height", type: "number", defaultValue: "320", description: "Explicit chart height in CSS pixels." },

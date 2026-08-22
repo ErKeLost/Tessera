@@ -3,11 +3,11 @@ title: AI SDK
 description: 为每轮生成编译工具，并且只传输已提交的 Artifact UI Part。
 ---
 
-`@data-elements/ai-sdk` 是默认服务端 Adapter。`createArtifactUI()` 保持公开入口简单，
+`@open-generative/ai-sdk` 是默认服务端 Adapter。`createArtifactUI()` 保持公开入口简单，
 Compiler、Policy Boundary、Runtime Commit 和 Transport Validation 都留在内部。
 
 ```ts
-import { createArtifactUI } from "@data-elements/ai-sdk";
+import { createArtifactUI } from "@open-generative/ai-sdk";
 import { streamText } from "ai";
 
 const artifactUI = createArtifactUI();
@@ -39,8 +39,8 @@ Contract Fingerprint。
 才把得到的 branded Part 保存在 UI State 并交给 Registry 安装的 Renderer：
 
 ```tsx
-import { decodeArtifactPart } from "@data-elements/runtime";
-import { ArtifactRenderer } from "@/components/data-elements/artifact-ui";
+import { decodeArtifactPart } from "@open-generative/runtime";
+import { ArtifactRenderer } from "@/components/tessera-agent/artifact-ui";
 
 const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
   contractFingerprint: dataArtifactPart.data.contractFingerprint,
@@ -51,8 +51,8 @@ return <ArtifactRenderer value={decoded.part} />;
 ```
 
 不要把网络 Wire 直接传给 `ArtifactRenderer`。它只接受当前进程中带 Brand 的 `ArtifactPart`、
-宿主可信的已提交 Document，或明确的 v1 兼容类型。`@data-elements/ai-sdk` 仅限服务端，
-浏览器必须从 `@data-elements/runtime` 导入 Decoder。
+宿主可信的已提交 Document，或明确的 v1 兼容类型。`@open-generative/ai-sdk` 仅限服务端，
+浏览器必须从 `@open-generative/runtime` 导入 Decoder。
 
 需要受治理数据时，把宿主签发的 `resources`、`evidence` 和 `documentPolicy` 传给
 `prepareTurn()`。未获授权的 ID、Policy 降级、错误 Schema Hash 与过期引用都会在 Runtime Part

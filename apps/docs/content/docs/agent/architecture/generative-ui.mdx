@@ -1,0 +1,30 @@
+---
+title: Generative UI architecture
+description: The single protocol, authority boundary, commit path, and render path used by Tessera Agent.
+---
+
+This repository implements the final Tessera Agent Generative UI architecture directly. It has no MVP protocol, legacy Artifact compatibility layer, or second renderer. The current proof is intentionally limited to data-agent workflows. A separate Open Generative project is created only after that proof succeeds.
+
+```text
+governed query result
+-> Resource + Evidence offers
+-> frozen Tessera CatalogSetSlice
+-> present_ui proposal
+-> Compiler transaction
+-> immutable committed Revision
+-> trusted SurfaceEventStream
+-> SurfaceController
+-> GenerativeSurface
+-> exact RendererRegistry
+```
+
+The model proposes declarative composition. The Host owns data, identity, authority, validation, state, effects, persistence, and commit. A model never emits JSX, HTML, CSS, JavaScript, SQL, URLs, tool names, or Resource payloads.
+
+Every component has one immutable, revisioned, framework-neutral `ComponentContract`. It deterministically produces provider schemas, validators, TypeScript types, renderer requirements, fixtures, documentation, and hashes. React implementations register against a complete `ContractRef`; they are not part of the canonical protocol.
+
+Model Proposal, Canonical Document, and Resolved Render Projection are separate representations with separate validation. Streaming applies only complete entities. A transaction follows `begin -> apply -> preview -> finalize -> commit`, preserves last-good on every failure, and permits at most one active preview overlay per Surface.
+
+Query rows remain inside the Resource Gateway. Metric, Chart, Table, and Query Details may reference one pinned resource version without copying payloads. The browser executes only Surface-local transitions and focus. Document state and every HostIntent pass through server authority.
+
+The only React chain is `SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry`. Preview nodes have no emitter, each node has an error boundary, and renderer lookup uses the exact Contract identity.
+

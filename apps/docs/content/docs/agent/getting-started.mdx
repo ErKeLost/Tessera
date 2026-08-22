@@ -17,7 +17,7 @@ Studio.
 Run Studio from the directory that contains `tessera.config.ts`:
 
 ```bash
-npx data-elements@latest studio
+npx tessera-agent@latest studio
 ```
 
 The CLI searches upward for the config and starts the local workspace at
@@ -26,10 +26,10 @@ The CLI searches upward for the config and starts the local workspace at
 For a temporary connection, pass one database URL:
 
 ```bash
-npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
-npx data-elements@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
-npx data-elements@latest studio file:/absolute/path/to/warehouse.db
-TURSO_AUTH_TOKEN=... npx data-elements@latest studio libsql://warehouse-org.turso.io
+npx tessera-agent@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx tessera-agent@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
+npx tessera-agent@latest studio file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... npx tessera-agent@latest studio libsql://warehouse-org.turso.io
 ```
 
 Positional URLs can appear in shell history or process listings. Use a config

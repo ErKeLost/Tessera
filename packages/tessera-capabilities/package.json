@@ -1,0 +1,41 @@
+{
+  "name": "@open-tessera/capabilities",
+  "version": "0.3.5",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Server-only capability authorization and durable effect execution for Data Elements.",
+  "type": "module",
+  "sideEffects": [
+    "./dist/browser.mjs"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "browser": "./dist/browser.mjs",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "browser": {
+    "./dist/index.mjs": "./dist/browser.mjs"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "lint": "tsc --noEmit",
+    "test": "bun test src",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@open-tessera/runtime": "workspace:*",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "tsdown": "0.22.14",
+    "typescript": "7.0.2"
+  }
+}

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 900" role="img" aria-labelledby="title desc">
-  <title id="title">Tessera Data Agent Studio architecture</title>
+  <title id="title">Tessera Agent Studio architecture</title>
   <desc id="desc">A governed data agent architecture connecting the Tessera Studio experience to the server agent, semantic Data Agent, host policy, and an analyzed database.</desc>
   <defs>
     <style>
@@ -29,7 +29,7 @@
   <rect width="1440" height="900" fill="#020617"/>
   <rect width="1440" height="900" fill="url(#grid)"/>
 
-  <text x="40" y="42" class="title">Tessera Data Agent Studio / Architecture</text>
+  <text x="40" y="42" class="title">Tessera Agent Studio / Architecture</text>
   <text x="40" y="62" class="subtitle">semantic intent · governed execution · bounded evidence · structured artifacts · host-owned identity</text>
 
   <!-- Region boundaries -->

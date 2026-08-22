@@ -1,11 +1,11 @@
-# @data-elements/sqlite
+# @open-tessera/sqlite
 
 Cross-runtime SQLite connector for Data Elements. It discovers the SQLite
 catalog and executes bounded, parser-validated read-only queries through
 `@libsql/client` on Node.js 24+ and Bun 1.3+.
 
 ```ts
-import { createSqliteConnector } from "@data-elements/sqlite";
+import { createSqliteConnector } from "@open-tessera/sqlite";
 
 const database = createSqliteConnector({
   connectionString: "file:/absolute/path/to/warehouse.db",

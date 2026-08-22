@@ -1,15 +1,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { RootProvider } from "fumadocs-ui/provider/next";
-import "@data-elements/react/styles.css";
 import "../global.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: "Artifact Agent",
-  description: "Artifact Agent workspace.",
+  title: "Tessera Agent",
+  description: "Tessera Agent workspace.",
   robots: { index: false, follow: false },
 };
 

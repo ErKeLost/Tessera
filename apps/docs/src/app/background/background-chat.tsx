@@ -151,9 +151,9 @@ export function BackgroundChat() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <Link aria-label="返回 Artifact Agent 首页" className={styles.backLink} href="/zh">
+          <Link aria-label="返回 Tessera Agent 首页" className={styles.backLink} href="/zh">
             <ArrowLeftIcon aria-hidden="true" />
-            <span>Artifact Agent</span>
+            <span>Tessera Agent</span>
           </Link>
 
           <div className={styles.headerMeta}>
@@ -315,7 +315,7 @@ const BackgroundChatMessage = memo(function BackgroundChatMessage({
 
   return (
     <Message
-      aria-label={message.role === "user" ? "你的请求" : "Artifact Agent 回复"}
+      aria-label={message.role === "user" ? "你的请求" : "Tessera Agent 回复"}
       className={message.role === "user" ? styles.userMessage : styles.assistantMessage}
       from={message.role}
     >

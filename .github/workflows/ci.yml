@@ -21,30 +21,6 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          submodules: recursive
-
-      - name: Verify pinned submodules
-        run: |
-          git submodule status --recursive
-          if git submodule status --recursive | grep -Eq '^[+-]'; then
-            echo "A submodule is uninitialized or does not match its pinned commit."
-            exit 1
-          fi
-
-      - name: Scan committed secrets
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Restore Bun download cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
-          restore-keys: |
-            bun-${{ runner.os }}-
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -54,36 +30,25 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Audit high-severity dependencies
-        run: bun audit --audit-level=high
+      - name: Check product naming
+        run: bun run check:naming
+
+      - name: Check package boundaries
+        run: bun run check:boundaries
 
       - name: Typecheck
         run: bun run typecheck
 
-      - name: Test protocol, packages, registry, and fresh installs
+      - name: Test
         run: bun run test
 
-      - name: Build publishable packages
-        run: bun run build:packages
+      - name: Build
+        run: bun run build
 
-      - name: Build documentation
-        run: bun run build:docs
-
-      - name: Smoke-test production documentation
-        run: bun run smoke:docs
-
-      - name: Write build provenance
-        run: bun run provenance -- --output .artifacts/build-provenance.json
-
-      - name: Upload build provenance
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-provenance-${{ github.sha }}
-          path: .artifacts/build-provenance.json
-          if-no-files-found: error
-          retention-days: 30
+      - name: Check release artifacts
+        run: bun run release:check

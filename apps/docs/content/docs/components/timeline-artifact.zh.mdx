@@ -8,7 +8,7 @@ description: 通过明确时间戳、状态、负责人、顺序和选择操作�
 
 <ComponentPreview
   filename="timeline-artifact-example.tsx"
-  code={`import { TimelineArtifact } from "@/components/data-elements/timeline-artifact"
+  code={`import { TimelineArtifact } from "@/components/tessera-agent/timeline-artifact"
 
 export function RolloutTimeline() {
   return (
@@ -60,14 +60,14 @@ export function RolloutTimeline() {
   filename="components/rollout-timeline.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { TimelineArtifact } from "@/components/data-elements/timeline-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { TimelineArtifact } from "@/components/tessera-agent/timeline-artifact"
 
 export function RolloutTimeline({ artifact }) {
   return (
-    <DataElementsProvider onAction={({ payload }) => inspectEvent(payload.eventId)}>
+    <TesseraPreviewProvider onAction={({ payload }) => inspectEvent(payload.eventId)}>
       <TimelineArtifact artifact={artifact} locale="zh-CN" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

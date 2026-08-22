@@ -6,7 +6,7 @@ import {
 import type {
   DurableStateStorePort,
   DurableStateTransaction,
-} from "@data-elements/runtime";
+} from "@open-tessera/runtime";
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";

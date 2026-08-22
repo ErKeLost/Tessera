@@ -3,14 +3,14 @@ title: Mastra
 description: 在同一可信 Artifact UI Commit 边界之上准备真正的 Mastra Tool。
 ---
 
-`@data-elements/mastra` 仅用于服务端，面向 `@mastra/core` 1.x。它调用 Mastra 真正的
+`@open-generative/mastra` 仅用于服务端，面向 `@mastra/core` 1.x。它调用 Mastra 真正的
 `createTool()` API，不是外形相似的普通对象。每一轮都会得到 Compiler 生成的 Standard Schema、
 经过校验的 Runtime Wire Output Schema、Strict Mode、MCP Annotation，以及安全的
 Display/Transcript Transform。
 
 ```ts
 import { Agent } from "@mastra/core/agent";
-import { createArtifactUI } from "@data-elements/mastra";
+import { createArtifactUI } from "@open-generative/mastra";
 
 const artifactUI = createArtifactUI();
 const turn = await artifactUI.prepareTurn({
@@ -43,6 +43,6 @@ Mastra 的 `toModelOutput` 只向模型返回简短成功信息。`display` 与 
 Tool 应与渲染 Tool 分离，Resource/Evidence 只能来自宿主签发的 Grant。
 
 如果 Tool 或 Workflow Output 跨越网络边界，它只是未带 Brand 的 `ArtifactPartWire`。浏览器必须使用
-`@data-elements/runtime` 的 `decodeArtifactPart()` 和本轮 Contract Fingerprint 解码，成功后才能把
+`@open-generative/runtime` 的 `decodeArtifactPart()` 和本轮 Contract Fingerprint 解码，成功后才能把
 `decoded.part` 交给 `ArtifactRenderer`。`turn.accept()` 与 `turn.consumeWorkflowEvent()` 只在当前可信
 进程内提供 branded 路径。

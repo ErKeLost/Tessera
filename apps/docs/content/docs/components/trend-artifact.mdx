@@ -9,7 +9,7 @@ while preserving exact point selection for a follow-up agent action.
 
 <ComponentPreview
   filename="trend-artifact-example.tsx"
-  code={`import { TrendArtifact } from "@/components/data-elements/trend-artifact"
+  code={`import { TrendArtifact } from "@/components/tessera-agent/trend-artifact"
 
 export function ActivationTrend() {
   return (
@@ -48,14 +48,14 @@ period change when `change` is omitted and formats all visible numbers locally.
   filename="components/activation-trend.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { TrendArtifact } from "@/components/data-elements/trend-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { TrendArtifact } from "@/components/tessera-agent/trend-artifact"
 
 export function ActivationTrend({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => inspectPoint(event.payload)}>
+    <TesseraPreviewProvider onAction={(event) => inspectPoint(event.payload)}>
       <TrendArtifact artifact={artifact} locale="en-US" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

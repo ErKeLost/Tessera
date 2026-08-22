@@ -2,14 +2,14 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { NextRequest } from "next/server";
 import { getRegistryOrigin, rewriteRegistryDependencies } from "./route";
 
-const originalPublicUrl = process.env.DATA_ELEMENTS_PUBLIC_URL;
+const originalPublicUrl = process.env.TESSERA_AGENT_PUBLIC_URL;
 const originalDeployPrimeUrl = process.env.DEPLOY_PRIME_URL;
 const originalNetlifyUrl = process.env.URL;
 const originalVercelUrl = process.env.VERCEL_URL;
 
 afterEach(() => {
-  if (originalPublicUrl === undefined) delete process.env.DATA_ELEMENTS_PUBLIC_URL;
-  else process.env.DATA_ELEMENTS_PUBLIC_URL = originalPublicUrl;
+  if (originalPublicUrl === undefined) delete process.env.TESSERA_AGENT_PUBLIC_URL;
+  else process.env.TESSERA_AGENT_PUBLIC_URL = originalPublicUrl;
   if (originalDeployPrimeUrl === undefined) delete process.env.DEPLOY_PRIME_URL;
   else process.env.DEPLOY_PRIME_URL = originalDeployPrimeUrl;
   if (originalNetlifyUrl === undefined) delete process.env.URL;
@@ -44,7 +44,7 @@ describe("registry route", () => {
   });
 
   test("uses a configured public origin instead of request host headers", () => {
-    process.env.DATA_ELEMENTS_PUBLIC_URL = "https://registry.example.com/path";
+    process.env.TESSERA_AGENT_PUBLIC_URL = "https://registry.example.com/path";
     delete process.env.VERCEL_URL;
     const request = {
       headers: new Headers({ host: "attacker.example", "x-forwarded-host": "attacker.example" }),
@@ -55,13 +55,13 @@ describe("registry route", () => {
   });
 
   test("rejects unsafe configured origins", () => {
-    process.env.DATA_ELEMENTS_PUBLIC_URL = "file:///tmp/registry";
+    process.env.TESSERA_AGENT_PUBLIC_URL = "file:///tmp/registry";
     const request = { nextUrl: new URL("http://localhost:3000/r/all.json") } as NextRequest;
     expect(() => getRegistryOrigin(request)).toThrow("HTTP or HTTPS");
   });
 
   test("uses the Netlify deploy URL when no canonical origin is configured", () => {
-    delete process.env.DATA_ELEMENTS_PUBLIC_URL;
+    delete process.env.TESSERA_AGENT_PUBLIC_URL;
     delete process.env.VERCEL_URL;
     process.env.DEPLOY_PRIME_URL = "https://deploy-preview-42--artifact-agent.netlify.app";
     process.env.URL = "https://artifact-agent.netlify.app";

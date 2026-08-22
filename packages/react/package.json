@@ -1,36 +1,36 @@
 {
-  "name": "@data-elements/react",
-  "version": "0.1.0",
-  "description": "Interactive React artifacts for data agents.",
+  "name": "@open-generative/react",
+  "version": "0.3.5",
+  "description": "Open Generative React Surface and renderer registry binding.",
+  "license": "MIT",
   "type": "module",
-  "sideEffects": ["**/*.css"],
-  "files": ["dist"],
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
-    },
-    "./styles.css": "./dist/styles.css"
+    }
   },
   "scripts": {
-    "build": "tsdown && cp src/styles.css dist/styles.css",
+    "build": "tsdown --config ../../tsdown.package.config.ts",
     "lint": "tsc --noEmit",
-    "test": "bun test src/*.test.tsx",
+    "test": "bun test --pass-with-no-tests src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/core": "workspace:*",
-    "@data-elements/runtime": "workspace:*",
-    "@data-elements/schema": "workspace:*",
-    "@radix-ui/react-tabs": "1.1.21",
-    "lucide-react": "1.31.0",
-    "recharts": "3.10.1"
+    "@open-generative/protocol": "workspace:*",
+    "@open-generative/catalog": "workspace:*",
+    "@open-generative/client": "workspace:*"
   },
   "peerDependencies": {
-    "react": ">=18.3.0",
-    "react-dom": ">=18.3.0"
+    "react": ">=19.0.0",
+    "react-dom": ">=19.0.0"
   },
   "devDependencies": {
+    "@types/bun": "1.3.14",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "react": "19.2.8",

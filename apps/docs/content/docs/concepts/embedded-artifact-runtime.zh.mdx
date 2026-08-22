@@ -1,16 +1,16 @@
 ---
 title: 嵌入式业务 Artifact Runtime
-description: Data Elements 终极版本的产品定位、生命周期、编辑协议、宿主边界与生产级 Exit Gate。
+description: Tessera Agent 终极版本的产品定位、生命周期、编辑协议、宿主边界与生产级 Exit Gate。
 ---
 
-本文定义 Data Elements 的**目标架构**。它是一份面向工程、产品、安全和平台团队的规范，
+本文定义 Tessera Agent 的**目标架构**。它是一份面向工程、产品、安全和平台团队的规范，
 不是对当前仓库完成度的声明。
 
 文中的“必须”表示生产版本不可省略的不变量；“应该”表示默认实现；“可以”表示受约束的扩展点。
 
 ## 一句话决策
 
-Data Elements 是一套**嵌入现有后台和业务系统、可持久化、可持续编辑的语义业务 Artifact Runtime**。
+Tessera Agent 是一套**嵌入现有后台和业务系统、可持久化、可持续编辑的语义业务 Artifact Runtime**。
 
 Artifact 是一个有身份、有版本、有状态、有权限边界并能持续演进的业务交互对象。模型可以创建或修改它的
 声明，但模型不是 Runtime、数据库、权限系统或应用框架。
@@ -401,7 +401,7 @@ Artifact 的 Restore、编辑或删除都不会删除 Receipt。UI 可以隐藏�
 内部可以包含多个包和状态机，默认开发者只需要理解三个服务端操作和一个 React Host。
 
 ```ts
-import { createArtifactService } from "@data-elements/server"
+import { createArtifactService } from "@open-generative/server"
 
 const artifacts = createArtifactService({
   repository,
@@ -431,7 +431,7 @@ const restored = await artifacts.restore({
 ```
 
 ```tsx
-import { ArtifactHost } from "@data-elements/react"
+import { ArtifactHost } from "@open-generative/react"
 
 <ArtifactHost
   mode="inline"
@@ -514,14 +514,14 @@ Module 的职责包括：
 
 | Package / 边界 | 可见性 | 最终职责 |
 | --- | --- | --- |
-| `@data-elements/server` | 目标公开 Facade | `createArtifactService`、Create/Edit/Restore、Session 与 Repository 接线 |
-| `@data-elements/react` | 公开 | `ArtifactHost`、Renderer、Selection、Host Surface 和 shadcn/ui Recipe |
-| `@data-elements/ai-sdk`、`@data-elements/mastra`、`@data-elements/ag-ui` | 公开可选 | 把不同 Agent Framework 映射到统一 Authoring Session，不拥有 Commit 语义 |
-| `@data-elements/schema` | 兼容与共享类型 | 旧 v1 Schema 和明确的兼容入口，不继续承载新生命周期职责 |
-| `@data-elements/core` | 内部稳定核心 | Module Catalog、Contract Graph、选择规则和生成视图 |
-| `@data-elements/runtime` | 内部稳定核心，部分类型公开 | Normalized IR、Codec、Brand、Replay、State、Stream 和 Migration |
-| `@data-elements/compiler` | 仅服务端 | Authoring DSL、Prompt、Schema、Normalize、Validation、Repair 和 Proposal Gate |
-| `@data-elements/capability-broker`、`@data-elements/resources` | 仅服务端 | Grant、Authorization、Approval、Resource、Effect、Evidence 和 Receipt |
+| `@open-generative/server` | 目标公开 Facade | `createArtifactService`、Create/Edit/Restore、Session 与 Repository 接线 |
+| `@open-generative/react` | 公开 | `ArtifactHost`、Renderer、Selection、Host Surface 和 shadcn/ui Recipe |
+| `@open-generative/ai-sdk`、`@open-generative/mastra`、`@open-generative/ag-ui` | 公开可选 | 把不同 Agent Framework 映射到统一 Authoring Session，不拥有 Commit 语义 |
+| `@open-generative/protocol` | 兼容与共享类型 | 旧 v1 Schema 和明确的兼容入口，不继续承载新生命周期职责 |
+| `@open-generative/catalog` | 内部稳定核心 | Module Catalog、Contract Graph、选择规则和生成视图 |
+| `@open-generative/runtime` | 内部稳定核心，部分类型公开 | Normalized IR、Codec、Brand、Replay、State、Stream 和 Migration |
+| `@open-generative/compiler` | 仅服务端 | Authoring DSL、Prompt、Schema、Normalize、Validation、Repair 和 Proposal Gate |
+| `@open-generative/capabilities`、`@open-generative/resources` | 仅服务端 | Grant、Authorization、Approval、Resource、Effect、Evidence 和 Receipt |
 | CLI + shadcn Registry | 分发 | 安装可编辑 Renderer Source、Module、Fixture 和锁定兼容版本 |
 
 浏览器 Bundle 不能包含 Compiler、Prompt Example、Credential、Capability Handler、Resource Resolver 或服务端 Policy。
@@ -737,5 +737,5 @@ Exit Criteria：
 - 组件、样式、Agent Framework、Store 和 Renderer 可以扩展，但不能绕过统一协议和宿主边界。
 - 默认开发体验仍然只有 `create`、`edit`、`restore` 和 `ArtifactHost`。
 
-这套约束让 Data Elements 可以覆盖复杂后台交互，也可以组合出更丰富的体验，但始终是一套可信、可持续编辑的
+这套约束让 Tessera Agent 可以覆盖复杂后台交互，也可以组合出更丰富的体验，但始终是一套可信、可持续编辑的
 业务 Artifact Runtime，而不是 App 生成器。

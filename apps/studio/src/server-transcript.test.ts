@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { finalizeCatalog, type ConnectionAssessment, type DatabaseCatalog, type DatabaseConnector, type DatabaseQueryResult } from "@data-elements/database";
+import { finalizeCatalog, type ConnectionAssessment, type DatabaseCatalog, type DatabaseConnector, type DatabaseQueryResult } from "@open-tessera/database";
 import { mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";

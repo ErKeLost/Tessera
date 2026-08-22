@@ -1,13 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { createDataAgent } from "@data-elements/data-agent";
+import { createDataAgent } from "@open-tessera/data-agent";
 import {
   createDatabaseScopedPermissionPolicy,
   finalizeCatalog,
   type DatabaseCatalog,
   type DatabaseConnector,
   type DatabaseMutationExecutor,
-} from "@data-elements/database";
-import { InMemoryDurableStateStore } from "@data-elements/runtime";
+} from "@open-tessera/database";
+import { InMemoryDurableStateStore } from "@open-tessera/runtime";
 import { defineTesseraConfig } from "./config";
 import { createTesseraDatabaseActionService } from "./database-actions";
 import { createStudioApp, createTesseraStudioRuntime } from "./server";

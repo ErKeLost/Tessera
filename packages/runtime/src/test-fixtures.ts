@@ -1,142 +1,181 @@
-import { canonicalHash } from "./canonical";
-import { ARTIFACT_PROTOCOL_VERSION } from "./constants";
-import type {
-  DocumentPolicy,
-  DraftOperation,
-  ProposalContext,
-  RuntimeSnapshot,
-} from "./schemas";
-import { InMemoryArtifactRuntimeStore } from "./store";
-import { ArtifactTransactionRuntime } from "./transaction";
+import {
+  HASH_DOMAINS,
+  OPEN_GENERATIVE_DOCUMENT_PROTOCOL,
+  OPEN_GENERATIVE_HASH_PROFILE_ID,
+  OPEN_GENERATIVE_PROTOCOL_REVISION,
+  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+  canonicalOperationEnvelopeSchema,
+  committedRevisionSchema,
+  documentContentSchema,
+  hashCanonical,
+  hashDocumentContent,
+  sha256HashSchema,
+  surfaceEventEnvelopeSchema,
+  surfaceSnapshotSchema,
+  type CanonicalEntityOperation,
+  type CanonicalOperationEnvelope,
+  type CommittedRevision,
+  type DocumentContent,
+  type OperationId,
+  type RevisionId,
+  type SurfaceEventEnvelope,
+  type SurfaceEventPayload,
+  type SurfaceSnapshot,
+  type TransactionId,
+} from "@open-generative/protocol";
+import { computeEntityRevisionIndex } from "./document-operations";
+import type { StoredRevision } from "./store";
+import type { RuntimeValidationPort } from "./validation";
 
-export const TEST_TIME = "2026-08-15T00:00:00.000Z";
-export const TEST_FINGERPRINT = "contract-fingerprint-v1";
+export function testHash(character = "a") {
+  return sha256HashSchema.parse(`sha256:${character.repeat(64)}`);
+}
 
-export const testPolicy: DocumentPolicy = {
-  scopeRef: "scope:test",
-  sensitivity: "private",
-  persistence: "session",
-  allowedSinks: ["renderer"],
-  policyId: "policy:test",
-  policyVersion: 1,
-  policyHash: "policy-hash-v1",
+export function createDocumentContent(): DocumentContent {
+  return documentContentSchema.parse({
+    protocol: OPEN_GENERATIVE_DOCUMENT_PROTOCOL,
+    protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+    contracts: {
+      manifestRefs: [{
+        publisher: "open-generative",
+        catalogId: "official",
+        catalogRevision: "2026-08-22",
+        manifestHash: testHash("1"),
+      }],
+      contractSetHash: testHash("2"),
+    },
+    requirements: {
+      dataClassifications: [],
+      evidence: "none",
+      placements: [],
+      capabilities: [],
+    },
+    rootNodeId: "root",
+    nodes: {
+      root: {
+        contract: {
+          publisher: "open-generative",
+          catalogId: "official",
+          componentType: "layout.stack",
+          revision: 1,
+          contractHash: testHash("3"),
+        },
+        props: { gap: { kind: "literal", value: "md" } },
+        slots: {},
+        events: {},
+        evidence: [],
+      },
+    },
+    stateDefinitions: {},
+    actions: {},
+    resourceBindings: {},
+    evidenceBindings: {},
+    claims: {},
+    meta: { title: "Test surface", tags: [] },
+  });
+}
+
+export async function createCommittedRevision(input: {
+  revisionId?: string;
+  parentRevisionIds?: string[];
+  documentId?: string;
+  content?: DocumentContent;
+} = {}): Promise<CommittedRevision> {
+  const content = input.content ?? createDocumentContent();
+  return committedRevisionSchema.parse({
+    envelope: {
+      documentId: input.documentId ?? "document-test",
+      revisionId: input.revisionId ?? "revision-base",
+      parentRevisionIds: input.parentRevisionIds ?? [],
+      contentHash: await hashDocumentContent(content),
+      hashProfile: OPEN_GENERATIVE_HASH_PROFILE_ID,
+      migrationReceiptIds: [],
+      createdAt: "2026-08-22T00:00:00Z",
+      createdBy: "audit-test",
+    },
+    content,
+  });
+}
+
+export async function createStoredRevision(input: {
+  revisionId?: string;
+  parentRevisionIds?: string[];
+  documentId?: string;
+  content?: DocumentContent;
+} = {}): Promise<StoredRevision> {
+  const revision = await createCommittedRevision(input);
+  return {
+    revision,
+    entityRevisions: await computeEntityRevisionIndex(revision.content),
+  };
+}
+
+export async function createOperationEnvelope(input: {
+  transactionId?: TransactionId | string;
+  operationId: OperationId | string;
+  sequence: number;
+  dependsOn?: Array<OperationId | string>;
+  operation: CanonicalEntityOperation;
+}): Promise<CanonicalOperationEnvelope> {
+  return canonicalOperationEnvelopeSchema.parse({
+    transactionId: input.transactionId ?? "transaction-test",
+    operationId: input.operationId,
+    sequence: input.sequence,
+    dependsOn: input.dependsOn ?? [],
+    payloadHash: await hashCanonical(HASH_DOMAINS.operationPayload, input.operation),
+    operation: input.operation,
+  });
+}
+
+export const acceptingValidationPort: RuntimeValidationPort = {
+  validateNode: () => [],
+  validateDocument: () => [],
+  commitPolicy: () => "progressive",
+  isNodeReady: () => true,
 };
 
-export function createContext(
-  target: ProposalContext["target"] = {
-    mode: "create",
-    documentId: "document-1",
-    branchId: "main",
-    parentRevisionIds: [],
-  },
-  renderMode: ProposalContext["renderMode"] = "progressive",
-): ProposalContext {
-  return {
-    protocolVersion: ARTIFACT_PROTOCOL_VERSION,
-    contractFingerprint: TEST_FINGERPRINT,
-    promptBundleHash: "prompt-hash-v1",
-    schemaProfile: {
-      profileId: "data-elements.schema-core",
-      profileVersion: 1,
-      profileHash: "schema-profile-hash-v1",
-    },
-    documentPolicy: testPolicy,
-    generationTaintHash: "generation-taint-v1",
-    renderMode,
-    actionContractVersions: {},
-    resourceGrants: {},
-    evidenceGrants: {},
-    capabilityGrantVersions: {},
-    messageTemplateGrantVersions: {},
-    grantSetVersion: 1,
-    authorizationContextRef: "authorization:test",
-    policyProfileHash: "policy-profile-hash-v1",
-    target,
-  };
-}
-
-export function rootNodeOperation(title = "Revenue"): DraftOperation {
-  return {
-    op: "put-node",
-    nodeId: "root",
-    value: {
-      type: "layout.stack",
-      typeVersion: 1,
-      props: { title: { kind: "literal", value: title } },
-    },
-  };
-}
-
-export async function createCommittedFixture(options: {
-  store?: InMemoryArtifactRuntimeStore;
-  transactionId?: string;
-  withState?: boolean;
-} = {}): Promise<{
-  store: InMemoryArtifactRuntimeStore;
-  runtime: ArtifactTransactionRuntime;
-  snapshot: RuntimeSnapshot;
-}> {
-  const store = options.store ?? new InMemoryArtifactRuntimeStore({ now: () => TEST_TIME });
-  const runtime = new ArtifactTransactionRuntime({
-    store,
-    streamId: "stream-1",
-    catalog: {
-      id: "catalog:test",
-      version: "1.0.0",
-      contractFingerprint: TEST_FINGERPRINT,
-      nodeVersions: { "layout.stack": 1 },
-    },
-    now: () => TEST_TIME,
-    nodeCommitPolicy: () => "progressive",
+export function createSurfaceSnapshot(revision: CommittedRevision): SurfaceSnapshot {
+  return surfaceSnapshotSchema.parse({
+    revision,
+    state: {},
+    resources: {},
+    actions: {},
+    approvals: [],
   });
-  await runtime.initialize();
-  const transactionId = options.transactionId ?? "tx-create";
-  const begin = await runtime.begin(transactionId, createContext());
-  if (begin.status === "rejected") throw new Error(begin.diagnostics[0]?.message);
-  const operations: DraftOperation[] = [rootNodeOperation()];
-  if (options.withState) {
-    const stateSchema = { type: "string", maxLength: 100 };
-    operations.push({
-      op: "put-state",
-      stateId: "filter",
-      value: {
-        schemaId: "schema:filter",
-        schema: stateSchema,
-        schemaVersion: 1,
-        schemaHash: await canonicalHash(stateSchema),
-        initial: "all",
-        policy: {
-          policyId: "state-policy:filter",
-          policyVersion: 1,
-          policyHash: "state-policy-filter-hash-v1",
-          scope: "document",
-          persistence: "session",
-          sensitivity: "private",
-          modelAccess: "none",
-          lifecycle: "retain",
-        },
-      },
-    });
-  }
-  operations.push({ op: "set-root", nodeId: "root" });
-  for (let index = 0; index < operations.length; index += 1) {
-    const operation = operations[index]!;
-    const result = await runtime.apply({
-      type: "apply",
-      transactionId,
-      seq: index + 1,
-      opId: `op:${transactionId}:${index + 1}`,
-      payloadHash: await canonicalHash(operation),
-      operation,
-    });
-    if (result.status === "aborted" || result.status === "rejected" || result.status === "too-late") {
-      throw new Error(result.diagnostics[0]?.message);
-    }
-  }
-  const hash = await runtime.computeDraftHash(transactionId);
-  const result = await runtime.finalize(transactionId, hash);
-  if (result.status !== "committed" && result.status !== "replayed") {
-    throw new Error("diagnostics" in result ? result.diagnostics[0]?.message : "Fixture commit failed.");
-  }
-  return { store, runtime, snapshot: result.snapshot };
 }
+
+export async function createSurfaceEvent(input: {
+  payload: SurfaceEventPayload;
+  sequence: number;
+  committedRevisionId: RevisionId | string;
+  eventId?: string;
+  epoch?: number;
+  streamId?: string;
+  surfaceSessionId?: string;
+  contractSetHash?: ReturnType<typeof testHash>;
+}): Promise<SurfaceEventEnvelope> {
+  return surfaceEventEnvelopeSchema.parse({
+    protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+    protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+    surfaceSessionId: input.surfaceSessionId ?? "surface-test",
+    streamId: input.streamId ?? "stream-test",
+    epoch: input.epoch ?? 1,
+    sequence: input.sequence,
+    eventId: input.eventId ?? `event-${input.epoch ?? 1}-${input.sequence}`,
+    cursor: `cursor-opaque-${String(input.epoch ?? 1).padStart(4, "0")}-${String(input.sequence).padStart(4, "0")}`,
+    committedRevisionId: input.committedRevisionId,
+    audienceBindingHash: testHash("8"),
+    contractSetHash: input.contractSetHash ?? testHash("2"),
+    correlationId: "correlation-test",
+    payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, input.payload),
+    payload: input.payload,
+  });
+}
+
+export const defaultStreamPolicy = Object.freeze({
+  maxSequenceGap: 8,
+  maxBufferedBytes: 256_000,
+  ackEveryEvents: 1,
+  backpressure: "publish-snapshot" as const,
+  cursorExpiresAt: "2026-08-23T00:00:00Z",
+});

@@ -3,23 +3,23 @@ title: State and actions
 description: Keep local UI state fast while sending intentional actions to the agent.
 ---
 
-Artifact Agent uses three state owners:
+Tessera Agent uses three state owners:
 
 - **Authoritative business state** lives on the server.
 - **Ephemeral interaction state** lives in the artifact. Slider motion updates
   charts immediately and does not consume model tokens.
 - **Durable user state** lives in host-controlled storage.
 
-Wrap renderers with `DataElementsProvider` to receive structured events:
+Wrap renderers with `TesseraPreviewProvider` to receive structured events:
 
 ```tsx
-<DataElementsProvider
+<TesseraPreviewProvider
   onAction={(event) => {
     // event.artifactId, event.action, event.payload
   }}
 >
   <ArtifactRenderer artifact={artifact} />
-</DataElementsProvider>
+</TesseraPreviewProvider>
 ```
 
 The host decides whether an event remains telemetry, invokes a tool directly,

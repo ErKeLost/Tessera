@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 1160" role="img" aria-labelledby="title desc">
-  <title id="title">Data Elements embedded business Artifact Runtime reference architecture</title>
+  <title id="title">Tessera Agent embedded business Artifact Runtime reference architecture</title>
   <desc id="desc">A layered architecture for persistent, editable business Artifacts embedded in an existing administration system. The model proposes declarations while the host owns data, authority, effects, persistence, and system interaction surfaces.</desc>
   <defs>
     <style>
@@ -41,7 +41,7 @@
   <rect width="1600" height="1160" fill="#0f172a"/>
   <rect width="1600" height="1160" fill="url(#grid)"/>
 
-  <text x="40" y="42" class="title">Data Elements / Embedded Business Artifact Runtime</text>
+  <text x="40" y="42" class="title">Tessera Agent / Embedded Business Artifact Runtime</text>
   <text x="40" y="63" class="subtitle">Persistent · continuously editable · host-embedded · semantic · governed</text>
 
   <rect x="1050" y="24" width="510" height="50" rx="6" fill="#0f172a"/>
@@ -262,5 +262,5 @@
   <rect x="30" y="1110" width="1540" height="32" rx="5" fill="rgba(8,51,68,.4)" stroke="#22d3ee"/>
   <text x="800" y="1131" class="note-title" text-anchor="middle">INVARIANT · MODEL PROPOSES DECLARATIONS; HOST OWNS DATA, AUTHORITY, EFFECTS, PERSISTENCE, AND SYSTEM TRUTH.</text>
 
-  <text x="1565" y="1153" class="small" text-anchor="end">Data Elements · target architecture v3</text>
+  <text x="1565" y="1153" class="small" text-anchor="end">Tessera Agent · target architecture v3</text>
 </svg>

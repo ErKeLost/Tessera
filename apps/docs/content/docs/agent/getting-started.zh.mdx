@@ -16,7 +16,7 @@ description: 使用受支持的 Runtime 和第一个数据库连接启动 Tesser
 在包含 `tessera.config.ts` 的目录执行：
 
 ```bash
-npx data-elements@latest studio
+npx tessera-agent@latest studio
 ```
 
 CLI 会向上查找配置文件，并在 `http://127.0.0.1:4317` 启动本地工作台。
@@ -24,10 +24,10 @@ CLI 会向上查找配置文件，并在 `http://127.0.0.1:4317` 启动本地工
 临时测试可以直接传入一个数据库 URL：
 
 ```bash
-npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
-npx data-elements@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
-npx data-elements@latest studio file:/absolute/path/to/warehouse.db
-TURSO_AUTH_TOKEN=... npx data-elements@latest studio libsql://warehouse-org.turso.io
+npx tessera-agent@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx tessera-agent@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
+npx tessera-agent@latest studio file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... npx tessera-agent@latest studio libsql://warehouse-org.turso.io
 ```
 
 命令行 URL 可能出现在 Shell 历史或进程列表中。长期项目应使用配置文件和环境变量。

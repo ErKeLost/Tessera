@@ -1,6 +1,6 @@
 ---
 title: Installation
-description: Install editable Artifact Agent entrypoints into your application.
+description: Install editable Tessera Agent entrypoints into your application.
 ---
 
 ## Prerequisites
@@ -13,23 +13,23 @@ Run `npx shadcn@4.17.0 init` first when your project has not initialized
 shadcn yet.
 
 Publication status: the CLI package, runtime packages, and
-`data-elements.dev` registry are not public yet. Commands in the next two
+`tessera-agent.dev` registry are not public yet. Commands in the next two
 sections document the tested release interface and become externally usable
 after those artifacts are published. The local repository workflow at the end
 of this page is available now.
 
-## Artifact Agent CLI
+## Tessera Agent CLI
 
 Install the complete catalog:
 
 ```bash
-npx data-elements@latest
+npx tessera-agent@latest
 ```
 
 Install one or more artifacts:
 
 ```bash
-npx data-elements@latest add query-artifact metric-artifact
+npx tessera-agent@latest add query-artifact metric-artifact
 ```
 
 The CLI detects npm, pnpm, Yarn, or Bun from the invoking package manager and
@@ -39,7 +39,7 @@ installs `artifact-ui`, the complete catalog.
 Verify an existing installation at any time:
 
 ```bash
-npx data-elements@latest doctor
+npx tessera-agent@latest doctor
 ```
 
 The command reads the project-local compatibility lock and verifies every
@@ -56,7 +56,7 @@ how to reconcile your changes.
 To discard local changes and replace the files explicitly:
 
 ```bash
-npx data-elements@latest --force
+npx tessera-agent@latest --force
 ```
 
 `--force` is an overwrite operation, not a three-way merge. Commit or otherwise
@@ -67,23 +67,23 @@ preserve local changes before using it.
 After publication, the same catalog will be available as a standard remote registry:
 
 ```bash
-npx shadcn@4.17.0 add https://data-elements.dev/r/all.json
+npx shadcn@4.17.0 add https://tessera-agent.dev/r/all.json
 ```
 
 For a single artifact, use its item URL:
 
 ```bash
-npx shadcn@4.17.0 add https://data-elements.dev/r/query-artifact.json
+npx shadcn@4.17.0 add https://tessera-agent.dev/r/query-artifact.json
 ```
 
 The registry copies only browser-safe React/shadcn UI source into
-`components/data-elements`: renderer bindings, visual components, interaction
+`components/tessera-agent`: renderer bindings, visual components, interaction
 bridge, recipes, and semantic styles remain inspectable and editable in the
 host application. It never copies schema, core, runtime, compiler, capability
 broker, resource resolver, or other server implementation source.
 
-Instead, the complete item installs `@data-elements/schema`,
-`@data-elements/core`, and `@data-elements/runtime` as exact-version npm
+Instead, the complete item installs `@open-generative/protocol`,
+`@open-generative/catalog`, and `@open-generative/runtime` as exact-version npm
 dependencies. Individual items install the exact-version subset required by
 their source closure. This keeps protocol validation and runtime security fixes
 versioned while preserving local ownership of the UI. Server-only adapters and
@@ -91,12 +91,12 @@ capability packages are not part of the browser distribution.
 
 The actual parent directory follows `aliases.components` in `components.json`.
 For example, an alias of `@/ui` installs the catalog under
-`src/ui/data-elements`. The primitives import the colocated `styles.css`
-automatically. Every item chain includes `data-elements.lock.json`, which
+`src/ui/tessera-agent`. The primitives import the colocated `styles.css`
+automatically. Every item chain includes `tessera-agent.lock.json`, which
 records compatibility ranges, the renderer build hash, and the full catalog of
-source hashes. After shadcn succeeds, the Data Elements CLI atomically seals
+source hashes. After shadcn succeeds, the Tessera Agent CLI atomically seals
 the exact installed-file subset; later `add` calls maintain its union and
-`doctor` verifies that subset. Prefer the Data Elements CLI for managed
+`doctor` verifies that subset. Prefer the Tessera Agent CLI for managed
 updates; calling shadcn directly does not perform the CLI's pre-install check or
 post-install sealing.
 
@@ -112,10 +112,10 @@ bun run dev
 Then point the CLI to the loopback server:
 
 ```bash
-DATA_ELEMENTS_REGISTRY_URL=http://localhost:3000/r/ node packages/cli/index.js
+TESSERA_AGENT_REGISTRY_URL=http://localhost:3000/r/ node packages/cli/index.js
 ```
 
 This exercises the local registry and CLI. A standalone consumer also needs
-the locally packed or linked `@data-elements/*@0.1.0` runtime packages until
+the locally packed or linked `@tessera-agent/*@0.1.0` runtime packages until
 they are published; the repository fresh-install tests create that isolated
 fixture automatically.

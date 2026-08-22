@@ -1,6 +1,6 @@
 {
   "title": "示例",
-  "description": "使用可信 Data Elements 组件构建的完整组合。",
+  "description": "使用可信 Tessera Agent 组件构建的完整组合。",
   "root": true,
   "pages": ["index", "query-analysis", "workspace-health", "compound-interest"]
 }

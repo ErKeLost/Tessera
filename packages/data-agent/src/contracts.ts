@@ -8,7 +8,7 @@ import type {
   DatabaseRlsPolicyInspection,
   DatabaseRlsPolicyInspectionInput,
   DatabaseQueryResult,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { z } from "zod";
 
 export const DATA_AGENT_VERSION = "2" as const;

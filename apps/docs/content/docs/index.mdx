@@ -3,7 +3,7 @@ title: Introduction
 description: A persistent, editable business Artifact Runtime embedded in existing host systems.
 ---
 
-Data Elements is a persistent, continuously editable semantic business Artifact
+Tessera Agent is a persistent, continuously editable semantic business Artifact
 Runtime embedded in an existing host system. A model may compose only the
 Surface and semantic nodes selected by the host. The host owns validation,
 authorization, computation, interaction, rendering, persistence, and every
@@ -17,21 +17,21 @@ The following commands are the public installation interface after the npm
 packages and remote registry are published. They are not available yet; this
 repository is currently a local reference implementation.
 
-After publication, install every editable component through the Artifact Agent
+After publication, install every editable component through the Tessera Agent
 CLI:
 
 ```bash
-npx data-elements@latest
+npx tessera-agent@latest
 ```
 
 Or install only the artifacts you need after publication:
 
 ```bash
-npx data-elements@latest add query-artifact metric-artifact
+npx tessera-agent@latest add query-artifact metric-artifact
 ```
 
 The command will use the existing `components.json`, install source under its
-configured components alias, and include the Artifact Agent styles through the
+configured components alias, and include the Tessera Agent styles through the
 generated primitives. For now, use `bun install`, `bun run registry:build`, and
 `bun run dev` to exercise the local implementation.
 
@@ -42,12 +42,12 @@ JavaScript, HTML, CSS, or executable formulas. It
 emits only the task-specific declarative Surface DSL. The server compiler
 normalizes, validates, authorizes, and commits that proposal to a locally branded
 v2 `ArtifactPart`. A serialized wire part is decoded again by
-`@data-elements/runtime` with the expected contract fingerprint before the
+`@open-generative/runtime` with the expected contract fingerprint before the
 trusted React renderer accepts it.
 
 <Cards>
   <Card title="Target architecture" description="Understand the persistent Artifact lifecycle, host boundary, editing model, and production gates." href="/docs/concepts/embedded-artifact-runtime" />
-  <Card title="Tessera Data Agent" description="Open the dedicated Agent documentation, from setup through production architecture." href="/docs/agent" />
+  <Card title="Tessera Agent" description="Open the dedicated Agent documentation, from setup through production architecture." href="/docs/agent" />
   <Card title="Agent architecture" description="Understand the agent loop, safety model, evidence, and production gates." href="/docs/agent/architecture" />
   <Card title="Examples" description="Browse complete compositions, with one implementation and preview per page." href="/docs/examples" />
   <Card title="Components" description="Open individual component schemas, APIs, previews, and integration notes." href="/docs/components" />

@@ -75,7 +75,6 @@ export async function resolveStudioConfig(arguments_: StudioCommandLine): Promis
     }
     if (arguments_.databaseUrl === undefined
       && arguments_.config.file === undefined
-      && !process.env.DATABASE_URL?.trim()
       && isOptionalDefaultConfigFailure(error)) {
       const databaseUrl = process.env.DATABASE_URL?.trim();
       if (databaseUrl) return createTesseraConfigFromDatabaseUrl(databaseUrl);

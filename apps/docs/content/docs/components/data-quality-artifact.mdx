@@ -9,7 +9,7 @@ values for fast diagnosis.
 
 <ComponentPreview
   filename="data-quality-artifact-example.tsx"
-  code={`import { DataQualityArtifact } from "@/components/data-elements/data-quality-artifact"
+  code={`import { DataQualityArtifact } from "@/components/tessera-agent/data-quality-artifact"
 
 export function OrdersQuality() {
   return (
@@ -55,14 +55,14 @@ consistent across themes.
   filename="components/model-health.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { DataQualityArtifact } from "@/components/data-elements/data-quality-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { DataQualityArtifact } from "@/components/tessera-agent/data-quality-artifact"
 
 export function ModelHealth({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => inspectCheck(event.payload)}>
+    <TesseraPreviewProvider onAction={(event) => inspectCheck(event.payload)}>
       <DataQualityArtifact artifact={artifact} />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

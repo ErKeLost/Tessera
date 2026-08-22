@@ -25,7 +25,7 @@ export default async function Page(props: PageProps<"/[lang]/docs/[[...slug]]">)
       <div className="de-docs-page-tools">
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
-          githubUrl="https://github.com/data-elements/data-elements"
+          githubUrl="https://github.com/tessera-agent/tessera-agent"
           markdownUrl={markdownUrl}
         />
       </div>

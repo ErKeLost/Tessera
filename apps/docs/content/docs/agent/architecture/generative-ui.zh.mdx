@@ -1,0 +1,91 @@
+---
+title: Generative UI 终局架构
+description: Tessera Agent 用于数据分析生成界面的唯一协议、权限边界、提交链路和渲染链路。
+---
+
+本仓库直接实现 Tessera Agent 的终局 Generative UI 架构，不存在 MVP 协议、旧 Artifact 兼容层或第二套 renderer。当前只用 data-agent 场景证明这套架构；证明完成后，framework-neutral core 才会提炼到独立 Open Generative 项目。
+
+## 永久数据流
+
+```text
+governed query result
+-> Resource + Evidence offers
+-> frozen Tessera CatalogSetSlice
+-> present_ui proposal
+-> Compiler transaction
+-> immutable committed Revision
+-> trusted SurfaceEventStream
+-> SurfaceController
+-> GenerativeSurface
+-> exact RendererRegistry
+```
+
+Preview、恢复、冲突、placement 和移动端布局都不能创建另一条渲染路径。
+
+## 权力边界
+
+模型只负责提出声明式 UI proposal。Host 永远拥有数据、身份、权限、Schema、状态、副作用、持久化和最终 commit。模型不能生成 JSX、HTML、CSS、JavaScript、SQL、URL、tool name 或任意可执行代码，也不能把 Resource payload 写入 proposal 或 Document。
+
+| 平面 | 拥有的职责 | 禁止承担的职责 |
+| --- | --- | --- |
+| Model authoring | 在冻结 Catalog slice 内组合组件、绑定资源引用、提出动作 | 读取 rows、扩大权限、生成执行代码 |
+| Compiler/runtime | Decode、Normalize、Validate、transaction、Revision、replay、migration | 持有 credential、执行任意业务工具 |
+| Host authority | actor/tenant、Resource Gateway、Capability Broker、approval、effect receipt、audit | 接受模型自授予权限 |
+| Renderer | 精确 Contract 渲染、可访问性、局部状态、声明事件 | 直接调用模型指定的 API 或 tool |
+
+## 唯一 Component Contract
+
+每个组件只有一个 framework-neutral、immutable、revisioned `ComponentContract`。它同时定义 resolved props schema、可绑定字段、slots、event ports、允许的 Action Contracts、readiness、placement、accessibility、prompt metadata 和 migrations。
+
+同一个 Contract 必须确定性地产生 provider schema、server validators、canonical validator、client props validator、TypeScript 类型、RendererRegistry 要求、fixtures、docs 和 contract hash。React component 不属于 Contract；React renderer 使用完整 `ContractRef` 注册。
+
+## 三层表示
+
+| 表示 | 用途 | 信任等级 |
+| --- | --- | --- |
+| Model Authoring Proposal | 适合模型生成的 snapshot 或单 entity operations | 不可信 |
+| Canonical Document | ID 已归一、引用已解析、Contract 已锁定的确定性 IR | 仅在 commit gate 后可信 |
+| Resolved Render Projection | Host 解析 state/resource/context 后交给 renderer 的 node-scoped props | 只对当前 Surface 与 Revision 有效 |
+
+三者不能复用同一份宽松 JSON Schema。半截流式 JSON 永远不能进入 preview；只有完整 entity operation 可以应用。
+
+## Transaction 与 last-good
+
+一次生成或编辑必须经历 `begin -> apply -> preview -> finalize -> commit`。每个 Surface 同时最多一个 active preview overlay。Preview 只读且没有 action emitter；任何 parse、validation、policy、timeout、abort 或 CAS conflict 都保留 last-good Revision。成功 commit 原子替换 Revision 并清除 overlay。
+
+## 数据和动作
+
+Query rows 只存在于 Resource Gateway。模型看到 model-safe descriptor 和带 hash 的 offer，Document 只保存 binding/evidence ref。Table、Chart、Metric 和 Query Details 可以引用同一 pinned `resourceVersionId`，但不能复制 payload。
+
+浏览器只执行 Surface-local transition 和 `node.focus`。Document state 写入及所有 HostIntent 都进入 server authority。Capability Broker 负责重新认证、授权、precondition、单次 approval、idempotency、timeout、cancel 和 effect receipt。
+
+## 唯一 React 渲染链
+
+```text
+SurfaceEventStream
+-> SurfaceController
+-> GenerativeSurface
+-> RendererRegistry
+```
+
+`SurfaceController` 验证 event hash、sequence、cursor、epoch 和 audience binding，并归约 snapshot、Revision、state、resources、actions、approvals 与 preview。`GenerativeSurface` 只做 React 投影；每个 node 通过完整 `ContractRef` 查找 renderer，并拥有独立 error boundary。Preview node 永远拿不到 emitter。
+
+## 当前实现包图
+
+| Package | 职责 |
+| --- | --- |
+| `@open-generative/protocol` | Canonical schema、wire unions、hash、ID、diagnostics |
+| `@open-generative/catalog` | Component/Action Contract、manifest、Catalog slice、renderer negotiation |
+| `@open-generative/compiler` | Proposal decode、provider schema、normalize、validate、repair、commit gate |
+| `@open-generative/runtime` | Document、transaction、preview、state、replay、migration |
+| `@open-generative/server` | HostServer、Surface session、authority、transaction publication |
+| `@open-generative/client` | SurfaceController、trusted stream reducer、command transport |
+| `@open-generative/resources` | Resource publication、grant、projection、window、evidence |
+| `@open-generative/capabilities` | Action policy、approval、effect、receipt、cancel、idempotency |
+| `@open-generative/react` | 唯一 `GenerativeSurface` 和 React `RendererRegistry` |
+| `@open-generative/components` | Tessera data-agent Component Contracts、ChartSpec、recipes、fixtures |
+| `@open-generative/components-react` | 基于 shadcn/ui 与 Recharts 的 Tessera renderer |
+| adapters | AI SDK v7、Mastra 与 AG-UI 的薄映射，不拥有 commit 语义 |
+
+当前 namespace 是未来抽取边界，不表示已经开始通用产品发布。当前唯一产品验收对象仍是 Tessera Agent 的 data-agent workflow。
+

@@ -9,12 +9,12 @@ searching, sorting, and pagination local.
 
 <ComponentPreview
   filename="data-table-example.tsx"
-  code={`import { DataTable } from "@/components/data-elements/data-table"
+  code={`import { DataTable } from "@/components/tessera-agent/data-table"
 
-export function CreditLedgerTable({ queryArtifact }) {
+export function CreditLedgerTable({ queryResultSurface }) {
   return (
     <DataTable
-      artifact={queryArtifact}
+      artifact={queryResultSurface}
       locale="en-US"
       pageSize={5}
       searchable
@@ -39,7 +39,7 @@ descending, and unsorted states; filtering searches every visible column.
 
 <CodeExample
   filename="components/query-rows.tsx"
-  code={`import { DataTable } from "@/components/data-elements/data-table"
+  code={`import { DataTable } from "@/components/tessera-agent/data-table"
 
 export function QueryRows({ artifact }) {
   return (
@@ -57,7 +57,7 @@ export function QueryRows({ artifact }) {
 <ApiReference
   name="DataTable"
   properties={[
-    { name: "artifact", type: "QueryArtifact", required: true, description: "Validated columns and rows used for structure, formatting, and stable keys." },
+    { name: "artifact", type: "QueryResultSurface", required: true, description: "Validated columns and rows used for structure, formatting, and stable keys." },
     { name: "locale", type: "string", defaultValue: '"en-US"', description: "Locale used for values, row counts, and text comparison." },
     { name: "pageSize", type: "number", defaultValue: "10", description: "Maximum number of rows rendered on one page." },
     { name: "searchable", type: "boolean", defaultValue: "true", description: "Displays the local row filter when enabled." },

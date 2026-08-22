@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { finalizeCatalog } from "@data-elements/database";
+import { finalizeCatalog } from "@open-tessera/database";
 import { describeSemanticCatalog, sliceSemanticCatalog } from "./catalog-slice";
 import { createSemanticCatalog } from "./compiler";
 

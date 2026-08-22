@@ -7,7 +7,7 @@ import {
   type DatabaseQueryResult,
   type DatabaseTable,
   databaseActionSchema,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   createDataAgent,
   DATA_AGENT_RELATION_PREVIEW_MAX_COLUMNS,
@@ -15,12 +15,12 @@ import {
   type DataAgent,
   type PlanningCapability,
   type SemanticCatalog,
-} from "@data-elements/data-agent";
-import { createMongoDbConnector } from "@data-elements/mongodb";
-import { createMySqlConnector } from "@data-elements/mysql";
-import { createPostgresConnector } from "@data-elements/postgres";
-import { createSqliteConnector } from "@data-elements/sqlite";
-import { createTursoConnector } from "@data-elements/turso";
+} from "@open-tessera/data-agent";
+import { createMongoDbConnector } from "@open-tessera/mongodb";
+import { createMySqlConnector } from "@open-tessera/mysql";
+import { createPostgresConnector } from "@open-tessera/postgres";
+import { createSqliteConnector } from "@open-tessera/sqlite";
+import { createTursoConnector } from "@open-tessera/turso";
 import {
   consumeStream,
   createUIMessageStream,
@@ -76,7 +76,7 @@ import {
   type TesseraDatabaseActionService,
 } from "./database-actions";
 import { createTesseraDurableStateStore, type TesseraDurableStateStore } from "./durable-state";
-import type { DurableStateStorePort } from "@data-elements/runtime";
+import type { DurableStateStorePort } from "@open-tessera/runtime";
 import {
   createOpenRouterModelCatalogProvider,
   type OpenRouterModelCatalogProvider,

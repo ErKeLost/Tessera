@@ -9,7 +9,7 @@ not invent an ordering or infer a winner from labels and prose.
 
 <ComponentPreview
   filename="ranking-artifact-example.tsx"
-  code={`import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+  code={`import { RankingArtifact } from "@/components/tessera-agent/ranking-artifact"
 
 export function PipelineRanking() {
   return (
@@ -52,14 +52,14 @@ present it must reference an item in the same payload.
   filename="components/channel-ranking.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { RankingArtifact } from "@/components/tessera-agent/ranking-artifact"
 
 export function ChannelRanking({ artifact }) {
   return (
-    <DataElementsProvider onAction={({ payload }) => openChannel(payload.itemId)}>
+    <TesseraPreviewProvider onAction={({ payload }) => openChannel(payload.itemId)}>
       <RankingArtifact artifact={artifact} locale="en-US" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

@@ -8,7 +8,7 @@ runtime clamps those values to catalog bounds and recalculates locally—no mode
 call is needed while a slider is moving.
 
 <ComponentPreview
-  code={`import { CalculatorArtifact } from "@/components/data-elements/calculator-artifact"
+  code={`import { CalculatorArtifact } from "@/components/tessera-agent/calculator-artifact"
 
 export function CompoundInterest() {
   return (
@@ -48,18 +48,18 @@ model. Built-in definitions include `compound-interest` and `loan-payment`.
   filename="components/financial-model.tsx"
   code={`"use client"
 
-import { CalculatorArtifact } from "@/components/data-elements/calculator-artifact"
-import { DataElementsProvider } from "@/components/data-elements/bridge"
+import { CalculatorArtifact } from "@/components/tessera-agent/calculator-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
 
 export function FinancialModel({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => audit(event)}>
+    <TesseraPreviewProvider onAction={(event) => audit(event)}>
       <CalculatorArtifact
         artifact={artifact}
         locale="en-US"
         onClose={() => dismissArtifact(artifact.id)}
       />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

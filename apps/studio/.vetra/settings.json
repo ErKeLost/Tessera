@@ -1,1 +1,0 @@
-{"version":1,"candidate":{"database":{"dialect":"postgres","accessMode":"read-only"},"llm":{"provider":"openrouter","model":"x-ai/grok-4.6","reasoningEffort":"medium"},"limits":{"maxRows":1000,"timeoutMs":15000,"maxSteps":50}}}

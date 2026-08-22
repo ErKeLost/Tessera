@@ -1,6 +1,6 @@
 {
-  "name": "@data-elements/docs",
-  "version": "0.1.0",
+  "name": "@open-tessera/docs",
+  "version": "0.3.4",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -11,16 +11,13 @@
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.79",
-    "@data-elements/ai-sdk": "workspace:*",
-    "@data-elements/core": "workspace:*",
-    "@data-elements/observability": "workspace:*",
-    "@data-elements/react": "workspace:*",
-    "@data-elements/runtime": "workspace:*",
-    "@data-elements/schema": "workspace:*",
     "@fumadocs/language": "0.2.2",
     "@gsap/react": "2.1.2",
     "@iconify-icons/simple-icons": "1.2.74",
     "@iconify/react": "6.0.2",
+    "@open-tessera/react": "workspace:*",
+    "@open-tessera/runtime": "workspace:*",
+    "@open-tessera/schema": "workspace:*",
     "@openrouter/ai-sdk-provider": "3.0.0",
     "@paper-design/shaders-react": "0.0.80",
     "@pierre/diffs": "1.3.5",

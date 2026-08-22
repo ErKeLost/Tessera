@@ -69,12 +69,12 @@ The browser is never an authority in this chain. It can display a decision and s
 
 The existing files map naturally to this model:
 
-- `/Users/work/data-elements/packages/data-agent/src/index.ts`: Data Agent semantic runtime.
-- `/Users/work/data-elements/apps/studio/src/agent.ts`: Mastra Agent and current read tools.
-- `/Users/work/data-elements/packages/capability-broker/src/broker.ts`: action authorization and effect boundary.
-- `/Users/work/data-elements/packages/capability-broker/src/actions.ts`: action state machine and recovery.
-- `/Users/work/data-elements/packages/database/src/permissions.ts`: initial Datus-style SQL policy evaluator.
-- `/Users/work/data-elements/apps/studio/src/settings-runtime.ts`: server-only settings and policy persistence.
+- `/Users/work/tessera-agent/packages/data-agent/src/index.ts`: Data Agent semantic runtime.
+- `/Users/work/tessera-agent/apps/studio/src/agent.ts`: Mastra Agent and current read tools.
+- `/Users/work/tessera-agent/packages/capability-broker/src/broker.ts`: action authorization and effect boundary.
+- `/Users/work/tessera-agent/packages/capability-broker/src/actions.ts`: action state machine and recovery.
+- `/Users/work/tessera-agent/packages/database/src/permissions.ts`: initial Datus-style SQL policy evaluator.
+- `/Users/work/tessera-agent/apps/studio/src/settings-runtime.ts`: server-only settings and policy persistence.
 
 ## 4. Domain model
 

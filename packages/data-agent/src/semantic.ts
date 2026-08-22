@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DatabaseCatalog, DatabaseColumn, DatabaseTable } from "@data-elements/database";
+import type { DatabaseCatalog, DatabaseColumn, DatabaseTable } from "@open-tessera/database";
 import { z } from "zod";
 import {
   DATA_AGENT_VERSION,

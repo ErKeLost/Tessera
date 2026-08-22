@@ -1,11 +1,11 @@
 "use client";
 
-import { ArtifactRenderer } from "@data-elements/react";
+import { ArtifactRenderer } from "@open-tessera/react";
 import {
   decodeArtifactPart,
   type ArtifactPart,
   type ArtifactPartWire,
-} from "@data-elements/runtime";
+} from "@open-tessera/runtime";
 import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 import { memo, useEffect, useState } from "react";
 import styles from "./background.module.css";

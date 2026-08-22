@@ -8,7 +8,7 @@ winner without forcing qualitative information into an artificial numeric
 score.
 
 <ComponentPreview
-  code={`import { ComparisonArtifact } from "@/components/data-elements/comparison-artifact"
+  code={`import { ComparisonArtifact } from "@/components/tessera-agent/comparison-artifact"
 
 export function WarehouseComparison() {
   return (
@@ -59,14 +59,14 @@ its optional `winnerId`.
   filename="components/decision-support.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { ComparisonArtifact } from "@/components/data-elements/comparison-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { ComparisonArtifact } from "@/components/tessera-agent/comparison-artifact"
 
 export function DecisionSupport({ artifact }) {
   return (
-    <DataElementsProvider onAction={(event) => saveDecision(event)}>
+    <TesseraPreviewProvider onAction={(event) => saveDecision(event)}>
       <ComparisonArtifact artifact={artifact} />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

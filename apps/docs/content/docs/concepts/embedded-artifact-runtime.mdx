@@ -9,7 +9,7 @@ already implemented.
 
 ## Decision and non-goals
 
-Data Elements is a **persistent, continuously editable, host-embedded semantic
+Tessera Agent is a **persistent, continuously editable, host-embedded semantic
 business Artifact Runtime**.
 
 An Artifact is an addressable business interaction surface that lives inside an
@@ -89,7 +89,7 @@ type ArtifactRevision = {
   artifactId: string
   revisionId: string
   parentRevisionIds: string[]
-  document: NormalizedArtifactDocument
+  document: NormalizedDocument
   contentHash: string
   contractFingerprint: string
   createdAt: string
@@ -364,7 +364,7 @@ Internal sophistication must not leak into the default integration. Most
 developers should use three server operations and one React host.
 
 ```ts
-import { createArtifactService } from "@data-elements/server"
+import { createArtifactService } from "@open-generative/server"
 
 const artifacts = createArtifactService({
   repository,
@@ -397,7 +397,7 @@ Framework adapters translate provider messages and tool calls into this service;
 they do not own Artifact identity or commit behavior.
 
 ```tsx
-import { ArtifactHost } from "@data-elements/react"
+import { ArtifactHost } from "@open-generative/react"
 
 <ArtifactHost
   mode="inline"
@@ -464,13 +464,13 @@ The public surface is intentionally smaller than the internal package graph.
 
 | Boundary | Package | Responsibility |
 | --- | --- | --- |
-| Server facade | `@data-elements/server` | `createArtifactService`, lifecycle orchestration, sessions, trusted streams |
-| React facade | `@data-elements/react` | `ArtifactHost`, official native v2 renderers, host system surfaces |
-| Framework adapters | `@data-elements/ai-sdk`, `@data-elements/mastra`, `@data-elements/ag-ui` | Provider and transport mapping onto the server facade |
-| Protocol and runtime | `@data-elements/runtime` | Normalized IR, codecs, transactions, replay, commands, migrations |
-| Contracts and catalog | `@data-elements/schema`, `@data-elements/core` | Semantic contracts, manifests, task selection, deterministic helpers |
-| Authoring compiler | `@data-elements/compiler` | Server-only prompt/schema compilation, decoding, validation, repair, proposal gating |
-| Authority | `@data-elements/capability-broker`, `@data-elements/resources` | Grants, approvals, resource resolution, effects, evidence, receipts |
+| Server facade | `@open-generative/server` | `createArtifactService`, lifecycle orchestration, sessions, trusted streams |
+| React facade | `@open-generative/react` | `ArtifactHost`, official native v2 renderers, host system surfaces |
+| Framework adapters | `@open-generative/ai-sdk`, `@open-generative/mastra`, `@open-generative/ag-ui` | Provider and transport mapping onto the server facade |
+| Protocol and runtime | `@open-generative/runtime` | Normalized IR, codecs, transactions, replay, commands, migrations |
+| Contracts and catalog | `@open-generative/protocol`, `@open-generative/catalog` | Semantic contracts, manifests, task selection, deterministic helpers |
+| Authoring compiler | `@open-generative/compiler` | Server-only prompt/schema compilation, decoding, validation, repair, proposal gating |
+| Authority | `@open-generative/capabilities`, `@open-generative/resources` | Grants, approvals, resource resolution, effects, evidence, receipts |
 | Distribution | CLI, npm, and shadcn registry | Version-locked installation, editable renderer source, extension packaging |
 
 Protocol v2 becomes canonical. v1 projection remains behind one compatibility

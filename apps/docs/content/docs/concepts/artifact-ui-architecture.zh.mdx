@@ -61,16 +61,16 @@ shadcn/ui 仍然是首要渲染器与源码分发方式，但它们不定义协�
 发布后，外部项目才能真正执行：
 
 ```bash
-npx data-elements@latest add artifact-ui
+npx tessera-agent@latest add artifact-ui
 ```
 
 该命令安装基于 shadcn、可编辑的 React 源码，并锁定精确的 Protocol、Runtime 和
 Artifact Contract Package 版本。Server Adapter 由应用显式安装；默认示例使用
-`@data-elements/ai-sdk`。服务端创建一个长期存活、不保存请求状态的配置对象，并为每次模型调用
+`@open-generative/ai-sdk`。服务端创建一个长期存活、不保存请求状态的配置对象，并为每次模型调用
 准备新的 Catalog Slice：
 
 ```tsx
-import { createArtifactUI } from "@data-elements/ai-sdk"
+import { createArtifactUI } from "@open-generative/ai-sdk"
 import { streamText } from "ai"
 
 const artifactUI = createArtifactUI()
@@ -93,8 +93,8 @@ Adapter 会在服务端进程内把已校验输出标记为 `ArtifactPart`，再
 的 `ArtifactPartWire`；原始模型 Chunk 与 Tool Input 永远不会下发。浏览器只需在渲染前校验一次 Transport Value：
 
 ```tsx
-import { decodeArtifactPart } from "@data-elements/runtime"
-import { ArtifactRenderer } from "@/components/data-elements/artifact-ui"
+import { decodeArtifactPart } from "@open-generative/runtime"
+import { ArtifactRenderer } from "@/components/tessera-agent/artifact-ui"
 
 const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
   contractFingerprint: dataArtifactPart.data.contractFingerprint,
@@ -108,7 +108,7 @@ return <ArtifactRenderer value={decoded.part} />
 Prompt Bundle Hash、Limit、Resource 和安全的 Capability Descriptor。`toUIMessageStreamResponse`
 负责 Adapter 校验，并且只发出带 Fingerprint 的 Wire Envelope 与可信 Server Event。
 `decodeArtifactPart()` 会在传输后重新校验并施加本地 Brand。`ArtifactRenderer` 接受 `ArtifactPart`、
-已提交的 `ArtifactDocument` 或显式的 v1 兼容类型；它从不解析原始模型文本、Proposal Chunk 或未带 Brand 的网络 Wire。
+已提交的 `Document` 或显式的 v1 兼容类型；它从不解析原始模型文本、Proposal Chunk 或未带 Brand 的网络 Wire。
 
 共享状态、恢复和 Effect 只需要在所有渲染 Part 外包一层可选 Provider：
 
@@ -116,7 +116,7 @@ Prompt Bundle Hash、Limit、Resource 和安全的 Capability Descriptor。`toUI
 import {
   ArtifactRenderer,
   ArtifactUIProvider,
-} from "@/components/data-elements/artifact-ui"
+} from "@/components/tessera-agent/artifact-ui"
 
 <ArtifactUIProvider runtimeTransport={artifactCommandTransport}>
   <ArtifactRenderer value={artifactPart} />
@@ -154,9 +154,9 @@ Pending、Approval、Success、Failure、Retry 与 Cancel；任何错误都不�
 
 ## 从 OpenUI 学到什么
 
-OpenUI 证明了一些值得 Data Elements 吸收的系统机制。这里完全不讨论或复制它的视觉设计。
+OpenUI 证明了一些值得 Tessera Agent 吸收的系统机制。这里完全不讨论或复制它的视觉设计。
 
-| OpenUI 机制 | Data Elements 决策 |
+| OpenUI 机制 | Tessera Agent 决策 |
 | --- | --- |
 | 组件定义自动生成 Schema 与提示词签名 | **采用。** 节点契约同时生成 Schema、提示词元数据、文档、Fixture 和兼容信息。 |
 | 与框架无关的语言核心和独立 Renderer Binding | **采用。** IR、Validator、Patch Engine 和 Diagnostic 不能依赖 React。 |
@@ -172,7 +172,7 @@ OpenUI 证明了一些值得 Data Elements 吸收的系统机制。这里完全�
 
 OpenUI 的包结构也值得参考：`lang-core` 负责语言本身，框架包绑定渲染器，
 `react-headless` 负责对话状态与 Stream Adapter，Observability、Devtools、Integration、CLI
-保持独立。Data Elements 应保留这些职责边界，同时维持更强的数据语义和治理边界。
+保持独立。Tessera Agent 应保留这些职责边界，同时维持更强的数据语义和治理边界。
 
 推动这次升级的旧问题，现在由本地参考实现的 Gate 持续约束：
 
@@ -355,8 +355,8 @@ type RevisionIdentity = {
   stateTransitionReceiptIds: string[]
 }
 
-type ArtifactDocument = {
-  protocol: "data-elements.artifact"
+type Document = {
+  protocol: "tessera-agent.artifact"
   protocolVersion: "2.0"
   documentId: string
   revision: RevisionIdentity
@@ -378,26 +378,26 @@ type ArtifactDocument = {
 }
 
 type ArtifactSemanticContent = {
-  protocol: ArtifactDocument["protocol"]
-  protocolVersion: ArtifactDocument["protocolVersion"]
+  protocol: Document["protocol"]
+  protocolVersion: Document["protocolVersion"]
   policy: Omit<DocumentPolicy, "expiresAt">
-  catalog: ArtifactDocument["catalog"]
-  renderMode: ArtifactDocument["renderMode"]
-  root: ArtifactDocument["root"]
-  nodes: ArtifactDocument["nodes"]
+  catalog: Document["catalog"]
+  renderMode: Document["renderMode"]
+  root: Document["root"]
+  nodes: Document["nodes"]
   state: Record<
     StateId,
     Omit<StateDefinition, "policy"> & {
       policy: Omit<StatePolicy, "expiresAt">
     }
   >
-  actions: ArtifactDocument["actions"]
+  actions: Document["actions"]
   resources: Record<ResourceId, Omit<ResourceReference, "expiresAt">>
   evidence: Record<
     EvidenceId,
     Omit<EvidenceReference, "observedAt" | "recordedAt" | "expiresAt">
   >
-  claims: ArtifactDocument["claims"]
+  claims: Document["claims"]
   meta: ArtifactMeta
 }
 
@@ -450,7 +450,7 @@ type ProposalTarget =
     }
 
 type SchemaProfileBinding = {
-  profileId: "data-elements.schema-core"
+  profileId: "tessera-agent.schema-core"
   profileVersion: number
   profileHash: string
 }
@@ -602,7 +602,7 @@ type CommitCommand =
   | { type: "abort"; transactionId: string; reason?: string }
 
 type BootstrapHello = {
-  bootstrapProtocol: "data-elements.bootstrap/1"
+  bootstrapProtocol: "tessera-agent.bootstrap/1"
   type: "hello"
   requestId: string
   offer: CompatibilityOffer
@@ -610,21 +610,21 @@ type BootstrapHello = {
 
 type BootstrapResponse =
   | {
-      bootstrapProtocol: "data-elements.bootstrap/1"
+      bootstrapProtocol: "tessera-agent.bootstrap/1"
       type: "ready"
       requestId: string
       streamId: string
       selection: CompatibilitySelection
     }
   | {
-      bootstrapProtocol: "data-elements.bootstrap/1"
+      bootstrapProtocol: "tessera-agent.bootstrap/1"
       type: "incompatible"
       requestId: string
       reasons: { code: string; message: string }[]
     }
 
 type RuntimeSnapshot = {
-  document: ArtifactDocument
+  document: Document
   branchHead: BranchHeadPrecondition
   state: StateRecord[]
   pendingActions: ClientActionInvocationSummary[]
@@ -635,7 +635,7 @@ type RuntimeSnapshot = {
 }
 
 type ServerEvent<T> = {
-  streamProtocol: "data-elements.stream/2.0"
+  streamProtocol: "tessera-agent.stream/2.0"
   streamId: string
   seq: number
   eventId: string
@@ -669,11 +669,11 @@ type ArtifactPart = (
 
 type ArtifactRendererValue =
   | ArtifactPart
-  | ArtifactDocument
-  | import("@data-elements/schema").Artifact // explicit v1 compatibility
+  | Document
+  | import("@open-generative/protocol").Artifact // explicit v1 compatibility
 
 type ClientCommand<T> = {
-  streamProtocol: "data-elements.stream/2.0"
+  streamProtocol: "tessera-agent.stream/2.0"
   streamId: string
   contractFingerprint: string
   payload: T
@@ -691,7 +691,7 @@ type ClientArtifactCommand = ClientCommand<
 >
 
 type ClientResourceDataEnvelope = {
-  resourceProtocol: "data-elements.resource/1.0"
+  resourceProtocol: "tessera-agent.resource/1.0"
   requestId: string
   contractFingerprint: string
   documentId: string
@@ -859,7 +859,7 @@ insight、breakdown、distribution、cohort、experiment 和 driver 组件，分
 `artifact.trend`、`artifact.experiment` 等 Atomic Node。
 
 内部图表、标签、证据入口、响应式行为和无障碍由可信 React Recipe 负责。模型只选择语义节点并填充数据，
-不能拼装这些节点内部的视觉结构。这是 Data Elements 相比完全通用组件语言最重要的质量优势。
+不能拼装这些节点内部的视觉结构。这是 Tessera Agent 相比完全通用组件语言最重要的质量优势。
 
 宿主可以注册带命名空间的扩展节点，但只有 Contract、Renderer、Policy 和 Prompt Metadata
 都存在时，扩展节点才会进入 Active Catalog。
@@ -1050,7 +1050,7 @@ type StateTransitionReceipt = {
 type ClientStateTransitionReceipt = Omit<StateTransitionReceipt, "auditRef">
 ```
 
-本架构中的每个 `JSONSchema` 都使用封闭且受预算约束的 Data Elements Schema Core Profile，而不是任意
+本架构中的每个 `JSONSchema` 都使用封闭且受预算约束的 Tessera Agent Schema Core Profile，而不是任意
 JSON Schema 文档。选中的 Compatibility Manifest 锁定其 Profile ID、Version 与 Hash；Contract Fingerprint
 与 Prompt-bundle Fingerprint 都包含该 Binding，每个独立 Capability 或 Template Grant 也携带完全相同的
 Binding。Core 支持 Null/Boolean、有限且有界的 Number、受限 String 和 Enum、受限 Array、Closed Object、
@@ -1682,7 +1682,7 @@ Content。Runtime 只按 `(actor, documentId, revisionId, resourceId, schemaHash
 在 Expiry、Actor Change、Revision Change 或 Policy Denial 时 Evict。迟到的 Response 不能 Attach 到另一个
 Revision。Preloaded Binding 在不含 Value 的 Snapshot 之后，以一个或多个独立的
 `ClientResourceDataEnvelope` 发送；它们绝不能嵌套在 `RuntimeSnapshot`、`ArtifactPart`、Stream Base 或其他
-带 Cursor 的 Event 中。没有 Transport 时，`ArtifactPart` 和 `ArtifactDocument` 只能使用 Literal 与受限的
+带 Cursor 的 Event 中。没有 Transport 时，`ArtifactPart` 和 `Document` 只能使用 Literal 与受限的
 Inline Preview，否则显示 Contract 定义的 Unavailable State。
 
 每个 Client-visible Resource Value 必须满足 `maxResolvedResourceBytes`。更大的 Source 绝不能在原 Content
@@ -1779,21 +1779,21 @@ Replay 必须重新授权并再次解析。
 
 | 边界 | 职责 |
 | --- | --- |
-| `@data-elements/protocol` | IR、Stream Frame、Diagnostic、Version Type、JSON Schema |
-| `@data-elements/catalog` | `defineNodeContract`、Catalog 校验、Fingerprint、Migration |
-| `@data-elements/codec-json` | 无 Credential 的 Snapshot/JSONL 编解码、Syntax Limit、Canonical Draft/Content Projection |
-| `@data-elements/runtime-core` | 无 Credential 的 Normalize、Validate、Draft/Commit Reducer、Document Store、State/Binding Evaluation、Scoped Resource-binding Cache、Action Invocation 与 Effect Intent；禁止网络访问 |
-| `@data-elements/compiler` | 仅服务端/构建期使用的 Prompt 与 Repair Bundle、Provider Schema、Example 和按任务 Catalog Slicing |
-| `@data-elements/capability-broker` | 仅服务端使用的 Grant、Authorization、Policy Decision、Approval、Idempotency 与 Effect Receipt |
-| `@data-elements/resources` | 服务端 Resource/Evidence Resolution、Schema Check、Redaction、Expiry 与 Provenance Receipt |
-| `@data-elements/react` | React Renderer、Error Boundary、Hook、官方 Renderer Binding |
-| `@data-elements/artifacts` | 与框架无关的语义 Artifact Contract 与不变量 |
-| `@data-elements/ai-sdk`、`@data-elements/mastra`、`@data-elements/ag-ui` | 薄 Transport Integration |
-| `@data-elements/observability` | Event Vocabulary 与 Sink API |
-| `@data-elements/evals` | Golden Task、Conformance Suite、Grader、Provider Matrix |
-| `@data-elements/registry-tools` | 私有 Registry/Codegen 构建工具与依赖闭包检查 |
-| `@data-elements/codec-text` | 未来可选的紧凑 Codec；永远不是 Canonical Representation |
-| `data-elements` CLI | shadcn 安装、兼容检查、Migration、Diagnostic |
+| `@open-generative/protocol` | IR、Stream Frame、Diagnostic、Version Type、JSON Schema |
+| `@open-generative/catalog` | `defineNodeContract`、Catalog 校验、Fingerprint、Migration |
+| `@open-generative/protocol` | 无 Credential 的 Snapshot/JSONL 编解码、Syntax Limit、Canonical Draft/Content Projection |
+| `@open-generative/runtime` | 无 Credential 的 Normalize、Validate、Draft/Commit Reducer、Document Store、State/Binding Evaluation、Scoped Resource-binding Cache、Action Invocation 与 Effect Intent；禁止网络访问 |
+| `@open-generative/compiler` | 仅服务端/构建期使用的 Prompt 与 Repair Bundle、Provider Schema、Example 和按任务 Catalog Slicing |
+| `@open-generative/capabilities` | 仅服务端使用的 Grant、Authorization、Policy Decision、Approval、Idempotency 与 Effect Receipt |
+| `@open-generative/resources` | 服务端 Resource/Evidence Resolution、Schema Check、Redaction、Expiry 与 Provenance Receipt |
+| `@open-generative/react` | React Renderer、Error Boundary、Hook、官方 Renderer Binding |
+| `@open-generative/components` | 与框架无关的语义 Artifact Contract 与不变量 |
+| `@open-generative/ai-sdk`、`@open-generative/mastra`、`@open-generative/ag-ui` | 薄 Transport Integration |
+| `Tessera server observability` | Event Vocabulary 与 Sink API |
+| `Tessera proof harness` | Golden Task、Conformance Suite、Grader、Provider Matrix |
+| `Tessera distribution tooling` | 私有 Registry/Codegen 构建工具与依赖闭包检查 |
+| `@open-generative/protocol` | 未来可选的紧凑 Codec；永远不是 Canonical Representation |
+| `tessera-agent` CLI | shadcn 安装、兼容检查、Migration、Diagnostic |
 
 依赖方向必须强制执行：Protocol 与 Codec 是 Leaf；Catalog 只依赖 Protocol/Schema Utility；Runtime Core
 依赖 Protocol、Codec 和 Catalog；React 依赖 Runtime Core 与 Artifact Contract；Compiler 和 Transport Adapter
@@ -1801,16 +1801,16 @@ Replay 必须重新授权并再次解析。
 Example、Capability Broker、Resource Resolver、Node Built-in、Credential 或 Policy Implementation。Logical
 Module 可以晚些再拆包，但从第一个 v2 实现开始就必须强制该环境边界。
 
-现有 `@data-elements/schema` 保持为 v1 Compatibility Facade，`@data-elements/core` 负责 v1 Catalog
-与安全 Calculator Foundation，`@data-elements/runtime` 负责 v2 Protocol/Runtime。现有 v1 Schema 包含 `protocolVersion`、`kind`、`id`
+现有 `@open-generative/protocol` 保持为 v1 Compatibility Facade，`@open-generative/catalog` 负责 v1 Catalog
+与安全 Calculator Foundation，`@open-generative/runtime` 负责 v2 Protocol/Runtime。现有 v1 Schema 包含 `protocolVersion`、`kind`、`id`
 等 Envelope Field，因此必须通过明确的 `v1 envelope → v2 props` Projection 复用语义字段，不能把整个 v1
 Object 当作 v2 Node Props。
 
 这些 Package 是 Ownership Boundary，不是 Beginner API。默认 AI Framework Adapter 暴露
 `createArtifactUI`，React 暴露 `ArtifactRenderer`；这两个 Facade 使用安全 Preset 组装内部 Package。
 
-当前仓库有意合并了部分逻辑边界：`@data-elements/runtime` 承担 Protocol、JSON Codec 与 Runtime-core；
-`@data-elements/schema` 和 `@data-elements/core` 承担 v1 Contract 与 Catalog Foundation。表中的逻辑名称表示
+当前仓库有意合并了部分逻辑边界：`@open-generative/runtime` 承担 Protocol、JSON Codec 与 Runtime-core；
+`@open-generative/protocol` 和 `@open-generative/catalog` 承担 v1 Contract 与 Catalog Foundation。表中的逻辑名称表示
 职责，不表示每一行都已经作为独立 npm Package 发布。
 
 ## shadcn/ui 分发
@@ -1823,8 +1823,8 @@ Renderer Binding 和 Artifact Recipe 复制进应用，同时把版本化 Protoc
 
 默认 `artifact-ui` Item 会安装真实的 `artifact-ui.tsx` 公共 Barrel、`ArtifactUIProvider`、
 `ArtifactRenderer`、官方 Binding、shadcn Primitive、Artifact Recipe、Semantic Token 和 Catalog Lock。
-它的 Registry Metadata 把 `@data-elements/schema`、`@data-elements/core` 与
-`@data-elements/runtime` 固定到精确版本；Framework Adapter 在服务端单独选择。单个 Artifact Item
+它的 Registry Metadata 把 `@open-generative/protocol`、`@open-generative/catalog` 与
+`@open-generative/runtime` 固定到精确版本；Framework Adapter 在服务端单独选择。单个 Artifact Item
 只安装其源码闭包需要的精确 Runtime Package 子集，同时共享同一条 Managed Lock 路径。
 
 私有 Registry Compiler 使用与 npm Build 相同的 Catalog 和 Renderer Binding，自动生成：

@@ -19,7 +19,7 @@ import type {
   TargetArtifact,
   TimelineArtifact,
   TrendArtifact,
-} from "@data-elements/schema";
+} from "@open-tessera/schema";
 import type { ReactNode } from "react";
 import {
   AnomalyArtifact as AnomalyArtifactView,
@@ -34,7 +34,7 @@ import {
   CohortArtifact as CohortArtifactView,
   ComparisonArtifact as ComparisonArtifactView,
   DataChart,
-  DataElementsProvider,
+  ArtifactUIProvider,
   DataQualityArtifact as DataQualityArtifactView,
   DataTable,
   DistributionArtifact as DistributionArtifactView,
@@ -49,7 +49,7 @@ import {
   TargetArtifact as TargetArtifactView,
   TimelineArtifact as TimelineArtifactView,
   TrendArtifact as TrendArtifactView,
-} from "@data-elements/react";
+} from "@open-tessera/react";
 
 const query: QueryArtifact = {
   protocolVersion: "1.0",
@@ -698,11 +698,11 @@ const timeline: TimelineArtifact = {
 
 function DemoProvider({ children }: { children: ReactNode }) {
   return (
-    <DataElementsProvider
-      onAction={(event) => console.info("Artifact Agent action", event)}
+    <ArtifactUIProvider
+      onAction={(event) => console.info("Tessera Agent action", event)}
     >
       {children}
-    </DataElementsProvider>
+    </ArtifactUIProvider>
   );
 }
 

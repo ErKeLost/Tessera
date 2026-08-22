@@ -21,11 +21,11 @@ import { localizedPath } from "@/lib/i18n";
 const protocolIcons = [GitBranchIcon, FileJson2Icon, BlocksIcon, DatabaseIcon] as const;
 
 const packageNames = [
-  "@data-elements/schema",
-  "@data-elements/core",
-  "@data-elements/react",
-  "@data-elements/ai-sdk",
-  "@data-elements/mastra",
+  "@open-generative/protocol",
+  "@open-generative/catalog",
+  "@open-generative/react",
+  "@open-generative/ai-sdk",
+  "@open-generative/mastra",
 ] as const;
 
 function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
@@ -140,7 +140,7 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
                   <BracesIcon aria-hidden="true" />
                   {text.eyebrow}
                 </p>
-                <h1>Data Elements</h1>
+                <h1>Tessera Agent</h1>
                 <p className={styles.heroLead}>{text.lead}</p>
                 <div className={styles.heroActions}>
                   <Link className={styles.primaryButton} href={path("/docs")}>
@@ -159,21 +159,21 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
                     <span />
                     <span />
                   </div>
-                  <span className={styles.heroProductTitle}>Data Elements Studio</span>
+                  <span className={styles.heroProductTitle}>Tessera Agent Studio</span>
                 </div>
                 <div className={styles.heroProductPreview}>
                   <img
-                    alt="Data Elements Studio in dark theme"
+                    alt="Tessera Agent Studio in dark theme"
                     className={styles.heroProductDark}
                     height={916}
-                    src="/images/data-elements-studio-dark.png"
+                    src="/images/tessera-agent-studio-dark.png"
                     width={1718}
                   />
                   <img
-                    alt="Data Elements Studio in light theme"
+                    alt="Tessera Agent Studio in light theme"
                     className={styles.heroProductLight}
                     height={2304}
-                    src="/images/data-elements-studio-light-hd.png"
+                    src="/images/tessera-agent-studio-light-hd.png"
                     width={4096}
                   />
                 </div>
@@ -204,16 +204,16 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
               </div>
               <div className={styles.commandRow}>
                 <span>{text.everything}</span>
-                <InstallCopy command="npx data-elements@latest" tone="console" />
+                <InstallCopy command="npx tessera-agent@latest" tone="console" />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.oneArtifact}</span>
-                <InstallCopy command="npx data-elements@latest add query-artifact" tone="console" />
+                <InstallCopy command="npx tessera-agent@latest add query-artifact" tone="console" />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.directRegistry}</span>
                 <InstallCopy
-                  command="npx shadcn@latest add https://data-elements.dev/r/query-artifact.json"
+                  command="npx shadcn@latest add https://tessera-agent.dev/r/query-artifact.json"
                   tone="console"
                 />
               </div>

@@ -7,9 +7,9 @@ export default function BackgroundPage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div className={styles.headerInner}>
-          <Link aria-label="返回 Artifact Agent 首页" className={styles.backLink} href="/zh">
+          <Link aria-label="返回 Tessera Agent 首页" className={styles.backLink} href="/zh">
             <ArrowLeftIcon aria-hidden="true" />
-            <span>Artifact Agent</span>
+            <span>Tessera Agent</span>
           </Link>
         </div>
       </header>

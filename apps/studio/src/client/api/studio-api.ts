@@ -2,12 +2,12 @@ import type {
   EffectCancellationReceipt,
   EffectExecutionResult,
   ModelVisibleGrantSet,
-} from "@data-elements/capability-broker";
+} from "@open-tessera/capabilities";
 import type {
   DatabaseCompiledMutation,
   DatabaseMutationAction,
   DatabaseMutationResult,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import type { TesseraUIMessage } from "../../protocol";
 
 export type StudioThreadSummary = Readonly<{

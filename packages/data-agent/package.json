@@ -1,12 +1,19 @@
 {
-  "name": "@data-elements/data-agent",
-  "version": "0.3.4",
+  "name": "@open-tessera/data-agent",
+  "version": "0.3.5",
   "license": "MIT",
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "description": "Server-only fixed workflow for governed database analysis.",
   "type": "module",
-  "sideEffects": ["./dist/browser.mjs"],
-  "files": ["dist", "README.md"],
+  "sideEffects": [
+    "./dist/browser.mjs"
+  ],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -24,7 +31,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/database": "workspace:*",
+    "@open-tessera/database": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {

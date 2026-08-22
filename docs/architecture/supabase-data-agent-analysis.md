@@ -23,7 +23,7 @@ session adds `read_only=true` and an allowlist, but that MCP setting does not
 govern the local Studio `execute_sql` tool.
 
 That is a useful product architecture, but it is a different level of
-guarantee from Data Elements. Data Elements should borrow Supabase's
+guarantee from Tessera Agent. Tessera Agent should borrow Supabase's
 product-Agent patterns: a bounded tool loop, a static prompt plus per-turn
 workspace context, progressive disclosure, opt-in data disclosure,
 on-demand knowledge, and evaluation practices. It should keep its own typed
@@ -193,7 +193,7 @@ Supabase has several useful, separate controls:
 - Tool output sanitization removes query rows from future model context when the
   organization has not opted into data sharing.
 
-The important distinction for Data Elements is that the AI opt-in setting is a
+The important distinction for Tessera Agent is that the AI opt-in setting is a
 privacy/disclosure setting, not an actor's database authorization policy. A
 user may be allowed to perform a write while not allowing its result rows to
 become model context, or may be allowed to inspect a schema without being
@@ -217,9 +217,9 @@ Elements, but the authority must remain outside the Agent. The broker should
 preflight the action, suspend the run for approval, and revalidate the exact
 action and policy before execution.
 
-## Comparison with Data Elements
+## Comparison with Tessera Agent
 
-| Concern | Supabase Assistant/MCP | Data Elements target |
+| Concern | Supabase Assistant/MCP | Tessera Agent target |
 | --- | --- | --- |
 | Agent shape | General assistant with tools and prompts | Existing semantic Data Agent plus Mastra runtime |
 | Model database surface | Raw `execute_sql` string plus MCP tools | Existing governed semantic tools and versioned typed actions (`data.read/insert/update/delete/ddl`); no MCP or raw SQL |
@@ -236,12 +236,12 @@ action and policy before execution.
 
 Supabase is stronger for a hosted product control plane: it has real project
 membership, OAuth/FGA permission groups, MCP interoperability, Postgres/RLS
-knowledge, and a mature database operations surface. Data Elements is stronger
+knowledge, and a mature database operations surface. Tessera Agent is stronger
 for a governed, database-neutral mutation protocol: the model does not decide
 the SQL authority, approvals are replayable, and policy decisions can be
 audited and revalidated.
 
-## Design decisions for Data Elements
+## Design decisions for Tessera Agent
 
 ### Borrow
 
@@ -311,7 +311,7 @@ Supabase product is insecure:
 - The AI opt-in level intentionally hides data from model context, but it is not
   a database permission grant.
 - The main chat request carries `schema` and `table`, but the reviewed handler
-  does not propagate either into model context. A Data Elements implementation
+  does not propagate either into model context. A Tessera Agent implementation
   should bind its target resource server-side instead of relying on page state.
 
 ## Evidence boundary

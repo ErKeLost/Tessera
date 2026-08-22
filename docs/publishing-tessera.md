@@ -6,7 +6,7 @@ the current package versions in the generated npm tarballs; the workflow
 checks the tarballs before publishing.
 
 Before the first release, add an `NPM_TOKEN` repository secret with permission
-to publish the `@data-elements` and `@open-tessera` scopes. Do not put the token in
+to publish the `@tessera-agent` and `@open-tessera` scopes. Do not put the token in
 the repository or local package manifests.
 
 The local preflight is still useful before pushing a release tag. It builds the
@@ -29,12 +29,12 @@ The `Release npm packages` workflow also supports manual dispatch. Enter a
 version that exactly matches the committed package manifests. It builds the
 workspace, verifies Bun's generated publish tarballs contain no `workspace:*`
 range, publishes in dependency order, and runs an
-`npx data-elements@<version> studio --help` smoke check.
+`npx tessera-agent@<version> studio --help` smoke check.
 
 After publishing, verify from an empty directory with Node.js 24+ or Bun 1.3+ installed:
 
 ```bash
-npx data-elements@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
+npx tessera-agent@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
 ```
 
 Tessera listens on `http://127.0.0.1:4317` by default. Prefer a read-only

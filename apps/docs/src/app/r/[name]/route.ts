@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 const LOCAL_REGISTRY_ORIGIN = "http://localhost:3000";
-const PRODUCTION_REGISTRY_ORIGIN = "https://data-elements.dev";
+const PRODUCTION_REGISTRY_ORIGIN = "https://tessera-agent.dev";
 
 function normalizeOrigin(value: string) {
   const url = new URL(value.includes("://") ? value : `https://${value}`);
@@ -16,8 +16,8 @@ function normalizeOrigin(value: string) {
 }
 
 export function getRegistryOrigin(request: NextRequest) {
-  if (process.env.DATA_ELEMENTS_PUBLIC_URL) {
-    return normalizeOrigin(process.env.DATA_ELEMENTS_PUBLIC_URL);
+  if (process.env.TESSERA_AGENT_PUBLIC_URL) {
+    return normalizeOrigin(process.env.TESSERA_AGENT_PUBLIC_URL);
   }
   if (process.env.DEPLOY_PRIME_URL) {
     return normalizeOrigin(process.env.DEPLOY_PRIME_URL);

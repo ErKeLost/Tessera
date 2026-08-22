@@ -1,0 +1,48 @@
+---
+title: data-agent 成功证明
+description: 在抽取 Open Generative 之前，Tessera Agent 必须达到的确定性、质量、安全和渲染门槛。
+---
+
+当前工作的唯一目标不是证明“模型能输出组件 JSON”，而是证明：Tessera Agent 能把受治理的真实查询结果生成成有用、可信、响应式、可交互的数据分析界面，并在失败、流式中断、权限变化和并发冲突中保住 last-good。
+
+## 固定范围
+
+- 12 个正交 Component Contracts，组件目录见[当前 Generative UI Catalog](/docs/components/generative-ui-catalog)。
+- `data.chart` 覆盖 shadcn/ui 当前 61 个 chart recipes 与 9 个 tooltip recipes。
+- 至少 100 个固定 golden prompts，覆盖 KPI、趋势、分类对比、分布、明细、Filter、空状态、审计、流式创建、增量编辑、HostIntent、恢复和冲突。
+- 同一 Query Resource 必须能产生不同但合理的组合，证明系统不是隐藏的固定 Query renderer。
+
+## 硬性安全门槛
+
+以下指标必须为 100%，不存在统计容忍：
+
+- Query tool result、prompt、proposal、Document、Revision、history 与普通日志中没有 rows。
+- Resource window 只能通过 actor/tenant/Surface-bound grant 和 server cursor 获取。
+- 模型不能引用未提供的 Resource、column、evidence、Component 或 Action。
+- Preview 只读；浏览器不执行 document state 或 HostIntent；approval token 只能消费一次。
+- event hash、sequence、cursor、epoch、audience 或 Contract lock 任一错误都 fail closed。
+
+## 生成质量门槛
+
+| 指标 | 门槛 |
+| --- | --- |
+| Provider schema 接受率 | 100% |
+| 首次 proposal 结构有效率 | 不低于 95% |
+| 有界 repair 后 commit 成功率 | 不低于 99% |
+| 虚构引用或越过 Catalog slice | 0 |
+| 错误 chart encoding | 不高于 1%，并在 commit 前拒绝 |
+| 无意义重复组件或装饰 section | 不高于 2% |
+| snapshot 与等价 operations 的 canonical 差异 | 0 |
+
+成功 commit 只是结构门槛。每个 golden case 还必须校验信息是否可扫描、主要视图是否合理、evidence 是否保留，以及 table/chart 是否表达同一资源语义。
+
+## Renderer 门槛
+
+12 个 Contract 必须具有 exact renderer registration、resolved-props validator、loading/empty/error/unsupported fixture 和 node error boundary。所有 chart 具有稳定尺寸、responsive behavior、reduced motion、accessible summary 和同 snapshot 的 table 或 text 等价视图。Desktop panel、mobile sheet 与 inline placement 共用同一 SurfaceController。
+
+## 可发布证明产物
+
+候选发布必须锁定 Catalog、Contract、renderer 和 chart manifests；100+ golden 结果；replay/resume/conflict/security fixtures；no-payload scan；desktop/mobile visual regression；accessibility report；以及 dependency integrity 和 build provenance。CI 必须能在没有生产 credential 时重放确定性部分。
+
+这些门槛全部通过后，才允许把 framework-neutral core 提炼到独立 Open Generative 项目。
+

@@ -1,4 +1,4 @@
 {
   "title": "Agent Architecture",
-  "pages": ["index", "run-loop", "tool-and-sql-safety", "evidence-and-provenance", "evals-and-production-gates"]
+  "pages": ["index", "generative-ui", "generative-ui-proof", "run-loop", "tool-and-sql-safety", "evidence-and-provenance", "evals-and-production-gates"]
 }

@@ -39,15 +39,6 @@ const securityHeaders = [
 const config = {
   poweredByHeader: false,
   reactStrictMode: true,
-  transpilePackages: [
-    "@data-elements/ai-sdk",
-    "@data-elements/compiler",
-    "@data-elements/core",
-    "@data-elements/observability",
-    "@data-elements/react",
-    "@data-elements/runtime",
-    "@data-elements/schema",
-  ],
   outputFileTracingIncludes: {
     "/r/*": [".registry/**/*"],
   },

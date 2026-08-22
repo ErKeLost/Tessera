@@ -321,7 +321,7 @@ function createEnvironmentRateLimiter(
     }),
     limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
     analytics: false,
-    prefix: "data-elements:background:v1",
+    prefix: "tessera-agent:background:v1",
     timeout: 2_000,
   });
   return {

@@ -23,7 +23,7 @@ import {
   type DataAgentRunResult,
   type PlanningCapability,
   type SemanticCatalog,
-} from "@data-elements/data-agent";
+} from "@open-tessera/data-agent";
 import type {
   DatabaseCatalog,
   DatabaseQueryResult,
@@ -34,8 +34,8 @@ import type {
   DatabaseDialect,
   DatabaseExtensionInspectionInput,
   DatabaseRlsPolicyInspectionInput,
-} from "@data-elements/database";
-import { databaseActionSchema, databaseDdlOperationSchema, databasePredicateSchema } from "@data-elements/database";
+} from "@open-tessera/database";
+import { databaseActionSchema, databaseDdlOperationSchema, databasePredicateSchema } from "@open-tessera/database";
 import type { FinishReason } from "ai";
 import { z } from "zod";
 import { resolveTesseraLlmApiKey, resolveTesseraLlmConfig, type TesseraLlmConfig } from "./config";

@@ -1,34 +1,27 @@
 {
-  "name": "data-elements",
-  "version": "0.3.4",
+  "name": "open-generative",
+  "version": "0.3.5",
   "private": true,
-  "description": "An embedded runtime for persistent, editable semantic business artifacts.",
+  "description": "Host-governed generative UI protocol, runtime, and official component catalog.",
+  "type": "module",
   "packageManager": "bun@1.3.14",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
-  "overrides": {
-    "@ai-sdk/react": "4.0.79",
-    "ai": "7.0.76"
-  },
   "scripts": {
     "build": "turbo run build",
-    "build:packages": "turbo run build --filter='./packages/*' && bun run check:source-pollution",
-    "build:docs": "turbo run build --filter=@data-elements/docs",
-    "check:source-pollution": "bun scripts/check-source-pollution.ts",
-    "dev": "turbo run dev --filter=@data-elements/docs",
+    "build:packages": "turbo run build --filter='./packages/*' && bun run check:source",
+    "check:boundaries": "bun scripts/check-boundaries.ts",
+    "check:naming": "bun scripts/check-naming.ts",
+    "check:source": "bun scripts/check-source.ts",
     "lint": "turbo run lint",
-    "provenance": "bun scripts/write-build-provenance.ts",
-    "release:check": "bun run build:packages && bun run --cwd apps/studio build && bun test packages/cli/index.test.ts && bun scripts/check-npm-release.ts",
-    "registry:build": "bun scripts/check-registry-determinism.ts && bunx --bun shadcn@4.17.0 build registry/generated/registry.json --output apps/docs/.registry",
-    "smoke:docs": "bun scripts/smoke-docs-production.ts",
-    "test": "bun run check:source-pollution && bun run registry:build && turbo run test && bun test scripts/contract-parity.test.ts scripts/evaluation-manifest.test.ts scripts/server-boundaries.test.ts scripts/registry.test.ts scripts/registry-install.test.ts 'apps/docs/src/app/api/health/route.test.ts' 'apps/docs/src/app/r/[name]/route.test.ts'",
+    "release:check": "bun run check:naming && bun run check:boundaries && bun run build:packages && bun run test && bun scripts/check-release.ts",
+    "test": "bun run check:naming && bun run check:boundaries && turbo run test",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
-    "shadcn": "4.17.0",
     "tsdown": "0.22.14",
     "turbo": "2.10.9",
     "typescript": "7.0.2"

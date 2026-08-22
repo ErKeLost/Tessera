@@ -1,12 +1,13 @@
 {
-  "name": "@data-elements/runtime",
-  "version": "0.3.4",
+  "name": "@open-generative/runtime",
+  "version": "0.3.5",
+  "description": "Deterministic Open Generative document, preview, state, migration, and replay reducers.",
   "license": "MIT",
-  "publishConfig": { "access": "public" },
-  "description": "Framework-neutral Artifact UI v2 protocol and transactional runtime.",
   "type": "module",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
@@ -14,16 +15,16 @@
     }
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "tsdown --config ../../tsdown.package.config.ts",
     "lint": "tsc --noEmit",
-    "test": "bun test src/*.test.ts",
+    "test": "bun test src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/schema": "workspace:*",
-    "zod": "4.4.3"
+    "@open-generative/protocol": "workspace:*"
   },
   "devDependencies": {
+    "@types/bun": "1.3.14",
     "tsdown": "0.22.14",
     "typescript": "7.0.2"
   }

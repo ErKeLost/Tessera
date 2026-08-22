@@ -105,7 +105,7 @@ export type {
 } from "./settings-runtime";
 export { createTesseraStudioAgent } from "./agent";
 export type { TesseraStudioAgentOptions } from "./agent";
-export type { DataAgent } from "@data-elements/data-agent";
+export type { DataAgent } from "@open-tessera/data-agent";
 export type {
   CreateStudioCatalogProviderOptions,
   CreateTesseraStudioRuntimeOptions,

@@ -4,7 +4,7 @@ import {
   type DatabaseConnector,
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   DATA_AGENT_DISCOVERY_PROBE_MAX_VALUES,
   DATA_AGENT_RELATION_PREVIEW_LIMIT,

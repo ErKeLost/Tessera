@@ -1,19 +1,76 @@
 import { randomUUID } from "node:crypto";
-import {
-  createTelemetryEvent,
-  OtlpHttpTelemetrySink,
-  type ArtifactTelemetrySink,
-} from "@data-elements/observability";
 import type { BackgroundPerformanceReport } from "@/app/api/background/handler";
 import { BACKGROUND_MODEL } from "@/app/background/model";
 
 type Environment = Readonly<Record<string, string | undefined>>;
 
+export type BackgroundTelemetryEvent = Readonly<{
+  eventId: string;
+  type: "background.model_turn";
+  stage: "transport";
+  timestamp: string;
+  runId: string;
+  provider: "openrouter";
+  model: string;
+  durationMs: number;
+  outcome: BackgroundPerformanceReport["outcome"];
+  attributes: Readonly<Record<string, number>>;
+}>;
+
+export interface BackgroundTelemetrySink {
+  emit(event: BackgroundTelemetryEvent): void | Promise<void>;
+}
+
+type OtlpHttpTelemetrySinkOptions = Readonly<{
+  endpoint: string;
+  serviceName: string;
+  serviceVersion?: string;
+  headers: Readonly<Record<string, string>>;
+  timeoutMs?: number;
+  allowInsecureLocalhost: boolean;
+}>;
+
+class OtlpHttpTelemetrySink implements BackgroundTelemetrySink {
+  readonly #options: OtlpHttpTelemetrySinkOptions;
+
+  constructor(options: OtlpHttpTelemetrySinkOptions) {
+    const endpoint = new URL(options.endpoint);
+    const local = endpoint.hostname === "localhost" || endpoint.hostname === "127.0.0.1";
+    if (endpoint.protocol !== "https:" && !(options.allowInsecureLocalhost && local)) {
+      throw new TypeError("Telemetry endpoint must use HTTPS outside local development.");
+    }
+    this.#options = Object.freeze({ ...options, endpoint: endpoint.toString() });
+  }
+
+  async emit(event: BackgroundTelemetryEvent): Promise<void> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.#options.timeoutMs ?? 5_000);
+    try {
+      await fetch(this.#options.endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...this.#options.headers },
+        body: JSON.stringify({
+          resource: {
+            serviceName: this.#options.serviceName,
+            ...(this.#options.serviceVersion === undefined
+              ? {}
+              : { serviceVersion: this.#options.serviceVersion }),
+          },
+          event,
+        }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 export type BackgroundPerformanceObserver = (report: BackgroundPerformanceReport) => void;
 
 export type BackgroundPerformanceObserverOptions = {
   env?: Environment;
-  sinks?: readonly ArtifactTelemetrySink[];
+  sinks?: readonly BackgroundTelemetrySink[];
   onConfigurationError?: (error: unknown) => void;
 };
 
@@ -49,7 +106,7 @@ export function createBackgroundPerformanceObserver(
   if (!logPerformance && sinks.length === 0) return undefined;
 
   return (report) => {
-    const event = createTelemetryEvent({
+    const event: BackgroundTelemetryEvent = Object.freeze({
       eventId: randomUUID(),
       type: "background.model_turn",
       stage: "transport",

@@ -3,12 +3,12 @@ title: AI SDK
 description: Compile a per-turn tool and stream only committed Artifact UI parts.
 ---
 
-`@data-elements/ai-sdk` is the default server adapter. `createArtifactUI()`
+`@open-generative/ai-sdk` is the default server adapter. `createArtifactUI()`
 keeps the public path small while the compiler, policy boundary, runtime commit,
 and transport validation remain internal.
 
 ```ts
-import { createArtifactUI } from "@data-elements/ai-sdk";
+import { createArtifactUI } from "@open-generative/ai-sdk";
 import { streamText } from "ai";
 
 const artifactUI = createArtifactUI();
@@ -43,8 +43,8 @@ browser-safe runtime package. Keep the resulting branded part in UI state and
 render only after validation succeeds:
 
 ```tsx
-import { decodeArtifactPart } from "@data-elements/runtime";
-import { ArtifactRenderer } from "@/components/data-elements/artifact-ui";
+import { decodeArtifactPart } from "@open-generative/runtime";
+import { ArtifactRenderer } from "@/components/tessera-agent/artifact-ui";
 
 const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
   contractFingerprint: dataArtifactPart.data.contractFingerprint,
@@ -56,8 +56,8 @@ return <ArtifactRenderer value={decoded.part} />;
 
 Do not pass the network wire directly to `ArtifactRenderer`; it deliberately
 accepts only an in-process branded `ArtifactPart`, a host-trusted committed
-document, or the explicit v1 compatibility type. `@data-elements/ai-sdk` is
-server-only, so browser code imports the decoder from `@data-elements/runtime`.
+document, or the explicit v1 compatibility type. `@open-generative/ai-sdk` is
+server-only, so browser code imports the decoder from `@open-generative/runtime`.
 
 Pass host-issued `resources`, `evidence`, and a `documentPolicy` to
 `prepareTurn()` when a turn needs governed data. IDs not granted by the host,

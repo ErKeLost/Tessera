@@ -3,7 +3,7 @@ title: 组件
 description: 面向数据智能体的可信分析界面。
 ---
 
-Artifact Agent 是面向数据智能体的声明式界面目录。每个组件接收带版本且经过验证的载荷，
+Tessera Agent 是面向数据智能体的声明式界面目录。每个组件接收带版本且经过验证的载荷，
 并渲染由应用程序掌控的 React，而不是模型生成的 JSX。
 
 ## 从这里开始
@@ -66,13 +66,13 @@ npm Package 与远程 Registry 目前尚未发布。以下命令用于说明发�
 发布后，安装完整的可编辑组件目录：
 
 ```bash
-npx data-elements@latest
+npx tessera-agent@latest
 ```
 
 发布后，也可以只添加智能体工作流所需的 Artifact：
 
 ```bash
-npx data-elements@latest add query-artifact cohort-artifact experiment-artifact
+npx tessera-agent@latest add query-artifact cohort-artifact experiment-artifact
 ```
 
 每个 Artifact 都使用 shadcn 语义 Token，安装后仍由宿主应用程序完整掌控。在本仓库中，

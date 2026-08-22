@@ -2,15 +2,15 @@
 
 import { useEffect, useRef } from "react";
 
-const HERO_IMAGE = "/images/data-elements-whale-window.png";
+const HERO_IMAGE = "/images/tessera-agent-whale-window.png";
 
 export const PANEL_IMAGES = {
-  blue: "/images/data-elements-blue-flow.png",
-  indigo: "/images/data-elements-indigo-flow.png",
-  cyan: "/images/data-elements-cyan-ridge.png",
-  plum: "/images/data-elements-plum-flow.png",
-  sage: "/images/data-elements-sage-flow.png",
-  gold: "/images/data-elements-gold-field.png",
+  blue: "/images/tessera-agent-blue-flow.png",
+  indigo: "/images/tessera-agent-indigo-flow.png",
+  cyan: "/images/tessera-agent-cyan-ridge.png",
+  plum: "/images/tessera-agent-plum-flow.png",
+  sage: "/images/tessera-agent-sage-flow.png",
+  gold: "/images/tessera-agent-gold-field.png",
 } as const;
 
 export type PanelImageKey = keyof typeof PANEL_IMAGES;

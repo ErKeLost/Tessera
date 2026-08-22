@@ -5,8 +5,8 @@ import {
   type DatabaseCatalog,
   type DatabaseConnector,
   type DatabaseMutationExecutor,
-} from "@data-elements/database";
-import { InMemoryDurableStateStore } from "@data-elements/runtime";
+} from "@open-tessera/database";
+import { InMemoryDurableStateStore } from "@open-tessera/runtime";
 import { createTesseraDatabaseActionService } from "./database-actions";
 
 const ACTOR = { tenantRef: "tenant-a", actorRef: "alice", roleRefs: ["analyst"] } as const;

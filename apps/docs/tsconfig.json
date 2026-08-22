@@ -6,12 +6,7 @@
     "noEmit": true,
     "types": ["bun", "node"],
     "paths": {
-      "@/*": ["./src/*"],
-      "@data-elements/schema": ["../../packages/schema/src/index.ts"],
-      "@data-elements/core": ["../../packages/core/src/index.ts"],
-      "@data-elements/observability": ["../../packages/observability/src/index.ts"],
-      "@data-elements/react": ["../../packages/react/src/index.ts"],
-      "@data-elements/runtime": ["../../packages/runtime/src/index.ts"]
+      "@/*": ["./src/*"]
     },
     "plugins": [{ "name": "next" }]
   },

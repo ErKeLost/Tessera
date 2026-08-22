@@ -226,8 +226,8 @@ export function ComponentPreview({
 
 function getInstallCommands(name: string) {
   return {
-    cli: `npx data-elements@latest add ${name}`,
-    registry: `npx shadcn@4.17.0 add https://data-elements.dev/r/${name}.json`,
+    cli: `npx tessera-agent@latest add ${name}`,
+    registry: `npx shadcn@4.17.0 add https://tessera-agent.dev/r/${name}.json`,
   };
 }
 
@@ -270,7 +270,7 @@ export function InstallCommand({
     label: string;
     icon: typeof PackageIcon;
   }> = [
-    { value: "cli", label: "Artifact Agent", icon: PackageIcon },
+    { value: "cli", label: "Tessera Agent", icon: PackageIcon },
     { value: "registry", label: "shadcn CLI", icon: TerminalIcon },
     ...(source
       ? [
@@ -336,7 +336,7 @@ export function InstallCommand({
                 npx
               </span>
               <span className="truncate">
-                {method === "cli" ? "data-elements" : "shadcn"}
+                {method === "cli" ? "tessera-agent" : "shadcn"}
               </span>
             </div>
             <CopyButton

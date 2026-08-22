@@ -8,7 +8,7 @@ description: 展示带变化上下文、可信高亮和条目级操作的显式�
 
 <ComponentPreview
   filename="ranking-artifact-example.tsx"
-  code={`import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+  code={`import { RankingArtifact } from "@/components/tessera-agent/ranking-artifact"
 
 export function PipelineRanking() {
   return (
@@ -50,14 +50,14 @@ export function PipelineRanking() {
   filename="components/channel-ranking.tsx"
   code={`"use client"
 
-import { DataElementsProvider } from "@/components/data-elements/bridge"
-import { RankingArtifact } from "@/components/data-elements/ranking-artifact"
+import { TesseraPreviewProvider } from "@/components/tessera-agent/bridge"
+import { RankingArtifact } from "@/components/tessera-agent/ranking-artifact"
 
 export function ChannelRanking({ artifact }) {
   return (
-    <DataElementsProvider onAction={({ payload }) => openChannel(payload.itemId)}>
+    <TesseraPreviewProvider onAction={({ payload }) => openChannel(payload.itemId)}>
       <RankingArtifact artifact={artifact} locale="zh-CN" />
-    </DataElementsProvider>
+    </TesseraPreviewProvider>
   )
 }`}
 />

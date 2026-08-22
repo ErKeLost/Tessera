@@ -3,7 +3,6 @@ import { RootProvider } from "fumadocs-ui/provider/next";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { notFound } from "next/navigation";
-import "@data-elements/react/styles.css";
 import "../global.css";
 import { isLocale } from "@/lib/i18n";
 import { translations } from "@/lib/layout.shared";
@@ -16,7 +15,7 @@ export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Prom
   const chinese = lang === "zh";
 
   return {
-    title: { default: "Artifact Agent", template: "%s · Artifact Agent" },
+    title: { default: "Tessera Agent", template: "%s · Tessera Agent" },
     description: chinese
       ? "嵌入现有业务系统、可持久化并持续编辑的语义业务 Artifact Runtime。"
       : "A persistent, editable semantic business Artifact Runtime embedded in existing host systems.",

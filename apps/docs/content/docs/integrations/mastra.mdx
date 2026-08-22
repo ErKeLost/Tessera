@@ -3,14 +3,14 @@ title: Mastra
 description: Prepare a real Mastra tool over the same trusted Artifact UI commit boundary.
 ---
 
-`@data-elements/mastra` is server-only and targets `@mastra/core` 1.x. It uses
+`@open-generative/mastra` is server-only and targets `@mastra/core` 1.x. It uses
 Mastra's real `createTool()` API, not a lookalike tool object. Each turn receives
 the compiler-generated Standard Schema, a validated runtime wire output schema,
 strict mode, MCP annotations, and safe display/transcript transforms.
 
 ```ts
 import { Agent } from "@mastra/core/agent";
-import { createArtifactUI } from "@data-elements/mastra";
+import { createArtifactUI } from "@open-generative/mastra";
 
 const artifactUI = createArtifactUI();
 const turn = await artifactUI.prepareTurn({
@@ -48,7 +48,7 @@ host-issued grants.
 
 If a tool or workflow output crosses a network boundary, it is an unbranded
 `ArtifactPartWire`. Decode it in the browser with `decodeArtifactPart()` from
-`@data-elements/runtime` and the turn's contract fingerprint before passing the
+`@open-generative/runtime` and the turn's contract fingerprint before passing the
 resulting `decoded.part` to `ArtifactRenderer`. `turn.accept()` and
 `turn.consumeWorkflowEvent()` provide the branded path only within the current
 trusted process.
