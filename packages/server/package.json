@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/server",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "Server-only Open Generative HostServer and Surface session orchestration.",
   "license": "MIT",
   "type": "module",

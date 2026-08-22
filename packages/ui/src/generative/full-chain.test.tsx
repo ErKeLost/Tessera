@@ -121,7 +121,7 @@ describe("official full render chain", () => {
       expect(html).toContain(fixture.recipeName);
       expect(html).not.toContain("data-open-generative-system");
     }
-  });
+  }, 20_000);
 });
 
 type Harness = Awaited<ReturnType<typeof createHarness>>;

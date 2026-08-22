@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/mastra",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "Server-only Mastra adapter for Open Generative proposal and capability boundaries.",
   "license": "MIT",
   "type": "module",
