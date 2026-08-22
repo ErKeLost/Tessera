@@ -26,18 +26,5 @@ export const npmReleasePackages: readonly PublishPackage[] = [
       "dist/nitro/server/index.mjs",
       "dist/nitro/server/package.json",
     ],
-    dependencies: [
-      "@data-elements/capability-broker",
-      "@data-elements/compiler",
-      "@data-elements/data-agent",
-      "@data-elements/database",
-      "@data-elements/mongodb",
-      "@data-elements/mysql",
-      "@data-elements/postgres",
-      "@data-elements/sqlite",
-      "@data-elements/turso",
-      "@data-elements/runtime",
-      "@data-elements/schema",
-    ],
   },
 ];

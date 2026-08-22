@@ -36,6 +36,14 @@ for (const packageDefinition of npmReleasePackages) {
       changed = true;
     }
   }
+  if (packageDefinition.directory === "apps/studio" && manifest.dependencies) {
+    for (const dependency of Object.keys(manifest.dependencies)) {
+      if (dependency.startsWith("@data-elements/")) {
+        delete manifest.dependencies[dependency];
+        changed = true;
+      }
+    }
+  }
   if (changed) {
     await writeFile(path, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
   }
