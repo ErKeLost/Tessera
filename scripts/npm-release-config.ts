@@ -43,6 +43,6 @@ export const npmReleasePackages: readonly PublishPackage[] = [
   {
     directory: "packages/cli",
     files: ["index.js", "README.md", "LICENSE"],
-    dependencies: ["@tesserae/studio"],
+    dependencies: ["@tessera/studio"],
   },
 ];

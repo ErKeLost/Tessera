@@ -33,7 +33,7 @@ Use this as the conventional project configuration:
 
 ```ts
 // tessera.config.ts
-import { defineTesseraConfig } from "@tesserae/studio";
+import { defineTesseraConfig } from "@tessera/studio";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required by Tessera Studio.");
@@ -82,7 +82,7 @@ or later.
 Host applications can start the same Studio through the library API:
 
 ```ts
-import { startTesseraStudio } from "@tesserae/studio";
+import { startTesseraStudio } from "@tessera/studio";
 
 const studio = await startTesseraStudio({
   database: {
