@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/components",
-  "version": "0.3.8",
+  "version": "0.3.9",
   "description": "Official framework-neutral Open Generative component contracts and ChartSpec.",
   "license": "MIT",
   "type": "module",
