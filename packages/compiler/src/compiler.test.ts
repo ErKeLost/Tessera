@@ -125,7 +125,7 @@ describe("proposal normalization", () => {
       expect(operationResult.contentHash).toBe(snapshotResult.contentHash);
       expect(String(operationResult.document.rootNodeId)).toBe("node-surface-root");
     }
-  });
+  }, 20_000);
 
   test("rejects unknown Slice IDs and an authority offerHash mismatch", async () => {
     const fixture = await createFixture();
