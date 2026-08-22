@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/studio",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "license": "MIT",
   "homepage": "https://open-tessera.netlify.app",
   "repository": {
@@ -16,7 +16,7 @@
     "LICENSE"
   ],
   "bin": {
-    "studio": "./dist/main.mjs"
+    "studio": "./dist/cli.mjs"
   },
   "engines": {
     "bun": ">=1.3",

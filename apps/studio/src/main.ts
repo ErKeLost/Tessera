@@ -8,7 +8,7 @@ import chalk from "chalk";
 export { parseStudioCommandLine, resolveStudioConfig } from "./studio-command";
 export type { StudioCommandLine } from "./studio-command";
 
-async function main(): Promise<void> {
+export async function runTesseraStudioCli(): Promise<void> {
   const arguments_ = parseStudioCommandLine(process.argv.slice(2));
   const studio = await startTesseraStudioServer(withTesseraStudioOverrides(await resolveStudioConfig(arguments_), arguments_.overrides));
   console.log(formatStudioStartupNotice(studio.url));
@@ -35,12 +35,4 @@ export function formatStudioStartupNotice(url: string): string {
     `  ${chalk.gray("Press Ctrl+C to stop the local server.")}`,
     line,
   ].join("\n");
-}
-
-if (import.meta.main) {
-  void main().catch(() => {
-    // Deliberately do not print startup errors: they may include a database URL.
-    console.error("Tessera Studio could not start. Check tessera.config.ts and the local database configuration.");
-    process.exitCode = 1;
-  });
 }

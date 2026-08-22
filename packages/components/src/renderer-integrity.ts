@@ -64,10 +64,10 @@ export type OfficialRendererRelease = z.infer<typeof officialRendererReleaseSche
 
 export const officialRendererBuildProfile = deepFreeze({
   rendererId: "open-generative.ui",
-  rendererRevision: "0.3.13",
-  conformanceRevision: "0.3.13",
+  rendererRevision: "0.3.14",
+  conformanceRevision: "0.3.14",
   packageName: "@open-generative/ui",
-  packageVersion: "0.3.13",
+  packageVersion: "0.3.14",
   peerDependencies: {
     react: ">=19.0.0",
     reactDom: ">=19.0.0",
