@@ -49,7 +49,7 @@ for (const packageDefinition of requiredPackages) {
     }
   }
   for (const [dependency, range] of Object.entries(manifest.dependencies ?? {})) {
-    if (dependency.startsWith("@data-elements/")
+    if ((dependency.startsWith("@data-elements/") || dependency === "@tesserae/studio")
       && range !== version
       && !range.startsWith("workspace:")) {
       issues.push(`${label} depends on ${dependency} through unexpected range ${range}.`);
@@ -62,10 +62,10 @@ for (const packageDefinition of requiredPackages) {
     }
   }
 
-  if (manifest.name === "@data-elements/studio") {
+  if (manifest.name === "@tesserae/studio") {
     const entry = manifest.exports?.["./main"];
     if (!entry || typeof entry !== "object" || (entry as { default?: unknown }).default !== "./dist/main.mjs") {
-      issues.push("@data-elements/studio must expose ./main through a default export so the Node CLI can resolve its Bun entry point.");
+      issues.push("@tesserae/studio must expose ./main through a default export so the Node CLI can resolve its Bun entry point.");
     }
   }
 }

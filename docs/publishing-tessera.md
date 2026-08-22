@@ -6,7 +6,7 @@ the current package versions in the generated npm tarballs; the workflow
 checks the tarballs before publishing.
 
 Before the first release, add an `NPM_TOKEN` repository secret with permission
-to publish the `@data-elements` and `@tessera` scopes. Do not put the token in
+to publish the `@data-elements` and `@tesserae` scopes. Do not put the token in
 the repository or local package manifests.
 
 The local preflight is still useful before pushing a release tag. It builds the
