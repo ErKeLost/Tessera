@@ -10,7 +10,7 @@
     "lint": "oxlint src"
   },
   "dependencies": {
-    "@ai-sdk/react": "4.0.76",
+    "@ai-sdk/react": "4.0.79",
     "@data-elements/ai-sdk": "workspace:*",
     "@data-elements/core": "workspace:*",
     "@data-elements/observability": "workspace:*",
@@ -30,7 +30,7 @@
     "@streamdown/mermaid": "1.0.2",
     "@upstash/ratelimit": "2.0.8",
     "@upstash/redis": "1.36.1",
-    "ai": "7.0.73",
+    "ai": "7.0.76",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cnfast": "0.1.0",

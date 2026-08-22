@@ -197,6 +197,14 @@ const databaseActionApprovalRequestSchema = z.object({
   decision: z.enum(["approve", "reject"]),
 }).strict();
 
+const chatResumeRequestSchema = z.object({
+  threadId: threadIdSchema,
+  runId: z.string().trim().min(1).max(256),
+  decision: z.enum(["approve", "reject"]),
+  requestId: z.string().trim().min(1).max(512),
+  checkpointId: z.string().trim().min(1).max(512),
+}).strict();
+
 const databaseActionCancelRequestSchema = z.object({
   cancelRequestId: z.string().trim().min(1).max(256).optional(),
 }).strict();
@@ -313,6 +321,10 @@ export type StudioAgentRunInput = Readonly<{
   runtimeSignals?: readonly string[];
   signal: AbortSignal;
   identity?: StudioIdentity;
+  /** Server-only data used to resume a Mastra runtime suspension. */
+  resumeData?: unknown;
+  /** Enables Mastra runtime suspension for UI chat transports. */
+  allowRuntimeSuspension?: boolean;
 }>;
 
 export type StudioAgentRun = z.infer<typeof agentRunSchema>;
@@ -1185,6 +1197,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           // interrupted SSE response.
           // Persist only a complete, visible assistant turn; partial/error
           // messages must not become future Mastra memory context.
+          if (hasSuspendedToolCall(responseMessage)) return;
           if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) {
             chatRetries.mark({
               resourceId: sessionResourceId,
@@ -1232,6 +1245,98 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       await releaseStudioRouteLease(lease);
       throw error;
     }
+  });
+
+  /** Resumes the same Mastra run after a mutation approval decision. */
+  app.post("/api/chat/resume", async (context) => {
+    const lease = acquireStudioRouteRuntime(dependencies, staticRuntime);
+    try {
+      const runtime = lease.runtime;
+      if (!runtime.agent?.streamUI) {
+        throw new StudioHttpError(503, "agent_unavailable", "The Tessera Agent is not configured for this Studio.");
+      }
+      const parsed = chatResumeRequestSchema.safeParse(await readJsonBody(context.req.raw));
+      if (!parsed.success) throw new StudioHttpError(400, "invalid_chat_resume", "The chat resume request is invalid.");
+      const memory = requireSessionMemory(runtime.sessionMemory);
+      const thread = await memory.getThread({ id: parsed.data.threadId, resourceId: resourceIdForContext(context) });
+      if (!thread) throw new StudioHttpError(404, "thread_not_found", "The requested session is not available.");
+      const messages = await memory.readMessages({ id: parsed.data.threadId, resourceId: resourceIdForContext(context) });
+      const userMessage = [...(messages ?? [])].reverse().find((message) => message.role === "user");
+      const message = userMessage?.parts
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
+      if (!message) throw new StudioHttpError(400, "invalid_chat_resume", "The suspended user request is no longer available.");
+
+      const source = runtime.agent.streamUI({
+        runId: parsed.data.runId,
+        threadId: parsed.data.threadId,
+        message,
+        resumeData: {
+          decision: parsed.data.decision,
+          requestId: parsed.data.requestId,
+          checkpointId: parsed.data.checkpointId,
+        },
+        signal: context.req.raw.signal,
+        ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
+      });
+      const durableSource = createUIMessageStream<TesseraUIMessage>({
+        execute: ({ writer }) => writer.merge(source),
+        onError: () => "The Tessera Agent could not complete this analysis.",
+        onEnd: async ({ responseMessage, isAborted, finishReason }) => {
+          if (hasSuspendedToolCall(responseMessage)) return;
+          if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) return;
+          await appendStudioUiMessages(runtime.sessionMemory, {
+            id: parsed.data.threadId,
+            resourceId: resourceIdForContext(context),
+            messages: [responseMessage],
+          });
+        },
+      });
+      const streamStartedAt = performance.now();
+      const stream = monitorStudioChatStream(durableSource, {
+        request: context.get("apiRequest"),
+        runId: parsed.data.runId,
+        startedAt: streamStartedAt,
+        logger,
+      });
+      const response = createUIMessageStreamResponse({
+        stream: stream.source,
+        consumeSseStream: consumeStream,
+        headers: { "Cache-Control": "no-store, no-transform", "X-Accel-Buffering": "no" },
+      });
+      context.set("deferApiResponseLog", true);
+      return withStudioStreamLease(
+        withStudioStreamLogging(response, context.get("apiRequest"), logger, stream.outcome, {
+          runId: parsed.data.runId,
+          startedAt: streamStartedAt,
+        }),
+        lease,
+      );
+    } catch (error) {
+      await releaseStudioRouteLease(lease);
+      throw error;
+    }
+  });
+
+  // AI SDK's reconnect transport uses GET. Keep the decision payload in the
+  // query string and route it through the same guarded POST implementation.
+  app.get("/api/chat/resume", async (context) => {
+    const query = context.req.query();
+    const payload = {
+      threadId: query.threadId,
+      runId: query.runId,
+      decision: query.decision,
+      requestId: query.requestId,
+      checkpointId: query.checkpointId,
+    };
+    const request = new Request(context.req.raw.url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(context.req.header("authorization") ? { authorization: context.req.header("authorization")! } : {}) },
+      body: JSON.stringify(payload),
+    });
+    return app.fetch(request);
   });
 
   app.notFound((context) => {
@@ -1962,6 +2067,12 @@ function hasVisibleAssistantText(value: unknown): boolean {
     const record = asRecord(part);
     return record?.type === "text" && typeof record.text === "string" && record.text.trim().length > 0;
   });
+}
+
+function hasSuspendedToolCall(value: unknown): boolean {
+  const message = asRecord(value);
+  if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
+  return message.parts.some((part) => asRecord(part)?.type === "data-tool-call-suspended");
 }
 
 function elapsedMilliseconds(startedAt: number): number {

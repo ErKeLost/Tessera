@@ -8,6 +8,7 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   Tools,
+  useAssistantDataUI,
   useAui,
   useAuiState,
   unstable_useComposerInput,
@@ -17,13 +18,15 @@ import { BorderBeam } from "border-beam";
 import { gooeyToast } from "goey-toast";
 import {
   CopyIcon,
+  CheckIcon,
   LoaderCircleIcon,
   PencilIcon,
   ShieldCheckIcon,
+  XIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { ThinkingOrb } from "thinking-orbs";
-import type { TesseraUIMessage } from "../protocol";
+import type { TesseraSuspendedToolPayload, TesseraUIMessage } from "../protocol";
 import {
   readStudioSettingsSnapshot,
   type StudioReasoningEffort,
@@ -68,6 +71,8 @@ import { tesseraStudioToolkit } from "./tessera-toolkit";
 const tesseraStudioAssistantConfig = AuiConfig({
   tools: Tools({ toolkit: tesseraStudioToolkit }),
 });
+
+const StudioThreadIdContext = createContext<string | undefined>(undefined);
 
 export function StudioAssistant({
   initialMessages,
@@ -121,6 +126,16 @@ export function StudioAssistant({
             },
           };
         },
+        prepareReconnectToStreamRequest: ({ body }) => {
+          const custom = body?.custom;
+          if (!custom || typeof custom !== "object") return { api: "/api/chat/resume" };
+          const values = custom as Record<string, unknown>;
+          const params = new URLSearchParams();
+          for (const key of ["threadId", "runId", "decision", "requestId", "checkpointId"] as const) {
+            if (typeof values[key] === "string") params.set(key, values[key]);
+          }
+          return { api: `/api/chat/resume?${params.toString()}` };
+        },
       }),
     [threadId],
   );
@@ -170,12 +185,18 @@ export function StudioAssistant({
     initialPromptSent.current = true;
     void ensureConfiguration(() => chat.sendMessage({ text: initialPrompt }));
   }, [chat, ensureConfiguration, initialMessages.length, initialPrompt]);
-  const runtime = useAISDKRuntime<TesseraUIMessage>(chat);
+  const runtime = useAISDKRuntime<TesseraUIMessage>(chat, {
+    onResume: async (config) => {
+      await chat.resumeStream({ body: config.runConfig.custom });
+    },
+  });
   transport.setRuntime(runtime);
 
   return (
     <AssistantRuntimeProvider config={tesseraStudioAssistantConfig} runtime={runtime}>
-      <StudioConversation onBeforeSend={ensureConfiguration} onOpenSettings={onOpenSettings} />
+      <StudioThreadIdContext.Provider value={threadId}>
+        <StudioConversation onBeforeSend={ensureConfiguration} onOpenSettings={onOpenSettings} />
+      </StudioThreadIdContext.Provider>
     </AssistantRuntimeProvider>
   );
 }
@@ -234,6 +255,10 @@ function StudioConversation({
   onBeforeSend: StudioSendGuard;
   onOpenSettings(tab: StudioSettingsTab): void;
 }) {
+  useAssistantDataUI({
+    name: "tool-call-suspended",
+    render: SuspendedApprovalDataRenderer,
+  });
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">
       <ThreadPrimitive.Root className="tessera-thread-root">
@@ -258,6 +283,64 @@ function StudioConversation({
           <StudioComposer onBeforeSend={onBeforeSend} onOpenSettings={onOpenSettings} />
         </footer>
       </ThreadPrimitive.Root>
+    </section>
+  );
+}
+
+function SuspendedApprovalDataRenderer({ data }: { data: {
+  state: "data-tool-call-suspended";
+  runId: string;
+  toolCallId: string;
+  toolName: string;
+  suspendPayload: TesseraSuspendedToolPayload;
+  resumeSchema?: unknown;
+} }) {
+  const runtime = useAui();
+  const threadId = useContext(StudioThreadIdContext);
+  const [busy, setBusy] = useState(false);
+  const [decision, setDecision] = useState<"approve" | "reject">();
+  const review = data.suspendPayload;
+  const runId = data.runId;
+  const toolCallId = data.toolCallId;
+  const respond = async (nextDecision: "approve" | "reject") => {
+    if (busy || !threadId) return;
+    setBusy(true);
+    setDecision(nextDecision);
+    try {
+      runtime.thread.resumeRun({
+        parentId: null,
+        sourceId: null,
+        runConfig: {
+          custom: {
+            threadId,
+            runId,
+            toolCallId,
+            decision: nextDecision,
+            requestId: review.requestId,
+            checkpointId: review.checkpointId,
+          },
+        },
+      });
+    } catch {
+      setBusy(false);
+      setDecision(undefined);
+    }
+  };
+  return (
+    <section className="tessera-approval-card" data-state={decision ?? "idle"} aria-live="polite">
+      <div className="tessera-approval-card-accent" aria-hidden="true" />
+      <div className="tessera-approval-card-main">
+        <header className="tessera-approval-card-header">
+          <div className="tessera-approval-card-icon" aria-hidden="true"><ShieldCheckIcon /></div>
+          <div className="tessera-approval-card-heading">
+            <div className="tessera-approval-card-kicker"><span>Database action</span><span className="tessera-approval-card-status">{decision ? (decision === "approve" ? "Running" : "Declined") : "Awaiting approval"}</span></div>
+            <h3>{review.operation} · {review.target}</h3>
+            <p>{review.purpose}</p>
+          </div>
+        </header>
+        {review.compiled ? <div className="tessera-approval-card-query"><span className="tessera-approval-card-section-label">SQL</span><pre><code>{review.compiled.sql}</code></pre></div> : null}
+        {!decision ? <footer className="tessera-approval-card-actions"><span className="tessera-approval-card-footnote">Nothing changes until you approve.</span><div><Button disabled={busy} onClick={() => void respond("reject")} type="button" variant="ghost"><XIcon />Decline</Button><Button disabled={busy} onClick={() => void respond("approve")} type="button"><CheckIcon />Approve &amp; run</Button></div></footer> : <div className="tessera-approval-card-warning"><LoaderCircleIcon className={busy ? "animate-spin" : undefined} aria-hidden="true" /><span>{decision === "approve" ? "Executing the approved change…" : "The change was declined."}</span></div>}
+      </div>
     </section>
   );
 }

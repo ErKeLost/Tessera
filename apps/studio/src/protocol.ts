@@ -115,7 +115,28 @@ export type TesseraUITools = {
 };
 
 /** Studio uses native reasoning, text, and tool parts only. */
-export type TesseraUIData = Record<never, never>;
+export type TesseraSuspendedToolPayload = Readonly<{
+  requestId: string;
+  checkpointId: string;
+  operation: string;
+  target: string;
+  purpose: string;
+  compiled?: Readonly<{
+    sql: string;
+    parameters: unknown[];
+  }>;
+}>;
+
+export type TesseraUIData = {
+  "tool-call-suspended": Readonly<{
+    state: "data-tool-call-suspended";
+    runId: string;
+    toolCallId: string;
+    toolName: string;
+    suspendPayload: TesseraSuspendedToolPayload;
+    resumeSchema?: unknown;
+  }>;
+};
 
 export type TesseraUIMessage = UIMessage<unknown, TesseraUIData, TesseraUITools>;
 export type TesseraUIMessageChunk = UIMessageChunk<unknown, TesseraUIData>;

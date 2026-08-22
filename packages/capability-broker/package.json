@@ -1,6 +1,6 @@
 {
   "name": "@data-elements/capability-broker",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "Server-only capability authorization and durable effect execution for Data Elements.",

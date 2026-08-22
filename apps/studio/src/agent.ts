@@ -54,6 +54,7 @@ import type {
   TesseraRunAnalysisToolOutput,
   TesseraToolName,
   TesseraUIMessageChunk,
+  TesseraSuspendedToolPayload,
 } from "./protocol";
 import type { TesseraDatabaseActionService } from "./database-actions";
 import type { StudioAgent, StudioAgentEvent, StudioAgentRun, StudioAgentRunInput } from "./server";
@@ -2151,6 +2152,22 @@ function createDataCopilotAgent(context: Readonly<{
     strict: true,
     inputSchema: executeSqlInputSchema,
     outputSchema: executeSqlOutputSchema,
+    suspendSchema: z.object({
+      requestId: z.string().min(1).max(512),
+      checkpointId: z.string().min(1).max(512),
+      operation: z.string().min(1).max(128),
+      target: z.string().min(1).max(512),
+      purpose: z.string().min(1).max(1_000),
+      compiled: z.object({
+        sql: z.string().max(100_000),
+        parameters: z.array(z.unknown()).max(256),
+      }).optional(),
+    }).strict(),
+    resumeSchema: z.object({
+      decision: z.enum(["approve", "reject"]),
+      requestId: z.string().min(1).max(512),
+      checkpointId: z.string().min(1).max(512),
+    }).strict(),
     execute: async (input, toolContext): Promise<ExecuteSqlToolOutput> => {
       const signal = toolContext.abortSignal ?? context.input.signal;
       if (input.sql !== undefined) {
@@ -2207,6 +2224,41 @@ function createDataCopilotAgent(context: Readonly<{
       }
 
       try {
+        const resumeData = toolContext.agent?.resumeData;
+        if (isRecord(resumeData)
+          && (resumeData.decision === "approve" || resumeData.decision === "reject")
+          && typeof resumeData.requestId === "string"
+          && typeof resumeData.checkpointId === "string") {
+          const resumedEffect = resumeData.decision === "approve"
+            ? await context.databaseActions.approve({
+              actor: {
+                tenantRef: context.input.identity.tenantId,
+                actorRef: context.input.identity.subject,
+                ...(context.input.identity.roles === undefined ? {} : { roleRefs: context.input.identity.roles }),
+              },
+              requestId: resumeData.requestId,
+              checkpointId: resumeData.checkpointId,
+            })
+            : await context.databaseActions.reject({
+              actor: {
+                tenantRef: context.input.identity.tenantId,
+                actorRef: context.input.identity.subject,
+                ...(context.input.identity.roles === undefined ? {} : { roleRefs: context.input.identity.roles }),
+              },
+              requestId: resumeData.requestId,
+              checkpointId: resumeData.checkpointId,
+            });
+          if (resumedEffect.summary.status === "succeeded") {
+            return { status: "completed", mode: "mutation", affectedRows: resumedEffect.result?.affectedRows };
+          }
+          return {
+            status: resumedEffect.summary.status === "denied" || resumedEffect.approval?.status === "rejected" ? "blocked" : "failed",
+            mode: "mutation",
+            reason: resumedEffect.receipt?.diagnostic?.code ?? (resumeData.decision === "reject" ? "user_declined" : "mutation_not_executed"),
+            message: resumedEffect.receipt?.diagnostic?.message ?? (resumeData.decision === "reject" ? "用户拒绝了这项数据库变更，未执行任何修改。" : "数据库变更执行失败。"),
+            nextAction: resumeData.decision === "reject" ? "respond" : "revise_mutation",
+          };
+        }
         const catalog = await context.dataAgent.inspectCatalog({ refresh: true }, signal);
         const action = databaseActionSchema.parse({
           version: 1,
@@ -2226,6 +2278,28 @@ function createDataCopilotAgent(context: Readonly<{
           requireApproval: true,
         });
         if (effect.summary.status === "awaiting-approval" && effect.approval !== undefined) {
+          const review = effect.review;
+          const relation = mutation.relation;
+          const operation = mutation.kind.replace(/^data\./, "");
+          const suspendPayload: TesseraSuspendedToolPayload = {
+            requestId: effect.summary.requestId,
+            checkpointId: effect.approval.checkpointId,
+            operation,
+            target: `${relation.schema}.${relation.table}`,
+            purpose: input.purpose,
+            ...(review?.compiled === undefined ? {} : {
+              compiled: {
+                sql: review.compiled.sql,
+                parameters: review.compiled.parameters,
+              },
+            }),
+          };
+          if (context.input.allowRuntimeSuspension === true && toolContext.agent?.suspend !== undefined) {
+            await toolContext.agent.suspend(suspendPayload);
+            return undefined as unknown as ExecuteSqlToolOutput;
+          }
+          // Keep the non-streaming/legacy host contract usable when Mastra
+          // does not provide a runtime suspension context.
           return {
             status: "approval_required",
             mode: "mutation",
@@ -3008,7 +3082,7 @@ function streamTesseraAgentTurnUI(
           // Do not start an Agent or LLM call after that request is gone.
           if (controller.signal.aborted) return;
           const agent = createDataCopilotAgent({
-            input: { ...input, signal: controller.signal },
+            input: { ...input, signal: controller.signal, allowRuntimeSuspension: true },
             dataAgent,
             memory,
             model,
@@ -3018,7 +3092,10 @@ function streamTesseraAgentTurnUI(
             databaseActions,
             databaseDialect,
           });
-          const output = await agent.stream(agentUserContent(input), copilotGenerationOptions({ ...input, signal: controller.signal }, llm));
+          const generationOptions = copilotGenerationOptions({ ...input, signal: controller.signal }, llm);
+          const output = input.resumeData === undefined
+            ? await agent.stream(agentUserContent(input), generationOptions)
+            : await agent.resumeStream(input.resumeData, generationOptions);
           const source = appendCopilotOutcome(
             toAISdkStream(output, {
               from: "agent",
@@ -3074,6 +3151,7 @@ function appendCopilotOutcome(
   let terminal = false;
   let hasVisibleText = false;
   let response = "";
+  let suspended = false;
   return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
     async transform(chunk, streamController) {
       if (chunk.type === "text-delta") {
@@ -3081,6 +3159,12 @@ function appendCopilotOutcome(
         if (hasVisibleCopilotText(chunk.delta)) {
           hasVisibleText = true;
         }
+      }
+
+      if (chunk.type === "data-tool-call-suspended") {
+        suspended = true;
+        streamController.enqueue(chunk);
+        return;
       }
 
       if (chunk.type === "error") {
@@ -3096,6 +3180,13 @@ function appendCopilotOutcome(
 
       if (chunk.type === "finish" && !terminal) {
         terminal = true;
+        if (suspended || (chunk.finishReason as string | undefined) === "suspended") {
+          // A suspended run is an intentional pause, not an incomplete or
+          // failed answer. The client must keep the suspension payload and
+          // resume this exact run after the user decides.
+          streamController.enqueue(chunk);
+          return;
+        }
         if (chunk.finishReason !== "stop") {
           streamController.enqueue({
             type: "error",
