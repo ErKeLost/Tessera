@@ -1011,7 +1011,7 @@ Diagnostics 使用稳定 code、phase、entity ID、path、severity、recoverabl
 | `@open-generative/mastra` | Server-only Mastra tool/capability adapter，不拥有核心语义 |
 | `@open-generative/ag-ui` | 显式 `./server` 与 `./client` event adapter exports，不拥有核心语义 |
 | `@open-generative/components` | Framework-neutral 官方 Component Contracts、ChartSpec、recipes 与 fixtures |
-| `@open-generative/components-react` | 基于 shadcn/ui 的官方 React node renderers 与 capability manifest |
+| `@open-generative/ui` | 基于 Open Generative UI primitives 的官方 React node renderers 与 capability manifest |
 
 依赖必须保持无环，browser bundle 不能触达 server-only package：
 
@@ -1024,7 +1024,7 @@ flowchart TD
   R --> CL["client"]
   CL --> RE["react"]
   C --> OC["components"]
-  OC --> OCR["components-react"]
+  OC --> OCR["ui"]
   RE --> OCR
 
   P --> RES["resources (server)"]
@@ -1104,7 +1104,7 @@ type ChartCoverageManifest = {
 }
 ```
 
-`ExactSemver` 禁止 range、tag 和隐式 minor/patch 漂移；`PackageIntegrity` 使用包管理器 lockfile 中验证过的完整 integrity。Coverage result 同时绑定 active Contract set、Renderer Capability Manifest 与 implementation hash，不能拿旧 renderer 的通过记录证明新实现。Registry 中每个 recipe 必须恰好映射到一个 valid ChartSpec fixture、renderer fixture 和 accessibility fixture；上游新增、删除、内容 hash 改变或未映射文件都使 `@open-generative/components-react` conformance 失败。这个 coverage gate 属于 Tessera Data UI React profile，不属于 framework-neutral core protocol gate。
+`ExactSemver` 禁止 range、tag 和隐式 minor/patch 漂移；`PackageIntegrity` 使用包管理器 lockfile 中验证过的完整 integrity。Coverage result 同时绑定 active Contract set、Renderer Capability Manifest 与 implementation hash，不能拿旧 renderer 的通过记录证明新实现。Registry 中每个 recipe 必须恰好映射到一个 valid ChartSpec fixture、renderer fixture 和 accessibility fixture；上游新增、删除、内容 hash 改变或未映射文件都使 `@open-generative/ui` conformance 失败。这个 coverage gate 属于 Open Generative UI React profile，不属于 framework-neutral core protocol gate。
 
 概念 `ChartSpec`：
 
@@ -1267,7 +1267,7 @@ type QueryResourcePublicationResult = {
 | `lib/data-agent/query-artifact-adapter.ts` | 兼容转换旧 query result | Greenfield 目标不保留 legacy adapter；所有 Document/Resource/Event 必须由正式 validator 进入 | 删除 |
 | `components/artifact-ui/query-artifact.tsx` | 固定 Provider/renderer，并直接读取 rows 生成 CSV | 由 Tessera Data UI node renderers 取代；CSV export 改为 committed node 发出的 typed HostIntent，服务端按 actor/revision/binding/snapshot/grant 重授权 | 删除 |
 | `lib/data-agent/history.ts` | 直接 recall 原始 Mastra messages | 写入时即保存安全文本摘要、Document/Revision refs、ResourceBinding/Version refs 与 Evidence refs；Surface 从 revision snapshot/event ledger 恢复，不能从历史 tool result 重建 | 保留模块，重写 serialization |
-| `package.json` | 应用直接依赖旧本地组件 packages | 移除旧 scope；server 按直接使用面接入 `@open-generative/server`、`@open-generative/resources`、`@open-generative/capabilities`、`@open-generative/mastra`、`@open-generative/ai-sdk`，browser 接入 `@open-generative/client`、`@open-generative/react`、`@open-generative/components-react`。具体依赖升级是独立实施任务 | 迁移依赖边界 |
+| `package.json` | 应用直接依赖旧本地组件 packages | 移除旧 scope；server 按直接使用面接入 `@open-generative/server`、`@open-generative/resources`、`@open-generative/capabilities`、`@open-generative/mastra`、`@open-generative/ai-sdk`，browser 接入 `@open-generative/client`、`@open-generative/react`、`@open-generative/ui`。具体依赖升级是独立实施任务 | 迁移依赖边界 |
 
 实现时还必须同步处理下列调用面，不能留下旁路：
 

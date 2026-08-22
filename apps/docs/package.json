@@ -15,7 +15,7 @@
     "@gsap/react": "2.1.2",
     "@iconify-icons/simple-icons": "1.2.74",
     "@iconify/react": "6.0.2",
-    "@open-tessera/react": "workspace:*",
+    "@open-generative/ui": "workspace:*",
     "@open-tessera/runtime": "workspace:*",
     "@open-tessera/schema": "workspace:*",
     "@openrouter/ai-sdk-provider": "3.0.0",

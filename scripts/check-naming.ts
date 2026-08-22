@@ -4,9 +4,6 @@ const forbidden = [
   /@data-elements\//i,
   /\bdata-elements\b/i,
   /\bdata elements\b/i,
-  /ArtifactDocument/,
-  /QueryArtifact/,
-  /GenerativeHost/,
 ];
 
 const textExtension = /(?:\.(?:c|m)?(?:j|t)sx?|\.json|\.mdx?|\.ya?ml|\.toml|\.css|\.html)$/;

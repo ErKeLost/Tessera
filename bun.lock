@@ -20,7 +20,7 @@
         "@gsap/react": "2.1.2",
         "@iconify-icons/simple-icons": "1.2.74",
         "@iconify/react": "6.0.2",
-        "@open-tessera/react": "workspace:*",
+        "@open-generative/ui": "workspace:*",
         "@open-tessera/runtime": "workspace:*",
         "@open-tessera/schema": "workspace:*",
         "@openrouter/ai-sdk-provider": "3.0.0",
@@ -66,6 +66,9 @@
     "apps/studio": {
       "name": "@open-tessera/studio",
       "version": "0.3.5",
+      "bin": {
+        "studio": "./dist/main.mjs",
+      },
       "dependencies": {
         "@ai-sdk/react": "4.0.79",
         "@assistant-ui/react": "0.15.16",
@@ -82,6 +85,7 @@
         "@mastra/core": "1.61.0",
         "@mastra/libsql": "1.21.1",
         "@mastra/memory": "1.27.0",
+        "@open-generative/ui": "workspace:*",
         "@open-tessera/capabilities": "workspace:*",
         "@open-tessera/compiler": "workspace:*",
         "@open-tessera/data-agent": "workspace:*",
@@ -89,7 +93,6 @@
         "@open-tessera/mongodb": "workspace:*",
         "@open-tessera/mysql": "workspace:*",
         "@open-tessera/postgres": "workspace:*",
-        "@open-tessera/react": "workspace:*",
         "@open-tessera/runtime": "workspace:*",
         "@open-tessera/schema": "workspace:*",
         "@open-tessera/sqlite": "workspace:*",
@@ -257,31 +260,6 @@
         "@types/bun": "1.3.14",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
-      },
-    },
-    "packages/components-react": {
-      "name": "@open-generative/components-react",
-      "version": "0.3.4",
-      "dependencies": {
-        "@open-generative/catalog": "workspace:*",
-        "@open-generative/components": "workspace:*",
-        "@open-generative/protocol": "workspace:*",
-        "@open-generative/react": "workspace:*",
-        "lucide-react": "1.31.0",
-        "recharts": "3.10.1",
-      },
-      "devDependencies": {
-        "@types/bun": "1.3.14",
-        "@types/react": "19.2.18",
-        "@types/react-dom": "19.2.4",
-        "react": "19.2.8",
-        "react-dom": "19.2.8",
-        "tsdown": "0.22.14",
-        "typescript": "7.0.2",
-      },
-      "peerDependencies": {
-        "react": ">=19.0.0",
-        "react-dom": ">=19.0.0",
       },
     },
     "packages/data-agent": {
@@ -500,30 +478,6 @@
         "typescript": "7.0.2",
       },
     },
-    "packages/tessera-react": {
-      "name": "@open-tessera/react",
-      "version": "0.3.5",
-      "dependencies": {
-        "@open-tessera/core": "workspace:*",
-        "@open-tessera/runtime": "workspace:*",
-        "@open-tessera/schema": "workspace:*",
-        "@radix-ui/react-tabs": "1.1.21",
-        "lucide-react": "1.31.0",
-        "recharts": "3.10.1",
-      },
-      "devDependencies": {
-        "@types/react": "19.2.18",
-        "@types/react-dom": "19.2.4",
-        "react": "19.2.8",
-        "react-dom": "19.2.8",
-        "tsdown": "0.22.14",
-        "typescript": "7.0.2",
-      },
-      "peerDependencies": {
-        "react": ">=18.3.0",
-        "react-dom": ">=18.3.0",
-      },
-    },
     "packages/tessera-runtime": {
       "name": "@open-tessera/runtime",
       "version": "0.3.5",
@@ -558,6 +512,30 @@
         "@types/node": "26.2.0",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
+      },
+    },
+    "packages/ui": {
+      "name": "@open-generative/ui",
+      "version": "0.3.5",
+      "dependencies": {
+        "@open-tessera/core": "workspace:*",
+        "@open-tessera/runtime": "workspace:*",
+        "@open-tessera/schema": "workspace:*",
+        "@radix-ui/react-tabs": "1.1.21",
+        "lucide-react": "1.31.0",
+        "recharts": "3.10.1",
+      },
+      "devDependencies": {
+        "@types/react": "19.2.18",
+        "@types/react-dom": "19.2.4",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
+        "tsdown": "0.22.14",
+        "typescript": "7.0.2",
+      },
+      "peerDependencies": {
+        "react": ">=18.3.0",
+        "react-dom": ">=18.3.0",
       },
     },
   },
@@ -940,8 +918,6 @@
 
     "@open-generative/components": ["@open-generative/components@workspace:packages/components"],
 
-    "@open-generative/components-react": ["@open-generative/components-react@workspace:packages/components-react"],
-
     "@open-generative/mastra": ["@open-generative/mastra@workspace:packages/mastra"],
 
     "@open-generative/protocol": ["@open-generative/protocol@workspace:packages/protocol"],
@@ -953,6 +929,8 @@
     "@open-generative/runtime": ["@open-generative/runtime@workspace:packages/runtime"],
 
     "@open-generative/server": ["@open-generative/server@workspace:packages/server"],
+
+    "@open-generative/ui": ["@open-generative/ui@workspace:packages/ui"],
 
     "@open-tessera/capabilities": ["@open-tessera/capabilities@workspace:packages/tessera-capabilities"],
 
@@ -971,8 +949,6 @@
     "@open-tessera/mysql": ["@open-tessera/mysql@workspace:packages/mysql"],
 
     "@open-tessera/postgres": ["@open-tessera/postgres@workspace:packages/postgres"],
-
-    "@open-tessera/react": ["@open-tessera/react@workspace:packages/tessera-react"],
 
     "@open-tessera/runtime": ["@open-tessera/runtime@workspace:packages/tessera-runtime"],
 

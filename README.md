@@ -50,7 +50,7 @@ The measurable proof plan is documented in
 | `@open-generative/capabilities` | Action policy, approval, idempotency, effects, receipts |
 | `@open-generative/react` | GenerativeSurface and React RendererRegistry |
 | `@open-generative/components` | Official framework-neutral component contracts and ChartSpec |
-| `@open-generative/components-react` | Official shadcn/ui React node renderers |
+| `@open-generative/ui` | Official React UI components and artifact renderers |
 | `@open-generative/ai-sdk` | AI SDK server/client transport adapter |
 | `@open-generative/mastra` | Server-only Mastra adapter |
 | `@open-generative/ag-ui` | AG-UI server/client event adapter |

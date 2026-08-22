@@ -1,5 +1,5 @@
 /**
- * Shared visual recipes for Data Elements.
+ * Shared visual recipes for Open Generative UI.
  *
  * The vocabulary intentionally follows assistant-ui's shadcn/ui primitives:
  * paper, floating, field, fieldInteractive, ghostButton, and mono. The CSS

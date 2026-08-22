@@ -58,7 +58,7 @@
     "@open-tessera/mongodb": "workspace:*",
     "@open-tessera/mysql": "workspace:*",
     "@open-tessera/postgres": "workspace:*",
-    "@open-tessera/react": "workspace:*",
+    "@open-generative/ui": "workspace:*",
     "@open-tessera/runtime": "workspace:*",
     "@open-tessera/schema": "workspace:*",
     "@open-tessera/sqlite": "workspace:*",

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArtifactRenderer } from "@open-tessera/react";
+import { ArtifactRenderer } from "@open-generative/ui";
 import {
   decodeArtifactPart,
   type ArtifactPart,

@@ -20,7 +20,7 @@
       "@open-generative/capabilities": ["./packages/capabilities/src/index.ts"],
       "@open-generative/react": ["./packages/react/src/index.ts"],
       "@open-generative/components": ["./packages/components/src/index.ts"],
-      "@open-generative/components-react": ["./packages/components-react/src/index.ts"],
+      "@open-generative/ui": ["./packages/ui/src/index.ts"],
       "@open-generative/ai-sdk": ["./packages/ai-sdk/src/index.ts"],
       "@open-generative/ai-sdk/*": ["./packages/ai-sdk/src/*.ts"],
       "@open-generative/mastra": ["./packages/mastra/src/index.ts"],

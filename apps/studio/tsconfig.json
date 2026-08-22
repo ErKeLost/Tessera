@@ -10,7 +10,7 @@
       "@open-tessera/runtime": ["../../packages/tessera-runtime/src/index.ts"],
       "@open-tessera/compiler": ["../../packages/tessera-compiler/src/index.ts"],
       "@open-tessera/capabilities": ["../../packages/tessera-capabilities/src/index.ts"],
-      "@open-tessera/react": ["../../packages/tessera-react/src/index.ts"],
+      "@open-generative/ui": ["../../packages/ui/src/index.ts"],
       "@open-tessera/database": ["../../packages/database/src/index.ts"],
       "@open-tessera/mongodb": ["../../packages/mongodb/src/index.ts"],
       "@open-tessera/mysql": ["../../packages/mysql/src/index.ts"],

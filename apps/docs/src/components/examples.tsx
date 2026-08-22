@@ -49,7 +49,7 @@ import {
   TargetArtifact as TargetArtifactView,
   TimelineArtifact as TimelineArtifactView,
   TrendArtifact as TrendArtifactView,
-} from "@open-tessera/react";
+} from "@open-generative/ui";
 
 const query: QueryArtifact = {
   protocolVersion: "1.0",

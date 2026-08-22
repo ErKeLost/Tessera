@@ -17,8 +17,8 @@ const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 // builds. Resolving this package through its published `dist` entry makes the
 // client silently retain an older Artifact renderer when that package has not
 // been rebuilt yet.
-const tesseraReactSource = fileURLToPath(new URL("../../packages/tessera-react/src/index.ts", import.meta.url));
-const tesseraReactStyles = fileURLToPath(new URL("../../packages/tessera-react/src/styles.css", import.meta.url));
+const generativeUiSource = fileURLToPath(new URL("../../packages/ui/src/index.ts", import.meta.url));
+const generativeUiStyles = fileURLToPath(new URL("../../packages/ui/src/styles.css", import.meta.url));
 const studioPackage = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
@@ -53,8 +53,8 @@ export default defineConfig({
     alias: [
       // This subpath must precede the package root or Vite turns it into
       // `index.ts/styles.css` while resolving the source alias above.
-      { find: "@open-tessera/react/styles.css", replacement: tesseraReactStyles },
-      { find: "@open-tessera/react", replacement: tesseraReactSource },
+      { find: "@open-generative/ui/styles.css", replacement: generativeUiStyles },
+      { find: "@open-generative/ui", replacement: generativeUiSource },
       { find: "@", replacement: clientRoot },
     ],
   },

@@ -1,7 +1,7 @@
 {
-  "name": "@open-tessera/react",
+  "name": "@open-generative/ui",
   "version": "0.3.5",
-  "description": "Interactive React artifacts for data agents.",
+  "description": "Open Generative UI components and artifact renderers.",
   "type": "module",
   "sideEffects": [
     "**/*.css"
