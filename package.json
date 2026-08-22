@@ -1,6 +1,6 @@
 {
   "name": "open-generative",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "description": "Host-governed generative UI protocol, runtime, and official component catalog.",
   "type": "module",
@@ -17,7 +17,7 @@
     "check:naming": "bun scripts/check-naming.ts",
     "check:source": "bun scripts/check-source.ts",
     "lint": "turbo run lint",
-    "release:check": "bun run check:naming && bun run check:boundaries && bun run typecheck && bun run build:packages && bun run test && bun scripts/check-release.ts",
+    "release:check": "bun run check:naming && bun run check:boundaries && bun run typecheck && bun run build:packages && bun run test && bun scripts/check-release.ts && bun scripts/check-release-stage.ts",
     "test": "bun run check:naming && bun run check:boundaries && turbo run test",
     "typecheck": "turbo run typecheck"
   },

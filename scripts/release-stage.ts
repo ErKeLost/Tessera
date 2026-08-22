@@ -153,6 +153,19 @@ function rewriteInternalDependencies(
     }
   }
 
+  const devDependencies = manifest.devDependencies;
+  if (devDependencies !== undefined) {
+    assertObject(devDependencies, `${definition.name} devDependencies`);
+    for (const [name, specifier] of Object.entries(devDependencies)) {
+      if (!name.startsWith("@open-generative/") && !name.startsWith("@open-tessera/")) continue;
+      if (!graphNames.has(name)) throw new Error(`${definition.name} depends on unknown internal package ${name}.`);
+      if (specifier !== "workspace:*") {
+        throw new Error(`${definition.name} devDependencies.${name} must use workspace:* before staging.`);
+      }
+      devDependencies[name] = releaseVersion;
+    }
+  }
+
   const remainingWorkspaceValues = findWorkspaceValues(manifest);
   if (remainingWorkspaceValues.length > 0) {
     throw new Error(`${definition.name} contains unstaged workspace specifiers at ${remainingWorkspaceValues.join(", ")}.`);

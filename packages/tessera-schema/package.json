@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/schema",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
