@@ -38,7 +38,7 @@ for (const packageDefinition of npmReleasePackages) {
   }
   if (packageDefinition.directory === "apps/studio" && manifest.dependencies) {
     for (const dependency of Object.keys(manifest.dependencies)) {
-      if (dependency.startsWith("@data-elements/")) {
+      if (dependency.startsWith("@data-elements/") || dependency.startsWith("@open-tessera/")) {
         delete manifest.dependencies[dependency];
         changed = true;
       }

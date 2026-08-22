@@ -4,7 +4,7 @@
     "noEmit": true,
     "types": ["bun", "node"],
     "paths": {
-      "@data-elements/database": ["../database/src/index.ts"]
+      "@open-tessera/database": ["../database/src/index.ts"]
     }
   },
   "include": ["src"]

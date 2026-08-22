@@ -8,8 +8,8 @@ export default defineConfig({
   sourcemap: true,
   deps: {
     // Internal workspace packages are bundled so the published Studio CLI has
-    // no runtime dependency on the retired @data-elements scope.
-    alwaysBundle: [/^@data-elements\//],
+    // no runtime dependency on workspace-only packages from either scope.
+    alwaysBundle: [/^@data-elements\//, /^@open-tessera\//],
     neverBundle: [/^h3$/, /^node:/, /^srvx$/, /^zod$/],
     dts: { neverBundle: true },
   },

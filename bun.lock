@@ -77,15 +77,15 @@
         "@assistant-ui/react-markdown": "^0.14.10",
         "@data-elements/capability-broker": "workspace:*",
         "@data-elements/compiler": "workspace:*",
-        "@data-elements/data-agent": "workspace:*",
-        "@data-elements/database": "workspace:*",
-        "@data-elements/mongodb": "workspace:*",
-        "@data-elements/mysql": "workspace:*",
-        "@data-elements/postgres": "workspace:*",
+        "@open-tessera/data-agent": "workspace:*",
+        "@open-tessera/database": "workspace:*",
+        "@open-tessera/mongodb": "workspace:*",
+        "@open-tessera/mysql": "workspace:*",
+        "@open-tessera/postgres": "workspace:*",
         "@data-elements/runtime": "workspace:*",
         "@data-elements/schema": "workspace:*",
-        "@data-elements/sqlite": "workspace:*",
-        "@data-elements/turso": "workspace:*",
+        "@open-tessera/sqlite": "workspace:*",
+        "@open-tessera/turso": "workspace:*",
         "@fontsource-variable/dm-sans": "^5.3.0",
         "@fontsource/dm-mono": "^5.3.0",
         "@iconify/react": "6.0.2",
@@ -237,10 +237,10 @@
       },
     },
     "packages/data-agent": {
-      "name": "@data-elements/data-agent",
+      "name": "@open-tessera/data-agent",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/database": "workspace:*",
+        "@open-tessera/database": "workspace:*",
         "zod": "4.4.3",
       },
       "devDependencies": {
@@ -249,7 +249,7 @@
       },
     },
     "packages/database": {
-      "name": "@data-elements/database",
+      "name": "@open-tessera/database",
       "version": "0.3.4",
       "dependencies": {
         "zod": "4.4.3",
@@ -305,10 +305,10 @@
       },
     },
     "packages/mongodb": {
-      "name": "@data-elements/mongodb",
+      "name": "@open-tessera/mongodb",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/database": "workspace:*",
+        "@open-tessera/database": "workspace:*",
         "mongodb": "^6.20.0",
       },
       "devDependencies": {
@@ -318,10 +318,10 @@
       },
     },
     "packages/mysql": {
-      "name": "@data-elements/mysql",
+      "name": "@open-tessera/mysql",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/database": "workspace:*",
+        "@open-tessera/database": "workspace:*",
         "mysql2": "^3.23.3",
         "node-sql-parser": "^5.4.0",
       },
@@ -344,10 +344,10 @@
       },
     },
     "packages/postgres": {
-      "name": "@data-elements/postgres",
+      "name": "@open-tessera/postgres",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/database": "workspace:*",
+        "@open-tessera/database": "workspace:*",
         "pg": "8.23.0",
         "pgsql-ast-parser": "12.0.2",
       },
@@ -431,10 +431,10 @@
       },
     },
     "packages/sqlite": {
-      "name": "@data-elements/sqlite",
+      "name": "@open-tessera/sqlite",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/database": "workspace:*",
+        "@open-tessera/database": "workspace:*",
         "@libsql/client": "0.17.4",
         "node-sql-parser": "^5.4.0",
       },
@@ -446,10 +446,10 @@
       },
     },
     "packages/turso": {
-      "name": "@data-elements/turso",
+      "name": "@open-tessera/turso",
       "version": "0.3.4",
       "dependencies": {
-        "@data-elements/sqlite": "workspace:*",
+        "@open-tessera/sqlite": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -598,9 +598,9 @@
 
     "@data-elements/core": ["@data-elements/core@workspace:packages/core"],
 
-    "@data-elements/data-agent": ["@data-elements/data-agent@workspace:packages/data-agent"],
+    "@open-tessera/data-agent": ["@open-tessera/data-agent@workspace:packages/data-agent"],
 
-    "@data-elements/database": ["@data-elements/database@workspace:packages/database"],
+    "@open-tessera/database": ["@open-tessera/database@workspace:packages/database"],
 
     "@data-elements/devtools": ["@data-elements/devtools@workspace:packages/devtools"],
 
@@ -610,13 +610,13 @@
 
     "@data-elements/mastra": ["@data-elements/mastra@workspace:packages/mastra"],
 
-    "@data-elements/mongodb": ["@data-elements/mongodb@workspace:packages/mongodb"],
+    "@open-tessera/mongodb": ["@open-tessera/mongodb@workspace:packages/mongodb"],
 
-    "@data-elements/mysql": ["@data-elements/mysql@workspace:packages/mysql"],
+    "@open-tessera/mysql": ["@open-tessera/mysql@workspace:packages/mysql"],
 
     "@data-elements/observability": ["@data-elements/observability@workspace:packages/observability"],
 
-    "@data-elements/postgres": ["@data-elements/postgres@workspace:packages/postgres"],
+    "@open-tessera/postgres": ["@open-tessera/postgres@workspace:packages/postgres"],
 
     "@data-elements/react": ["@data-elements/react@workspace:packages/react"],
 
@@ -628,9 +628,9 @@
 
     "@data-elements/schema": ["@data-elements/schema@workspace:packages/schema"],
 
-    "@data-elements/sqlite": ["@data-elements/sqlite@workspace:packages/sqlite"],
+    "@open-tessera/sqlite": ["@open-tessera/sqlite@workspace:packages/sqlite"],
 
-    "@data-elements/turso": ["@data-elements/turso@workspace:packages/turso"],
+    "@open-tessera/turso": ["@open-tessera/turso@workspace:packages/turso"],
 
     "@dnd-kit/accessibility": ["@dnd-kit/accessibility@3.1.1", "", { "dependencies": { "tslib": "^2.0.0" }, "peerDependencies": { "react": ">=16.8.0" } }, "sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw=="],
 

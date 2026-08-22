@@ -1,11 +1,11 @@
-# @data-elements/turso
+# @open-tessera/turso
 
 Cross-runtime Turso/libSQL connector for Data Elements on Node.js 24+ and Bun
 1.3+. It reuses the SQLite catalog and read-only SQL policy while keeping Turso
 connection credentials separate.
 
 ```ts
-import { createTursoConnector } from "@data-elements/turso";
+import { createTursoConnector } from "@open-tessera/turso";
 
 const database = createTursoConnector({
   connectionString: "libsql://warehouse-org.turso.io",

@@ -1,6 +1,6 @@
 {
-  "name": "@data-elements/mongodb",
-  "version": "0.3.6",
+  "name": "@open-tessera/mongodb",
+  "version": "0.3.7",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "MongoDB connector, collection introspection, and governed read-only aggregation for Data Elements.",
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/database": "workspace:*",
+    "@open-tessera/database": "workspace:*",
     "mongodb": "^6.20.0"
   },
   "devDependencies": {

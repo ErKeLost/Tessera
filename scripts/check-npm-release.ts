@@ -49,7 +49,7 @@ for (const packageDefinition of requiredPackages) {
     }
   }
   for (const [dependency, range] of Object.entries(manifest.dependencies ?? {})) {
-    if ((dependency.startsWith("@data-elements/") || dependency === "@open-tessera/studio")
+    if ((dependency.startsWith("@data-elements/") || dependency.startsWith("@open-tessera/") || dependency === "@open-tessera/studio")
       && range !== version
       && !range.startsWith("workspace:")) {
       issues.push(`${label} depends on ${dependency} through unexpected range ${range}.`);

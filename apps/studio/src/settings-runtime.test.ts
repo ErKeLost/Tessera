@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createDataAgent } from "@data-elements/data-agent";
+import { createDataAgent } from "@open-tessera/data-agent";
 import {
   finalizeCatalog,
   type ConnectionAssessment,
   type DatabaseConnector,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { defineTesseraConfig } from "./config";
 import {
   TesseraSettingsRuntimeError,

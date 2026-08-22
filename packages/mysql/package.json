@@ -1,6 +1,6 @@
 {
-  "name": "@data-elements/mysql",
-  "version": "0.3.6",
+  "name": "@open-tessera/mysql",
+  "version": "0.3.7",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "MySQL connector, schema introspection, and read-only query policy for Data Elements.",
@@ -29,7 +29,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/database": "workspace:*",
+    "@open-tessera/database": "workspace:*",
     "mysql2": "^3.23.3",
     "node-sql-parser": "^5.4.0"
   },

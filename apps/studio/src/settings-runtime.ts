@@ -17,7 +17,7 @@ import {
 } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
-import { createDataAgent, type DataAgent } from "@data-elements/data-agent";
+import { createDataAgent, type DataAgent } from "@open-tessera/data-agent";
 import type { DurableStateStorePort } from "@data-elements/runtime";
 import {
   databasePermissionLevelSchema,
@@ -29,12 +29,12 @@ import {
   type DatabasePermissionProfile,
   type DatabaseScopedPermissionPolicy,
   type DatabaseScopedPermissionPolicyInput,
-} from "@data-elements/database";
-import { createMongoDbConnector } from "@data-elements/mongodb";
-import { createMySqlConnector } from "@data-elements/mysql";
-import { createPostgresConnector } from "@data-elements/postgres";
-import { createSqliteConnector } from "@data-elements/sqlite";
-import { createTursoConnector } from "@data-elements/turso";
+} from "@open-tessera/database";
+import { createMongoDbConnector } from "@open-tessera/mongodb";
+import { createMySqlConnector } from "@open-tessera/mysql";
+import { createPostgresConnector } from "@open-tessera/postgres";
+import { createSqliteConnector } from "@open-tessera/sqlite";
+import { createTursoConnector } from "@open-tessera/turso";
 import { createTesseraStudioAgent } from "./agent";
 import { createTesseraSessionMemory, type TesseraSessionMemory } from "./session-memory";
 import {

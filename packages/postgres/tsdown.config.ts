@@ -7,7 +7,7 @@ export default defineConfig({
   format: ["esm"],
   sourcemap: true,
   deps: {
-    neverBundle: [/^@data-elements\//, /^node:/, /^pg$/, /^pgsql-ast-parser$/],
+    neverBundle: [/^@open-tessera\//, /^node:/, /^pg$/, /^pgsql-ast-parser$/],
     dts: { neverBundle: true },
   },
 });

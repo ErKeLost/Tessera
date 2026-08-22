@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { DatabaseCatalog, DatabaseDialect } from "@data-elements/database";
+import type { DatabaseCatalog, DatabaseDialect } from "@open-tessera/database";
 import type {
   Aggregate,
   AnalysisDraft,

@@ -1,7 +1,7 @@
 import {
   LibSqlConnector,
   type LibSqlConnectorOptions,
-} from "@data-elements/sqlite";
+} from "@open-tessera/sqlite";
 
 export type TursoConnectorOptions = Readonly<
   Omit<LibSqlConnectorOptions, "dialect">

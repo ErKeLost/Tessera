@@ -44,7 +44,7 @@ import {
   type DatabasePermissionActor,
   type DatabaseRowPredicateBinding,
   type DatabaseScopedPermissionPolicy,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   canonicalHash,
   canonicalize,

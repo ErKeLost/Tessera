@@ -9,7 +9,7 @@ import {
   type DatabaseExtensionInspectionInput,
   type DatabaseRlsPolicyInspectionInput,
   type DatabaseQueryResult,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   AnalysisCompilerError,
   bindAnalysisDraft as bindDraft,

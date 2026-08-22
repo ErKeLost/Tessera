@@ -6,8 +6,8 @@ import {
   type DatabaseConnector,
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
-} from "@data-elements/database";
-import { semanticCatalogSchema, type DataAgent } from "@data-elements/data-agent";
+} from "@open-tessera/database";
+import { semanticCatalogSchema, type DataAgent } from "@open-tessera/data-agent";
 import {
   createStudioApp,
   createStudioCatalogProvider,

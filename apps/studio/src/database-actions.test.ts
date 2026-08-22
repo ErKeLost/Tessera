@@ -5,7 +5,7 @@ import {
   type DatabaseCatalog,
   type DatabaseConnector,
   type DatabaseMutationExecutor,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { InMemoryDurableStateStore } from "@data-elements/runtime";
 import { createTesseraDatabaseActionService } from "./database-actions";
 

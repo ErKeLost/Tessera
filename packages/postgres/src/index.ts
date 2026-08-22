@@ -27,7 +27,7 @@ import {
   type DatabaseQueryResult,
   type DatabaseSchema,
   type DatabaseTable,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient, type QueryArrayResult } from "pg";
 import { PostgresQueryPolicyError, validateReadOnlySql, type KnownRelation } from "./sql-policy";

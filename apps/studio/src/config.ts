@@ -1,12 +1,12 @@
 import { access, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { semanticCatalogDefinitionSchema } from "@data-elements/data-agent";
+import { semanticCatalogDefinitionSchema } from "@open-tessera/data-agent";
 import {
   createDatabaseScopedPermissionPolicy,
   databaseScopedPermissionPolicyInputSchema,
   type DatabaseScopedPermissionPolicy,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import { parse as parseDotenv, populate as populateDotenv } from "dotenv";
 import { z } from "zod";
 

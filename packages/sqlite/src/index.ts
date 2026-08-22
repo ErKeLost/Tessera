@@ -17,7 +17,7 @@ import {
   type DatabaseQueryRequest,
   type DatabaseQueryResult,
   type DatabaseTable,
-} from "@data-elements/database";
+} from "@open-tessera/database";
 import {
   createClient,
   type Client,

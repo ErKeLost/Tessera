@@ -1,6 +1,6 @@
 {
-  "name": "@data-elements/data-agent",
-  "version": "0.3.6",
+  "name": "@open-tessera/data-agent",
+  "version": "0.3.7",
   "license": "MIT",
   "publishConfig": { "access": "public" },
   "description": "Server-only fixed workflow for governed database analysis.",
@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@data-elements/database": "workspace:*",
+    "@open-tessera/database": "workspace:*",
     "zod": "4.4.3"
   },
   "devDependencies": {
