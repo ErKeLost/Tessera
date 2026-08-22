@@ -1,21 +1,33 @@
 ---
 title: 工作区健康度
-description: 使用关联的 Metric Artifact 呈现聚焦的运行状态快照。
+description: 使用正交 Component Contract 组合响应式运行状态快照。
 ---
 
-Metric Artifact 适合展示一组相关 KPI。每个指标都是类型化对象，并可以通过
-宿主 Action Boundary 发出后续分析意图。
+这个 Surface 使用 `layout.grid`、`layout.section`、`data.metric`、`data.chart`
+与 `content.callout`。每个指标都是独立且经过验证的 Node；任何后续请求都必须经过
+已声明 Event Port 与 Host Action Boundary。
 
 <ComponentPreview
   filename="examples/workspace-health.tsx"
-  code={`import { MetricArtifact } from "@/components/tessera-agent/metric-artifact"
+  code={`import {
+  GenerativeSurface,
+  type RendererRegistry,
+  type SurfaceControllerPort,
+} from "@open-generative/react"
 
-export function WorkspaceHealth({ artifact }) {
-  return <MetricArtifact artifact={artifact} />
+export function WorkspaceHealth({ controller, registry }: {
+  controller: SurfaceControllerPort
+  registry: RendererRegistry
+}) {
+  return <GenerativeSurface
+    controller={controller}
+    registry={registry}
+    placement={{ kind: "panel", width: 960, height: 640 }}
+  />
 }`}
 >
   <MetricsDemo />
 </ComponentPreview>
 
-完整 Schema 和交互契约请查看
-[Metric Artifact 组件](/docs/components/metric-artifact)。
+Metric、Layout、Chart 与 Content Contract 请查看
+[当前 Component Catalog](/docs/components/generative-ui-catalog)。

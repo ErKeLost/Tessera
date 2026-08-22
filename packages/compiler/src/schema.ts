@@ -91,16 +91,34 @@ function commonDefinitions(): Record<string, JSONSchema> {
   definitions.CompilerAuthoringValue = {
     anyOf: [
       { $ref: "#/$defs/CompilerLiteralValue" },
+      {
+        type: "array",
+        items: { $ref: "#/$defs/CompilerAuthoringValue" },
+      } as JSONSchema,
+      strictObject({
+        object: {
+          type: "object",
+          additionalProperties: { $ref: "#/$defs/CompilerAuthoringValue" },
+        } as JSONSchema,
+      }),
       strictObject({
         ref: { const: "state" } as JSONSchema,
         target: { $ref: "#/$defs/CompilerStateRef" } as JSONSchema,
         path: pathSchema(),
       }, ["ref", "target"]),
       strictObject({
+        ref: { const: "state-id" } as JSONSchema,
+        target: { $ref: "#/$defs/CompilerStateRef" } as JSONSchema,
+      }),
+      strictObject({
         ref: { const: "resource" } as JSONSchema,
         target: { $ref: "#/$defs/CompilerResourceRef" } as JSONSchema,
         path: pathSchema(),
       }, ["ref", "target"]),
+      strictObject({
+        ref: { const: "resource-id" } as JSONSchema,
+        target: { $ref: "#/$defs/CompilerResourceRef" } as JSONSchema,
+      }),
       strictObject({
         ref: { const: "event" } as JSONSchema,
         port: { type: "string", pattern: "^[a-z][a-zA-Z0-9]*$" } as JSONSchema,
@@ -161,6 +179,10 @@ function sourceValueSchema(
       target: { $ref: refName("state") } as JSONSchema,
       path: pathSchema(),
     }, ["ref", "target"]));
+    branches.push(strictObject({
+      ref: { const: "state-id" } as JSONSchema,
+      target: { $ref: refName("state") } as JSONSchema,
+    }));
   }
   if (policy.allowedSources.includes("resource")) {
     branches.push(strictObject({
@@ -168,6 +190,10 @@ function sourceValueSchema(
       target: { $ref: refName("resource") } as JSONSchema,
       path: pathSchema(),
     }, ["ref", "target"]));
+    branches.push(strictObject({
+      ref: { const: "resource-id" } as JSONSchema,
+      target: { $ref: refName("resource") } as JSONSchema,
+    }));
   }
   if (policy.allowedSources.includes("context")) {
     branches.push(strictObject({
@@ -643,7 +669,7 @@ export function createActionAuthoringInputSchema(schema: JSONSchema): JSONSchema
     properties: Object.fromEntries(Object.entries(properties).map(([key, value]) => [
       key,
       {
-        oneOf: [
+        anyOf: [
           literalAuthoringSchema(value as JSONSchema),
           { $ref: "#/$defs/CompilerAuthoringValue" },
         ],

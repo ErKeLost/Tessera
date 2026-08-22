@@ -1,60 +1,43 @@
 ---
-title: 配置
-description: 让数据库和模型凭据只留在服务端，并配置 Studio 限制与策略。
+title: 成功证明配置
+description: 在不虚构公开 Studio 配置 API 的前提下，让 Tessera Agent Generative UI 证明可复现。
 ---
 
-在项目目录创建 `tessera.config.ts`，并从服务端环境读取密钥：
+这套 Generative UI 成功证明不依赖另行发布的 `@open-tessera/studio` 配置 Facade，
+当前也不存在 `tessera-agent` 组件 CLI。它的配置由明确的 Package Contract 与测试 Fixture
+负责，而不是再创建一套顶层产品 API。
 
-```bash
-DATABASE_URL=postgresql://readonly:password@127.0.0.1:5432/warehouse
-OPENROUTER_API_KEY=your-server-only-key
-```
+## 所有权
 
-```ts
-import { defineTesseraConfig } from "@open-tessera/studio";
-
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required.");
-
-export default defineTesseraConfig({
-  database: {
-    url: databaseUrl,
-    maxRows: 500,
-    statementTimeoutMs: 15_000,
-  },
-  llm: {
-    model: "openrouter/qwen/qwen3.8-27b",
-  },
-});
-```
-
-Tessera 会从 URL 推断数据库类型。只有在配置必须拒绝其他数据库类型 URL 时，
-才显式设置 `database.dialect`。
-
-## 模型设置
-
-填写 Mastra 支持的 `provider/model` ID 和对应的供应商环境变量。OpenAI 兼容
-网关可以设置仅服务端可见的 `baseUrl`、`apiKey` 和 Headers。不要使用会暴露给
-浏览器的环境变量。
-
-## 工作台设置
-
-| 区域 | 职责 |
+| 关注点 | 当前 source of truth |
 | --- | --- |
-| Database | URL、数据库类型、Schema 范围和连接测试 |
-| Model | 供应商、模型、API Key、Base URL 和推理强度 |
-| Limits | 最大行数、语句超时和 Agent 步数限制 |
-| Permissions | 读取、写入、破坏性操作和未知操作策略 |
+| Protocol Limit 与 Wire Schema | `packages/protocol` |
+| Component Identity、Schema 与 Catalog Slice | `packages/catalog` 与 `packages/components` |
+| Proposal Normalize、Validate 与 Commit | `packages/compiler` |
+| Query Resource、Grant 与 Projection | `packages/resources` |
+| Host Authority、Session 与可信事件 | `packages/server` |
+| 浏览器 Replay、Resolved Props 与 Command | `packages/client` |
+| React Surface 与精确 Renderer Lookup | `packages/react` |
+| Tessera data-agent Renderer 与 Recipe | `packages/ui` |
+| 确定性测试与模型评测验收 | 成功证明规范与 Fixture |
 
-设置由服务端 Runtime 应用，敏感修改可以由宿主 Authentication 和管理员策略限制。
+Host 必须为每个 Surface Session 冻结 Component Contract Slice、Authority、
+Resource Grant、Limit、Locale、Timezone 与 Renderer Capability Manifest。
+模型无权配置或扩大其中任何一项。
 
-## 监听参数
+## Data Agent Profile
 
-```bash
-npx tessera-agent@latest studio \
-  --config ./config/tessera.config.ts \
-  --host 127.0.0.1 \
-  --port 4310
-```
+当前产品 Profile 固定为 12 个正交 Component Contract，并覆盖全部受支持的
+shadcn/Recharts Chart Recipe。Trend、Funnel、Cohort、Anomaly 与 Forecast 等产品形态
+都是同一组 Contract 的 Recipe，不是额外的协议组件类型。
 
-非 Loopback 监听必须在 Studio 配置中显式启用远程访问、Allowed Origins 和身份认证。
+Query Row 始终留在 Resource Gateway。模型只能看到受限、经过 Policy 批准的 Descriptor 与
+Binding Reference。可信事件到达 `SurfaceController` 后，Renderer Props 才会按单个 Node 解析。
+
+## 本地环境
+
+确定性证明门槛不需要任何 Secret。`OPENROUTER_API_KEY` 只会启用可选的文档聊天 Route。
+数据库凭据与 Tessera Agent 产品集成属于其 Host 产品界面，并且在那里也必须只保留在服务端。
+
+未来如需公开配置 Facade，必须先完成实现和测试，再写入本文档。在此之前，示例只使用仓库中
+真实存在的 API 与 Fixture。

@@ -5,4 +5,6 @@ export * from "./contracts";
 export * from "./fixtures";
 export * from "./integrity";
 export * from "./props";
+export * from "./proof";
+export * from "./renderer-integrity";
 export * from "./schema";

@@ -4,6 +4,7 @@ import {
   ProtocolError,
   authoringSnapshotProposalSchema,
   canonicalStringify,
+  decodeJson,
   hashCanonical,
   proposalOperationEnvelopeSchema,
   proposalStreamEnvelopeSchema,
@@ -326,23 +327,7 @@ export async function decodePresentUiInput(
 }
 
 function parseFrame(input: string, maxFrameBytes: number): unknown {
-  if (utf8Length(input) > maxFrameBytes) {
-    throw new ProtocolError(diagnostic({
-      phase: "decode",
-      code: "proposal-stream.frame-too-large",
-      message: "Proposal stream frame exceeds the configured byte limit.",
-      recoverable: false,
-    }));
-  }
-  try {
-    return JSON.parse(input) as unknown;
-  } catch {
-    throw new ProtocolError(diagnostic({
-      phase: "decode",
-      code: "proposal-stream.invalid-json",
-      message: "Proposal stream frame is not valid JSON.",
-    }));
-  }
+  return decodeJson(input, proposalStreamEnvelopeSchema, { maxBytes: maxFrameBytes });
 }
 
 function mixedModeError(): ProtocolError {

@@ -362,8 +362,8 @@ function createFixtureDocument(
         kind: "host-intent",
         contract: action.ref,
         input: {
-          state: { kind: "state-ref", stateId: VISIBLE_STATE_ID },
-          resource: { kind: "resource-ref", bindingId: VISIBLE_RESOURCE_ID },
+          state: { kind: "state-id-ref", stateId: VISIBLE_STATE_ID },
+          resource: { kind: "resource-id-ref", bindingId: VISIBLE_RESOURCE_ID },
           query: { kind: "event-ref", port: SUBMIT_PORT, path: ["query"] },
         },
       },
@@ -419,6 +419,20 @@ function createFixtureSnapshot(revision: CommittedRevision): SurfaceSnapshot {
     resources: {
       [VISIBLE_RESOURCE_ID]: resolvedResource(VISIBLE_RESOURCE_ID, "visible", "4"),
       [HIDDEN_RESOURCE_ID]: resolvedResource(HIDDEN_RESOURCE_ID, "hidden", "5"),
+    },
+    resourceResolutionIdentities: {
+      [VISIBLE_RESOURCE_ID]: {
+        requestId: "request-resource-visible-initial",
+        generation: 0,
+        bindingId: VISIBLE_RESOURCE_ID,
+        expectedRevisionId: revision.envelope.revisionId,
+      },
+      [HIDDEN_RESOURCE_ID]: {
+        requestId: "request-resource-hidden-initial",
+        generation: 0,
+        bindingId: HIDDEN_RESOURCE_ID,
+        expectedRevisionId: revision.envelope.revisionId,
+      },
     },
     actions: {},
     approvals: [],

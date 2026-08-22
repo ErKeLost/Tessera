@@ -13,12 +13,6 @@ const nitroLifecyclePlugin = fileURLToPath(new URL("./src/nitro-plugin.ts", impo
 const rendererTemplate = fileURLToPath(new URL("./src/client/index.html", import.meta.url));
 const publicDirectory = fileURLToPath(new URL("./public", import.meta.url));
 const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
-// Studio must render the workspace source during development and production
-// builds. Resolving this package through its published `dist` entry makes the
-// client silently retain an older Artifact renderer when that package has not
-// been rebuilt yet.
-const generativeUiSource = fileURLToPath(new URL("../../packages/ui/src/index.ts", import.meta.url));
-const generativeUiStyles = fileURLToPath(new URL("../../packages/ui/src/styles.css", import.meta.url));
 const studioPackage = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
@@ -51,10 +45,6 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [
-      // This subpath must precede the package root or Vite turns it into
-      // `index.ts/styles.css` while resolving the source alias above.
-      { find: "@open-generative/ui/styles.css", replacement: generativeUiStyles },
-      { find: "@open-generative/ui", replacement: generativeUiSource },
       { find: "@", replacement: clientRoot },
     ],
   },

@@ -42,13 +42,19 @@ describe("chart recipe coverage", () => {
     expect(counts).toEqual({ area: 10, bar: 10, line: 10, pie: 11, radar: 14, radial: 6, tooltip: 9 });
   });
 
-  test("pins exact source and dependency provenance without claiming renderer hashes", async () => {
+  test("separates the vendored recipe dependencies from the official renderer runtime", async () => {
     expect(officialChartRecipeSource).toMatchObject({
       upstreamCommit: "25be24cca34d06eed29a4779c3f48c4816aa812c",
       registryTree: "addee626e9f09551ff366c62deffebedea6bcac2",
       registryListingHash: "sha256:d80981943fe3f674a49b8020df7b6015f63796e95b4b3e153cd742a6ffb82e8e",
       vendorLockfileHash: "sha256:4cdeb1a0cb106189fb36681f435e80a10a676aea41cffee22e059a3b2d49ac7a",
       recipeFileCount: 70,
+      sourcePackages: {
+        chartEngine: { packageName: "recharts", version: "3.8.0", integritySource: "vendor-lockfile" },
+      },
+      rendererPackages: {
+        chartEngine: { packageName: "recharts", version: "3.10.1", integritySource: "workspace-lockfile" },
+      },
     });
     expect("rendererImplementationHash" in officialChartRecipeSource).toBe(false);
     expect("rendererCapabilityManifestHash" in officialChartRecipeSource).toBe(false);
@@ -86,6 +92,13 @@ describe("chart recipe coverage", () => {
     const lockfile = await Bun.file(new URL("../../../vendor/shadcn-ui/pnpm-lock.yaml", import.meta.url)).arrayBuffer();
     const lockfileHash = new Bun.CryptoHasher("sha256").update(lockfile).digest("hex");
     expect(`sha256:${lockfileHash}`).toBe(officialChartRecipeSource.vendorLockfileHash);
+
+    const workspaceLockfile = await Bun.file(new URL("../../../bun.lock", import.meta.url)).text();
+    const rendererDependency = officialChartRecipeSource.rendererPackages.chartEngine;
+    expect(workspaceLockfile).toContain(
+      `"recharts": ["recharts@${rendererDependency.version}",`,
+    );
+    expect(workspaceLockfile).toContain(rendererDependency.integrity);
   });
 
   test("keeps dashed tooltip indicators as an API capability without inventing a snapshot recipe", () => {

@@ -1,55 +1,54 @@
 ---
-title: Agent selection
-description: How the compiler exposes the right Artifact UI nodes for one model turn.
+title: Agent Selection
+description: How Tessera Agent offers the smallest useful Component Contract slice to one model turn.
 ---
 
-An agent does not infer components from visual appearance. `prepareTurn()` uses
-the task, profile, requested node types, examples, prerequisites, and negative
-guidance to expose a bounded catalog slice for exactly one model call.
+The model does not choose UI by React component name or visual appearance. The
+Host freezes a task-scoped `CatalogSetSlice`, and the compiler derives the only
+allowed `present_ui` tool schema and prompt from that slice.
 
-## Recommended flow
+## Selection flow
 
-1. A host-authorized data tool fetches or computes authoritative content and
-   remains useful without a UI.
-2. The host labels any resources and evidence that may enter the model context.
-3. `createArtifactUI().prepareTurn()` selects the useful node contracts and
-   freezes their contract fingerprint, prompt, provider schema, and limits.
-4. The model calls `renderArtifact` with the compact Surface DSL generated for
-   that slice. It cannot name nodes or resources outside the slice.
-5. The compiler normalizes, validates, authorizes, and commits the proposal
-   before producing a runtime `ArtifactPart`.
+1. Tessera Agent answers the analytical question through semantic planning and
+   a bounded server-owned query.
+2. The Host publishes grant-bound Resource and Evidence offers. Query rows stay
+   behind the Resource Gateway.
+3. The Host creates a frozen Catalog slice containing only useful Component and
+   Action Contracts, their dependencies, exact revisions, and limits.
+4. `compilePresentUi()` derives the provider schema and model guidance from the
+   verified slice.
+5. The model calls only `present_ui` and may reference only offered component,
+   resource, evidence, state, and action identities.
+6. `ProposalCompilerTurn` decodes, normalizes, validates, repairs within the
+   fixed budget, and commits through the shared server boundary.
+7. A trusted `SurfaceEventStream` publishes the resulting revision to the
+   browser.
 
-Each node contract carries selection and trust metadata. For example:
+## Current selection vocabulary
 
-```ts
-{
-  type: "artifact.metric",
-  version: 1,
-  category: "semantic-artifact",
-  trust: "governed",
-  commitPolicy: "atomic",
-  prompt: {
-    summary: "Show one or more high-signal values and their change in a compact surface.",
-    useWhen: [
-      "The answer is primarily a small set of KPIs or status values.",
-      "A compact summary is more useful than detailed rows."
-    ],
-    avoidWhen: ["The user needs row-level inspection or trend exploration."]
-  }
-}
-```
+The complete Tessera Agent proof catalog contains 12 contracts, but a turn may
+receive fewer:
 
-Positive and negative rules distinguish similar nodes. Stable named fields,
-strict schemas, and task-specific examples reduce selection errors without
-placing the entire 27-contract catalog in every prompt.
+| Need | Offered contracts |
+| --- | --- |
+| Narrative answer | `layout.stack`, `layout.section`, `content.text`, `content.callout` |
+| KPI summary | `layout.grid`, `data.metric` |
+| Trend or comparison | `data.chart` with a valid ChartSpec recipe |
+| Row inspection | `data.table` and, when useful, `data.query-details` |
+| Refinement | `control.group`, `control.filter`, and a Host-offered action binding |
+| No usable result | `content.empty` |
 
-## Keep retrieval behind the host
+Trend, funnel, cohort, anomaly, forecast, ranking, and data-quality are not
+selectable protocol component names. They are evaluated composition recipes
+over this vocabulary.
 
-Data access and rendering remain separate. A rendered node can update approved
-local state immediately. Refresh, follow-up, navigation, approval, export, or
-external effects emit a typed runtime command through `ArtifactUIProvider`.
+## Selection invariants
 
-The host decides whether that command is available and passes it through an
-authorized `runtimeTransport`, capability policy, and any required approval. UI
-code never selects credentials, grants itself access, or calls an arbitrary data
-tool directly.
+The model cannot expand the slice, invent a binding, choose an arbitrary
+renderer, or request raw data by URL. Positive and negative Contract guidance,
+stable fields, strict schemas, and data-agent golden examples improve first-pass
+selection without putting the full catalog or query results in every prompt.
+
+Rendering and interaction remain downstream of selection. A committed node is
+always rendered through `SurfaceController`, `GenerativeSurface`, and the exact
+`RendererRegistry`; selection never creates a direct component invocation.

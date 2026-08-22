@@ -66,7 +66,9 @@ export type AuthoringValue =
   | AuthoringValue[]
   | { object: Record<string, AuthoringValue> }
   | { ref: "state"; target: AuthoringEntityRef<"state">; path?: PathSegment[] }
+  | { ref: "state-id"; target: AuthoringEntityRef<"state"> }
   | { ref: "resource"; target: AuthoringEntityRef<"resource">; path?: PathSegment[] }
+  | { ref: "resource-id"; target: AuthoringEntityRef<"resource"> }
   | { ref: "event"; port: z.infer<typeof eventPortSchema>; path?: PathSegment[] }
   | { ref: "context"; key: "locale" | "timezone" }
   | { condition: { op: "eq" | "neq" | "lt" | "lte" | "gt" | "gte" | "and" | "or" | "not"; args: AuthoringValue[] } };
@@ -76,7 +78,9 @@ export const authoringValueSchema: z.ZodType<AuthoringValue> = z.lazy(() => z.un
   z.array(authoringValueSchema),
   z.object({ object: z.record(safeObjectKeySchema, authoringValueSchema) }).strict(),
   z.object({ ref: z.literal("state"), target: authoringStateRefSchema, path: pathSchema.optional() }).strict(),
+  z.object({ ref: z.literal("state-id"), target: authoringStateRefSchema }).strict(),
   z.object({ ref: z.literal("resource"), target: authoringResourceRefSchema, path: pathSchema.optional() }).strict(),
+  z.object({ ref: z.literal("resource-id"), target: authoringResourceRefSchema }).strict(),
   z.object({ ref: z.literal("event"), port: eventPortSchema, path: pathSchema.optional() }).strict(),
   z.object({ ref: z.literal("context"), key: z.enum(["locale", "timezone"]) }).strict(),
   z.object({

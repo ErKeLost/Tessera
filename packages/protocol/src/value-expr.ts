@@ -21,7 +21,9 @@ export type ValueExpr =
   | { kind: "array"; items: ValueExpr[] }
   | { kind: "object"; entries: Record<string, ValueExpr> }
   | { kind: "state-ref"; stateId: z.infer<typeof stateIdSchema>; path?: PathSegment[] }
+  | { kind: "state-id-ref"; stateId: z.infer<typeof stateIdSchema> }
   | { kind: "resource-ref"; bindingId: z.infer<typeof resourceBindingIdSchema>; path?: PathSegment[] }
+  | { kind: "resource-id-ref"; bindingId: z.infer<typeof resourceBindingIdSchema> }
   | { kind: "event-ref"; port: z.infer<typeof eventPortSchema>; path?: PathSegment[] }
   | { kind: "context-ref"; key: "locale" | "timezone" }
   | { kind: "condition"; op: ConditionOperator; args: ValueExpr[] };
@@ -31,7 +33,9 @@ export const valueExprSchema: z.ZodType<ValueExpr> = z.lazy(() => z.discriminate
   z.object({ kind: z.literal("array"), items: z.array(valueExprSchema) }).strict(),
   z.object({ kind: z.literal("object"), entries: z.record(safeObjectKeySchema, valueExprSchema) }).strict(),
   z.object({ kind: z.literal("state-ref"), stateId: stateIdSchema, path: pathSchema.optional() }).strict(),
+  z.object({ kind: z.literal("state-id-ref"), stateId: stateIdSchema }).strict(),
   z.object({ kind: z.literal("resource-ref"), bindingId: resourceBindingIdSchema, path: pathSchema.optional() }).strict(),
+  z.object({ kind: z.literal("resource-id-ref"), bindingId: resourceBindingIdSchema }).strict(),
   z.object({ kind: z.literal("event-ref"), port: eventPortSchema, path: pathSchema.optional() }).strict(),
   z.object({ kind: z.literal("context-ref"), key: z.enum(["locale", "timezone"]) }).strict(),
   z.object({

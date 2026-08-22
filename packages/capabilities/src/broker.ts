@@ -78,7 +78,8 @@ export interface CapabilityPolicy {
 }
 
 export type CapabilityHandlerResult = Readonly<{
-  result?: JsonValue;
+  result: JsonValue;
+  receipt: JsonValue;
   resultingRevisionId?: RevisionId;
   resultingStateRevisions?: Readonly<Record<StateId, StateRevisionId>>;
   resultingResourceVersions?: Readonly<Record<ResourceBindingId, ResourceVersionId>>;
@@ -459,10 +460,9 @@ export class CapabilityBroker {
         ...baseReceipt,
         outcome: {
           status: "succeeded",
-          ...(handlerResult.result === undefined ? {} : {
-            result: registration.resultValidator.parse(handlerResult.result),
-            resultHash: serverHash("open-generative.capability-result\0", handlerResult.result),
-          }),
+          result: registration.resultValidator.parse(handlerResult.result),
+          resultHash: serverHash("open-generative.capability-result\0", handlerResult.result),
+          receipt: registration.receiptValidator.parse(handlerResult.receipt),
         },
       })
       : effectReceiptSchema.parse({
@@ -473,7 +473,6 @@ export class CapabilityBroker {
           retryable: failure instanceof CapabilityExecutionError && failure.retryable,
         },
       });
-    registration.receiptValidator.parse(receipt);
     record.receipt = receipt;
     record.status = actionStatusSchema.parse({
       invocationId: record.accepted.invocationId,

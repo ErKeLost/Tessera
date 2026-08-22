@@ -6,6 +6,8 @@ import {
   canonicalStringify,
   correlationIdSchema,
   hashCanonical,
+  requestIdSchema,
+  resourceResolutionIdentitySchema,
   resourceResolutionResultSchema,
   stateRevisionIdSchema,
   stateValueSnapshotSchema,
@@ -21,6 +23,7 @@ import {
   type CorrelationId,
   type HashProvider,
   type ResourceBindingId,
+  type ResourceResolutionIdentity,
   type ResourceResolutionResult,
   type StateId,
   type StateValueSnapshot,
@@ -147,6 +150,10 @@ export class SurfaceSessionManager {
       streamPolicy,
       state,
       resources,
+      resourceResolutionIdentities: initialResourceResolutionIdentities(
+        input.committedRevision,
+        resources,
+      ),
       actions,
       approvals,
       commandReceipts: {},
@@ -162,6 +169,7 @@ export class SurfaceSessionManager {
           revision: record.committedRevision,
           state: record.state,
           resources: record.resources,
+          resourceResolutionIdentities: record.resourceResolutionIdentities,
           actions: record.actions,
           approvals: record.approvals,
         },
@@ -169,6 +177,23 @@ export class SurfaceSessionManager {
       },
     });
   }
+}
+
+function initialResourceResolutionIdentities(
+  revision: CommittedRevision,
+  resources: Readonly<Record<ResourceBindingId, ResourceResolutionResult>>,
+): Record<ResourceBindingId, ResourceResolutionIdentity> {
+  const identities = {} as Record<ResourceBindingId, ResourceResolutionIdentity>;
+  for (const bindingIdText of Object.keys(resources)) {
+    const bindingId = bindingIdText as ResourceBindingId;
+    identities[bindingId] = resourceResolutionIdentitySchema.parse({
+      requestId: requestIdSchema.parse("resource-initial"),
+      generation: 0,
+      bindingId,
+      expectedRevisionId: revision.envelope.revisionId,
+    });
+  }
+  return identities;
 }
 
 export class SurfaceSessionError extends Error {
@@ -231,13 +256,21 @@ function validateResources(
   const resources = {} as Record<ResourceBindingId, ResourceResolutionResult>;
   for (const [bindingIdText, value] of Object.entries(supplied)) {
     const bindingId = bindingIdText as ResourceBindingId;
-    if (!revision.content.resourceBindings[bindingId]) {
+    const declaration = revision.content.resourceBindings[bindingId];
+    if (!declaration) {
       throw new SurfaceSessionError("surface.resource-unknown", `Initial resource ${bindingId} has no committed binding.`);
     }
     const parsed = resourceResolutionResultSchema.parse(value);
     const parsedId = parsed.status === "resolved" ? parsed.snapshot.bindingId : parsed.unavailable.bindingId;
     if (parsedId !== bindingId) {
       throw new SurfaceSessionError("surface.resource-mismatch", `Initial resource ${bindingId} has mismatched identity.`);
+    }
+    if (
+      parsed.status === "resolved"
+      && declaration.schemaConstraint.compatibility === "exact"
+      && parsed.snapshot.schemaHash !== declaration.schemaConstraint.schemaHash
+    ) {
+      throw new SurfaceSessionError("surface.resource-schema-mismatch", `Initial resource ${bindingId} violates its exact schema constraint.`);
     }
     resources[bindingId] = parsed;
   }
@@ -284,4 +317,10 @@ export function assertRevisionCatalogLock(
 function validateJsonSchema(schema: Parameters<typeof z.fromJSONSchema>[0], value: unknown, label: string): void {
   const parsed = z.fromJSONSchema(schema).safeParse(value);
   if (!parsed.success) throw new SurfaceSessionError("surface.state-schema-invalid", `${label} failed its exact JSON Schema.`);
+  if (canonicalStringify(parsed.data) !== canonicalStringify(value)) {
+    throw new SurfaceSessionError(
+      "surface.state-schema-transformation-forbidden",
+      `${label} requires a JSON Schema default, coercion, or transform and is not canonical.`,
+    );
+  }
 }

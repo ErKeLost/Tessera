@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  resourceDatasetCellValueSchema,
+  resourceDatasetPayloadSchema,
+} from "@open-generative/protocol";
+import {
   chartIconTokenSchema,
   columnIdValueSchema,
   formatTokenSchema,
@@ -11,27 +15,8 @@ import {
 export const chartFamilies = ["area", "bar", "line", "pie", "radar", "radial"] as const;
 export const chartFamilySchema = z.enum(chartFamilies);
 
-export const chartCellValueSchema = z.union([
-  z.null(),
-  z.boolean(),
-  z.string().max(16_384),
-  z.number().finite(),
-]);
-
-export const resolvedChartDataSchema = z.object({
-  columns: z.array(z.object({
-    columnId: columnIdValueSchema,
-    label: z.string().trim().min(1).max(256),
-    valueType: z.enum(["boolean", "date", "datetime", "number", "string"]),
-  }).strict()).min(1).max(256),
-  rows: z.array(z.record(columnIdValueSchema, chartCellValueSchema)).max(10_000),
-  totalRows: z.number().int().nonnegative().optional(),
-}).strict().superRefine((data, context) => {
-  const ids = data.columns.map((column) => column.columnId);
-  if (new Set(ids).size !== ids.length) {
-    context.addIssue({ code: "custom", path: ["columns"], message: "Chart columns must be unique." });
-  }
-});
+export const chartCellValueSchema = resourceDatasetCellValueSchema;
+export const resolvedChartDataSchema = resourceDatasetPayloadSchema;
 
 export const chartSeriesSchema = z.object({
   column: columnIdValueSchema,
@@ -127,7 +112,7 @@ export const chartAccessibilitySchema = z.object({
   description: z.string().trim().min(1).max(2_048).optional(),
 }).strict();
 
-const resolvedInteractionStateSchema = z.union([
+export const resolvedChartInteractionStateSchema = z.union([
   z.null(),
   z.string().max(1_024),
   z.number().finite(),
@@ -259,8 +244,14 @@ function createChartSchemas(dataSchema: z.ZodType, stateSchema: z.ZodType) {
   });
 }
 
+export const chartCenterTextResolvedValueSchema = z.union([
+  z.literal("total"),
+  z.literal("selected"),
+  resolvedChartInteractionStateSchema,
+]);
+
 export const chartSpecSchema = createChartSchemas(resourceBindingExprSchema, stateBindingExprSchema);
-export const resolvedChartSpecSchema = createChartSchemas(resolvedChartDataSchema, resolvedInteractionStateSchema);
+export const resolvedChartSpecSchema = createChartSchemas(resolvedChartDataSchema, resolvedChartInteractionStateSchema);
 
 export type ChartFamily = z.infer<typeof chartFamilySchema>;
 export type ChartCellValue = z.infer<typeof chartCellValueSchema>;

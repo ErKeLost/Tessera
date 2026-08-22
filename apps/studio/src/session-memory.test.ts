@@ -106,10 +106,10 @@ describe("Tessera Studio UI transcript memory", () => {
             type: "tool-list_database",
             toolCallId: "provider-schema-call-id",
             state: "output-available",
-            input: { schema: "private", table: "customer_rows", token: credential },
+            input: { operation: "describe_schema", schema: "private", token: credential },
             output: {
               status: "completed",
-              scope: "schema",
+              operation: "describe_schema",
               schema: {
                 name: "private",
                 tables: [{
@@ -261,7 +261,7 @@ describe("Tessera Studio UI transcript memory", () => {
         input: { action: "list_database" },
         output: {
           status: "completed",
-          scope: "schema",
+          operation: "describe_schema",
           tableCount: 1,
           columnCount: 1,
           foreignKeyCount: 1,
@@ -323,6 +323,46 @@ describe("Tessera Studio UI transcript memory", () => {
       expect(restoredJson).not.toContain(providerError);
     } finally {
       await restoredSessions.close();
+    }
+  });
+
+  test("preserves list_database lookup and availability states without turning them into failures", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-session-list-database-status-"));
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+    try {
+      await sessions.createThread({ id: "thread-status", resourceId: "resource-status" });
+      await sessions.appendUiMessages({
+        id: "thread-status",
+        resourceId: "resource-status",
+        messages: [{
+          id: "assistant-status",
+          role: "assistant",
+          parts: [{
+            type: "tool-list_database",
+            toolCallId: "lookup-status",
+            state: "output-available",
+            input: { operation: "describe_relation", schema: "public", relation: "users" },
+            output: {
+              status: "not_found",
+              operation: "describe_relation",
+              reason: "relation_not_found",
+              message: "The exact relation was not found.",
+            },
+          }],
+        }],
+      });
+
+      const messages = await sessions.readMessages({ id: "thread-status", resourceId: "resource-status" });
+      expect(messages?.[0]?.parts).toEqual([expect.objectContaining({
+        state: "output-available",
+        output: expect.objectContaining({
+          status: "not_found",
+          reason: "relation_not_found",
+        }),
+      })]);
+    } finally {
+      await sessions.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
     }
   });
 

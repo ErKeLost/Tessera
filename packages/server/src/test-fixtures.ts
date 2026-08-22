@@ -39,6 +39,7 @@ export async function createServerFixture(): Promise<{
         revision: SurfaceSessionRecord["committedRevision"];
         state: SurfaceSessionRecord["state"];
         resources: SurfaceSessionRecord["resources"];
+        resourceResolutionIdentities: SurfaceSessionRecord["resourceResolutionIdentities"];
         actions: SurfaceSessionRecord["actions"];
         approvals: SurfaceSessionRecord["approvals"];
       };
@@ -196,6 +197,7 @@ export async function createServerFixture(): Promise<{
     },
     state: {},
     resources: {},
+    resourceResolutionIdentities: {},
     actions: {},
     approvals: [],
     commandReceipts: {},
@@ -215,6 +217,7 @@ export async function createServerFixture(): Promise<{
           revision: record.committedRevision,
           state: record.state,
           resources: record.resources,
+          resourceResolutionIdentities: record.resourceResolutionIdentities,
           actions: record.actions,
           approvals: record.approvals,
         },

@@ -1,21 +1,33 @@
 ---
 title: 查询分析
-description: 使用一个可审查的 Query Artifact 渲染图表、表格、SQL 和来源血缘。
+description: 把 Chart、Table、Metric、SQL 与血缘 Node 组合为一个受治理 Surface。
 ---
 
-当用户需要在同一个答案中查看趋势图和精确结果行时，使用 Query Artifact。
-SQL 与血缘保持可审查，但不会成为浏览器中的可执行输入。
+这不是 `QueryArtifact`。它由 `layout.stack`、`data.metric`、`data.chart`、
+`data.table` 与 `data.query-details` Node 组合而成。这些 Node 可以共享同一个
+pinned Resource version；SQL 与血缘仍是受策略控制的 render projection，不会成为浏览器可执行输入。
 
 <ComponentPreview
   filename="examples/credit-flow.tsx"
-  code={`import { QueryResultSurface } from "@/components/tessera-agent/query-artifact"
+  code={`import {
+  GenerativeSurface,
+  type RendererRegistry,
+  type SurfaceControllerPort,
+} from "@open-generative/react"
 
-export function CreditFlow({ artifact }) {
-  return <QueryResultSurface artifact={artifact} defaultView="table" />
+export function CreditFlow({ controller, registry }: {
+  controller: SurfaceControllerPort
+  registry: RendererRegistry
+}) {
+  return <GenerativeSurface
+    controller={controller}
+    registry={registry}
+    placement={{ kind: "inline", width: 960, height: 720 }}
+  />
 }`}
 >
   <QueryDemo />
 </ComponentPreview>
 
-Schema、Provider 集成、Action 和无障碍契约请查看
-[Query Artifact 组件](/docs/components/query-artifact)。
+精确 Contract、Recipe、Event 与实时覆盖请查看
+[当前 Component Catalog](/docs/components/generative-ui-catalog)。

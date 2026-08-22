@@ -1,79 +1,78 @@
 ---
 title: Architecture
-description: The implemented protocol foundation and its place inside the target embedded business Artifact Runtime.
+description: The final Generative UI foundation Tessera Agent is proving through data-agent workflows.
 ---
 
-Tessera Agent separates model-authored declarations from host-owned execution,
-rendering, identity, and persistence. The model never produces executable UI
-code or a trusted runtime object.
+Tessera Agent separates model-authored declarations from host-owned data,
+identity, validation, authority, state, effects, persistence, commit, and
+rendering. The model never produces executable UI code or a trusted runtime
+object.
 
-This page summarizes the implemented v2 foundation. The normative product and
-lifecycle design is the
-[Embedded Business Artifact Runtime](./embedded-artifact-runtime): a persistent,
-continuously editable Artifact embedded in an existing business system, not an
-application generator.
+## One canonical path
 
 ```text
-User request + host-authorized data
-  -> per-turn catalog slice and Surface DSL schema
-  -> model proposal
-  -> server compiler: decode, normalize, validate, authorize, commit
-  -> locally branded v2 ArtifactPart
-  -> serialized ArtifactPartWire
-  -> client decodeArtifactPart(..., { contractFingerprint })
-  -> React ArtifactRenderer and shadcn/ui recipes
-  -> host-authorized runtime commands
+user question + host-authorized resource offers
+-> frozen CatalogSetSlice
+-> model proposes declarative nodes
+-> compiler normalizes, validates, authorizes, and commits
+-> HostServer publishes a trusted SurfaceEventStream
+-> SurfaceController replays events and resolves node projections
+-> GenerativeSurface traverses the canonical graph
+-> RendererRegistry resolves an exact Component Contract renderer
+-> @open-generative/ui renders Tessera Agent's shadcn/Recharts components
 ```
 
-The local brand is applied only after validation. It is not serialized across a
-network boundary, so every `ArtifactPartWire` must be decoded again with the
-expected contract fingerprint before it reaches `ArtifactRenderer`.
+There is no `ArtifactPart`, browser decoder, `ArtifactRenderer`, legacy
+compatibility facade, or second per-artifact rendering path in this architecture.
+Raw model output never reaches React.
 
 ## Package boundaries
 
 | Boundary | Package | Responsibility |
 | --- | --- | --- |
-| v1 compatibility contracts | `@open-generative/protocol` | The 18 semantic artifact schemas and typed v1 action events |
-| Semantic catalog | `@open-generative/catalog` | Semantic manifests, selection guidance, contract graph, and trusted calculators |
-| v2 runtime | `@open-generative/runtime` | Normalized IR, wire decoding and branding, validation, transactions, replay, migration, and local actions |
-| Authoring and commit | `@open-generative/compiler` | Server-only Surface DSL, per-turn catalog slicing, prompt compilation, bounded repair, policy checks, and runtime commit |
-| Authority boundaries | `@open-generative/capabilities`, `@open-generative/resources` | Server-only grants, approvals, effects, scoped resources, evidence, and receipts |
-| Rendering | `@open-generative/react` | React renderer, provider runtime, state/resource bindings, official nodes, and v1 compatibility |
-| Framework adapters | `@open-generative/ai-sdk`, `@open-generative/mastra`, `@open-generative/ag-ui` | Thin server-side mappings onto the shared compiler and commit boundary |
-| Distribution | shadcn registry + npm | Editable React source with exact-version schema, core, and runtime dependencies |
+| Canonical values and wire protocols | `@open-generative/protocol` | Documents, operations, streams, IDs, hashes, limits, and diagnostics |
+| Contract identity and manifests | `@open-generative/catalog` | Immutable Component Contracts, Catalog slices, placement, and renderer capability negotiation |
+| Proposal acceptance | `@open-generative/compiler` | Server-only decode, normalize, validate, repair, policy, and commit gates |
+| Deterministic state | `@open-generative/runtime` | Document, preview, state, replay, revision DAG, and migration reducers |
+| Host orchestration | `@open-generative/server` | Sessions, transactions, event journal, authority, and trusted publication |
+| Browser control | `@open-generative/client` | Trusted event replay, resolved node projections, resume, and host commands |
+| Resource data | `@open-generative/resources` | Server-only schemas, grants, projections, windows, and evidence |
+| Effects | `@open-generative/capabilities` | Server-only action policy, approval, idempotency, effects, and receipts |
+| React binding | `@open-generative/react` | `GenerativeSurface`, exact `RendererRegistry`, placement, and system surfaces |
+| Data-agent contracts | `@open-generative/components` | The 12 contracts, props schemas, chart specs, recipes, and fixtures |
+| Data-agent UI | `@open-generative/ui` | Official shadcn/Recharts node renderers and registry factory |
 
-Browser code may depend on schema, core, and runtime. It must not include the
-compiler, prompt examples, capability broker, resource resolver, credentials,
-or server policy implementation.
+Framework adapters may translate transport details, but they cannot own or
+replace these semantics. Browser code must not import compiler, server,
+resource, capability, credentials, prompt examples, or signing material.
 
-## One catalog, two node layers
+## Current Component Contract slice
 
-The standard compiler catalog currently contains 30 versioned node contracts:
+The proof uses 12 orthogonal contracts:
 
-- **18 semantic artifacts:** query, calculator, metric, comparison, trend,
-  anomaly, forecast, funnel, data quality, insight, breakdown, distribution,
-  cohort, experiment, driver, ranking, target, and timeline.
-- **7 Surface nodes:** stack, grid, section, text, callout, progress, and empty.
-- **5 form nodes:** form root, input, select, toggle, and button.
+- Layout: `layout.stack`, `layout.grid`, `layout.section`
+- Content: `content.text`, `content.callout`, `content.empty`
+- Data: `data.metric`, `data.table`, `data.chart`, `data.query-details`
+- Controls: `control.filter`, `control.group`
 
-`prepareTurn()` selects only the useful subset for one task and derives the
-provider schema and prompt from those contracts. Extensions enter through the
-compiler catalog and a matching React node renderer; they do not require a new
-wire protocol.
+Trend, comparison, funnel, cohort, anomaly, forecast, and data-quality
+experiences are composition recipes, not additional protocol types. This keeps
+the model-facing slice small while allowing product-quality analytical surfaces.
 
-## Commit before render
+## Commit and preview
 
-Strict semantic nodes mount only after validation and commit. Progressive
-Surface shells may preserve a last-good revision while a new proposal is still
-being validated, but raw model text, partial tool input, and unbranded wire data
-never reach the renderer.
+Layout and safe content may appear through a validated read-only preview.
+Resource-backed data and state-bound controls commit atomically. Preview
+renderers receive no event emitter, so incomplete content cannot trigger host
+commands. A failed proposal preserves the last-good committed revision.
 
-The same committed document can render inline, in a workbench, or on a full page
-without changing its protocol. UI events become typed runtime commands and are
-executed only through a host-authorized `runtimeTransport`; a renderer never
-calls an arbitrary data tool directly.
+Resource payloads do not enter the canonical document. `SurfaceController`
+materializes and validates resolved props for one node from trusted,
+grant-bound projections immediately before rendering.
 
-The complete product decision and production exit gates are defined in
-[Embedded Business Artifact Runtime](./embedded-artifact-runtime). The detailed
-DSL, IR, compiler, and v2 implementation notes remain in the
-[Protocol and Compiler Reference](./artifact-ui-architecture).
+The normative detail lives in the
+[Generative UI architecture](/docs/agent/architecture/generative-ui) and
+[data-agent proof gates](/docs/agent/architecture/generative-ui-proof). The
+[Protocol and Compiler Reference](./artifact-ui-architecture) and
+[Embedded Business Artifact Runtime](./embedded-artifact-runtime) are preserved
+historical predecessor designs, not current APIs.

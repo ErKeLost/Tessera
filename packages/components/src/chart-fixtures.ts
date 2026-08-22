@@ -130,7 +130,11 @@ function createChartSpecFixture(recipe: ChartRecipeDefinition): ChartSpecFixture
     Object.assign(common, {
       x: "month",
       axes: capabilities.has("axis.y")
-        ? { x: { visible: true, scale: "time" }, y: { visible: true, scale: "number" }, grid: "horizontal" }
+        ? {
+            x: { visible: true, scale: "time", label: "Month" },
+            y: { visible: true, scale: "number", label: "Revenue" },
+            grid: "horizontal",
+          }
         : { x: { visible: true, scale: "time" }, grid: "horizontal" },
       curve: capabilities.has("curve.linear") ? "linear" : capabilities.has("curve.step") ? "step" : "natural",
       fill: capabilities.has("fill.gradient") ? "gradient" : "solid",

@@ -90,7 +90,7 @@ export function createBackgroundPerformanceObserver(
     try {
       sinks.push(new OtlpHttpTelemetrySink({
         endpoint,
-        serviceName: nonEmpty(env.OTEL_SERVICE_NAME) ?? "artifact-ui-playground",
+        serviceName: nonEmpty(env.OTEL_SERVICE_NAME) ?? "tessera-playground",
         serviceVersion: nonEmpty(env.ARTIFACT_RELEASE_VERSION),
         headers: telemetryHeaders(env),
         timeoutMs: boundedTimeout(env.ARTIFACT_OTLP_TIMEOUT_MS),

@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from "node:crypto";
-import { z } from "zod";
 import {
   DEFAULT_PROTOCOL_LIMITS,
   assetRefSchema,
@@ -14,6 +13,7 @@ import {
   resourceGrantIdSchema,
   resourceKindSchema,
   resourceOperationSchema,
+  resourceDatasetPayloadSchema,
   resourceResolutionResultSchema,
   resourceWindowRequestSchema,
   resourceSnapshotIdSchema,
@@ -30,6 +30,7 @@ import {
   type OpaqueServerCursor,
   type ResourceBindingDeclaration,
   type ResourceBindingId,
+  type ResourceDatasetPayload,
   type ResourceOperation,
   type ResourceResolutionResult,
   type ResourceSchemaConstraint,
@@ -234,6 +235,9 @@ export class ResourceGateway {
     if (declaration.selector.filterStateRef && !(declaration.selector.filterStateRef in stateValues)) {
       return unavailable(request.bindingId, "unavailable", true);
     }
+    if (declaration.selector.filterStateRef && !grant.allowedOperations.includes("filter")) {
+      return unavailable(request.bindingId, "denied", false);
+    }
     const projection = await this.#projectionPolicy.authorize({
       grant,
       declaration,
@@ -277,12 +281,15 @@ export class ResourceGateway {
       policyProjectionHash,
     }, this.#cursorCodec, this.#now());
     const windowed = projectWindow(version, declaration.selector, selectedColumns, projection.filterRow, offset);
+    const resolvedValue = version.kind === "asset"
+      ? undefined
+      : this.#schemas.validate(version.schemaConstraint, windowed.value);
     const resourceWindow = version.kind === "asset"
       ? { kind: "asset" as const, asset: assetRefSchema.parse(version.payload) }
       : {
         kind: "json" as const,
-        value: windowed.value,
-        byteLength: canonicalEncode(windowed.value).byteLength,
+        value: resolvedValue!,
+        byteLength: canonicalEncode(resolvedValue!).byteLength,
       };
     if (resourceWindow.kind === "json" && resourceWindow.byteLength > DEFAULT_PROTOCOL_LIMITS.maxResolvedResourceBytes) {
       throw new ResourceGatewayError("resource.window-too-large", "Resolved resource window exceeds the protocol byte limit.");
@@ -376,7 +383,7 @@ function describePinnedResource(
     versionId: declaration.resolution.versionId,
     ...(dataset ? {
       rowCount: dataset.rows.length,
-      columns: dataset.columns.map((column) => columnIdSchema.parse(column.id)),
+      columns: dataset.columns.map((column) => columnIdSchema.parse(column.columnId)),
     } : {}),
   });
 }
@@ -389,8 +396,9 @@ function projectWindow(
   offset: number,
 ): { value: JsonValue; nextOffset?: number } {
   if (!isDatasetPayload(version.payload)) return { value: version.payload as JsonValue };
-  const knownColumns = new Set(version.payload.columns.map((column) => column.id));
-  const columns = selectedColumns ?? version.payload.columns.map((column) => columnIdSchema.parse(column.id));
+  const knownColumns = new Set(version.payload.columns.map((column) => column.columnId));
+  const columns = selectedColumns
+    ?? version.payload.columns.map((column) => columnIdSchema.parse(column.columnId));
   for (const column of columns) {
     if (!knownColumns.has(column)) throw new ResourceGatewayError("resource.column-not-found", `Column ${column} does not exist in the resource.`);
   }
@@ -402,12 +410,16 @@ function projectWindow(
   const page = rows.slice(offset, offset + limit).map((row) => Object.fromEntries(
     columns.map((column) => [column, row[column] ?? null]),
   ));
+  const hasMore = offset + limit < rows.length;
   const value = {
-    columns: version.payload.columns.filter((column) => columns.includes(columnIdSchema.parse(column.id))),
+    columns: version.payload.columns.filter((column) => (
+      columns.includes(columnIdSchema.parse(column.columnId))
+    )),
     rows: page,
     totalRows: rows.length,
+    hasMore,
   } as JsonValue;
-  return { value, ...(offset + limit < rows.length ? { nextOffset: offset + limit } : {}) };
+  return { value, ...(hasMore ? { nextOffset: offset + limit } : {}) };
 }
 
 function inputOffset(
@@ -445,40 +457,9 @@ function intersectColumns(
   return requested.filter((column) => allowedSet.has(column));
 }
 
-type DatasetPayload = {
-  columns: Array<{ id: string; label?: string; type?: string }>;
-  rows: Array<Record<string, JsonValue>>;
-  totalRows?: number;
-};
+export const datasetPayloadSchema = resourceDatasetPayloadSchema;
 
-export const datasetPayloadSchema = z.object({
-  columns: z.array(z.object({
-    id: columnIdSchema,
-    label: z.string().min(1).max(512).optional(),
-    type: z.string().min(1).max(128).optional(),
-  }).strict()).max(DEFAULT_PROTOCOL_LIMITS.maxResourceWindowColumns),
-  rows: z.array(z.record(z.string(), jsonValueSchema)),
-  totalRows: z.number().int().nonnegative().optional(),
-}).strict().superRefine((dataset, context) => {
-  const columnIds = dataset.columns.map((column) => column.id);
-  if (new Set(columnIds).size !== columnIds.length) {
-    context.addIssue({ code: "custom", path: ["columns"], message: "Dataset column IDs must be unique." });
-  }
-  const knownColumns = new Set(columnIds);
-  for (const [rowIndex, row] of dataset.rows.entries()) {
-    for (const key of Object.keys(row)) {
-      const parsedKey = columnIdSchema.safeParse(key);
-      if (!parsedKey.success || !knownColumns.has(parsedKey.data)) {
-        context.addIssue({ code: "custom", path: ["rows", rowIndex, key], message: "Dataset row key is not declared as a column." });
-      }
-    }
-  }
-  if (dataset.totalRows !== undefined && dataset.totalRows < dataset.rows.length) {
-    context.addIssue({ code: "custom", path: ["totalRows"], message: "Dataset totalRows cannot be smaller than the included row count." });
-  }
-});
-
-function isDatasetPayload(value: unknown): value is DatasetPayload {
+function isDatasetPayload(value: unknown): value is ResourceDatasetPayload {
   return datasetPayloadSchema.safeParse(value).success;
 }
 

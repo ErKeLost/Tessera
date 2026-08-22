@@ -2,9 +2,12 @@ import {
   canonicalStringify,
   correlationIdSchema,
   hostCommandEnvelopeSchema,
+  isoTimestampSchema,
   sha256HashSchema,
+  resourceResolutionIdentitySchema,
   surfaceEventPayloadSchema,
   surfaceSessionIdSchema,
+  transactionIdSchema,
   type CausationId,
   type CorrelationId,
   type HostCommandEnvelope,
@@ -43,6 +46,10 @@ export type CommitSurfaceJournalResult =
 export interface SurfaceSessionJournal {
   create(record: SurfaceSessionRecord, initialEvent: SurfaceEventDraft): Promise<CreateSurfaceJournalResult>;
   get(surfaceSessionId: SurfaceSessionId): Promise<VersionedSurfaceSession | undefined>;
+  list(input: Readonly<{
+    after?: SurfaceSessionId;
+    limit: number;
+  }>): Promise<VersionedSurfaceSession[]>;
   commit(input: Readonly<{
     surfaceSessionId: SurfaceSessionId;
     expectedVersion: number;
@@ -112,6 +119,18 @@ export class InMemorySurfaceSessionJournal implements SurfaceSessionJournal {
     return session ? cloneSession(session) : undefined;
   }
 
+  async list(input: Readonly<{ after?: SurfaceSessionId; limit: number }>) {
+    if (!Number.isInteger(input.limit) || input.limit < 1) {
+      throw new TypeError("Surface session list limit must be a positive integer.");
+    }
+    const after = input.after === undefined ? undefined : surfaceSessionIdSchema.parse(input.after);
+    return [...this.#sessions.entries()]
+      .filter(([surfaceSessionId]) => after === undefined || compareIds(surfaceSessionId, after) > 0)
+      .sort(([left], [right]) => compareIds(left, right))
+      .slice(0, input.limit)
+      .map(([, session]) => cloneSession(session));
+  }
+
   async commit(input: Readonly<{
     surfaceSessionId: SurfaceSessionId;
     expectedVersion: number;
@@ -124,9 +143,13 @@ export class InMemorySurfaceSessionJournal implements SurfaceSessionJournal {
     if (!current) return { status: "missing" };
     if (current.version !== input.expectedVersion) return { status: "conflict", current: cloneSession(current) };
     const next = validateRecord(input.next);
-    assertStableSessionIdentity(current.value, next);
     const drafts = input.events.map(parseDraft);
-    const retained = this.#events.get(streamKey(current.value)) ?? [];
+    const command = input.command ? hostCommandEnvelopeSchema.parse(input.command) : undefined;
+    const epochChanged = assertCommitSessionIdentity(current.value, next, drafts, command);
+    const retained = this.#events.get(streamKey(next)) ?? [];
+    if (epochChanged && retained.length > 0) {
+      throw new TypeError("A replacement Surface epoch must begin with an empty event lineage.");
+    }
     const firstSequence = (retained.at(-1)?.sequence ?? 0) + 1;
     const events = await Promise.all(drafts.map((draft, index) => (
       this.#factory.create(eventInput(next, draft), firstSequence + index)
@@ -135,7 +158,7 @@ export class InMemorySurfaceSessionJournal implements SurfaceSessionJournal {
     const latest = this.#sessions.get(surfaceSessionId);
     if (!latest) return { status: "missing" };
     if (latest.version !== input.expectedVersion) return { status: "conflict", current: cloneSession(latest) };
-    const latestEvents = this.#events.get(streamKey(latest.value)) ?? [];
+    const latestEvents = this.#events.get(streamKey(next)) ?? [];
     if ((latestEvents.at(-1)?.sequence ?? 0) !== firstSequence - 1) {
       return { status: "conflict", current: cloneSession(latest) };
     }
@@ -145,12 +168,12 @@ export class InMemorySurfaceSessionJournal implements SurfaceSessionJournal {
       committedEvents.splice(0, committedEvents.length - this.#maxRetainedEvents);
     }
     const storedNext = structuredClone(next);
-    if (input.command) {
-      const command = hostCommandEnvelopeSchema.parse(input.command);
+    if (command) {
+      const commandRecord = epochChanged ? current.value : storedNext;
       if (
-        command.surfaceSessionId !== storedNext.surfaceSessionId
-        || command.streamId !== storedNext.streamId
-        || command.epoch !== storedNext.epoch
+        command.surfaceSessionId !== commandRecord.surfaceSessionId
+        || command.streamId !== commandRecord.streamId
+        || command.epoch !== commandRecord.epoch
       ) throw new TypeError("Command identity does not match the committed Surface session.");
       const priorReceipt = storedNext.commandReceipts[command.commandId];
       if (priorReceipt && priorReceipt.payloadHash !== command.payloadHash) {
@@ -312,6 +335,37 @@ function validateRecord(input: SurfaceSessionRecord): SurfaceSessionRecord {
   if (record.streamPolicy.cursorExpiresAt !== record.expiresAt) {
     throw new TypeError("Surface cursor expiry must equal the session expiry.");
   }
+  if (record.activeTransaction) {
+    transactionIdSchema.parse(record.activeTransaction.transactionId);
+    const startedAt = isoTimestampSchema.parse(record.activeTransaction.startedAt);
+    const deadlineAt = isoTimestampSchema.parse(record.activeTransaction.deadlineAt);
+    if (Date.parse(deadlineAt) <= Date.parse(startedAt)) {
+      throw new TypeError("Active transaction deadline must follow its start time.");
+    }
+    if (Date.parse(deadlineAt) > Date.parse(record.expiresAt)) {
+      throw new TypeError("Active transaction deadline cannot outlive its Surface session.");
+    }
+  }
+  if (
+    record.activePreview
+    && record.activeTransaction?.transactionId !== record.activePreview.transactionId
+  ) throw new TypeError("Active preview must belong to the active transaction.");
+  if (
+    record.pendingRevisionPublication
+    && record.activeTransaction?.transactionId
+      !== record.pendingRevisionPublication.finalize.transactionId
+  ) throw new TypeError("Pending revision publication must belong to the active transaction.");
+  for (const [bindingId, identityInput] of Object.entries(record.resourceResolutionIdentities)) {
+    const identity = resourceResolutionIdentitySchema.parse(identityInput);
+    if (bindingId !== identity.bindingId || !record.committedRevision.content.resourceBindings[identity.bindingId]) {
+      throw new TypeError("Resource resolution identity does not match a committed binding.");
+    }
+  }
+  for (const bindingId of Object.keys(record.resources)) {
+    if (!record.resourceResolutionIdentities[bindingId as keyof typeof record.resourceResolutionIdentities]) {
+      throw new TypeError("Resolved Surface resources require a resolution identity.");
+    }
+  }
   return record;
 }
 
@@ -323,6 +377,7 @@ function assertSnapshotMatchesRecord(
     revision: record.committedRevision,
     state: record.state,
     resources: record.resources,
+    resourceResolutionIdentities: record.resourceResolutionIdentities,
     actions: record.actions,
     approvals: record.approvals,
   };
@@ -332,16 +387,35 @@ function assertSnapshotMatchesRecord(
   ) throw new TypeError("Initial Surface snapshot must exactly match its session record.");
 }
 
-function assertStableSessionIdentity(current: SurfaceSessionRecord, next: SurfaceSessionRecord): void {
+function assertCommitSessionIdentity(
+  current: SurfaceSessionRecord,
+  next: SurfaceSessionRecord,
+  events: readonly SurfaceEventDraft[],
+  command: HostCommandEnvelope | undefined,
+): boolean {
   if (
     current.surfaceSessionId !== next.surfaceSessionId
     || current.streamId !== next.streamId
-    || current.epoch !== next.epoch
     || current.audienceBindingHash !== next.audienceBindingHash
     || canonicalStringify(current.authority) !== canonicalStringify(next.authority)
     || current.rendererCapabilityManifest.manifestHash !== next.rendererCapabilityManifest.manifestHash
     || current.catalogSlice.sliceHash !== next.catalogSlice.sliceHash
   ) throw new TypeError("A journal commit cannot change immutable Surface session identity or negotiated capabilities.");
+  if (current.epoch === next.epoch) return false;
+  if (
+    next.epoch !== current.epoch + 1
+    || command?.payload.type !== "resume-request"
+    || events.length !== 1
+    || events[0]?.payload.type !== "snapshot-published"
+    || next.activeTransaction !== undefined
+    || next.activePreview !== undefined
+    || next.pendingRevisionPublication !== undefined
+    || next.acknowledgedThrough !== 0
+  ) {
+    throw new TypeError("A Surface epoch can advance only through a resume snapshot replacement.");
+  }
+  assertSnapshotMatchesRecord(next, events[0].payload);
+  return true;
 }
 
 function streamKey(record: Pick<SurfaceSessionRecord, "streamId" | "epoch">): string {
@@ -350,4 +424,8 @@ function streamKey(record: Pick<SurfaceSessionRecord, "streamId" | "epoch">): st
 
 function cloneSession(session: VersionedSurfaceSession): VersionedSurfaceSession {
   return structuredClone(session);
+}
+
+function compareIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

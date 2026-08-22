@@ -1,6 +1,6 @@
 {
   "title": "Examples",
-  "description": "Complete compositions built from trusted Tessera Agent components.",
+  "description": "Data Agent compositions rendered through trusted Tessera Agent surfaces.",
   "root": true,
   "pages": ["index", "query-analysis", "workspace-health", "compound-interest"]
 }

@@ -1,13 +1,14 @@
 ---
 title: 示例
-description: 使用可信且经过 Schema 验证的组件构建完整 Agent 答案。
+description: 通过 Tessera Agent Generative UI 唯一链路渲染的 Data Agent Surface。
 ---
 
-每个示例都有自己的文档页、实现代码和实时预览。界面由经过验证的数据渲染，
-不是模型生成的 JSX。
+每个示例都由同一组 12 个 Component Contract 组合而成。模型只提议声明式 Node；
+可信 Surface Event 进入 `SurfaceController`，再由 `GenerativeSurface` 通过官方
+`RendererRegistry` 渲染。示例既不使用模型生成的 JSX，也不使用固定业务 Artifact Renderer。
 
 <Cards>
-  <Card title="查询分析" description="在一个可审查答案中组合图表、精确数据行、SQL 和血缘。" href="/docs/examples/query-analysis" />
-  <Card title="工作区健康度" description="展示一组可以继续触发分析的运行指标。" href="/docs/examples/workspace-health" />
-  <Card title="复利计算" description="Agent 选择已注册计算器后，在本地执行确定性计算。" href="/docs/examples/compound-interest" />
+  <Card title="查询分析" description="在一个受治理结果上组合 Layout、Metric、Chart、Table 与 Query Details Node。" href="/docs/examples/query-analysis" />
+  <Card title="工作区健康度" description="使用 Layout、Metric、Chart 与 Content Node 组合响应式 KPI Surface。" href="/docs/examples/workspace-health" />
+  <Card title="复利计算" description="组合受治理数值控件与 Metric、Chart 结果；计算逻辑仍由 Host 持有。" href="/docs/examples/compound-interest" />
 </Cards>

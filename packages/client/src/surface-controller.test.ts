@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  committedRevisionSchema,
+  hashDocumentContent,
   verifyHostCommandEnvelope,
   type HostCommandEnvelope,
 } from "@open-generative/protocol";
@@ -151,6 +153,45 @@ describe("SurfaceController trusted replay", () => {
       payload: rejectedPayload("test.contract-change"),
     });
     expect((await controller.consume(wrongContracts)).issues[0]?.code).toBe("client.contract-set-mismatch");
+    expect(controller.bindNode(ROOT_NODE_ID)).toBeUndefined();
+  });
+
+  test("refuses to mount a node whose slots violate the verified browser Contract", async () => {
+    const fixture = await createClientFixture();
+    const content = structuredClone(fixture.content);
+    content.nodes[ROOT_NODE_ID]!.slots.undeclared = [];
+    const revision = committedRevisionSchema.parse({
+      ...fixture.revision,
+      envelope: {
+        ...fixture.revision.envelope,
+        contentHash: await hashDocumentContent(content),
+      },
+      content,
+    });
+    const snapshot = { ...fixture.snapshot, revision };
+    const controller = controllerFor(fixture, createRecordingTransport());
+    await controller.consume(await createSurfaceEvent(fixture, {
+      sequence: 1,
+      payload: { type: "snapshot-published", snapshot, streamPolicy: fixture.streamPolicy },
+    }));
+
+    expect(controller.bindNode(ROOT_NODE_ID)).toMatchObject({
+      status: "invalid",
+      diagnostics: [{ code: "client.slot-unknown" }],
+    });
+  });
+
+  test("rejects a trusted snapshot whose state value fails its exact JSON Schema", async () => {
+    const fixture = await createClientFixture();
+    const snapshot = structuredClone(fixture.snapshot);
+    snapshot.state[VISIBLE_STATE_ID]!.value = 42;
+    const controller = controllerFor(fixture, createRecordingTransport());
+    const result = await controller.consume(await createSurfaceEvent(fixture, {
+      sequence: 1,
+      payload: { type: "snapshot-published", snapshot, streamPolicy: fixture.streamPolicy },
+    }));
+    expect(result.status).toBe("resync-required");
+    expect(result.issues[0]?.code).toBe("stream.snapshot-state-schema-invalid");
     expect(controller.bindNode(ROOT_NODE_ID)).toBeUndefined();
   });
 });

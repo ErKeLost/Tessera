@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/runtime",
-  "version": "0.3.5",
+  "version": "0.3.8",
   "description": "Deterministic Open Generative document, preview, state, migration, and replay reducers.",
   "license": "MIT",
   "type": "module",

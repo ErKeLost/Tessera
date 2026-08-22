@@ -19,7 +19,7 @@ import {
 import { type ReactNode, useId, useMemo, useState } from "react";
 
 type PreviewTab = "preview" | "code";
-type InstallMethod = "cli" | "registry" | "manual";
+type InstallMethod = "renderer" | "contracts" | "manual";
 
 const sourceOptions = {
   disableFileHeader: false,
@@ -224,10 +224,10 @@ export function ComponentPreview({
   );
 }
 
-function getInstallCommands(name: string) {
+function getVerificationCommands() {
   return {
-    cli: `npx tessera-agent@latest add ${name}`,
-    registry: `npx shadcn@4.17.0 add https://tessera-agent.dev/r/${name}.json`,
+    renderer: "bun --cwd packages/ui typecheck",
+    contracts: "bun --cwd packages/components test",
   };
 }
 
@@ -240,11 +240,11 @@ function ManualInstall({ name, source }: { name: string; source: string }) {
       <div className="flex items-center justify-between gap-3 px-1 text-xs text-muted-foreground">
         <p>
           {chinese
-            ? "将源码复制到你自己的组件目录中，并持续维护 Schema 契约版本。"
-            : "Copy the source into your own component catalog and keep the schema contract versioned."}
+            ? "这是固定 Artifact 方案的历史源码，仅用于设计审查，不是当前 Component Contract 实现。"
+            : "This is historical source for the fixed Artifact design, not the current Component Contract implementation."}
         </p>
         <CopyButton
-          label={chinese ? "复制手动安装源码" : "Copy manual source"}
+          label={chinese ? "复制历史源码" : "Copy historical source"}
           value={manualSource}
         />
       </div>
@@ -260,18 +260,18 @@ export function InstallCommand({
   name: string;
   source?: string;
 }) {
-  const [method, setMethod] = useState<InstallMethod>("cli");
+  const [method, setMethod] = useState<InstallMethod>("renderer");
   const id = useId();
   const { locale } = useI18n();
   const chinese = locale === "zh";
-  const commands = getInstallCommands(name);
+  const commands = getVerificationCommands();
   const methods: Array<{
     value: InstallMethod;
     label: string;
     icon: typeof PackageIcon;
   }> = [
-    { value: "cli", label: "Tessera Agent", icon: PackageIcon },
-    { value: "registry", label: "shadcn CLI", icon: TerminalIcon },
+    { value: "renderer", label: chinese ? "Renderer 源码" : "Renderer source", icon: PackageIcon },
+    { value: "contracts", label: "Contract tests", icon: TerminalIcon },
     ...(source
       ? [
           {
@@ -286,7 +286,7 @@ export function InstallCommand({
   return (
     <div className="de-install-command not-prose my-6 overflow-hidden rounded-lg border border-border/80 bg-card ring-1 ring-foreground/[0.018]">
       <div
-        aria-label={chinese ? "安装方式" : "Installation method"}
+        aria-label={chinese ? "仓库验证方式" : "Repository verification"}
         className="flex min-h-12 items-center gap-1 overflow-x-auto border-b border-border/70 bg-muted/[0.13] px-2"
         role="tablist"
       >
@@ -324,7 +324,7 @@ export function InstallCommand({
         >
           <div className="flex items-center justify-between gap-3 border-b border-border/70 bg-muted/[0.16] px-3 py-2">
             <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-              {method === "cli" ? (
+              {method === "renderer" ? (
                 <PackageIcon aria-hidden="true" className="size-3.5 shrink-0" />
               ) : (
                 <TerminalIcon
@@ -333,14 +333,14 @@ export function InstallCommand({
                 />
               )}
               <span className="rounded-md bg-background px-2 py-0.5 font-mono text-[10px] font-medium text-foreground ring-1 ring-border/70">
-                npx
+                bun
               </span>
               <span className="truncate">
-                {method === "cli" ? "tessera-agent" : "shadcn"}
+                {method === "renderer" ? "packages/ui" : "packages/components"}
               </span>
             </div>
             <CopyButton
-              label={chinese ? "复制安装命令" : "Copy install command"}
+              label={chinese ? "复制验证命令" : "Copy verification command"}
               value={commands[method]}
             />
           </div>
@@ -348,13 +348,13 @@ export function InstallCommand({
             <code>{commands[method]}</code>
           </pre>
           <p className="border-t border-border px-4 py-3 text-xs leading-5 text-muted-foreground">
-            {method === "cli"
+            {method === "renderer"
               ? chinese
-                ? "使用调用该命令的包管理器安装可编辑源码。"
-                : "Installs editable source with the package manager used to invoke the command."
+                ? "验证当前 Tessera Agent Generative UI Renderer 源码；本页固定 Artifact 不再单独安装。"
+                : "Verifies the current Tessera Agent Generative UI renderers; this fixed Artifact is no longer installed separately."
               : chinese
-                ? "直接通过 shadcn Registry 添加同一份可编辑源码。"
-                : "Adds the same editable source directly through the shadcn registry."}
+                ? "验证生成当前 12 个 Component Contract 与 Chart Recipe 的 source of truth。"
+                : "Verifies the source of truth for the current 12 Component Contracts and chart recipes."}
           </p>
         </div>
       )}

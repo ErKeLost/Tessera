@@ -18,7 +18,7 @@ function getBuildRevision() {
 function healthPayload() {
   return {
     status: "ok",
-    service: "artifact-ui",
+    service: "tessera",
     readiness: "ready",
     revision: getBuildRevision(),
     checks: { application: "pass" },

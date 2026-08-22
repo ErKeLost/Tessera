@@ -19,7 +19,7 @@ import {
 import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { useId, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import { ArtifactAgentLogo } from "@/components/artifact-agent-logo";
+import { TesseraAgentLogo } from "@/components/tessera-agent-logo";
 import {
   ChartDemo,
   MetricsDemo,
@@ -112,7 +112,7 @@ export function HeroChat() {
     <div className="heroChat" aria-label={chinese ? "Tessera Agent 交互式预览" : "Interactive Tessera Agent preview"} data-home-chat>
       <aside className="heroChatSidebar" aria-label={chinese ? "Tessera Agent 导航" : "Tessera Agent navigation"} data-home-chat-sidebar>
         <div className="heroChatBrand">
-          <ArtifactAgentLogo className="heroChatBrandLogo" />
+          <TesseraAgentLogo className="heroChatBrandLogo" />
           <strong>Tessera Agent</strong>
         </div>
         <button className="heroChatNew" onClick={startNewAnalysis} type="button">

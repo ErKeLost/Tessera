@@ -22,6 +22,15 @@ export type Versioned<T> = {
   value: T;
 };
 
+export type VersionedTransaction<T> = Versioned<T> & {
+  transactionId: TransactionId;
+};
+
+export type ListTransactionsInput = Readonly<{
+  after?: TransactionId;
+  limit: number;
+}>;
+
 export type AtomicTransactionCommitRequest<TRecord> = {
   transactionId: TransactionId;
   expectedTransactionVersion: number;
@@ -46,6 +55,7 @@ export interface RevisionBranchStorePort {
 export interface TransactionStorePort<TRecord> {
   createTransaction(transactionId: TransactionId, value: TRecord): Promise<"created" | "exists">;
   getTransaction(transactionId: TransactionId): Promise<Versioned<TRecord> | undefined>;
+  listTransactions(input: ListTransactionsInput): Promise<VersionedTransaction<TRecord>[]>;
   compareAndSetTransaction(
     transactionId: TransactionId,
     expectedVersion: number,
@@ -152,6 +162,17 @@ export class InMemoryRuntimeStore<TRecord> implements RuntimeStorePort<TRecord> 
     return record ? immutableClone(record) : undefined;
   }
 
+  async listTransactions(input: ListTransactionsInput): Promise<VersionedTransaction<TRecord>[]> {
+    if (!Number.isInteger(input.limit) || input.limit < 1) {
+      throw new TypeError("Transaction list limit must be a positive integer.");
+    }
+    return [...this.#transactions.entries()]
+      .filter(([transactionId]) => input.after === undefined || compareIds(transactionId, input.after) > 0)
+      .sort(([left], [right]) => compareIds(left, right))
+      .slice(0, input.limit)
+      .map(([transactionId, record]) => immutableClone({ transactionId, ...record }));
+  }
+
   async compareAndSetTransaction(
     transactionId: TransactionId,
     expectedVersion: number,
@@ -197,4 +218,8 @@ function revisionKey(documentId: DocumentId, revisionId: RevisionId): string {
 
 function branchKey(documentId: DocumentId, branchId: BranchId): string {
   return `${documentId}\0${branchId}`;
+}
+
+function compareIds(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }

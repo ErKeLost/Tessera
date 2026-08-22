@@ -4,14 +4,21 @@ import {
   authoringProposalOperationSchema,
   authoringResourceBindingSchema,
   authoringSnapshotProposalSchema,
+  authoringValueSchema,
   canonicalEntityOperationSchema,
   committedRevisionSchema,
   documentContentSchema,
   hashDocumentContent,
+  opaqueHostResourceKeySchema,
+  resourceBindingIdSchema,
   resourceBindingDeclarationSchema,
+  resourceSchemaIdSchema,
+  resourceVersionIdSchema,
+  stateIdSchema,
   surfaceResourceGrantSchema,
   transactionIdentityMapDeltaSchema,
   transactionIdentityMapSchema,
+  valueExprSchema,
   verifyCommittedRevision,
 } from "./index";
 import { createCommittedRevision, createDocumentContent, testHash } from "./test-fixtures";
@@ -74,6 +81,47 @@ describe("canonical Document and Revision boundaries", () => {
     (cyclic.nodes as Record<string, any>).root.slots = { body: ["root"] };
     expect(documentContentSchema.safeParse(cyclic).success).toBe(false);
   });
+
+  test("validates identity references against canonical state and resource declarations", () => {
+    const base = createDocumentContent();
+    const stateId = stateIdSchema.parse("filter");
+    const bindingId = resourceBindingIdSchema.parse("dataset");
+    const missing = structuredClone(base);
+    missing.nodes[base.rootNodeId]!.props = {
+      stateId: { kind: "state-id-ref", stateId },
+      bindingId: { kind: "resource-id-ref", bindingId },
+    };
+    expect(documentContentSchema.safeParse(missing).success).toBe(false);
+
+    const declared = structuredClone(missing);
+    declared.stateDefinitions[stateId] = {
+      schema: { type: "string" },
+      schemaHash: testHash("4"),
+      initial: "all",
+      sensitivity: "private",
+      modelVisibility: "descriptor",
+      retention: "retain",
+      scope: "surface",
+      persistence: "session",
+    };
+    declared.resourceBindings[bindingId] = {
+      resourceKey: opaqueHostResourceKeySchema.parse("dataset-key"),
+      kind: "dataset",
+      schemaConstraint: {
+        schemaId: resourceSchemaIdSchema.parse("dataset-schema"),
+        schemaRevision: 1,
+        schemaHash: testHash("5"),
+        compatibility: "exact",
+      },
+      selector: {},
+      resolution: {
+        mode: "pinned",
+        versionId: resourceVersionIdSchema.parse("dataset-version"),
+        contentHash: testHash("6"),
+      },
+    };
+    expect(documentContentSchema.safeParse(declared).success).toBe(true);
+  });
 });
 
 describe("authoring proposal boundary", () => {
@@ -131,6 +179,24 @@ describe("authoring proposal boundary", () => {
       },
       input: {},
     }).success).toBe(false);
+  });
+
+  test("accepts exact state and resource identity authoring forms without paths", () => {
+    const stateIdentity = {
+      ref: "state-id",
+      target: { kind: "state", localId: "filter" },
+    } as const;
+    const resourceIdentity = {
+      ref: "resource-id",
+      target: { kind: "resource", canonicalId: "dataset" },
+    } as const;
+
+    expect(authoringValueSchema.safeParse(stateIdentity).success).toBe(true);
+    expect(authoringValueSchema.safeParse(resourceIdentity).success).toBe(true);
+    expect(authoringValueSchema.safeParse({ ...stateIdentity, path: ["value"] }).success).toBe(false);
+    expect(authoringValueSchema.safeParse({ ...resourceIdentity, path: [0] }).success).toBe(false);
+    expect(valueExprSchema.safeParse({ kind: "state-id-ref", stateId: "filter" }).success).toBe(true);
+    expect(valueExprSchema.safeParse({ kind: "resource-id-ref", bindingId: "dataset" }).success).toBe(true);
   });
 
   test("operation node bodies cannot recursively smuggle nested nodes", () => {

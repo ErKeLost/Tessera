@@ -533,10 +533,45 @@ export class ProposalNormalizer {
     if (requested?.windowLimit !== undefined && requested.windowLimit > policy.maxWindowItems) {
       throw compilerError("policy", "resource.window-denied", "Resource window exceeds the offered maximum.");
     }
+    const authoritySelector = authority.declaration.selector;
+    const authorityProjection = authoritySelector.projection === undefined
+      ? undefined
+      : new Set(authoritySelector.projection.map(String));
+    if (
+      requested?.projection !== undefined
+      && authorityProjection !== undefined
+      && requested.projection.some((column) => !authorityProjection.has(column))
+    ) {
+      throw compilerError("policy", "resource.authority-projection-denied", "Resource projection exceeds the Host-authorized selector.");
+    }
+    const requestedFilterStateRef = requested?.filterState === undefined
+      ? undefined
+      : this.#resolveRef(requested.filterState, map);
+    if (
+      authoritySelector.filterStateRef !== undefined
+      && requestedFilterStateRef !== undefined
+      && requestedFilterStateRef !== authoritySelector.filterStateRef
+    ) {
+      throw compilerError("policy", "resource.authority-filter-denied", "Resource filter cannot replace the Host-authorized filter state.");
+    }
+    if (
+      authoritySelector.sort !== undefined
+      && requested?.sort !== undefined
+      && canonicalStringify(requested.sort) !== canonicalStringify(authoritySelector.sort)
+    ) {
+      throw compilerError("policy", "resource.authority-sort-denied", "Resource sort cannot replace the Host-authorized sort.");
+    }
+    if (
+      authoritySelector.windowLimit !== undefined
+      && requested?.windowLimit !== undefined
+      && requested.windowLimit > authoritySelector.windowLimit
+    ) {
+      throw compilerError("policy", "resource.authority-window-denied", "Resource window exceeds the Host-authorized selector.");
+    }
     const selector = {
-      ...authority.declaration.selector,
+      ...authoritySelector,
       ...(requested?.projection === undefined ? {} : { projection: requested.projection }),
-      ...(requested?.filterState === undefined ? {} : { filterStateRef: this.#resolveRef(requested.filterState, map) }),
+      ...(requestedFilterStateRef === undefined ? {} : { filterStateRef: requestedFilterStateRef }),
       ...(requested?.sort === undefined ? {} : { sort: requested.sort }),
       ...(requested?.windowLimit === undefined ? {} : { windowLimit: requested.windowLimit }),
     };
@@ -587,8 +622,14 @@ export class ProposalNormalizer {
     if (value.ref === "state") {
       return valueExprSchema.parse({ kind: "state-ref", stateId: this.#resolveRef(value.target, map), ...(value.path ? { path: value.path } : {}) });
     }
+    if (value.ref === "state-id") {
+      return valueExprSchema.parse({ kind: "state-id-ref", stateId: this.#resolveRef(value.target, map) });
+    }
     if (value.ref === "resource") {
       return valueExprSchema.parse({ kind: "resource-ref", bindingId: this.#resolveRef(value.target, map), ...(value.path ? { path: value.path } : {}) });
+    }
+    if (value.ref === "resource-id") {
+      return valueExprSchema.parse({ kind: "resource-id-ref", bindingId: this.#resolveRef(value.target, map) });
     }
     if (value.ref === "event") {
       return valueExprSchema.parse({ kind: "event-ref", port: value.port, ...(value.path ? { path: value.path } : {}) });
@@ -869,8 +910,12 @@ function expressionClassification(
   expression: ValueExpr,
   classifications: ReadonlyMap<string, FlowClassification>,
 ): FlowClassification {
-  if (expression.kind === "state-ref") return classifications.get(`state:${expression.stateId}`) ?? "public";
-  if (expression.kind === "resource-ref") return classifications.get(`resource:${expression.bindingId}`) ?? "public";
+  if (expression.kind === "state-ref" || expression.kind === "state-id-ref") {
+    return classifications.get(`state:${expression.stateId}`) ?? "public";
+  }
+  if (expression.kind === "resource-ref" || expression.kind === "resource-id-ref") {
+    return classifications.get(`resource:${expression.bindingId}`) ?? "public";
+  }
   if (expression.kind === "array") return maxClassification(expression.items.map((item) => expressionClassification(item, classifications)));
   if (expression.kind === "object") return maxClassification(Object.values(expression.entries).map((item) => expressionClassification(item, classifications)));
   if (expression.kind === "condition") return maxClassification(expression.args.map((item) => expressionClassification(item, classifications)));

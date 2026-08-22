@@ -15,12 +15,12 @@ import {
 } from "./contracts";
 
 describe("official component catalog", () => {
-  test("creates exactly 12 component contracts and three action contracts at package revision 0.3.5", async () => {
+  test("creates exactly 12 component contracts and three action contracts at package revision 0.3.8", async () => {
     const catalog = await createOfficialCatalog();
     const packageJson = await Bun.file(new URL("../package.json", import.meta.url)).json();
 
-    expect(packageJson.version).toBe("0.3.5");
-    expect(String(OFFICIAL_CATALOG_REVISION)).toBe("0.3.5");
+    expect(packageJson.version).toBe("0.3.8");
+    expect(String(OFFICIAL_CATALOG_REVISION)).toBe("0.3.8");
     expect(catalog.componentContracts).toHaveLength(12);
     expect(catalog.actionContracts).toHaveLength(3);
     expect(new Set(catalog.componentContracts.map((contract) => String(contract.ref.componentType)))).toEqual(new Set([
@@ -72,9 +72,16 @@ describe("official component catalog", () => {
   test("binds governed resources and host intents to the expected contracts", async () => {
     const catalog = await createOfficialCatalog();
     const chart = catalog.components.dataChart;
-    const specPath = jsonPointerSchema.parse("/spec");
-    expect(chart.authoringBindings[specPath]?.allowedSources).toEqual(["literal", "resource", "state"]);
-    expect(chart.authoringBindings[specPath]?.resource?.selector.maxWindowItems).toBe(10_000);
+    const dataPath = jsonPointerSchema.parse("/spec/data");
+    const legendStatePath = jsonPointerSchema.parse("/spec/legend/visibilityState");
+    const interactionStatePath = jsonPointerSchema.parse("/spec/interaction/state");
+    const centerTextPath = jsonPointerSchema.parse("/spec/centerText/value");
+    expect(chart.authoringBindings[dataPath]?.allowedSources).toEqual(["resource"]);
+    expect(chart.authoringBindings[dataPath]?.resource?.selector.maxWindowItems).toBe(10_000);
+    expect(chart.authoringBindings[legendStatePath]?.allowedSources).toEqual(["state"]);
+    expect(chart.authoringBindings[interactionStatePath]?.allowedSources).toEqual(["state"]);
+    expect(chart.authoringBindings[centerTextPath]?.allowedSources).toEqual(["literal", "state"]);
+    expect(chart.readiness.requiredBindings).toEqual([dataPath]);
     expect(chart.accessibility.equivalentView).toBe("host-required");
 
     expect(catalog.components.dataTable.events[eventPortSchema.parse("export")]?.actionContracts).toEqual([catalog.actions.dataExport.ref]);

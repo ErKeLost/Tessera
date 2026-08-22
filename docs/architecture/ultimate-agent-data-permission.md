@@ -1,6 +1,14 @@
 # Tessera Ultimate Agent + Data Permission Architecture
 
-Status: proposed architecture baseline  
+> **Historical, non-normative architecture input.** This document preserves an
+> earlier Tessera Agent permission and database-write design. It is not part of
+> the current Tessera Agent Generative UI proof, and it does not authorize
+> changes to Agent, Studio, Workbench, or `/Users/work/data-agent`. The normative
+> current scope is defined by
+> [`open-generative-architecture.md`](./open-generative-architecture.md) and
+> [`tessera-data-agent-generative-ui-proof.md`](./tessera-data-agent-generative-ui-proof.md).
+
+Status: historical reference (original status: proposed architecture baseline)
 Scope: Studio, Data Agent, Mastra runtime, database actions, permissions, approvals, audit  
 Decision: preserve the existing Data Agent semantic read path; add write capability behind a server-authoritative action boundary.
 
@@ -67,14 +75,15 @@ The browser is never an authority in this chain. It can display a decision and s
 | Connector | parameterized execution, timeout, transaction, native DB errors | deciding whether an actor is allowed |
 | Audit/effect ledger | immutable decisions, receipts, hashes, timestamps | changing an authorization decision retroactively |
 
-The existing files map naturally to this model:
+The original monorepo mapping below is retained only as historical context. The
+paths are not current implementation targets:
 
-- `/Users/work/tessera-agent/packages/data-agent/src/index.ts`: Data Agent semantic runtime.
-- `/Users/work/tessera-agent/apps/studio/src/agent.ts`: Mastra Agent and current read tools.
-- `/Users/work/tessera-agent/packages/capability-broker/src/broker.ts`: action authorization and effect boundary.
-- `/Users/work/tessera-agent/packages/capability-broker/src/actions.ts`: action state machine and recovery.
-- `/Users/work/tessera-agent/packages/database/src/permissions.ts`: initial Datus-style SQL policy evaluator.
-- `/Users/work/tessera-agent/apps/studio/src/settings-runtime.ts`: server-only settings and policy persistence.
+- `packages/data-agent/src/index.ts`: historical Data Agent semantic runtime.
+- `apps/studio/src/agent.ts`: historical Mastra Agent and read tools.
+- `packages/capability-broker/src/broker.ts`: historical action authorization and effect boundary.
+- `packages/capability-broker/src/actions.ts`: historical action state machine and recovery.
+- `packages/database/src/permissions.ts`: historical Datus-style SQL policy evaluator.
+- `apps/studio/src/settings-runtime.ts`: historical server-only settings and policy persistence.
 
 ## 4. Domain model
 
@@ -398,7 +407,11 @@ Events should carry correlation fields such as `tenantRef`, `actorRef`, `threadI
 
 The user-facing error should be safe and stable. Provider URLs, credentials, raw SQL, and native database details belong in server logs or redacted diagnostics, not in the browser response.
 
-## 13. Migration plan
+## 13. Historical migration plan
+
+This plan records the original Agent/Studio proposal. It is not an active plan
+for this repository; the current implementation scope remains the Tessera Agent
+Generative UI contracts, runtime, components, renderers, fixtures, and proof.
 
 ### Phase 0: architecture freeze
 
@@ -443,7 +456,7 @@ The user-facing error should be safe and stable. Provider URLs, credentials, raw
 - Restrict dangerous posture to short-lived server grants.
 - Run failure-injection tests for restart, duplicate approval, stale catalog, revoked policy, connector timeout, and partial execution.
 
-## 14. Acceptance criteria
+## 14. Historical acceptance criteria
 
 The architecture is considered implemented only when all of these hold:
 

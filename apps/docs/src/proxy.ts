@@ -10,8 +10,9 @@ const { rewrite: rewriteEnglishSuffix } = rewritePath("/en/docs{/*path}.md", "/e
 const { rewrite: rewriteDefaultDocs } = rewritePath("/docs{/*path}", "/en/llms.mdx/docs{/*path}/content.md");
 const { rewrite: rewriteDefaultSuffix } = rewritePath("/docs{/*path}.md", "/en/llms.mdx/docs{/*path}/content.md");
 const routeLocale = createI18nMiddleware(i18n);
+const defaultLocaleRewriteHeader = "x-tessera-default-locale-rewrite";
 
-export default function proxy(request: NextRequest, event: NextFetchEvent) {
+export default async function proxy(request: NextRequest, event: NextFetchEvent) {
   const suffix = rewriteChineseSuffix(request.nextUrl.pathname)
     ?? rewriteEnglishSuffix(request.nextUrl.pathname)
     ?? rewriteDefaultSuffix(request.nextUrl.pathname);
@@ -22,7 +23,26 @@ export default function proxy(request: NextRequest, event: NextFetchEvent) {
       ?? rewriteDefaultDocs(request.nextUrl.pathname);
     if (docs) return NextResponse.rewrite(new URL(docs, request.nextUrl), { headers: { Vary: "Accept" } });
   }
-  return routeLocale(request, event);
+  if (
+    request.headers.get(defaultLocaleRewriteHeader) === i18n.defaultLanguage
+    && request.nextUrl.pathname.startsWith(`/${i18n.defaultLanguage}/`)
+  ) {
+    return NextResponse.next();
+  }
+
+  const response = await routeLocale(request, event);
+  if (!(response instanceof Response)) return NextResponse.next();
+  const rewrite = response.headers.get("x-middleware-rewrite");
+  if (rewrite === null) return response;
+
+  const rewriteUrl = new URL(rewrite, request.nextUrl);
+  if (!rewriteUrl.pathname.startsWith(`/${i18n.defaultLanguage}/`)) return response;
+
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(defaultLocaleRewriteHeader, i18n.defaultLanguage);
+  return NextResponse.rewrite(rewriteUrl, {
+    request: { headers: requestHeaders },
+  });
 }
 
 export const config = {

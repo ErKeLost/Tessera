@@ -1,13 +1,15 @@
 ---
-title: 协议与 Compiler 参考
-description: Artifact DSL、Normalized IR、Compiler、Runtime、Capability 与 shadcn Renderer 的 v2 详细参考。
+title: 历史：协议与 Compiler 参考
+description: 为旧 ArtifactPart 与 ArtifactRenderer 架构完整保留的前置设计。
 ---
 
-> **产品边界：**规范性的产品与生命周期决策现在以
-> [嵌入式业务 Artifact Runtime](./embedded-artifact-runtime) 为准。本文继续作为 v2 协议与实现细节参考；
-> 任何暗示独立或通用 UI 产品的旧表述，都服从新的产品决策。
+> **历史前置设计：** 本文作为设计输入原文保留，其中的 `ArtifactPart`、Wire Decoder、
+> `ArtifactRenderer`、兼容层、Package、安装和 Rollout API 都不是 Tessera Agent 当前 API。
+> 规范设计见 [Generative UI 架构](/docs/agent/architecture/generative-ui)，唯一渲染链经过
+> `SurfaceController`、`GenerativeSurface` 与 `RendererRegistry`。如正文与现行架构冲突，
+> 一律以现行 Generative UI 规范为准。
 
-状态：**本地参考实现已落地**。仓库已实现核心 v2 Protocol、Compiler、Runtime、Adapter、
+本文撰写时的历史状态：**本地参考实现已落地**。前置仓库已实现核心 v2 Protocol、Compiler、Runtime、Adapter、
 Capability/Resource Boundary、Renderer、Registry Tooling、确定性 Eval Gate 和 Rollout-control Module。
 本文也保留明确标注为未来扩展或生产 Exit Requirement 的设计，它们不代表已经发布。真实 Production Canary、
 固定 Provider/Model 评测矩阵、无障碍矩阵，以及每个受控 Provider/Profile 4,000+ 个 Eligible Zero-failure
@@ -56,15 +58,10 @@ shadcn/ui 仍然是首要渲染器与源码分发方式，但它们不定义协�
 内部架构可以复杂，公开入口不能复杂。普通开发者不需要理解 IR、Frame 协议、提示词编译、
 修复循环或 Capability 生命周期，仍然能够安全地渲染 Artifact。
 
-面向发布的 v2 Golden Path 只有一条安装命令、一个服务端 Helper、一个浏览器 Decode Boundary
-和一个 Renderer。该命令已经作为公开接口完成测试，但只有 npm Package 与 Registry Host
-发布后，外部项目才能真正执行：
+这份历史方案曾设想一条安装命令、一个服务端 Helper、一个浏览器 Decode Boundary
+和一个 Renderer。该方案的 CLI 与 Registry 从未发布，因此本页不再给出可执行安装命令。
 
-```bash
-npx tessera-agent@latest add artifact-ui
-```
-
-该命令安装基于 shadcn、可编辑的 React 源码，并锁定精确的 Protocol、Runtime 和
+设想中的命令会安装基于 shadcn、可编辑的 React 源码，并锁定精确的 Protocol、Runtime 和
 Artifact Contract Package 版本。Server Adapter 由应用显式安装；默认示例使用
 `@open-generative/ai-sdk`。服务端创建一个长期存活、不保存请求状态的配置对象，并为每次模型调用
 准备新的 Catalog Slice：

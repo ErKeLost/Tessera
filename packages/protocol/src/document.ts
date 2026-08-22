@@ -269,9 +269,9 @@ function validateValueReferences(
   context: z.RefinementCtx,
   path: PropertyKey[],
 ): void {
-  if (expression.kind === "state-ref" && !content.stateDefinitions[expression.stateId]) {
+  if ((expression.kind === "state-ref" || expression.kind === "state-id-ref") && !content.stateDefinitions[expression.stateId]) {
     context.addIssue({ code: "custom", path, message: "Value expression references missing state." });
-  } else if (expression.kind === "resource-ref" && !content.resourceBindings[expression.bindingId]) {
+  } else if ((expression.kind === "resource-ref" || expression.kind === "resource-id-ref") && !content.resourceBindings[expression.bindingId]) {
     context.addIssue({ code: "custom", path, message: "Value expression references a missing resource binding." });
   } else if (expression.kind === "array") {
     expression.items.forEach((item, index) => validateValueReferences(item, content, context, [...path, "items", index]));

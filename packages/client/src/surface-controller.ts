@@ -34,6 +34,7 @@ import {
   type ResumeCursor,
   type RevisionId,
   type ResourceBindingId,
+  type ResourceResolutionIdentity,
   type ResourceResolutionResult,
   type Sha256Hash,
   type SingleUseApprovalToken,
@@ -64,6 +65,7 @@ import {
   type SurfaceStateMap,
   type SurfaceStateValidationPort,
 } from "@open-generative/runtime";
+import { z } from "zod";
 import { BrowserContractRegistry, type ClientValidationIssue } from "./browser-contracts";
 import {
   createBrowserCommandIdentityFactory,
@@ -119,6 +121,7 @@ export type NodeScopedStateBinding = Readonly<{
 
 export type NodeScopedResourceBinding = Readonly<{
   bindingId: ResourceBindingId;
+  identity?: ResourceResolutionIdentity;
   result?: ResourceResolutionResult;
 }>;
 
@@ -216,7 +219,7 @@ export class SurfaceController {
   readonly #hashProvider: HashProvider | undefined;
   readonly #replayOptions: SurfaceControllerReplayOptions;
   readonly #context: Readonly<{ locale: string; timezone: string }> | undefined;
-  readonly #stateValidation: SurfaceStateValidationPort | undefined;
+  readonly #stateValidation: SurfaceStateValidationPort;
   readonly #autoAcknowledge: boolean;
   readonly #clock: () => Date;
   readonly #listeners = new Set<(snapshot: SurfaceControllerSnapshot) => void>();
@@ -239,7 +242,7 @@ export class SurfaceController {
     this.#context = options.context === undefined
       ? undefined
       : Object.freeze({ locale: options.context.locale, timezone: options.context.timezone });
-    this.#stateValidation = options.stateValidation;
+    this.#stateValidation = options.stateValidation ?? createExactStateValidationPort();
     this.#autoAcknowledge = options.autoAcknowledge ?? true;
     this.#clock = options.clock ?? (() => new Date());
     this.#replay = immutableClone({
@@ -296,6 +299,24 @@ export class SurfaceController {
           nodeId,
           revisionId,
         )],
+      });
+    }
+
+    const structure = this.#contracts.validateNodeStructure(nodeId, node, document);
+    if (!structure.ok) {
+      return freezeProjection({
+        nodeId,
+        revisionId,
+        projectionMode,
+        status: "invalid",
+        node,
+        contract: registration.contract,
+        stateBindings,
+        resourceBindings,
+        diagnostics: structure.issues.map((issue) => validationDiagnostic(issue, nodeId, revisionId)),
+        ...(fromPreview ? {} : {
+          commands: this.#createNodeBridge(nodeId, revisionId, node.contract, false),
+        }),
       });
     }
 
@@ -470,6 +491,7 @@ export class SurfaceController {
     const result = await reduceTrustedSurfaceEvent(before, input, {
       ...this.#replayOptions,
       hashProvider: this.#hashProvider,
+      stateValidation: this.#stateValidation,
     });
     this.#replay = result.state;
     if (result.status === "resync-required") {
@@ -592,8 +614,10 @@ export class SurfaceController {
     const bindings = {} as Record<ResourceBindingId, NodeScopedResourceBinding>;
     for (const bindingId of bindingIds) {
       const result = this.#replay.lastGood?.resources[bindingId];
+      const identity = this.#replay.lastGood?.resourceResolutionIdentities[bindingId];
       bindings[bindingId] = {
         bindingId,
+        ...(identity === undefined ? {} : { identity }),
         ...(result === undefined ? {} : { result }),
       };
     }
@@ -729,12 +753,6 @@ export class SurfaceController {
     }
     const requestId = this.#requestId(options.requestId);
     if (action.kind === "local-transition") {
-      if (!this.#stateValidation) {
-        throw controllerError(
-          "client.state-validator-missing",
-          "Surface-local transitions require an exact Host-provided state validator.",
-        );
-      }
       const reduced = await reduceSurfaceLocalAction({
         surfaceSessionId: this.surfaceSessionId,
         requestId,
@@ -1111,4 +1129,30 @@ function transportDiagnostic(
 
 function controllerError(code: string, message: string): SurfaceControllerError {
   return new SurfaceControllerError(code, message);
+}
+
+function createExactStateValidationPort(): SurfaceStateValidationPort {
+  const validators = new Map<string, z.ZodType>();
+  return {
+    validateSurfaceStateValue: ({ stateId, definition, value }) => {
+      const key = canonicalStringify(definition.schema);
+      let validator = validators.get(key);
+      if (!validator) {
+        validator = z.fromJSONSchema(definition.schema as never);
+        validators.set(key, validator);
+      }
+      const parsed = validator.safeParse(value);
+      if (!parsed.success) {
+        return [{ code: "client.state-schema-invalid", message: parsed.error.message, stateId }];
+      }
+      if (canonicalStringify(parsed.data) !== canonicalStringify(value)) {
+        return [{
+          code: "client.state-schema-transformation-forbidden",
+          message: "State validators must not coerce, default, or transform canonical values.",
+          stateId,
+        }];
+      }
+      return [];
+    },
+  };
 }

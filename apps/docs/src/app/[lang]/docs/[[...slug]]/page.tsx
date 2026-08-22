@@ -1,4 +1,5 @@
 import { getPageMarkdownUrl, source } from "@/lib/source";
+import { gitConfig } from "@/lib/shared";
 import { getMDXComponents } from "@/components/mdx";
 import { createRelativeLink } from "fumadocs-ui/mdx";
 import {
@@ -25,7 +26,7 @@ export default async function Page(props: PageProps<"/[lang]/docs/[[...slug]]">)
       <div className="de-docs-page-tools">
         <MarkdownCopyButton markdownUrl={markdownUrl} />
         <ViewOptionsPopover
-          githubUrl="https://github.com/tessera-agent/tessera-agent"
+          githubUrl={`https://github.com/${gitConfig.user}/${gitConfig.repo}`}
           markdownUrl={markdownUrl}
         />
       </div>

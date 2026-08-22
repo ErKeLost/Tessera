@@ -17,8 +17,8 @@ export async function generateMetadata({ params }: LayoutProps<"/[lang]">): Prom
   return {
     title: { default: "Tessera Agent", template: "%s · Tessera Agent" },
     description: chinese
-      ? "嵌入现有业务系统、可持久化并持续编辑的语义业务 Artifact Runtime。"
-      : "A persistent, editable semantic business Artifact Runtime embedded in existing host systems.",
+      ? "通过受治理 Data Agent 工作流证明的终局 Generative UI 架构与组件体系。"
+      : "A final Generative UI architecture and component system proven through governed data-agent workflows.",
   };
 }
 

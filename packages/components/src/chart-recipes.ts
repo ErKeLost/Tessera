@@ -216,7 +216,7 @@ export const chartRecipeSourceSchema = z.object({
   recipeFileCount: z.literal(70),
   sourceVersion: z.literal("4.18.0"),
   sourceDescribe: z.literal("shadcn@4.18.0-5-g25be24cc"),
-  rendererPackages: z.object({
+  sourcePackages: z.object({
     shadcn: z.object({
       version: z.literal("4.18.0"),
       integrity: z.literal("sha512-tUFZgkYmfVNQVm3xX7lhSzOvDsp+O14ac5dwgXIr5mIsr79ISueb/Mu+ZtWMz0DH6v77u4eYyvbQ9TTMpSn3aw=="),
@@ -227,6 +227,14 @@ export const chartRecipeSourceSchema = z.object({
       version: z.literal("3.8.0"),
       integrity: z.literal("sha512-Z/m38DX3L73ExO4Tpc9/iZWHmHnlzWG4njQbxsF5aSjwqmHNDDIm0rdEBArkwsBvR8U6EirlEHiQNYWCVh9sGQ=="),
       integritySource: z.literal("vendor-lockfile"),
+    }).strict(),
+  }).strict(),
+  rendererPackages: z.object({
+    chartEngine: z.object({
+      packageName: z.literal("recharts"),
+      version: z.literal("3.10.1"),
+      integrity: z.literal("sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA=="),
+      integritySource: z.literal("workspace-lockfile"),
     }).strict(),
   }).strict(),
   vendorLockfileHash: z.literal("sha256:4cdeb1a0cb106189fb36681f435e80a10a676aea41cffee22e059a3b2d49ac7a"),
@@ -244,7 +252,7 @@ export const officialChartRecipeSource = deepFreeze(chartRecipeSourceSchema.pars
   recipeFileCount: 70,
   sourceVersion: "4.18.0",
   sourceDescribe: "shadcn@4.18.0-5-g25be24cc",
-  rendererPackages: {
+  sourcePackages: {
     shadcn: {
       version: "4.18.0",
       integrity: "sha512-tUFZgkYmfVNQVm3xX7lhSzOvDsp+O14ac5dwgXIr5mIsr79ISueb/Mu+ZtWMz0DH6v77u4eYyvbQ9TTMpSn3aw==",
@@ -255,6 +263,14 @@ export const officialChartRecipeSource = deepFreeze(chartRecipeSourceSchema.pars
       version: "3.8.0",
       integrity: "sha512-Z/m38DX3L73ExO4Tpc9/iZWHmHnlzWG4njQbxsF5aSjwqmHNDDIm0rdEBArkwsBvR8U6EirlEHiQNYWCVh9sGQ==",
       integritySource: "vendor-lockfile",
+    },
+  },
+  rendererPackages: {
+    chartEngine: {
+      packageName: "recharts",
+      version: "3.10.1",
+      integrity: "sha512-QXFrvt6IVcw7eeZCoyXTwkIJAX3Dv1nyVhMicXJ47GsGDDpcN8z6o644DibE9XjpBTThtsomLKnTV6lc+cVFUA==",
+      integritySource: "workspace-lockfile",
     },
   },
   vendorLockfileHash: "sha256:4cdeb1a0cb106189fb36681f435e80a10a676aea41cffee22e059a3b2d49ac7a",

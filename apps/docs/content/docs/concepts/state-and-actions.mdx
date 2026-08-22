@@ -1,27 +1,43 @@
 ---
-title: State and actions
-description: Keep local UI state fast while sending intentional actions to the agent.
+title: State and Actions
+description: How Tessera Agent keeps interaction local while preserving host authority.
 ---
 
-Tessera Agent uses three state owners:
+Tessera Agent separates canonical Surface state, browser-local view state, and
+authoritative business state. They never share an implicit mutation path.
 
-- **Authoritative business state** lives on the server.
-- **Ephemeral interaction state** lives in the artifact. Slider motion updates
-  charts immediately and does not consume model tokens.
-- **Durable user state** lives in host-controlled storage.
+| State owner | Examples | Update path |
+| --- | --- | --- |
+| Canonical Surface state | Filter values, selection bound to a committed document | Revision-checked state command or validated local transition |
+| Browser-local view state | Open tabs, hover, focus, temporary chart legend visibility | Renderer-owned; never enters the canonical document |
+| Host business state | Database records, approvals, exports, external effects | Typed HostIntent through server policy and receipts |
 
-Wrap renderers with `TesseraPreviewProvider` to receive structured events:
+## Node-scoped interaction
 
-```tsx
-<TesseraPreviewProvider
-  onAction={(event) => {
-    // event.artifactId, event.action, event.payload
-  }}
->
-  <ArtifactRenderer artifact={artifact} />
-</TesseraPreviewProvider>
+A renderer receives only the resolved props, declared slots, node-scoped state
+and resource bindings, placement, and an optional `emit` function. The function
+exists only for a committed projection. Read-only previews cannot emit events.
+
+```ts
+type NodeScopedEventEmitter = (
+  port: EventPort,
+  payload: JsonValue,
+) => Promise<NodeEventDispatchResult>;
 ```
 
-The host decides whether an event remains telemetry, invokes a tool directly,
-or becomes a user message for the model. This prevents incidental controls from
-creating expensive conversational turns.
+The renderer emits a port declared by its exact Component Contract. It cannot
+choose an action, tool, URL, or credential. `SurfaceController` validates the
+event payload, resolves the committed action binding, checks node scope and
+revision preconditions, then either applies a deterministic local transition or
+sends a typed Host command.
+
+## HostIntent
+
+The current catalog defines only three HostIntent contracts:
+`data.export`, `surface.retry`, and `control.apply`. Availability comes from the
+Host's frozen authority and resource offers, not from the model or renderer.
+Effects remain server-side and return idempotent receipts.
+
+This path replaces the historical `TesseraPreviewProvider`,
+`ArtifactRenderer`, and generic `onAction` callback. There is one event bridge,
+owned by `SurfaceController`.

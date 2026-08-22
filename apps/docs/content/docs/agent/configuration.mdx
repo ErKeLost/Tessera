@@ -1,63 +1,49 @@
 ---
-title: Configuration
-description: Keep database and model credentials server-only while configuring Studio limits and policy.
+title: Proof Configuration
+description: Keep Tessera Agent's Generative UI proof reproducible without inventing a public Studio config API.
 ---
 
-Create `tessera.config.ts` in the project directory and resolve secrets from the
-server environment:
+This Generative UI proof does not depend on the separately published
+`@open-tessera/studio` configuration facade, and there is no `tessera-agent`
+component CLI. Its configuration is owned by explicit package contracts and
+test fixtures rather than a second top-level product API.
 
-```bash
-DATABASE_URL=postgresql://readonly:password@127.0.0.1:5432/warehouse
-OPENROUTER_API_KEY=your-server-only-key
-```
+## Ownership
 
-```ts
-import { defineTesseraConfig } from "@open-tessera/studio";
-
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required.");
-
-export default defineTesseraConfig({
-  database: {
-    url: databaseUrl,
-    maxRows: 500,
-    statementTimeoutMs: 15_000,
-  },
-  llm: {
-    model: "openrouter/qwen/qwen3.8-27b",
-  },
-});
-```
-
-Tessera infers the database dialect from the URL. Pin `database.dialect` only
-when the config must reject a URL from another database family.
-
-## Model settings
-
-Use a Mastra-supported `provider/model` ID and its provider environment key.
-An OpenAI-compatible gateway can provide a server-only `baseUrl`, `apiKey`, and
-headers. Never expose these values through browser environment variables.
-
-## Workspace settings
-
-| Section | Responsibility |
+| Concern | Current source of truth |
 | --- | --- |
-| Database | URL, dialect, schema scope, and connection test |
-| Model | Provider, model, API key, base URL, and reasoning effort |
-| Limits | Maximum rows, statement timeout, and Agent step limits |
-| Permissions | Read, write, destructive, and unknown action policy |
+| Protocol limits and wire schemas | `packages/protocol` |
+| Component identity, schemas, and Catalog slices | `packages/catalog` and `packages/components` |
+| Proposal normalization, validation, and commit | `packages/compiler` |
+| Query resources, grants, and projections | `packages/resources` |
+| Host authority, sessions, and trusted events | `packages/server` |
+| Browser replay, resolved props, and commands | `packages/client` |
+| React surface and exact renderer lookup | `packages/react` |
+| Tessera data-agent renderers and recipes | `packages/ui` |
+| Deterministic and model-evaluation acceptance | the proof specification and fixtures |
 
-Sensitive settings changes are applied by the server runtime and can be gated
-by the host authentication and administrator policy.
+The Host must freeze the Component Contract slice, authority, resource grants,
+limits, locale, timezone, and renderer capability manifest for each Surface
+session. A model cannot configure or expand any of them.
 
-## Listener options
+## Data-agent profile
 
-```bash
-npx tessera-agent@latest studio \
-  --config ./config/tessera.config.ts \
-  --host 127.0.0.1 \
-  --port 4310
-```
+The current product profile is deliberately fixed to 12 orthogonal Component
+Contracts and the complete supported shadcn/Recharts chart recipe set. Product
+shapes such as trend, funnel, cohort, anomaly, and forecast are recipes over the
+same contracts; they are not extra protocol component types.
 
-Non-loopback listeners require explicit remote access, allowed origins, and
-authentication in the Studio config.
+Query rows stay in the Resource Gateway. The model receives only bounded,
+policy-approved descriptors and binding references. Renderer props are resolved
+for one node after trusted events reach `SurfaceController`.
+
+## Local environment
+
+No secret is needed for deterministic proof gates. `OPENROUTER_API_KEY` enables
+only the optional documentation chat route. Database credentials and the
+Tessera Agent product integration belongs to its Host surface and must remain
+server-only there.
+
+Any future public config facade must be implemented and tested before it is
+documented here. Until then, examples use concrete repository APIs and fixtures
+only.

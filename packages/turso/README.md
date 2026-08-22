@@ -1,6 +1,6 @@
 # @open-tessera/turso
 
-Cross-runtime Turso/libSQL connector for Data Elements on Node.js 24+ and Bun
+Cross-runtime Turso/libSQL connector for Tessera Agent on Node.js 24+ and Bun
 1.3+. It reuses the SQLite catalog and read-only SQL policy while keeping Turso
 connection credentials separate.
 

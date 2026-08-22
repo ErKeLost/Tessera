@@ -11,7 +11,7 @@ describe("health route", () => {
     const payload = await response.json() as Record<string, unknown>;
     expect(payload).toMatchObject({
       status: "ok",
-      service: "artifact-ui",
+      service: "tessera",
       readiness: "ready",
       checks: { application: "pass" },
     });

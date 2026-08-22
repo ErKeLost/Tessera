@@ -1,79 +1,34 @@
 ---
 title: 组件
-description: 面向数据智能体的可信分析界面。
+description: Tessera Agent 当前的 data-agent Catalog，以及完整保留的历史设计输入。
 ---
 
-Tessera Agent 是面向数据智能体的声明式界面目录。每个组件接收带版本且经过验证的载荷，
-并渲染由应用程序掌控的 React，而不是模型生成的 JSX。
+Tessera Agent 现在通过一组小而正交的 Component Contract 生成界面。底层终局架构保持通用，
+但当前 Renderer、Recipe、Fixture 与 proof prompt 只为 data-agent workflow 精心设计。
 
-## 从这里开始
+## 当前 Generative UI Catalog
 
-<Cards>
-  <Card title="Artifact primitives" description="为每个生成结果构建一致的 shadcn 风格框架。" href="/docs/components/artifact" />
-  <Card title="Query Artifact" description="将图表、精确数据行、SQL、筛选条件、警告和溯源信息组织在一起。" href="/docs/components/query-artifact" />
-  <Card title="Metric Artifact" description="以类型化下钻操作呈现紧凑的运行状态快照。" href="/docs/components/metric-artifact" />
-  <Card title="Artifact Renderer" description="通过经过校验的 v1 Artifact 或已提交的 v2 Runtime Part 渲染完整目录。" href="/docs/integrations/ai-sdk" />
-</Cards>
+当前 source of truth 包含 12 个 Contract：
 
-## 跟踪优先级与执行进度
+- Layout：`layout.stack`、`layout.grid`、`layout.section`
+- Content：`content.text`、`content.callout`、`content.empty`
+- Data：`data.metric`、`data.table`、`data.chart`、`data.query-details`
+- Controls：`control.filter`、`control.group`
 
-<Cards>
-  <Card title="目标" description="按明确目标、方向、状态和截止日期衡量一项业务目标。" href="/docs/components/target-artifact" />
-  <Card title="排名" description="按一项可信指标排序实体，并展示变化、高亮和下钻操作。" href="/docs/components/ranking-artifact" />
-  <Card title="时间线" description="通过明确时间、状态、负责人和顺序呈现可信里程碑。" href="/docs/components/timeline-artifact" />
-</Cards>
-
-## 解释发生了什么变化
+`data.chart` 通过一套严格 ChartSpec 覆盖全部 61 个 shadcn/Recharts Chart Recipe 与 9 个
+Tooltip Recipe。Trend、Breakdown、Anomaly、Forecast、Funnel、Cohort、Experiment 与
+Data Quality 等分析体验都是这些基础组件的 Composition Recipe。
 
 <Cards>
-  <Card title="Trend" description="呈现包含变化、目标和解释的聚焦时间序列。" href="/docs/components/trend-artifact" />
-  <Card title="Breakdown" description="按贡献排序类别，并展示占比和周期变化。" href="/docs/components/breakdown-artifact" />
-  <Card title="Driver" description="通过带符号的贡献项，将指标从起始值核对到结束值。" href="/docs/components/driver-artifact" />
-  <Card title="Anomaly" description="结合预期值和结构化后续步骤确定偏差优先级。" href="/docs/components/anomaly-artifact" />
+  <Card title="当前 Catalog 参考" description="查看精确 Contract、Action、Recipe、Fixture 与 Conformance 所有权。" href="/docs/components/generative-ui-catalog" />
+  <Card title="Generative UI 架构" description="理解 Contract 如何经过 Compiler、Controller、Surface 与 Renderer Registry。" href="/docs/agent/architecture/generative-ui" />
+  <Card title="成功证明门槛" description="查看 framework-neutral core 可以被抽取之前必须通过的全部门槛。" href="/docs/agent/architecture/generative-ui-proof" />
 </Cards>
 
-## 比较群体与结果
+## 保留的历史设计输入
 
-<Cards>
-  <Card title="Distribution" description="检查分箱、分位数、中心位置、离散程度和离群值上下文。" href="/docs/components/distribution-artifact" />
-  <Card title="Cohort" description="比较不同 Cohort 起始日期和经过周期的留存情况。" href="/docs/components/cohort-artifact" />
-  <Card title="Experiment" description="展示实验变体、样本量、效应、不确定性和护栏指标。" href="/docs/components/experiment-artifact" />
-  <Card title="Comparison" description="按稳定标准评估选项，并说明推荐理由。" href="/docs/components/comparison-artifact" />
-</Cards>
+本节其余页面全部有意保留。它们记录当前组合式架构之前探索过的固定 Artifact Recipe、Schema、
+Preview 与交互思路。这些页面是**历史设计输入**，不是当前协议 Contract，也不是公开安装 API。
 
-## 预测、漏斗与可信度
-
-<Cards>
-  <Card title="Forecast" description="将观测值与有界预测及置信区间清晰分离。" href="/docs/components/forecast-artifact" />
-  <Card title="Funnel" description="检查连续阶段中的转化和局部流失。" href="/docs/components/funnel-artifact" />
-  <Card title="Data Quality" description="把质量评分与新鲜度、完整性和一致性检查结合起来。" href="/docs/components/data-quality-artifact" />
-  <Card title="Insight" description="发布简洁、由证据支持的结论和一项建议操作。" href="/docs/components/insight-artifact" />
-</Cards>
-
-## 支撑界面
-
-<Cards>
-  <Card title="Calculator" description="通过本地控件探索已注册的确定性公式。" href="/docs/components/calculator-artifact" />
-  <Card title="Data Table" description="搜索、排序、分页和格式化经过验证的数据行，同时保留精确值。" href="/docs/components/data-table" />
-  <Card title="Chart" description="通过 shadcn Chart API 渲染可信图表规范。" href="/docs/components/chart" />
-</Cards>
-
-## 安装
-
-npm Package 与远程 Registry 目前尚未发布。以下命令用于说明发布后可用的公开安装接口；
-当前请使用仓库内的本地开发流程。
-
-发布后，安装完整的可编辑组件目录：
-
-```bash
-npx tessera-agent@latest
-```
-
-发布后，也可以只添加智能体工作流所需的 Artifact：
-
-```bash
-npx tessera-agent@latest add query-artifact cohort-artifact experiment-artifact
-```
-
-每个 Artifact 都使用 shadcn 语义 Token，安装后仍由宿主应用程序完整掌控。在本仓库中，
-可运行 `bun install`、`bun run registry:build` 与 `bun run dev` 检查相同的本地源码。
+这些设计仍然重要：它们定义了 Tessera Agent 生成式 Composition 必须达到的产品质量，但不会再让
+每一种分析形态都变成一种独立协议类型。

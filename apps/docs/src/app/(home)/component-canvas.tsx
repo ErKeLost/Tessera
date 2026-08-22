@@ -2,121 +2,129 @@
 
 import {
   ArrowUpRightIcon,
-  BetweenHorizontalStartIcon,
-  CalculatorIcon,
-  ChartNoAxesColumnIncreasingIcon,
-  FlaskConicalIcon,
-  GitCompareArrowsIcon,
+  ChartNoAxesCombinedIcon,
+  DatabaseIcon,
+  GaugeIcon,
   Grid3X3Icon,
+  InboxIcon,
   LaptopIcon,
-  LineChartIcon,
-  ListTreeIcon,
+  ListFilterIcon,
+  MessageSquareWarningIcon,
   MinusIcon,
   MousePointer2Icon,
+  PanelsTopLeftIcon,
   PlusIcon,
+  Rows3Icon,
   ScanIcon,
+  SlidersHorizontalIcon,
   SmartphoneIcon,
+  Table2Icon,
   TabletIcon,
-  TrendingUpIcon,
+  TypeIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { type CSSProperties, type KeyboardEvent, useId, useState } from "react";
-import {
-  CalculatorDemo,
-  BreakdownDemo,
-  CohortDemo,
-  ComparisonDemo,
-  DistributionDemo,
-  DriverDemo,
-  ExperimentDemo,
-  QueryDemo,
-  TrendDemo,
-} from "@/components/examples";
+import { ComponentContractDemo } from "@/components/generative-gallery";
 import styles from "./home.module.css";
 import { localizedPath } from "@/lib/i18n";
 
 const items = [
   {
-    id: "query",
-    label: "Query",
-    detail: "Chart, table, SQL, and lineage in one result.",
-    href: "/docs/components/query-artifact",
-    icon: LineChartIcon,
-    scene: "blue-field",
-    sceneLabel: "Blue field",
+    id: "layout-stack",
+    componentType: "layout.stack",
+    label: "Stack",
+    detail: "Ordered reading flow for generated analysis.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: Rows3Icon,
   },
   {
-    id: "calculator",
-    label: "Calculator",
-    detail: "Trusted local calculations with live controls.",
-    href: "/docs/components/calculator-artifact",
-    icon: CalculatorIcon,
-    scene: "sage-flow",
-    sceneLabel: "Sage flow",
-  },
-  {
-    id: "comparison",
-    label: "Comparison",
-    detail: "Inspectable recommendations across clear criteria.",
-    href: "/docs/components/comparison-artifact",
-    icon: GitCompareArrowsIcon,
-    scene: "indigo-flow",
-    sceneLabel: "Indigo flow",
-  },
-  {
-    id: "trend",
-    label: "Trend",
-    detail: "Focused time-series context and point selection.",
-    href: "/docs/components/trend-artifact",
-    icon: TrendingUpIcon,
-    scene: "blue-mountains",
-    sceneLabel: "Blue mountains",
-  },
-  {
-    id: "breakdown",
-    label: "Breakdown",
-    detail: "Ranked contribution with share and category change.",
-    href: "/docs/components/breakdown-artifact",
-    icon: ListTreeIcon,
-    scene: "cyan-ridge",
-    sceneLabel: "Cyan ridge",
-  },
-  {
-    id: "distribution",
-    label: "Distribution",
-    detail: "Histogram, quantiles, center, and outlier context.",
-    href: "/docs/components/distribution-artifact",
-    icon: ChartNoAxesColumnIncreasingIcon,
-    scene: "blue-dunes",
-    sceneLabel: "Blue dunes",
-  },
-  {
-    id: "cohort",
-    label: "Cohort",
-    detail: "Retention aligned by cohort age and start date.",
-    href: "/docs/components/cohort-artifact",
+    id: "layout-grid",
+    componentType: "layout.grid",
+    label: "Grid",
+    detail: "Responsive comparison without viewport-specific output.",
+    href: "/docs/components/generative-ui-catalog",
     icon: Grid3X3Icon,
-    scene: "sage-flow",
-    sceneLabel: "Sage flow",
   },
   {
-    id: "experiment",
-    label: "Experiment",
-    detail: "Effect size, uncertainty, samples, and guardrails.",
-    href: "/docs/components/experiment-artifact",
-    icon: FlaskConicalIcon,
-    scene: "plum-flow",
-    sceneLabel: "Plum flow",
+    id: "layout-section",
+    componentType: "layout.section",
+    label: "Section",
+    detail: "Semantic grouping with stable heading levels.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: PanelsTopLeftIcon,
   },
   {
-    id: "driver",
-    label: "Drivers",
-    detail: "Signed contributions that reconcile start to end.",
-    href: "/docs/components/driver-artifact",
-    icon: BetweenHorizontalStartIcon,
-    scene: "gold-field",
-    sceneLabel: "Gold field",
+    id: "content-text",
+    componentType: "content.text",
+    label: "Text",
+    detail: "Safe text roles without markup or executable content.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: TypeIcon,
+  },
+  {
+    id: "content-callout",
+    componentType: "content.callout",
+    label: "Callout",
+    detail: "Evidence-backed insight, warning, or constraint.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: MessageSquareWarningIcon,
+  },
+  {
+    id: "content-empty",
+    componentType: "content.empty",
+    label: "Empty",
+    detail: "Explicit no-data, denied, and unavailable states.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: InboxIcon,
+  },
+  {
+    id: "data-metric",
+    componentType: "data.metric",
+    label: "Metric",
+    detail: "Validated scalar values with comparison and selection.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: GaugeIcon,
+  },
+  {
+    id: "data-table",
+    componentType: "data.table",
+    label: "Table",
+    detail: "Windowed exact rows with sort and pagination.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: Table2Icon,
+  },
+  {
+    id: "data-chart",
+    componentType: "data.chart",
+    label: "Chart",
+    detail: "One strict ChartSpec covering all 70 recipes.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: ChartNoAxesCombinedIcon,
+  },
+  {
+    id: "data-query-details",
+    componentType: "data.query-details",
+    label: "Query details",
+    detail: "Policy-controlled SQL, lineage, freshness, and evidence.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: DatabaseIcon,
+  },
+  {
+    id: "control-filter",
+    componentType: "control.filter",
+    label: "Filter",
+    detail: "State-bound filter inputs over governed options.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: ListFilterIcon,
+  },
+  {
+    id: "control-group",
+    componentType: "control.group",
+    label: "Control group",
+    detail: "Related filters with explicit apply and reset behavior.",
+    href: "/docs/components/generative-ui-catalog",
+    icon: SlidersHorizontalIcon,
   },
 ] as const;
 
@@ -127,15 +135,18 @@ const viewports = [
 ] as const;
 
 const chineseItems = {
-  query: { label: "查询", detail: "在一个结果中整合图表、表格、SQL 和溯源信息。", sceneLabel: "蓝色平原" },
-  calculator: { label: "计算器", detail: "使用实时控件执行可信的本地计算。", sceneLabel: "鼠尾草流线" },
-  comparison: { label: "比较", detail: "依据清晰标准给出可审查的建议。", sceneLabel: "靛蓝流线" },
-  trend: { label: "趋势", detail: "聚焦时间序列上下文和数据点选择。", sceneLabel: "蓝色山脉" },
-  breakdown: { label: "拆解", detail: "按贡献排序并展示占比和类别变化。", sceneLabel: "青色山脊" },
-  distribution: { label: "分布", detail: "呈现直方图、分位数、中心位置和离群值上下文。", sceneLabel: "蓝色沙丘" },
-  cohort: { label: "Cohort", detail: "按 Cohort 年龄和起始日期对齐留存率。", sceneLabel: "鼠尾草流线" },
-  experiment: { label: "实验", detail: "展示效应量、不确定性、样本和护栏指标。", sceneLabel: "梅紫流线" },
-  driver: { label: "驱动因素", detail: "使用带符号的贡献项核对起始值和结束值。", sceneLabel: "金色平原" },
+  "layout-stack": { label: "Stack", detail: "为生成式分析提供有序阅读流。" },
+  "layout-grid": { label: "Grid", detail: "无需生成视口专用输出的响应式对比布局。" },
+  "layout-section": { label: "Section", detail: "使用稳定 Heading Level 进行语义分组。" },
+  "content-text": { label: "Text", detail: "不接收 Markup 或可执行内容的安全文本角色。" },
+  "content-callout": { label: "Callout", detail: "由证据支撑的洞察、警告或约束。" },
+  "content-empty": { label: "Empty", detail: "明确表达无数据、拒绝访问与不可用状态。" },
+  "data-metric": { label: "Metric", detail: "带 Comparison 与 Selection 的已验证标量值。" },
+  "data-table": { label: "Table", detail: "支持排序和分页的窗口化精确数据行。" },
+  "data-chart": { label: "Chart", detail: "用一套严格 ChartSpec 覆盖全部 70 个 Recipe。" },
+  "data-query-details": { label: "Query Details", detail: "受策略控制的 SQL、血缘、Freshness 与 Evidence。" },
+  "control-filter": { label: "Filter", detail: "绑定 State、只使用受治理选项的筛选控件。" },
+  "control-group": { label: "Control Group", detail: "组织相关筛选器，并明确 Apply 与 Reset 行为。" },
 } as const;
 
 type ItemId = (typeof items)[number]["id"];
@@ -144,7 +155,7 @@ type ViewportId = (typeof viewports)[number]["id"];
 export function ComponentCanvas() {
   const { locale = "en" } = useI18n();
   const chinese = locale === "zh";
-  const [active, setActive] = useState<ItemId>("query");
+  const [active, setActive] = useState<ItemId>("layout-stack");
   const [viewport, setViewport] = useState<ViewportId>("desktop");
   const [showGrid, setShowGrid] = useState(true);
   const [zoom, setZoom] = useState(88);
@@ -179,12 +190,12 @@ export function ComponentCanvas() {
   return (
     <div className={styles.componentCanvas} data-home-canvas>
       <nav
-        aria-label={chinese ? "Artifact 预览" : "Artifact previews"}
+        aria-label={chinese ? "Component Contract 预览" : "Component Contract previews"}
         className={styles.componentRail}
         data-home-canvas-item
         role="tablist"
       >
-        <p>Artifacts</p>
+        <p>Contracts</p>
         {items.map(({ icon: ItemIcon, id, label }, index) => (
           <button
             aria-controls={`${tabsId}-${id}-panel`}
@@ -271,15 +282,7 @@ export function ComponentCanvas() {
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-west" />
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-east" />
               <div aria-live="polite" className={styles.componentPreview} key={active}>
-                {active === "query" && <QueryDemo />}
-                {active === "calculator" && <CalculatorDemo />}
-                {active === "comparison" && <ComparisonDemo />}
-                {active === "trend" && <TrendDemo />}
-                {active === "breakdown" && <BreakdownDemo />}
-                {active === "distribution" && <DistributionDemo />}
-                {active === "cohort" && <CohortDemo />}
-                {active === "experiment" && <ExperimentDemo />}
-                {active === "driver" && <DriverDemo />}
+                <ComponentContractDemo componentType={item.componentType} />
               </div>
             </div>
             <div className={styles.canvasStatus}>

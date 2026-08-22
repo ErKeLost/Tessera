@@ -1,22 +1,36 @@
 ---
 title: Query Analysis
-description: Render chart, table, SQL, and source lineage as one inspectable Query Artifact.
+description: Compose chart, table, metric, SQL, and lineage nodes into one governed surface.
 ---
 
-Use Query Artifact when a user needs the visual trend and the exact result rows
-in the same answer. SQL and lineage remain inspectable without becoming
-executable browser input.
+This answer is not a `QueryArtifact`. It is a `layout.stack` composition of
+`data.metric`, `data.chart`, `data.table`, and `data.query-details` nodes. The
+nodes bind typed pinned Resources from the same governed query execution and
+share its evidence and provenance. Chart and Table can reuse a dataset version
+only when their Dataset Envelope and schema match; SQL and lineage remain
+policy-controlled render projections rather than executable browser input.
 
 <ComponentPreview
   filename="examples/credit-flow.tsx"
-  code={`import { QueryResultSurface } from "@/components/tessera-agent/query-artifact"
+  code={`import {
+  GenerativeSurface,
+  type RendererRegistry,
+  type SurfaceControllerPort,
+} from "@open-generative/react"
 
-export function CreditFlow({ artifact }) {
-  return <QueryResultSurface artifact={artifact} defaultView="table" />
+export function CreditFlow({ controller, registry }: {
+  controller: SurfaceControllerPort
+  registry: RendererRegistry
+}) {
+  return <GenerativeSurface
+    controller={controller}
+    registry={registry}
+    placement={{ kind: "inline", width: 960, height: 720 }}
+  />
 }`}
 >
   <QueryDemo />
 </ComponentPreview>
 
-See the [Query Artifact component](/docs/components/query-artifact) for its
-schema, provider integration, actions, and accessibility contract.
+See the [current Component Catalog](/docs/components/generative-ui-catalog)
+for the exact contracts, recipes, events, and live coverage.

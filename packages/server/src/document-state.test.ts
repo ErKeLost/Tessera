@@ -119,6 +119,56 @@ describe("InMemoryDocumentStateWriter", () => {
       authority: fixture.record.authority,
     })).toMatchObject({ status: "denied", code: "policy.state-denied" });
   });
+
+  test("rejects JSON Schema defaults instead of mutating the canonical request value", async () => {
+    const fixture = await createServerFixture();
+    const definition = documentStateDefinition({
+      scope: "document",
+      persistence: "host",
+      schema: {
+        type: "object",
+        properties: { mode: { type: "string", default: "all" } },
+        additionalProperties: false,
+      },
+      schemaHash: testHash("8"),
+      initial: { mode: "all" },
+      sensitivity: "private",
+      modelVisibility: "none",
+      retention: "retain",
+    });
+    const current = stateValueSnapshotSchema.parse({
+      stateId: "state:preferences",
+      stateRevisionId: "state-revision:preferences",
+      schemaHash: definition.schemaHash,
+      scope: "document",
+      value: { mode: "all" },
+    });
+    const request = stateWriteRequestSchema.parse({
+      requestId: "request:default-forbidden",
+      surfaceSessionId: fixture.record.surfaceSessionId,
+      documentId: fixture.record.committedRevision.envelope.documentId,
+      expectedRevisionId: fixture.record.committedRevision.envelope.revisionId,
+      stateId: current.stateId,
+      expectedStateRevisionId: current.stateRevisionId,
+      value: {},
+    });
+    let authorizations = 0;
+    const writer = new InMemoryDocumentStateWriter({
+      policy: {
+        authorize: async () => {
+          authorizations += 1;
+          return { allowed: true };
+        },
+      },
+    });
+    expect(await writer.write({
+      request,
+      definition,
+      current,
+      authority: fixture.record.authority,
+    })).toMatchObject({ status: "denied", code: "state.value-transformation-forbidden" });
+    expect(authorizations).toBe(0);
+  });
 });
 
 function documentStateDefinition(input: unknown): Extract<StateDefinition, { scope: "document" }> {

@@ -38,7 +38,9 @@ export async function projectValidatedPreview(
   input: PreviewProjectionInput,
   validation: RuntimeValidationPort,
   provider?: HashProvider,
+  options: Readonly<{ signal?: AbortSignal }> = {},
 ): Promise<PreviewProjectionResult> {
+  options.signal?.throwIfAborted();
   const affectedNodeIds = collectAffectedNodeIds(
     input.projectionOperations ?? input.operations,
     input.document,
@@ -56,13 +58,25 @@ export async function projectValidatedPreview(
       node,
       document: input.document,
       phase: "preview",
+      ...(options.signal ? { signal: options.signal } : {}),
     });
+    options.signal?.throwIfAborted();
     if (issues.length > 0) return { ok: false, issues: [...issues] };
 
-    const policy = await validation.commitPolicy(node.contract);
-    if (policy === "atomic" && !await validation.isNodeReady({ nodeId, node, document: input.document })) {
+    const policy = await validation.commitPolicy(
+      node.contract,
+      options.signal ? { signal: options.signal } : undefined,
+    );
+    options.signal?.throwIfAborted();
+    if (policy === "atomic" && !await validation.isNodeReady({
+      nodeId,
+      node,
+      document: input.document,
+      ...(options.signal ? { signal: options.signal } : {}),
+    })) {
       continue;
     }
+    options.signal?.throwIfAborted();
     renderableNodeIds.push(nodeId);
     for (const actionId of Object.values(node.events)) disabledActionIds.add(actionId);
   }
@@ -186,8 +200,8 @@ function expressionTouches(
   states: ReadonlySet<string>,
   resources: ReadonlySet<string>,
 ): boolean {
-  if (expression.kind === "state-ref") return states.has(expression.stateId);
-  if (expression.kind === "resource-ref") return resources.has(expression.bindingId);
+  if (expression.kind === "state-ref" || expression.kind === "state-id-ref") return states.has(expression.stateId);
+  if (expression.kind === "resource-ref" || expression.kind === "resource-id-ref") return resources.has(expression.bindingId);
   if (expression.kind === "array") return expression.items.some((item) => expressionTouches(item, states, resources));
   if (expression.kind === "object") return Object.values(expression.entries).some((item) => expressionTouches(item, states, resources));
   if (expression.kind === "condition") return expression.args.some((item) => expressionTouches(item, states, resources));
@@ -248,8 +262,12 @@ function actionDependenciesExist(action: ActionDefinition, document: DocumentCon
 }
 
 function valueDependenciesExist(expression: ValueExpr, document: DocumentContent): boolean {
-  if (expression.kind === "state-ref") return document.stateDefinitions[expression.stateId] !== undefined;
-  if (expression.kind === "resource-ref") return resourceDependencyExists(expression.bindingId, document);
+  if (expression.kind === "state-ref" || expression.kind === "state-id-ref") {
+    return document.stateDefinitions[expression.stateId] !== undefined;
+  }
+  if (expression.kind === "resource-ref" || expression.kind === "resource-id-ref") {
+    return resourceDependencyExists(expression.bindingId, document);
+  }
   if (expression.kind === "array") return expression.items.every((item) => valueDependenciesExist(item, document));
   if (expression.kind === "object") return Object.values(expression.entries).every((item) => valueDependenciesExist(item, document));
   if (expression.kind === "condition") return expression.args.every((item) => valueDependenciesExist(item, document));

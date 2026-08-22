@@ -2,7 +2,6 @@ import type {
   NodeEventDispatchResult,
   NodeProjection,
   SurfaceController,
-  SurfaceControllerSnapshot,
 } from "@open-generative/client";
 import type {
   ComponentContract,
@@ -18,6 +17,7 @@ import type {
   JsonValue,
   NodeId,
   RevisionId,
+  Sha256Hash,
 } from "@open-generative/protocol";
 import type { ComponentType, ReactElement } from "react";
 
@@ -57,10 +57,18 @@ export type RendererInput<TProps extends JsonObject = JsonObject> =
 export type NodeRenderer<TProps extends JsonObject = JsonObject> =
   ComponentType<RendererInput<TProps>>;
 
+export type RendererIntegrityBinding = Readonly<{
+  rendererCapabilityManifestHash: Sha256Hash;
+  implementationHash: Sha256Hash;
+  chunkHash: Sha256Hash;
+  assetHashes: readonly Sha256Hash[];
+}>;
+
 export type RendererRegistration = Readonly<{
   contract: ContractRef;
   placements: readonly PlacementConstraint[];
   renderer: NodeRenderer<any>;
+  integrity?: RendererIntegrityBinding;
 }>;
 
 export type RendererResolution =
@@ -92,6 +100,7 @@ export type EmptySystemSurfaceInput = Readonly<{
 
 export type ErrorSystemSurfaceReason =
   | "resync-required"
+  | "placement-invalid"
   | "projection-missing"
   | "projection-invalid"
   | "projection-mismatch"
@@ -144,5 +153,3 @@ export type GenerativeSurfaceProps = Readonly<{
   systemSurfaces?: SystemSurfaceOverrides;
   onNodeError?: (report: NodeRenderErrorReport) => void;
 }>;
-
-export type SurfaceSnapshot = SurfaceControllerSnapshot;

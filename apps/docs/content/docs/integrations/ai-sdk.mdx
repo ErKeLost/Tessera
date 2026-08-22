@@ -1,69 +1,91 @@
 ---
 title: AI SDK
-description: Compile a per-turn tool and stream only committed Artifact UI parts.
+description: Use the implemented AI SDK v7 proposal and trusted Surface-event adapters in Tessera Agent.
 ---
 
-`@open-generative/ai-sdk` is the default server adapter. `createArtifactUI()`
-keeps the public path small while the compiler, policy boundary, runtime commit,
-and transport validation remain internal.
+Tessera Agent integrates AI SDK v7 through `@open-generative/ai-sdk`. The
+package is transport glue around the canonical Generative UI pipeline; it does
+not own Component Contracts, proposal commits, authority, resources, or React
+rendering.
+
+The package root exports only wire constants and types. Server and browser code
+must use the explicit `./server` and `./client` entry points so their dependency
+closures remain separate.
+
+## Present the model tool
+
+`createPresentUiTool()` creates a real AI SDK v7 tool from the compiler output.
+It validates tool input against the frozen turn schema before calling the
+application-supplied executor. Its `toModelOutput` transform returns a bounded
+acknowledgement, so proposal payloads and query rows do not re-enter model
+context.
 
 ```ts
-import { createArtifactUI } from "@open-generative/ai-sdk";
+import { compilePresentUi } from "@open-generative/compiler";
+import { createPresentUiTool } from "@open-generative/ai-sdk/server";
 import { streamText } from "ai";
 
-const artifactUI = createArtifactUI();
+const compiled = compilePresentUi({ catalog: turnCatalog });
+const presentUi = createPresentUiTool({
+  compiled,
+  execute: acceptPresentUiProposal,
+});
 
-export async function POST(request: Request) {
-  const { messages } = await request.json();
-  const turn = await artifactUI.prepareTurn({
-    messages,
-    profile: "analysis",
-  });
-  const result = streamText({
-    model,
-    messages: turn.messages,
-    system: turn.system,
-    tools: { ...dataTools, ...turn.tools },
-  });
+const result = streamText({
+  model,
+  system: compiled.systemPrompt,
+  messages,
+  tools: { ...domainTools, present_ui: presentUi },
+});
+```
 
-  return turn.toUIMessageStreamResponse(result);
+`turnCatalog` must be the same frozen, task-scoped Catalog slice used by
+`acceptPresentUiProposal`. That executor connects validated authoring input to
+the shared compiler and Host commit path; it must not publish model tool input
+directly as a trusted event.
+
+## Stream committed Surface events
+
+Only hash-verified `SurfaceEventEnvelope` values can enter the AI SDK data-part
+stream. The adapter uses the transient `data-openGenerativeSurface` part and
+keeps the canonical event unchanged inside `data`.
+
+```ts
+import { createOpenGenerativeUIMessageStream } from "@open-generative/ai-sdk/server";
+import { createUIMessageStreamResponse } from "ai";
+
+const stream = createOpenGenerativeUIMessageStream(surfaceEvents);
+return createUIMessageStreamResponse({ stream });
+```
+
+Use `toOpenGenerativeSurfaceDataChunk(event)` when composing the event into an
+existing AI SDK UI message stream yourself.
+
+## Consume in the browser
+
+The client adapter recognizes the package-owned data part, parses and verifies
+the event payload, then delegates it to the existing `SurfaceController`.
+
+```ts
+import { consumeOpenGenerativeSurfaceDataPart } from "@open-generative/ai-sdk/client";
+
+for (const part of message.parts) {
+  await consumeOpenGenerativeSurfaceDataPart(surfaceController, part);
 }
 ```
 
-`prepareTurn()` freezes one task-specific catalog slice, provider schema,
-contract fingerprint, policy, and repair budget. The `renderArtifact` tool
-accepts the compact Surface DSL, then the shared commit layer produces a
-runtime v2 `ArtifactPart`. Raw tool arguments and raw provider output are not
-forwarded to the browser. The response contains a `data-artifact` transport
-part with a serializable runtime wire value and the exact contract fingerprint
-used for the turn.
+For routing without consumption, use
+`isOpenGenerativeSurfaceDataPart()` and
+`decodeOpenGenerativeSurfaceDataPart()`.
 
-At the browser message-ingestion boundary, decode the wire with the
-browser-safe runtime package. Keep the resulting branded part in UI state and
-render only after validation succeeds:
+The resulting render path remains exactly:
 
-```tsx
-import { decodeArtifactPart } from "@open-generative/runtime";
-import { ArtifactRenderer } from "@/components/tessera-agent/artifact-ui";
-
-const decoded = await decodeArtifactPart(dataArtifactPart.data.part, {
-  contractFingerprint: dataArtifactPart.data.contractFingerprint,
-});
-
-if (!decoded.success) throw new Error("Artifact transport validation failed.");
-return <ArtifactRenderer value={decoded.part} />;
+```text
+AI SDK v7 data part
+-> verified SurfaceEventEnvelope
+-> SurfaceController
+-> GenerativeSurface
+-> RendererRegistry
 ```
 
-Do not pass the network wire directly to `ArtifactRenderer`; it deliberately
-accepts only an in-process branded `ArtifactPart`, a host-trusted committed
-document, or the explicit v1 compatibility type. `@open-generative/ai-sdk` is
-server-only, so browser code imports the decoder from `@open-generative/runtime`.
-
-Pass host-issued `resources`, `evidence`, and a `documentPolicy` to
-`prepareTurn()` when a turn needs governed data. IDs not granted by the host,
-policy downgrades, invalid schema hashes, and expired references fail before a
-runtime part is published.
-
-`createRenderArtifactTool()` and the v1 message helpers remain available for
-existing single-artifact integrations. New integrations should use
-`createArtifactUI()` and `ArtifactRenderer`.
+There is no `ArtifactPart`, `ArtifactRenderer`, or legacy compatibility path.

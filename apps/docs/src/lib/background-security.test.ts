@@ -54,9 +54,9 @@ describe("BackgroundSecurity", () => {
       rateLimiter: allowedRateLimiter,
       env: {
         NODE_ENV: "production",
-        ARTIFACT_BACKGROUND_ALLOWED_ORIGINS: "https://playground.example.com",
-        ARTIFACT_BACKGROUND_ACCESS_TOKEN: "test-access-token",
-        ARTIFACT_BACKGROUND_SESSION_SECRET: "test-session-secret",
+        TESSERA_BACKGROUND_ALLOWED_ORIGINS: "https://playground.example.com",
+        TESSERA_BACKGROUND_ACCESS_TOKEN: "test-access-token",
+        TESSERA_BACKGROUND_SESSION_SECRET: "test-session-secret",
       },
     });
     const grant = security.issueSession(new Request(baseUrl, {
@@ -86,6 +86,25 @@ describe("BackgroundSecurity", () => {
       headers: { Cookie: cookie, Origin: "https://untrusted.example" },
     }));
     expect(foreignOrigin).toMatchObject({ allowed: false, code: "background_origin_denied" });
+  });
+
+  test("uses the Vercel client address before forwarded fallbacks", async () => {
+    const security = new BackgroundSecurity({
+      env: { NODE_ENV: "development" },
+      rateLimiter: allowedRateLimiter,
+    });
+    const decision = await security.admit(new Request("http://localhost:3001/api/background", {
+      headers: {
+        "x-vercel-forwarded-for": "2001:db8::7",
+        "x-forwarded-for": "203.0.113.8, 198.51.100.4",
+      },
+    }));
+
+    expect(decision.allowed).toBe(true);
+    if (decision.allowed) {
+      expect(decision.identity.clientIp).toBe("2001:db8::7");
+      decision.release();
+    }
   });
 
   test("applies both a distributed rate decision and local model-concurrency ceiling", async () => {

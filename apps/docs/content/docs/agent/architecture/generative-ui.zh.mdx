@@ -55,7 +55,7 @@ Preview、恢复、冲突、placement 和移动端布局都不能创建另一条
 
 ## 数据和动作
 
-Query rows 只存在于 Resource Gateway。模型看到 model-safe descriptor 和带 hash 的 offer，Document 只保存 binding/evidence ref。Table、Chart、Metric 和 Query Details 可以引用同一 pinned `resourceVersionId`，但不能复制 payload。
+Query rows 只存在于 Resource Gateway。模型看到 model-safe descriptor 和带 hash 的 offer，Document 只保存 binding/evidence ref。Table、Chart、Metric 和 Query Details 分别绑定满足自身精确 Contract 的 typed pinned Resource，并可以共享 evidence/provenance；只有采用相同 Dataset Envelope 与 schema 的 Table/Chart binding 才能引用同一 pinned dataset `resourceVersionId`，任何节点都不能复制 payload。
 
 浏览器只执行 Surface-local transition 和 `node.focus`。Document state 写入及所有 HostIntent 都进入 server authority。Capability Broker 负责重新认证、授权、precondition、单次 approval、idempotency、timeout、cancel 和 effect receipt。
 

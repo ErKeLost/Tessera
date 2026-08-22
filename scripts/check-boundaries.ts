@@ -7,6 +7,8 @@ type Manifest = {
   dependencies?: Record<string, string>;
 };
 
+const SOURCE_EXTENSIONS = new Set([".cjs", ".cts", ".js", ".jsx", ".mjs", ".mts", ".ts", ".tsx"]);
+
 const root = join(import.meta.dir, "..");
 const graphDirectories = new Set(packageGraph.map(({ directory }) => directory));
 const packageDirectories = (await readdir(join(root, "packages"), { withFileTypes: true }))
@@ -53,6 +55,46 @@ for (const definition of packageGraph) {
     if (manifest.dependencies?.[dependency] !== "workspace:*") {
       issues.push(`${definition.name} must declare ${dependency} as workspace:*.`);
     }
+  }
+}
+
+async function sourceFiles(directory: string): Promise<string[]> {
+  let entries;
+  try {
+    entries = await readdir(directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const nested = await Promise.all(entries
+    .filter((entry) => entry.name !== "dist" && entry.name !== "node_modules")
+    .map(async (entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return sourceFiles(path);
+      const extension = entry.name.slice(entry.name.lastIndexOf("."));
+      return SOURCE_EXTENSIONS.has(extension) ? [path] : [];
+    }));
+  return nested.flat();
+}
+
+for (const definition of packageGraph.filter(({ name }) => name.startsWith("@open-tessera/"))) {
+  for (const path of await sourceFiles(join(root, definition.directory, "src"))) {
+    if ((await readFile(path, "utf8")).includes("@open-generative/ui")) {
+      issues.push(`${definition.name} source cannot import @open-generative/ui (${path.slice(root.length + 1)}).`);
+    }
+  }
+}
+
+const appEntries = await readdir(join(root, "apps"), { withFileTypes: true });
+for (const entry of appEntries.filter((candidate) => candidate.isDirectory())) {
+  const directory = `apps/${entry.name}`;
+  let manifest: Manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(root, directory, "package.json"), "utf8")) as Manifest;
+  } catch {
+    continue;
+  }
+  if (directory !== "apps/docs" && manifest.dependencies?.["@open-generative/ui"] !== undefined) {
+    issues.push(`${manifest.name ?? directory} cannot depend on @open-generative/ui; apps/docs is the only allowed host.`);
   }
 }
 

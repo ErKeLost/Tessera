@@ -1,7 +1,7 @@
 import { zhCN } from "@fumadocs/language/zh-cn";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 import { uiTranslations } from "fumadocs-ui/i18n";
-import { ArtifactAgentLogo } from "@/components/artifact-agent-logo";
+import { TesseraAgentLogo } from "@/components/tessera-agent-logo";
 import { i18n, localizedPath } from "./i18n";
 import { appName, gitConfig } from "./shared";
 
@@ -19,8 +19,8 @@ export function baseOptions(locale: string): BaseLayoutProps {
   return {
     nav: {
       title: (
-        <span className="de-brand-lockup">
-          <ArtifactAgentLogo className="de-brand-logo" />
+        <span className="tessera-brand-lockup">
+          <TesseraAgentLogo className="tessera-brand-logo" />
           <span>{appName}</span>
         </span>
       ),

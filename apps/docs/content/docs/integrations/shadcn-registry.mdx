@@ -1,121 +1,59 @@
 ---
-title: Installation
-description: Install editable Tessera Agent entrypoints into your application.
+title: shadcn/ui Components
+description: How Tessera Agent owns and validates its current Generative UI renderer source.
 ---
 
-## Prerequisites
+Tessera Agent's official React renderers are built from shadcn/ui primitives and
+Recharts, but there is currently no public `tessera-agent` CLI and no remote
+`tessera-agent.dev` registry. The renderer source remains in this repository
+until the data-agent proof succeeds.
 
-- Node.js 20.18.1 or later
-- A React project with Tailwind CSS
-- A shadcn `components.json` file
+## Current source
 
-Run `npx shadcn@4.17.0 init` first when your project has not initialized
-shadcn yet.
+`@open-generative/ui` is the local React implementation package. Its name marks
+the future extraction boundary; the components and their documentation are
+currently part of the Tessera Agent proof.
 
-Publication status: the CLI package, runtime packages, and
-`tessera-agent.dev` registry are not public yet. Commands in the next two
-sections document the tested release interface and become externally usable
-after those artifacts are published. The local repository workflow at the end
-of this page is available now.
+The package exports the 12 exact node renderers, official registry factories,
+shared UI primitives, and a stylesheet:
 
-## Tessera Agent CLI
-
-Install the complete catalog:
-
-```bash
-npx tessera-agent@latest
+```tsx
+import { GenerativeSurface } from "@open-generative/react";
+import { createOfficialRendererRegistry } from "@open-generative/ui";
+import "@open-generative/ui/styles.css";
 ```
 
-Install one or more artifacts:
+The complete application mount also needs a `SurfaceController`. The only
+supported rendering chain is:
 
-```bash
-npx tessera-agent@latest add query-artifact metric-artifact
+```text
+SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
 ```
 
-The CLI detects npm, pnpm, Yarn, or Bun from the invoking package manager and
-delegates the installation to the compatible shadcn CLI. With no arguments it
-installs `artifact-ui`, the complete catalog.
+There is no `ArtifactRenderer` compatibility facade and no per-artifact render
+path.
 
-Verify an existing installation at any time:
+## Local verification
 
-```bash
-npx tessera-agent@latest doctor
-```
-
-The command reads the project-local compatibility lock and verifies every
-copied source hash, the protocol/contract/runtime/renderer ranges, exact runtime
-dependencies, and renderer conformance.
-
-### Updating customized source
-
-An unchanged official installation updates normally. When a locked source file
-has changed or disappeared, the CLI reports `custom/unverified` and refuses to
-overwrite it silently. Inspect the affected files with `doctor` before deciding
-how to reconcile your changes.
-
-To discard local changes and replace the files explicitly:
+From the repository root:
 
 ```bash
-npx tessera-agent@latest --force
+bun install
+bun --cwd packages/components test
+bun --cwd packages/ui typecheck
+bun --cwd packages/ui test
+bun --cwd packages/ui build
 ```
 
-`--force` is an overwrite operation, not a three-way merge. Commit or otherwise
-preserve local changes before using it.
+Contract definitions come from `@open-generative/components`; React renderer
+registrations come from `@open-generative/ui`. Tests must prove exact Contract
+identity, resolved-props validation, event-port parity, browser safety, full
+state fixtures, accessibility, and chart recipe coverage.
 
-## Direct shadcn installation
+## Future source distribution
 
-After publication, the same catalog will be available as a standard remote registry:
-
-```bash
-npx shadcn@4.17.0 add https://tessera-agent.dev/r/all.json
-```
-
-For a single artifact, use its item URL:
-
-```bash
-npx shadcn@4.17.0 add https://tessera-agent.dev/r/query-artifact.json
-```
-
-The registry copies only browser-safe React/shadcn UI source into
-`components/tessera-agent`: renderer bindings, visual components, interaction
-bridge, recipes, and semantic styles remain inspectable and editable in the
-host application. It never copies schema, core, runtime, compiler, capability
-broker, resource resolver, or other server implementation source.
-
-Instead, the complete item installs `@open-generative/protocol`,
-`@open-generative/catalog`, and `@open-generative/runtime` as exact-version npm
-dependencies. Individual items install the exact-version subset required by
-their source closure. This keeps protocol validation and runtime security fixes
-versioned while preserving local ownership of the UI. Server-only adapters and
-capability packages are not part of the browser distribution.
-
-The actual parent directory follows `aliases.components` in `components.json`.
-For example, an alias of `@/ui` installs the catalog under
-`src/ui/tessera-agent`. The primitives import the colocated `styles.css`
-automatically. Every item chain includes `tessera-agent.lock.json`, which
-records compatibility ranges, the renderer build hash, and the full catalog of
-source hashes. After shadcn succeeds, the Tessera Agent CLI atomically seals
-the exact installed-file subset; later `add` calls maintain its union and
-`doctor` verifies that subset. Prefer the Tessera Agent CLI for managed
-updates; calling shadcn directly does not perform the CLI's pre-install check or
-post-install sealing.
-
-## Local registry development
-
-Build and serve the registry from this repository:
-
-```bash
-bun run registry:build
-bun run dev
-```
-
-Then point the CLI to the loopback server:
-
-```bash
-TESSERA_AGENT_REGISTRY_URL=http://localhost:3000/r/ node packages/cli/index.js
-```
-
-This exercises the local registry and CLI. A standalone consumer also needs
-the locally packed or linked `@tessera-agent/*@0.1.0` runtime packages until
-they are published; the repository fresh-install tests create that isolated
-fixture automatically.
+A shadcn registry may later distribute editable renderer source. It cannot be
+documented as available until the registry URL, generated manifests, dependency
+closure, clean-host installation tests, version pinning, and integrity checks
+all exist. A future registry changes distribution only; it cannot fork the
+Component Contracts or create a second renderer architecture.

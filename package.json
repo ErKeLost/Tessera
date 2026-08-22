@@ -1,6 +1,6 @@
 {
   "name": "open-generative",
-  "version": "0.3.5",
+  "version": "0.3.8",
   "private": true,
   "description": "Host-governed generative UI protocol, runtime, and official component catalog.",
   "type": "module",
@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "build": "turbo run build",
+    "build:docs": "turbo run build --filter=@open-tessera/docs",
     "build:packages": "turbo run build --filter='./packages/*' && bun run check:source",
     "check:boundaries": "bun scripts/check-boundaries.ts",
     "check:naming": "bun scripts/check-naming.ts",

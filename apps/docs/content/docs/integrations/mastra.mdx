@@ -1,54 +1,105 @@
 ---
 title: Mastra
-description: Prepare a real Mastra tool over the same trusted Artifact UI commit boundary.
+description: Use the implemented server-only Mastra 1.61 present_ui adapter in Tessera Agent.
 ---
 
-`@open-generative/mastra` is server-only and targets `@mastra/core` 1.x. It uses
-Mastra's real `createTool()` API, not a lookalike tool object. Each turn receives
-the compiler-generated Standard Schema, a validated runtime wire output schema,
-strict mode, MCP annotations, and safe display/transcript transforms.
+`@open-generative/mastra` is the implemented server-only adapter for Mastra
+1.61. It calls Mastra's real `createTool()` API and turns compiler output into a
+request-scoped `present_ui` tool without creating another protocol, compiler,
+runtime, or renderer.
+
+## Create the turn adapter
+
+`createMastraIncrementalPresentUi()` returns the values that must stay together
+for the turn: the compiler system prompt, the exact compiled contract,
+`tools.present_ui`, and the mandatory tracing options. Its three Mastra 1.61
+input hooks feed complete operation frames into the same incremental compiler
+session that `execute` finalizes.
 
 ```ts
+import {
+  compilePresentUi,
+  createIncrementalPresentUiCompilerSession,
+} from "@open-generative/compiler";
+import { createMastraIncrementalPresentUi } from "@open-generative/mastra";
 import { Agent } from "@mastra/core/agent";
-import { createArtifactUI } from "@open-generative/mastra";
 
-const artifactUI = createArtifactUI();
-const turn = await artifactUI.prepareTurn({
-  messages,
-  profile: "analysis",
+const compiled = compilePresentUi({ catalog: turnCatalog });
+const presentUi = createMastraIncrementalPresentUi({
+  compiled,
+  maxAttempts: 3,
+  createSession: ({ toolCallId, abortSignal }) =>
+    createIncrementalPresentUiCompilerSession({
+      compiled,
+      turn: createTurnForRequest({ toolCallId, abortSignal }),
+    }),
 });
 
 const agent = new Agent({
-  id: "artifact-agent",
-  name: "Artifact agent",
+  id: "tessera-data-agent",
+  name: "Tessera Data Agent",
   model,
-  instructions: turn.system,
-  tools: { ...domainTools, ...turn.tools },
+  instructions: presentUi.system,
+  tools: { ...domainTools, ...presentUi.tools },
 });
 
-const result = await agent.generate(turn.messages);
+// Use one execution mode per request. Both must carry the tracing gate.
+const result = await agent.generate(messages, {
+  tracingOptions: presentUi.tracingOptions,
+});
+const stream = await agent.stream(messages, {
+  tracingOptions: presentUi.tracingOptions,
+});
 ```
 
-This compact example creates a request-scoped Agent because the tool schema is
-compiled per turn. A long-lived Agent can instead resolve `instructions` and
-`tools` from Mastra `RequestContext`; the invariant is that the same turn's
-`system`, filtered `messages`, and generated tool stay together.
+`createTurnForRequest()` above is the Tessera Host composition helper that
+constructs the official `ProposalCompilerTurn` with the request's frozen
+Catalog slice, authority, transaction, and runtime. Use
+`createMastraIncrementalPresentUiTool()` when the application only needs the
+Tool instance; tool-only hosts must import and pass
+`MASTRA_PRESENT_UI_TRACING_OPTIONS` themselves. The adapter validates complete
+input against the compiler's canonical schema before finalization. Invalid input throws
+`MastraPresentUiInputError` with the stable code
+`mastra.present-ui-input-invalid`.
 
-The tool returns a serializable runtime `ArtifactPartWire`; `turn.accept()` and
-`turn.consumeWorkflowEvent()` return a locally branded runtime `ArtifactPart`.
-Workflow events that already contain a wire part are decoded and revalidated
-against the active contract fingerprint. Proposal-shaped workflow output goes
-through the same compiler and commit path as direct tool input.
+## Bounded model and transcript output
 
-Mastra's `toModelOutput` receives only a short success message. Its `display`
-and `transcript` transforms replace raw model DSL input and validation details
-with bounded safe summaries, while leaving the Artifact output available to the
-renderer. Keep domain data tools separate and supply resources/evidence only as
-host-issued grants.
+The adapter installs `toModelOutput`, display transforms, and transcript
+transforms on the Mastra Tool. Raw proposal input, input deltas, execution
+output, and validation errors are replaced with bounded summaries. Domain data
+tools stay separate; query rows remain in the server-side Resource Gateway.
 
-If a tool or workflow output crosses a network boundary, it is an unbranded
-`ArtifactPartWire`. Decode it in the browser with `decodeArtifactPart()` from
-`@open-generative/runtime` and the turn's contract fingerprint before passing the
-resulting `decoded.part` to `ArtifactRenderer`. `turn.accept()` and
-`turn.consumeWorkflowEvent()` provide the branded path only within the current
-trusted process.
+Mastra creates tool-call observability spans before per-tool display and
+transcript transforms run. For that reason, those transforms cannot protect
+trace input or output by themselves. Every `agent.generate()` or
+`agent.stream()` call that installs this tool must pass
+`tracingOptions: presentUi.tracingOptions`; the adapter fixes both
+`hideInput` and `hideOutput` to `true`. When combining other trace settings,
+spread them first so these two required flags cannot be overridden:
+
+```ts
+const result = await agent.generate(messages, {
+  tracingOptions: {
+    ...otherTracingOptions,
+    ...presentUi.tracingOptions,
+  },
+});
+```
+
+The executor is still the host integration point. It must use the same frozen
+Catalog slice as `compiled`, commit through the canonical compiler/Host path,
+and publish only committed `SurfaceEventEnvelope` values. Mastra cannot expand
+the turn's Contract slice, resource grants, or authority.
+
+```text
+Mastra 1.61 Agent or Workflow
+-> validated present_ui proposal
+-> shared compiler + Host commit
+-> trusted SurfaceEventStream
+-> SurfaceController
+-> GenerativeSurface
+-> RendererRegistry
+```
+
+The package has no browser export and no `ArtifactPart` or `ArtifactRenderer`
+compatibility layer.

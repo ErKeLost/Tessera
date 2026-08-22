@@ -28,7 +28,10 @@ import {
 } from "../ids";
 import { hashCanonical, sha256HashSchema, type HashProvider } from "../hash";
 import { validatedPreviewSchema } from "../preview";
-import { resourceResolutionResultSchema } from "../resources";
+import {
+  resourceResolutionIdentitySchema,
+  resourceResolutionResultSchema,
+} from "../resources";
 import { stateValueSnapshotSchema, stateWriteReceiptSchema } from "../state";
 
 export const streamPolicySchema = z.object({
@@ -43,6 +46,10 @@ export const surfaceSnapshotSchema = z.object({
   revision: committedRevisionSchema,
   state: z.record(stateIdSchema, stateValueSnapshotSchema),
   resources: z.record(resourceBindingIdSchema, resourceResolutionResultSchema),
+  resourceResolutionIdentities: z.record(
+    resourceBindingIdSchema,
+    resourceResolutionIdentitySchema,
+  ),
   actions: z.record(actionInvocationIdSchema, actionStatusSchema),
   approvals: z.array(approvalRequestedSchema).max(256),
 }).strict().superRefine((snapshot, context) => {
@@ -50,8 +57,25 @@ export const surfaceSnapshotSchema = z.object({
     if (stateId !== state.stateId) context.addIssue({ code: "custom", path: ["state", stateId], message: "State map identity mismatch." });
   }
   for (const [bindingId, result] of Object.entries(snapshot.resources)) {
+    const resourceBindingId = resourceBindingIdSchema.parse(bindingId);
     const valueBindingId = result.status === "resolved" ? result.snapshot.bindingId : result.unavailable.bindingId;
     if (bindingId !== valueBindingId) context.addIssue({ code: "custom", path: ["resources", bindingId], message: "Resource map identity mismatch." });
+    if (!snapshot.resourceResolutionIdentities[resourceBindingId]) {
+      context.addIssue({
+        code: "custom",
+        path: ["resources", bindingId],
+        message: "Resource result is missing its resolution identity.",
+      });
+    }
+  }
+  for (const [bindingId, identity] of Object.entries(snapshot.resourceResolutionIdentities)) {
+    if (bindingId !== identity.bindingId) {
+      context.addIssue({
+        code: "custom",
+        path: ["resourceResolutionIdentities", bindingId],
+        message: "Resource resolution identity map mismatch.",
+      });
+    }
   }
   for (const [invocationId, status] of Object.entries(snapshot.actions)) {
     if (invocationId !== status.invocationId) context.addIssue({ code: "custom", path: ["actions", invocationId], message: "Action map identity mismatch." });
@@ -75,7 +99,11 @@ export const surfaceEventPayloadSchema = z.discriminatedUnion("type", [
     revision: committedRevisionSchema,
   }).strict(),
   z.object({ type: z.literal("state-changed"), state: stateValueSnapshotSchema, receipt: stateWriteReceiptSchema }).strict(),
-  z.object({ type: z.literal("resource-resolved"), requestId: requestIdSchema, result: resourceResolutionResultSchema }).strict(),
+  z.object({
+    type: z.literal("resource-resolved"),
+    identity: resourceResolutionIdentitySchema,
+    result: resourceResolutionResultSchema,
+  }).strict(),
   z.object({ type: z.literal("action-accepted"), action: actionAcceptedSchema }).strict(),
   z.object({ type: z.literal("approval-requested"), approval: approvalRequestedSchema }).strict(),
   z.object({ type: z.literal("action-status"), action: actionStatusSchema }).strict(),

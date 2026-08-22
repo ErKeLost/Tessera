@@ -54,7 +54,7 @@
 | HostIntent | export/retry/apply + approval/receipt | renderer 直调工具、重复 effect、审批重放 |
 | 恢复与冲突 | resume/ack/snapshot + last-good | gap 猜测、epoch 混用、overlay 残留 |
 
-同一个 Query Resource 必须在不同问题中产生不同但合理的组合，证明系统不是隐藏的固定 Query renderer。
+同一次 governed Query execution 必须能在不同问题中发布同源 typed Resources，并产生不同但合理的组合，证明系统不是隐藏的固定 Query renderer。
 
 ## 4. 数据边界证明
 
@@ -63,7 +63,7 @@
 - Query tool 成功输出只包含 binding/evidence refs 与 model-safe descriptor，不包含 rows。
 - Proposal snapshot、Proposal operations、canonical Document、Revision envelope、Surface history 和普通 observability attributes 不包含 rows。
 - Resource payload 只通过 actor/tenant/Surface-bound grant 与 server cursor 获取。
-- `data.metric`、`data.chart`、`data.table` 和 `data.query-details` 可以引用同一 pinned resourceVersionId，不复制 payload。
+- `data.metric`、`data.chart`、`data.table` 和 `data.query-details` 使用满足各自 Contract 的 typed pinned Resources，并共享明确的 evidence/provenance；只有采用相同 Dataset Envelope 与 schema 的 Chart/Table binding 可以引用同一 pinned dataset `resourceVersionId`，任何节点都不复制 payload。
 - Filter、projection、sort 和 window 都由 Resource capability 执行，模型不生成 SQL 或 cursor。
 - denied、expired、revoked、schema-incompatible 和 unavailable 状态具有不同且确定的投影。
 - Evidence 与 claim 永远绑定明确 snapshot/content hash；live resource 不回写历史 claim。
@@ -93,7 +93,7 @@
 - `data.chart` 对锁定的 61 chart + 9 tooltip recipes 逐一具有 valid ChartSpec、renderer fixture、accessibility fixture 和 visual regression fixture。
 - 所有 chart 有稳定尺寸、responsive container、reduced-motion 行为和同 snapshot 的 table 或 text-summary 等价视图。
 - Table 使用 server window 与稳定 row identity；大数据不以内联数组进入 node props。
-- Preview node 全部 read-only，不存在 emitter；committed node 的 emitter 只能发送当前 Contract 声明的 event port。
+- Preview node 全部 read-only，不存在 emitter；committed node 的 emitter 只能发送当前 Contract 声明且在该 node 上精确绑定的 event port。任意其他 port 不得误启用 Copy、Export、Apply 或 Reset。
 - surface-local transition 在浏览器 Runtime 原子执行；document state 和 HostIntent 必须走 server authority。
 - desktop panel、mobile sheet 和 inline placement 共用同一个 SurfaceController 状态，不复制 renderer 链。
 - keyboard、screen reader、focus、locale、timezone、density、loading、empty、error、approval 和 conflict matrix 全部通过。
@@ -123,9 +123,11 @@
 
 产物必须可在无生产 credential 的 CI 中重放；真实 provider eval 可以作为受控外部 job，但其输入 profile 和输出摘要必须版本化。
 
-## 9. 与 Open Tessera 的接入边界
+当前 Tessera Agent 文档站同时提供一层可执行 reference proof：服务端 API 必须通过真实 Resource Gateway 完成 pinned publication、grant、state-bound projection 与 resolve，再发布携带 `ResourceResolutionIdentity` 的 trusted Surface snapshot；浏览器只允许经 `SurfaceController -> GenerativeSurface -> verified RendererRegistry` 消费。该证明固定覆盖 12 个 Component Contracts、全部 70 个 chart/tooltip recipes 和 Query analysis、Filter-bound breakdown、Workspace health 三个 Data Agent composition，并断言 identity-only refs、统一 Dataset Envelope、manifest integrity、no-payload Document 与逐 event-port 交互门控。它是确定性的协议/渲染证明，不替代第 5 项要求的真实浏览器 visual regression 与 accessibility 产物。
 
-当前仓库实现自包含 reference harness 和 contracts，不直接修改 Open Tessera Agent。未来接入只允许发生在这些明确位置：
+## 9. 与 Tessera Agent 的接入边界
+
+当前仓库实现自包含 reference harness 和 contracts，不直接修改 `/Users/work/data-agent` 中的 Tessera Agent 应用。未来接入只允许发生在这些明确位置：
 
 ```text
 governed query tool
@@ -139,7 +141,7 @@ governed query tool
 -> Tessera Data UI RendererRegistry
 ```
 
-Open Tessera 的 chat route、Workbench、history 和 Mastra tools 由独立实施任务改造；本仓库通过 fixtures 和 adapters 先证明它们需要的公开边界。
+Tessera Agent 的 chat route、Workbench、history 和 Mastra tools 由独立实施任务改造；本仓库通过 fixtures 和 adapters 先证明它们需要的公开边界。
 
 ## 10. 未来独立 Open Generative 项目
 

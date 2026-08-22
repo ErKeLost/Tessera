@@ -327,7 +327,7 @@ function sanitizeListDatabaseToolPart(
 ): TesseraUIMessage["parts"][number] {
   const input = { action: "list_database" as const };
   const output = asRecord(part.output);
-  const status = sanitizedToolStatus(output?.status);
+  const status = sanitizedListDatabaseToolStatus(output?.status);
   if (part.state !== "output-available" || status === "failed") {
     return {
       type: "tool-list_database",
@@ -339,14 +339,22 @@ function sanitizeListDatabaseToolPart(
       title: "List database context",
     };
   }
-  const scope = output?.scope === "current" || output?.scope === "schema" || output?.scope === "capabilities"
-    ? output.scope
+  const operation = output?.operation === "list_relations"
+    || output?.operation === "describe_schema"
+    || output?.operation === "describe_relation"
+    || output?.operation === "current_relation"
+    || output?.operation === "capabilities"
+    ? output.operation
     : undefined;
   const entityCount = safeInteger(output?.entityCount, 0, 10_000);
+  const schemaCount = safeInteger(output?.schemaCount, 0, 10_000);
+  const relationCount = safeInteger(output?.relationCount, 0, 10_000);
   const tableCount = safeInteger(output?.tableCount, 0, 10_000);
   const columnCount = safeInteger(output?.columnCount, 0, 10_000);
   const foreignKeyCount = safeInteger(output?.foreignKeyCount, 0, 10_000);
   const componentCount = safeInteger(output?.componentCount, 0, 10_000);
+  const reason = sanitizeDisplayText(output?.reason, 128);
+  const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-list_database",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
@@ -354,14 +362,18 @@ function sanitizeListDatabaseToolPart(
     input,
     output: {
       status,
-      ...(scope === undefined ? {} : { scope }),
+      ...(operation === undefined ? {} : { operation }),
       ...(entityCount === undefined ? {} : { entityCount }),
+      ...(schemaCount === undefined ? {} : { schemaCount }),
+      ...(relationCount === undefined ? {} : { relationCount }),
       ...(tableCount === undefined ? {} : { tableCount }),
       ...(columnCount === undefined ? {} : { columnCount }),
       ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
       ...(typeof output?.dialect === "string" ? { dialect: output.dialect.slice(0, 32) } : {}),
       ...(componentCount === undefined ? {} : { componentCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
+      ...(reason === undefined ? {} : { reason }),
+      ...(message === undefined ? {} : { message }),
     },
     providerExecuted: true,
     title: "List database context",
@@ -458,6 +470,13 @@ function sanitizeExecuteSqlToolPart(
 function sanitizedToolStatus(value: unknown): "completed" | "blocked" | "failed" {
   if (value === "completed" || value === "blocked" || value === "failed") return value;
   return value === "unavailable" || value === "rejected" ? "blocked" : "failed";
+}
+
+function sanitizedListDatabaseToolStatus(
+  value: unknown,
+): "completed" | "not_found" | "unavailable" | "blocked" | "failed" {
+  if (value === "not_found" || value === "unavailable") return value;
+  return sanitizedToolStatus(value);
 }
 
 function safeOpaqueHandle(value: unknown): string | undefined {

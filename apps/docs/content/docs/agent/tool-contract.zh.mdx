@@ -1,42 +1,46 @@
 ---
 title: Tool 契约与边界
-description: 保持模型 Tool 的语义化、浏览器输出的脱敏和数据库执行的服务端所有权。
+description: 保持 Data Agent Tool 语义化，并让 UI Authoring 只通过一条可信 Commit Path。
 ---
 
 ## 面向模型的 Tool
 
 ```text
 inspect_current_context  -> 服务端绑定的当前数据上下文
-inspect_catalog          -> 针对一个问题的语义 Catalog 切片
+inspect_catalog          -> 针对一个问题的 Semantic Catalog Slice
 describe_data            -> 已检查实体的受限详细信息
 probe_data               -> 固定且受限的发现 Probe
-run_analysis             -> 根据语义 Draft 执行只读分析
+run_analysis             -> 根据 Semantic Draft 执行只读分析
+present_ui               -> 根据冻结 UI Slice 生成声明式 Composition
 ```
 
-Tool 只接受当前 Catalog 返回的语义 ID。它们不接受 SQL、连接字符串、凭据、物理
-关系名、Compiler 输出 ID 或任意查询限制。最终答案必须建立在经过验证的
-`run_analysis` 结果上。
+Data Tool 只接受当前 Catalog 返回的 Semantic ID，不接受 SQL、连接字符串、Credential、物理关系名、
+Compiler Output ID 或任意 Limit。`present_ui` 只能接收当前 Turn 已提供的 Component、Action、
+Resource、Evidence 与 State Identity，不能携带原始 Query Row 或可执行代码。
 
 ## Trust Boundary
 
 | 边界 | 允许 | 永远不允许 |
 | --- | --- | --- |
-| Model | 语义切片、Opaque ID、受限证据 | SQL、凭据、物理表名 |
-| Browser | 脱敏生命周期、安全叙述、已验证 Artifact | 原始 Tool 参数、私有 Trace、Connector 访问 |
-| Studio Server | Authentication Hook、编排、过滤、持久化 | 绕过宿主授权 |
-| Data Agent | 实时 Catalog、签名 Scope、类型化 Draft、受限结果 | 调用方 SQL 或超出 Scope 的分析 |
-| Write Surface | 类型化 Mutation、用途、幂等键、Approval | 只读分析中的隐式写入或自由 SQL |
+| Model | Semantic Slice、Opaque Offered ID、受限 Descriptor、`present_ui` | SQL、Credential、Row、任意 Component 或 Tool Name |
+| Compiler | 不可信 Proposal 与一份冻结 `CatalogSetSlice` | 扩大 Authority 或直接输出 Renderer Value |
+| HostServer | 经过校验的 Revision、Authority、Transaction、可信 Surface Event | 把原始 Model Chunk 当作 Committed State 发布 |
+| Browser Controller | 可信事件、Node-scoped Projection、绑定 Revision 的 Command | Connector Access、Policy Decision 或 Effect Execution |
+| Renderer | Resolved Props、声明 Slot、Placement、声明 Event Port | 获取数据、选择 Action、直接修改 Canonical State |
+| Resource Gateway | 绑定 Grant 的 Schema、Version、Projection、Window 与 Evidence | 不受限 Row Dump 或模型选择 Credential |
+| Capability Broker | 类型化 HostIntent、Approval、Idempotency 与 Receipt | 从 Display Event 隐式执行 Effect |
 
 ## 实现对应关系
 
 | 关注点 | 实现 |
 | --- | --- |
-| 产品 Shell 与路由 | `apps/studio/src/server.ts` 与 `apps/studio/src/client` |
-| 默认编排 | `apps/studio/src/agent.ts` |
-| 公开 Stream 协议 | `apps/studio/src/protocol.ts` |
-| Catalog、Capability、Compiler、执行 | `packages/data-agent/src` |
-| 数据库 Connector | `packages/postgres`、`packages/mysql`、`packages/sqlite`、`packages/turso` |
-| Session Memory | 与被分析数据库隔离的服务端 Local SQLite |
+| Data Catalog、Planning、Compiler 与执行 | `packages/data-agent` 与 Database Connector Package |
+| Canonical Generative UI Protocol | `packages/protocol`、`packages/catalog`、`packages/runtime` |
+| Proposal Compilation | `packages/compiler` |
+| Resource 与 Capability Boundary | `packages/resources`、`packages/capabilities` |
+| 可信 Server Publication | `packages/server` |
+| Browser Control 与渲染 | `packages/client`、`packages/react`、`packages/ui` |
+| 当前 Component Contract 与 Recipe | `packages/components` |
 
-生产拓扑、证据、SQL 安全和发布门槛请继续阅读
-[Agent 架构](/docs/agent/architecture)。
+Framework Adapter 只能负责 Transport 接线。AI SDK 与 Mastra 的真实 Adapter 通过同一套 Tessera
+data-agent 端到端 Fixture 之前，不能算可用集成。

@@ -1,15 +1,27 @@
 ---
 title: 安全模型
-description: 为什么受约束的 Artifact 比模型生成的应用程序更安全。
+description: Tessera Agent 终局 Generative UI 架构强制执行的 Trust Boundary。
 ---
 
-Tessera Agent 将模型输出视为不可信数据。
+Tessera Agent 把所有模型 Proposal 都视为不可信数据。声明式输出只有经过 Server Compiler 与
+Host Authority Commit 后才有意义。
 
-- 未知的 Artifact kind 无法通过验证。
-- 未知的计算器 ID 会渲染安全回退界面。
-- 计算器公式是已注册的 TypeScript 函数，绝不会以字符串形式传给 `eval` 或 `Function`。
-- 协议不包含 HTML、JSX、JavaScript、CSS、可执行代码 URL 或未注册组件名等字段。
-- 查询溯源信息和 SQL 仅用于展示；执行由获得授权的服务端工具负责。
-- 宿主应用程序仍需负责授权、数据最小化、行级访问控制和破坏性操作确认。
+- 模型不能生成 HTML、JSX、JavaScript、CSS、SQL、Formula、URL、Component Name、Tool Name、
+  Credential 或可执行 Handler。
+- 每个 Node 都绑定冻结 `CatalogSetSlice` 中精确且不可变的 Component Contract；未知或被替换的
+  Contract 必须 Fail Closed。
+- Query Row 始终留在绑定 Grant 的 Resource Gateway，不进入模型 Context、Proposal、Canonical
+  Document、Revision History 或普通日志。
+- Browser Code 只接收可信 Surface Event 与 Node-scoped Resolved Projection，不接收数据库凭据或
+  原始 Tool Payload。
+- Preview Node 固定只读；只有 Committed Projection 才能发出已声明 Event Port。
+- `SurfaceController` 检查 Session Identity、Audience Binding、Sequence、Revision、Node Scope、
+  Event Schema、State 前置条件与 Resource Version。
+- Server 拥有 Authorization、Approval、Idempotency、Effect、Receipt、Persistence 与 Resume Cursor。
+- Renderer Error 只隔离到一个 Node，不能改变 Canonical Revision，也不能执行 Effect。
 
-对于真正开放的外部微型应用程序，应使用沙箱 iframe 或 MCP App 边界，而不是削弱可信目录的约束。
+未知 Contract、无效 Placement、未解析 Props、畸形 Event、过期 Grant、陈旧 Revision、重复 Approval
+与 Stream Identity 不匹配都是显式失败。Host 请求 Resync 或显示可信 System Surface 时，
+Last-good Committed Content 继续可用。
+
+开放式 Mini App 应进入独立 Sandbox 或 MCP App Boundary，而不是削弱 Tessera Agent 的可信 Catalog。

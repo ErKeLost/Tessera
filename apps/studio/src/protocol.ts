@@ -25,15 +25,19 @@ export type TesseraRunAnalysisToolInput = Readonly<{
 }>;
 
 export type TesseraListDatabaseToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
-  scope?: "current" | "schema" | "capabilities";
+  status: "completed" | "not_found" | "unavailable" | "blocked" | "failed";
+  operation?: "list_relations" | "describe_schema" | "describe_relation" | "current_relation" | "capabilities";
   entityCount?: number;
   tableCount?: number;
+  schemaCount?: number;
+  relationCount?: number;
   columnCount?: number;
   foreignKeyCount?: number;
   dialect?: string;
   componentCount?: number;
   truncated?: boolean;
+  reason?: string;
+  message?: string;
 }>;
 
 export type TesseraListCatalogToolOutput = Readonly<{

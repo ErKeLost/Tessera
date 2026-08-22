@@ -159,6 +159,44 @@ export class ProposalCompilerTurn {
     }
   }
 
+  async pushDecodedOperation(
+    operation: Extract<DecodedAuthoringProposal, { kind: "operations" }>["operations"][number],
+  ): Promise<CompilerTurnOutcome | undefined> {
+    if (this.#outcome) return this.#outcome;
+    try {
+      const startOutcome = await this.start();
+      if (startOutcome) return startOutcome;
+      return this.#apply(await this.#normalizer.normalizeOperation(operation));
+    } catch (error) {
+      return this.#fail(error);
+    }
+  }
+
+  async finishDecodedOperations(): Promise<CompilerTurnOutcome> {
+    if (this.#outcome) return this.#outcome;
+    try {
+      const startOutcome = await this.start();
+      if (startOutcome) return startOutcome;
+      return this.#finalize();
+    } catch (error) {
+      return this.#fail(error);
+    }
+  }
+
+  async cancel(
+    reason: "rejected" | "timeout" | "cancelled" = "cancelled",
+    ...diagnostics: Diagnostic[]
+  ): Promise<CompilerTurnOutcome> {
+    if (this.#outcome) return this.#outcome;
+    try {
+      const startOutcome = await this.start();
+      if (startOutcome) return startOutcome;
+      return this.#abort(reason, ...diagnostics);
+    } catch (error) {
+      return this.#fail(error);
+    }
+  }
+
   async #processEnvelope(envelope: ProposalStreamEnvelope): Promise<CompilerTurnOutcome | undefined> {
     const payload = envelope.payload;
     if (payload.type === "snapshot") {

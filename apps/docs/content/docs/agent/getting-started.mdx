@@ -1,47 +1,64 @@
 ---
 title: Getting Started
-description: Start Tessera Studio with a supported runtime and your first database connection.
+description: Run the Tessera Agent Generative UI proof and inspect its component catalog locally.
 ---
+
+This section documents the source-level Generative UI proof, not the separately
+published Tessera Studio product. There is currently no `tessera-agent` CLI or
+remote shadcn registry for this component system. The first successful workflow
+here is to verify the final Generative UI foundation and inspect the data-agent
+components that exercise it.
 
 ## Prerequisites
 
-- Node.js 24 or later, or Bun 1.3 or later
-- PostgreSQL, MySQL, SQLite, or Turso
-- A model-provider API key
+- Bun 1.3.14 or later
+- A browser supported by Next.js 16 when running the documentation site
 
-Prefer a read-only database user. SQLite and Turso are always read-only in
-Studio.
+A database and model key are not required for deterministic architecture,
+contract, renderer, and fixture tests.
 
-## Start Studio
+## Run the proof gates
 
-Run Studio from the directory that contains `tessera.config.ts`:
-
-```bash
-npx tessera-agent@latest studio
-```
-
-The CLI searches upward for the config and starts the local workspace at
-`http://127.0.0.1:4317`.
-
-For a temporary connection, pass one database URL:
+From the repository root:
 
 ```bash
-npx tessera-agent@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
-npx tessera-agent@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
-npx tessera-agent@latest studio file:/absolute/path/to/warehouse.db
-TURSO_AUTH_TOKEN=... npx tessera-agent@latest studio libsql://warehouse-org.turso.io
+bun install
+bun run check:naming
+bun run check:boundaries
+bun run typecheck
+bun run test
+bun run build
 ```
 
-Positional URLs can appear in shell history or process listings. Use a config
-file and environment variables for durable projects.
+These commands verify package boundaries, browser/server separation, canonical
+protocol behavior, Component Contracts, renderer coverage, and the single React
+render path.
 
-## Complete the first analysis
+## Open the Tessera Agent documentation
 
-1. Confirm the connection in the workspace header.
-2. Open **Data explorer** and inspect the catalog.
-3. Start a thread and ask a specific business question.
-4. Review the catalog, planning, execution, verification, and narration stages.
-5. Inspect the bounded evidence attached to the answer.
+```bash
+bun --cwd apps/docs dev
+```
 
-Continue with [configuration](/docs/agent/configuration) for a durable setup or
-[database connections](/docs/agent/databases) for engine-specific options.
+Open the local URL printed by Next.js, then start with the
+[Generative UI architecture](/docs/agent/architecture/generative-ui), the
+[data-agent proof gates](/docs/agent/architecture/generative-ui-proof), and the
+[current component catalog](/docs/components/generative-ui-catalog).
+
+The optional documentation playground reads `OPENROUTER_API_KEY`. It currently
+streams text only and is not evidence that the trusted Generative UI pipeline is
+connected. The product proof must use the real chain:
+
+```text
+SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
+```
+
+## Definition of success
+
+Success is not merely rendering valid component JSON. Tessera Agent must turn a
+governed query resource into useful metric, chart, table, filter, query-detail,
+and explanatory compositions while keeping query rows outside model proposals,
+canonical documents, transport history, and ordinary logs.
+
+Do not start a separate Open Generative product from these instructions. That
+extraction begins only after the Tessera Agent proof gates pass.

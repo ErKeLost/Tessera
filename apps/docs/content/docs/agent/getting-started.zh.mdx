@@ -1,44 +1,58 @@
 ---
 title: 快速开始
-description: 使用受支持的 Runtime 和第一个数据库连接启动 Tessera Studio。
+description: 在本地运行 Tessera Agent Generative UI 成功证明，并检查它的组件目录。
 ---
+
+本节记录源码级 Generative UI 成功证明，不是另行发布的 Tessera Studio 产品文档。
+当前组件体系还没有 `tessera-agent` CLI 或远程 shadcn Registry。这里的第一个完整工作流是
+验证终局 Generative UI 底座，并检查用于证明它的 data-agent 组件。
 
 ## 环境要求
 
-- Node.js 24 或更高版本，或 Bun 1.3 或更高版本
-- PostgreSQL、MySQL、SQLite 或 Turso
-- 模型供应商 API Key
+- Bun 1.3.14 或更高版本
+- 运行文档站时，需要 Next.js 16 支持的浏览器
 
-建议使用只读数据库用户。SQLite 和 Turso 在 Studio 中固定为只读。
+确定性的架构、Contract、Renderer 与 Fixture 测试不需要数据库，也不需要模型 API Key。
 
-## 启动 Studio
+## 运行证明门槛
 
-在包含 `tessera.config.ts` 的目录执行：
-
-```bash
-npx tessera-agent@latest studio
-```
-
-CLI 会向上查找配置文件，并在 `http://127.0.0.1:4317` 启动本地工作台。
-
-临时测试可以直接传入一个数据库 URL：
+在仓库根目录执行：
 
 ```bash
-npx tessera-agent@latest studio postgresql://readonly:password@127.0.0.1:5432/warehouse
-npx tessera-agent@latest studio mysql://readonly:password@127.0.0.1:3306/warehouse
-npx tessera-agent@latest studio file:/absolute/path/to/warehouse.db
-TURSO_AUTH_TOKEN=... npx tessera-agent@latest studio libsql://warehouse-org.turso.io
+bun install
+bun run check:naming
+bun run check:boundaries
+bun run typecheck
+bun run test
+bun run build
 ```
 
-命令行 URL 可能出现在 Shell 历史或进程列表中。长期项目应使用配置文件和环境变量。
+这些命令检查 Package Boundary、浏览器与服务端隔离、Canonical Protocol 行为、
+Component Contract、Renderer Coverage，以及唯一的 React 渲染路径。
 
-## 完成第一次分析
+## 打开 Tessera Agent 文档
 
-1. 在工作台顶部确认数据库连接。
-2. 打开 **Data explorer** 检查 Catalog。
-3. 新建 Thread 并提出明确的业务问题。
-4. 检查 Catalog、Planning、Execution、Verification 和 Narration 阶段。
-5. 查看答案附带的受限证据。
+```bash
+bun --cwd apps/docs dev
+```
 
-长期使用请继续阅读[配置](/docs/agent/configuration)，数据库参数请查看
-[数据库连接](/docs/agent/databases)。
+打开 Next.js 输出的本地地址，然后依次查看
+[Generative UI 架构](/docs/agent/architecture/generative-ui)、
+[Data Agent 成功证明门槛](/docs/agent/architecture/generative-ui-proof)与
+[当前组件目录](/docs/components/generative-ui-catalog)。
+
+文档 Playground 可以选择读取 `OPENROUTER_API_KEY`，但它当前只传输文本，不能作为可信
+Generative UI Pipeline 已接通的证据。产品证明必须使用真实链路：
+
+```text
+SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
+```
+
+## 成功定义
+
+成功不等于模型能输出合法组件 JSON。Tessera Agent 必须把受治理的 Query Resource 组合成
+真正有用的 Metric、Chart、Table、Filter、Query Details 与解释内容，同时保证 Query Row
+不会进入模型 Proposal、Canonical Document、Transport History 或普通日志。
+
+不要根据本页提前创建独立 Open Generative 产品。只有 Tessera Agent 的全部证明门槛通过后，
+才开始抽离通用项目。

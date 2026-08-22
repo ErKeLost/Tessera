@@ -2,7 +2,12 @@ import { describe, expect, test } from "bun:test";
 import {
   committedRevisionSchema,
   correlationIdSchema,
+  documentContentSchema,
   hashDocumentContent,
+  resourceBindingIdSchema,
+  resourceResolutionResultSchema,
+  type ResourceBindingId,
+  type ResourceResolutionResult,
 } from "@open-generative/protocol";
 import { createRendererCapabilityManifest } from "@open-generative/catalog";
 import { EncryptedSurfaceResumeCursorCodec } from "./event-ledger";
@@ -116,5 +121,76 @@ describe("SurfaceSessionManager", () => {
     });
     await expect(opening).rejects.toBeInstanceOf(SurfaceSessionError);
     await expect(opening).rejects.toMatchObject({ code: "surface.catalog-lock-mismatch" });
+  });
+
+  test("rejects an initial resolved resource whose schema hash violates an exact binding", async () => {
+    const fixture = await createServerFixture();
+    const bindingId = resourceBindingIdSchema.parse("dataset");
+    const content = documentContentSchema.parse({
+      ...fixture.record.committedRevision.content,
+      resourceBindings: {
+        dataset: {
+          resourceKey: "tessera-dataset",
+          kind: "dataset",
+          schemaConstraint: {
+            schemaId: "schema-dataset",
+            schemaRevision: 1,
+            schemaHash: testHash("4"),
+            compatibility: "exact",
+          },
+          selector: {},
+          resolution: {
+            mode: "pinned",
+            versionId: "resource-version-1",
+            contentHash: testHash("5"),
+          },
+        },
+      },
+    });
+    const revision = committedRevisionSchema.parse({
+      ...fixture.record.committedRevision,
+      envelope: {
+        ...fixture.record.committedRevision.envelope,
+        contentHash: await hashDocumentContent(content),
+      },
+      content,
+    });
+    const journal = new InMemorySurfaceSessionJournal({
+      cursors: new EncryptedSurfaceResumeCursorCodec(new Uint8Array(32).fill(8)),
+    });
+    const resources: Partial<Record<ResourceBindingId, ResourceResolutionResult>> = {};
+    resources[bindingId] = resourceResolutionResultSchema.parse({
+      status: "resolved",
+      snapshot: {
+        snapshotId: "snapshot-dataset",
+        bindingId,
+        resourceVersionId: "resource-version-1",
+        schemaHash: testHash("6"),
+        contentHash: testHash("7"),
+        observedAt: "2026-08-22T00:00:00.000Z",
+        projectionHash: testHash("8"),
+        policyProjectionHash: testHash("9"),
+        payload: { kind: "json", value: [], byteLength: 2 },
+        evidenceIds: [],
+      },
+    });
+    const opening = manager(journal).open({
+      authority: fixture.record.authority,
+      rendererCapabilityManifest: fixture.record.rendererCapabilityManifest,
+      catalogs: [fixture.catalog],
+      rendererRequirements: [{ contract: fixture.contract, requiredFeatures: [] }],
+      actionContracts: [],
+      resourceOffers: [],
+      evidenceOffers: [],
+      placement: { kind: "panel", width: 960, height: 720 },
+      generationLimits: fixture.record.catalogSlice.limits,
+      providerSchemaProfile: "test",
+      committedRevision: revision,
+      resources,
+      streamPolicy: { maxSequenceGap: 16, maxBufferedBytes: 1_000_000, ackEveryEvents: 8, backpressure: "publish-snapshot" },
+      expiresAt: "2026-08-22T01:00:00.000Z",
+      correlationId: correlationIdSchema.parse("correlation:resource-schema"),
+    });
+    await expect(opening).rejects.toMatchObject({ code: "surface.resource-schema-mismatch" });
   });
 });

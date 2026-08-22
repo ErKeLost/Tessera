@@ -139,6 +139,7 @@ export function createSurfaceSnapshot(revision: CommittedRevision): SurfaceSnaps
     revision,
     state: {},
     resources: {},
+    resourceResolutionIdentities: {},
     actions: {},
     approvals: [],
   });

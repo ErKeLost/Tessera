@@ -1,6 +1,6 @@
 {
   "title": "组件",
-  "description": "每个组件独立的 API、Schema、预览和集成说明。",
+  "description": "Tessera Agent Data Agent 的 Generative UI 组件目录。",
   "root": true,
-  "pages": ["index", "generative-ui-catalog", "chart", "artifact", "query-artifact", "calculator-artifact", "metric-artifact", "target-artifact", "ranking-artifact", "timeline-artifact", "comparison-artifact", "trend-artifact", "breakdown-artifact", "distribution-artifact", "cohort-artifact", "experiment-artifact", "driver-artifact", "anomaly-artifact", "forecast-artifact", "funnel-artifact", "data-quality-artifact", "insight-artifact", "data-table"]
+  "pages": ["index", "generative-ui-catalog"]
 }

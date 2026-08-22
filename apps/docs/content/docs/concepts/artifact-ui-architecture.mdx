@@ -1,15 +1,17 @@
 ---
-title: Protocol and Compiler Reference
-description: Detailed v2 reference for the Artifact DSL, normalized IR, compiler, runtime, capabilities, and shadcn-based renderer.
+title: "Historical: Protocol and Compiler Reference"
+description: Preserved predecessor design for the former ArtifactPart and ArtifactRenderer architecture.
 ---
 
-> **Product boundary:** the canonical product and lifecycle decision now lives
-> in [Embedded Business Artifact Runtime](./embedded-artifact-runtime). This
-> document remains the detailed v2 protocol and implementation reference; any
-> older wording that suggests a standalone or general UI product is subordinate
-> to that decision.
+> **Historical predecessor:** this document is preserved in full as a design
+> input. Its `ArtifactPart`, wire decoder, `ArtifactRenderer`, compatibility,
+> package, install, and rollout APIs are not current Tessera Agent APIs. The
+> normative design is [Generative UI architecture](/docs/agent/architecture/generative-ui),
+> with one render chain through `SurfaceController`, `GenerativeSurface`, and
+> `RendererRegistry`. Where this document conflicts with that architecture, the
+> current Generative UI specification wins.
 
-Status: **Local reference implementation**. The repository implements the core
+Historical status at the time of writing: **Local reference implementation**. The predecessor repository implemented the core
 v2 protocol, compiler, runtime, adapters, capability/resource boundaries,
 renderer, registry tooling, deterministic eval gates, and rollout-control
 modules. This RFC also preserves explicitly future extension and production
@@ -67,16 +69,11 @@ The architecture is allowed to be sophisticated internally; its public path is
 not. A developer should not need to understand the IR, frame protocol, prompt
 compiler, repair loop, or capability lifecycle to render a safe artifact.
 
-The release-facing v2 golden path has one install command, one server helper,
-one browser decode boundary, and one renderer. The command is the tested public
-interface, but it is not externally usable until the npm packages and registry
-host are published:
+This historical proposal described one install command, one server helper, one
+browser decode boundary, and one renderer. No CLI or registry from that proposal
+was published, so this page intentionally provides no executable install command.
 
-```bash
-npx tessera-agent@latest add artifact-ui
-```
-
-The command installs the editable shadcn-based React source and pins exact
+The proposed command would have installed editable shadcn-based React source and pinned exact
 protocol/runtime/artifact-contract package versions. The server adapter is an
 explicit application dependency; the default example uses
 `@open-generative/ai-sdk`. The server creates one long-lived, request-stateless

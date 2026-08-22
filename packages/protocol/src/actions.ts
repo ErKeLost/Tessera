@@ -102,6 +102,7 @@ export const actionStatusSchema = z.object({
 const effectOutcomeSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("succeeded"),
+    receipt: jsonValueSchema,
     result: jsonValueSchema.optional(),
     resultHash: sha256HashSchema.optional(),
   }).strict(),

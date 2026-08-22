@@ -33,7 +33,7 @@ export type SurfaceStateValidationIssue = {
 export interface SurfaceStateValidationPort {
   validateSurfaceStateValue(input: {
     stateId: StateId;
-    definition: Extract<StateDefinition, { scope: "surface" }>;
+    definition: StateDefinition;
     value: JsonValue;
   }): MaybePromise<readonly SurfaceStateValidationIssue[]>;
 }

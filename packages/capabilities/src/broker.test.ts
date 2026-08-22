@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createActionContract } from "@open-generative/catalog";
+import { createOfficialCatalog } from "@open-generative/components";
 import {
   actionIdSchema,
   actionTypeSchema,
@@ -42,7 +43,12 @@ async function contract(approval = false) {
       additionalProperties: false,
     },
     resultSchema: { type: "object", additionalProperties: true },
-    receiptSchema: { type: "object", additionalProperties: true },
+    receiptSchema: {
+      type: "object",
+      properties: { proof: { type: "string" } },
+      required: ["proof"],
+      additionalProperties: false,
+    },
     reads: [],
     writes: [],
     effectClass: "read",
@@ -78,7 +84,7 @@ describe("CapabilityBroker", () => {
     let executions = 0;
     await instance.register(actionContract, async () => {
       executions += 1;
-      return { result: { downloadId: "download:1" } };
+      return { result: { downloadId: "download:1" }, receipt: { proof: "receipt:1" } };
     });
     const trigger = {
       requestId: "request:1",
@@ -104,7 +110,7 @@ describe("CapabilityBroker", () => {
     let executions = 0;
     await instance.register(actionContract, async () => {
       executions += 1;
-      return { result: {} };
+      return { result: {}, receipt: { proof: "receipt:approval" } };
     });
     const pending = await instance.trigger({
       requestId: "request:2",
@@ -135,7 +141,7 @@ describe("CapabilityBroker", () => {
   test("rejects invalid normalized input before handler execution", async () => {
     const instance = broker();
     const actionContract = await contract();
-    await instance.register(actionContract, async () => ({ result: {} }));
+    await instance.register(actionContract, async () => ({ result: {}, receipt: { proof: "receipt:invalid" } }));
     await expect(instance.trigger({
       requestId: "request:3",
       actionId: actionIdSchema.parse("action:3"),
@@ -165,7 +171,7 @@ describe("CapabilityBroker", () => {
       approvalTokenFactory: () => "b".repeat(43),
     });
     const actionContract = await contract(true);
-    await instance.register(actionContract, async () => ({ result: {} }));
+    await instance.register(actionContract, async () => ({ result: {}, receipt: { proof: "receipt:reauthorize" } }));
     const pending = await instance.trigger({
       requestId: "request:reauthorize",
       actionId: actionIdSchema.parse("action:reauthorize"),
@@ -204,7 +210,7 @@ describe("CapabilityBroker", () => {
     await instance.register(actionContract, async (_input, context) => {
       started();
       await new Promise<void>((resolve) => context.signal.addEventListener("abort", () => resolve(), { once: true }));
-      return { result: {} };
+      return { result: {}, receipt: { proof: "receipt:cancel" } };
     });
     const execution = instance.trigger({
       requestId: "request:cancel",
@@ -223,5 +229,37 @@ describe("CapabilityBroker", () => {
     expect(cancelled.status.status).toBe("cancelled");
     expect(completed.status.status).toBe("cancelled");
     expect(completed.receipt?.outcome).toEqual({ status: "cancelled" });
+  });
+
+  test("validates the official data.export result and contract receipt independently", async () => {
+    const instance = broker();
+    const official = await createOfficialCatalog();
+    const actionContract = official.actions.dataExport;
+    const contentHash = hash("c");
+    await instance.register(actionContract, async () => ({
+      result: {
+        downloadId: "download:official",
+        expiresAt: "2026-08-23T00:00:00.000Z",
+      },
+      receipt: { contentHash, rowCount: 42 },
+    }));
+
+    const completed = await instance.trigger({
+      requestId: "request:official-export",
+      actionId: actionIdSchema.parse("action:official-export"),
+      contract: actionContract.ref,
+      normalizedInput: { bindingId: "binding:results", format: "csv" },
+      idempotencyKey: "idempotency:official-export",
+      authority,
+      statePreconditions: {},
+      resourcePreconditions: {},
+    });
+
+    expect(completed.status.status).toBe("succeeded");
+    expect(completed.receipt?.outcome).toMatchObject({
+      status: "succeeded",
+      result: { downloadId: "download:official" },
+      receipt: { contentHash, rowCount: 42 },
+    });
   });
 });

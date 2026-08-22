@@ -26,6 +26,7 @@ const packageNames = [
   "@open-generative/react",
   "@open-generative/ai-sdk",
   "@open-generative/mastra",
+  "@open-generative/ag-ui",
 ] as const;
 
 function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
@@ -38,86 +39,86 @@ function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
 
 const copy = {
   en: {
-    eyebrow: "Open-source platform for building agents",
-    lead: "A local-first agent platform for data analysis, management, and operations, with multi-database support and extensible tools.",
-    getStarted: "Get started",
-    browse: "Browse components",
-    interactivePreview: "Interactive workspace",
+    eyebrow: "Generative UI for governed data agents",
+    lead: "Tessera Agent is proving a final, host-governed Generative UI architecture through real data-analysis workflows.",
+    getStarted: "Read the proof",
+    browse: "Browse the catalog",
+    interactivePreview: "Tessera Agent workspace",
     workspace: "Working interface",
     workspaceTitle: "See the interface after a model responds.",
     workspaceDetail: "A real, editable preview for structured answers, evidence, and follow-up work. It lives below the Canvas, where it can be inspected without competing with the first view.",
     heroMeta: ["Schema-first", "Application-owned", "shadcn-compatible"],
-    manifesto: "Every agent run should leave an inspectable work surface.",
-    manifestoDetail: "Every artifact is selected from a known catalog, validated at the boundary, and rendered by code you control.",
-    install: "Install",
-    installTitle: "Install an agent interface your application controls.",
-    installDetail: "The dedicated CLI installs editable components through shadcn. Runtime packages keep the protocol centralized.",
-    chooseEntry: "Choose an entry point",
-    everything: "Everything",
-    oneArtifact: "One artifact",
-    directRegistry: "Direct registry",
-    installationGuide: "Installation guide",
+    manifesto: "The Data Agent proof comes before the standalone framework.",
+    manifestoDetail: "The complete architecture, component contracts, official renderers, fixtures, and proof gates stay in Tessera Agent until the data-agent experience succeeds end to end.",
+    install: "Repository proof",
+    installTitle: "Run the architecture and component gates from source.",
+    installDetail: "The packages and remote registry are not presented as published products. Today, this repository is the executable source of truth.",
+    chooseEntry: "Current verification path",
+    everything: "Install workspace",
+    oneArtifact: "Check contracts",
+    directRegistry: "Run all gates",
+    installationGuide: "Read the proof workflow",
     catalog: "Component catalog",
-    catalogTitle: "A working surface for every data-agent step.",
-    catalogDetail: "Explore the same components your agent can select at runtime.",
+    catalogTitle: "A focused component system for the Tessera Data Agent.",
+    catalogDetail: "Explore the contracts, renderers, and analytical recipes used by the current proof.",
     trustBoundary: "Trust boundary",
     trustTitle: "Agents propose. Your runtime decides.",
-    trustDetail: "Models emit declarative data. Registered code decides what can render, calculate, and return an action.",
+    trustDetail: "Models propose declarative nodes. The host validates, commits, resolves data and authority, then registered code renders them.",
     securityModel: "Read the security model",
     runtime: "Composable runtime",
-    runtimeTitle: "Build an agent UI without surrendering the control plane.",
+    runtimeTitle: "One protocol and one renderer chain, proven in Tessera Agent.",
     openSource: "Open source",
-    openSourceTitle: "Own the interface between an agent and business data.",
+    openSourceTitle: "Inspect the complete Tessera Agent Generative UI proof.",
     github: "View on GitHub",
     architecture: "Architecture",
     protocol: [
-      ["Select", "Tool guidance chooses a registered artifact."],
-      ["Validate", "Zod parses a versioned, declarative payload."],
-      ["Render", "Your catalog resolves trusted React components."],
-      ["Respond", "Interactions return structured intent to the agent."],
+      ["Propose", "The model uses only the frozen, task-scoped Component Contract slice."],
+      ["Commit", "The server normalizes, validates, authorizes, and commits the declaration."],
+      ["Control", "SurfaceController consumes trusted events and resolves node-scoped values."],
+      ["Render", "GenerativeSurface resolves an exact renderer from RendererRegistry."],
     ],
-    packages: ["Artifact protocol", "Catalog and trusted runtime", "Renderers and interactions", "AI SDK adapter", "Mastra adapter"],
+    packages: ["Canonical protocol", "Contracts and trusted runtime", "React surface and UI renderers", "AI SDK transport boundary", "Mastra integration boundary", "AG-UI event boundary"],
   },
   zh: {
-    eyebrow: "面向 Agent 构建的开源平台",
-    lead: "完全运行在本地的数据分析、管理与操作 Agent，支持多种数据库和可扩展插件。",
-    getStarted: "开始使用",
-    browse: "浏览组件",
-    interactivePreview: "交互式工作台",
+    eyebrow: "面向受治理 Data Agent 的 Generative UI",
+    lead: "Tessera Agent 正通过真实数据分析工作流，验证一套终局的、由宿主治理的 Generative UI 架构。",
+    getStarted: "查看成功证明",
+    browse: "浏览组件目录",
+    interactivePreview: "Tessera Agent 工作台",
     workspace: "工作界面",
     workspaceTitle: "查看模型回答后的真实工作界面。",
     workspaceDetail: "这是一个可编辑的真实预览，用于呈现结构化回答、证据与后续工作。它放在 Canvas 首屏之后，不与第一视图争夺注意力。",
     heroMeta: ["Schema 优先", "应用掌控", "兼容 shadcn"],
-    manifesto: "每次 Agent 运行，都应留下可检查的工作界面。",
-    manifestoDetail: "每个 Artifact 都从已知目录中选择，在边界处完成验证，并由你控制的代码进行渲染。",
-    install: "安装",
-    installTitle: "安装由你的应用掌控的 Agent 界面。",
-    installDetail: "专用 CLI 通过 shadcn 安装可编辑组件，运行时包则集中维护协议。",
-    chooseEntry: "选择接入方式",
-    everything: "全部组件",
-    oneArtifact: "单个 Artifact",
-    directRegistry: "直接使用 Registry",
-    installationGuide: "安装指南",
+    manifesto: "先证明 Data Agent，再拆分通用框架。",
+    manifestoDetail: "在 Data Agent 体验端到端成功之前，完整架构、组件 Contract、官方 Renderer、Fixture 与证明门槛都继续留在 Tessera Agent。",
+    install: "仓库验证",
+    installTitle: "直接从源码运行架构与组件门槛。",
+    installDetail: "当前不会把 Package 与远程 Registry 写成已经发布的产品；这个仓库才是唯一可执行的 source of truth。",
+    chooseEntry: "当前验证路径",
+    everything: "安装 Workspace",
+    oneArtifact: "检查 Contract",
+    directRegistry: "运行全部门槛",
+    installationGuide: "查看证明流程",
     catalog: "组件目录",
-    catalogTitle: "覆盖每一步数据智能体工作流的工作界面。",
-    catalogDetail: "浏览智能体在运行时可以选择的同一组组件。",
+    catalogTitle: "专门为 Tessera Data Agent 收敛的组件体系。",
+    catalogDetail: "浏览当前 proof 使用的 Contract、Renderer 与分析 Recipe。",
     trustBoundary: "信任边界",
     trustTitle: "Agent 提议，运行时决定。",
-    trustDetail: "模型只输出声明式数据；注册代码决定允许渲染、计算和返回哪些操作。",
+    trustDetail: "模型只提议声明式节点；宿主完成校验、提交、数据与权限解析，再由注册代码渲染。",
     securityModel: "阅读安全模型",
     runtime: "可组合运行时",
-    runtimeTitle: "构建 Agent UI，不交出控制平面。",
+    runtimeTitle: "一套协议、一条渲染链，先在 Tessera Agent 中完成证明。",
     openSource: "开放源代码",
-    openSourceTitle: "掌控 Agent 与业务数据之间的界面。",
+    openSourceTitle: "检查完整的 Tessera Agent Generative UI 成功证明。",
     github: "在 GitHub 上查看",
     architecture: "架构",
     protocol: [
-      ["选择", "工具说明从注册目录中选择 Artifact。"],
-      ["验证", "Zod 解析带版本的声明式载荷。"],
-      ["渲染", "组件目录解析为可信的 React 组件。"],
-      ["响应", "交互将结构化意图返回给智能体。"],
+      ["提议", "模型只能使用本轮冻结、按任务裁剪的 Component Contract Slice。"],
+      ["提交", "服务端负责 Normalize、Validate、Authorize 与 Commit。"],
+      ["控制", "SurfaceController 消费可信事件并解析 Node-scoped Value。"],
+      ["渲染", "GenerativeSurface 从 RendererRegistry 精确解析 Renderer。"],
     ],
-    packages: ["Artifact 协议", "目录与可信运行时", "渲染器与交互", "AI SDK 适配器", "Mastra 适配器"],
+    packages: ["Canonical Protocol", "Contract 与可信 Runtime", "React Surface 与 UI Renderer", "AI SDK 传输边界", "Mastra 集成边界", "AG-UI Event 边界"],
   },
 } as const;
 
@@ -204,20 +205,20 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
               </div>
               <div className={styles.commandRow}>
                 <span>{text.everything}</span>
-                <InstallCopy command="npx tessera-agent@latest" tone="console" />
+                <InstallCopy command="bun install" tone="console" />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.oneArtifact}</span>
-                <InstallCopy command="npx tessera-agent@latest add query-artifact" tone="console" />
+                <InstallCopy command="bun run check:naming && bun run check:boundaries" tone="console" />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.directRegistry}</span>
                 <InstallCopy
-                  command="npx shadcn@latest add https://tessera-agent.dev/r/query-artifact.json"
+                  command="bun run typecheck && bun run test && bun run build"
                   tone="console"
                 />
               </div>
-              <Link className={styles.textLink} href={path("/docs/integrations/shadcn-registry")}>
+              <Link className={styles.textLink} href={path("/docs/agent/architecture/generative-ui-proof")}>
                 {text.installationGuide}
                 <ArrowRightIcon aria-hidden="true" />
               </Link>

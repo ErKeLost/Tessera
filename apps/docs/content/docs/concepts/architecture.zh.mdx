@@ -1,69 +1,70 @@
 ---
 title: 架构
-description: 已落地的协议基础，以及它在目标嵌入式业务 Artifact Runtime 中的位置。
+description: Tessera Agent 正通过 Data Agent 工作流证明的终局 Generative UI 底座。
 ---
 
-Tessera Agent 将模型编写的声明与宿主掌控的执行、渲染、身份和持久化分开。模型既不生成可执行 UI
-代码，也不能直接生成可信 Runtime Object。
+Tessera Agent 把模型编写的声明与宿主掌控的数据、身份、校验、权限、状态、Effect、持久化、
+Commit 与渲染彻底分开。模型既不生成可执行 UI 代码，也不能直接生成可信 Runtime Object。
 
-本文概述当前已经落地的 v2 基础。规范性的产品与生命周期设计见
-[嵌入式业务 Artifact Runtime](./embedded-artifact-runtime)：它是嵌入现有业务系统、可持久化并持续编辑的
-Artifact，而不是 App 生成器。
+## 唯一 Canonical Path
 
 ```text
-用户请求 + 宿主授权的数据
-  -> 每轮 Catalog Slice 与 Surface DSL Schema
-  -> 模型 Proposal
-  -> 服务端 Compiler：Decode、Normalize、Validate、Authorize、Commit
-  -> 带本地 Brand 的 v2 ArtifactPart
-  -> 序列化 ArtifactPartWire
-  -> 客户端 decodeArtifactPart(..., { contractFingerprint })
-  -> React ArtifactRenderer 与 shadcn/ui Recipe
-  -> 宿主授权的 Runtime Command
+用户问题 + 宿主授权的 Resource Offer
+-> 冻结 CatalogSetSlice
+-> 模型提议声明式 Node
+-> Compiler Normalize、Validate、Authorize 与 Commit
+-> HostServer 发布可信 SurfaceEventStream
+-> SurfaceController Replay 事件并解析 Node Projection
+-> GenerativeSurface 遍历 Canonical Graph
+-> RendererRegistry 精确解析 Component Contract Renderer
+-> @open-generative/ui 渲染 Tessera Agent 的 shadcn/Recharts 组件
 ```
 
-本地 Brand 只会在校验后施加，而且不会跨网络序列化。因此，每个 `ArtifactPartWire`
-都必须先使用预期的 Contract Fingerprint 重新 Decode，才能交给 `ArtifactRenderer`。
+这套架构没有 `ArtifactPart`、浏览器 Decoder、`ArtifactRenderer`、旧兼容 Facade 或第二条按
+Artifact 分叉的渲染路径。原始模型输出永远不会进入 React。
 
-## Package 边界
+## Package Boundary
 
 | 边界 | Package | 职责 |
 | --- | --- | --- |
-| v1 兼容契约 | `@open-generative/protocol` | 18 种语义 Artifact Schema 与类型化 v1 Action Event |
-| 语义目录 | `@open-generative/catalog` | 语义 Manifest、选择规则、Contract Graph 与可信 Calculator |
-| v2 Runtime | `@open-generative/runtime` | Normalized IR、Wire Decode 与 Brand、校验、事务、Replay、Migration 和本地 Action |
-| Authoring 与 Commit | `@open-generative/compiler` | 仅服务端使用的 Surface DSL、每轮 Catalog Slicing、Prompt 编译、有限修复、Policy Check 与 Runtime Commit |
-| 权限边界 | `@open-generative/capabilities`, `@open-generative/resources` | 仅服务端使用的 Grant、Approval、Effect、Scoped Resource、Evidence 与 Receipt |
-| 渲染 | `@open-generative/react` | React Renderer、Provider Runtime、State/Resource Binding、官方 Node 与 v1 兼容入口 |
-| 框架 Adapter | `@open-generative/ai-sdk`, `@open-generative/mastra`, `@open-generative/ag-ui` | 连接共享 Compiler 与 Commit 边界的轻量服务端映射 |
-| 分发 | shadcn Registry + npm | 可编辑 React 源码，以及精确版本的 Schema、Core 与 Runtime 依赖 |
+| Canonical Value 与 Wire Protocol | `@open-generative/protocol` | Document、Operation、Stream、ID、Hash、Limit 与 Diagnostic |
+| Contract Identity 与 Manifest | `@open-generative/catalog` | Immutable Component Contract、Catalog Slice、Placement 与 Renderer Capability Negotiation |
+| Proposal 验收 | `@open-generative/compiler` | 仅服务端 Decode、Normalize、Validate、Repair、Policy 与 Commit Gate |
+| 确定性状态 | `@open-generative/runtime` | Document、Preview、State、Replay、Revision DAG 与 Migration Reducer |
+| Host 编排 | `@open-generative/server` | Session、Transaction、Event Journal、Authority 与可信发布 |
+| 浏览器控制 | `@open-generative/client` | 可信事件 Replay、Resolved Node Projection、Resume 与 Host Command |
+| Resource Data | `@open-generative/resources` | 仅服务端 Schema、Grant、Projection、Window 与 Evidence |
+| Effect | `@open-generative/capabilities` | 仅服务端 Action Policy、Approval、Idempotency、Effect 与 Receipt |
+| React Binding | `@open-generative/react` | `GenerativeSurface`、精确 `RendererRegistry`、Placement 与 System Surface |
+| Data Agent Contract | `@open-generative/components` | 12 个 Contract、Props Schema、Chart Spec、Recipe 与 Fixture |
+| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts Node Renderer 与 Registry Factory |
 
-浏览器代码可以依赖 Schema、Core 和 Runtime，但不能包含 Compiler、Prompt Example、
-Capability Broker、Resource Resolver、Credential 或服务端 Policy 实现。
+Framework Adapter 可以转换 Transport 细节，但不能拥有或替换这些语义。Browser Code 不能引入
+Compiler、Server、Resource、Capability、Credential、Prompt Example 或签名材料。
 
-## 一个 Catalog，两层 Node
+## 当前 Component Contract Slice
 
-标准 Compiler Catalog 当前包含 30 个带版本的 Node Contract：
+成功证明使用 12 个正交 Contract：
 
-- **18 个语义 Artifact：** Query、Calculator、Metric、Comparison、Trend、Anomaly、
-  Forecast、Funnel、Data Quality、Insight、Breakdown、Distribution、Cohort、Experiment、Driver、
-  Ranking、Target 与 Timeline。
-- **7 个 Surface Node：** Stack、Grid、Section、Text、Callout、Progress 与 Empty。
-- **5 个 Form Node：** Form Root、Input、Select、Toggle 与 Button。
+- Layout：`layout.stack`、`layout.grid`、`layout.section`
+- Content：`content.text`、`content.callout`、`content.empty`
+- Data：`data.metric`、`data.table`、`data.chart`、`data.query-details`
+- Control：`control.filter`、`control.group`
 
-`prepareTurn()` 只选择当前任务真正需要的子集，并从这些 Contract 生成 Provider Schema 与
-Prompt。扩展能力通过 Compiler Catalog 和对应的 React Node Renderer 接入，不需要另造 Wire Protocol。
+Trend、Comparison、Funnel、Cohort、Anomaly、Forecast 与 Data Quality 都是 Composition Recipe，
+不是额外协议类型。这样既保持模型可见 Slice 足够小，也能构建产品级分析界面。
 
-## Commit 后再渲染
+## Commit 与 Preview
 
-严格语义 Node 只有在校验并 Commit 后才会挂载。渐进式 Surface Shell 可以在新 Proposal
-仍处于校验阶段时保留 last-good Revision，但原始模型文本、未完成 Tool Input 与没有 Brand
-的 Wire Data 永远不能进入 Renderer。
+Layout 与安全 Content 可以通过经过校验的只读 Preview 渐进出现；Resource-backed Data 与
+State-bound Control 必须原子 Commit。Preview Renderer 不会得到 Event Emitter，因此未完成内容
+不能触发 Host Command。Proposal 失败时继续保留 Last-good Committed Revision。
 
-同一份已提交 Document 可以内联、显示在 Workbench 或占据完整页面，无需改变协议。UI Event
-会变成类型化 Runtime Command，而且只能通过宿主授权的 `runtimeTransport` 执行；Renderer
-绝不能直接调用任意 Data Tool。
+Resource Payload 不进入 Canonical Document。`SurfaceController` 只在渲染前，根据可信且绑定 Grant
+的 Projection，为单个 Node Materialize 并校验 Resolved Props。
 
-完整产品决策与生产 Exit Gate 见
-[嵌入式业务 Artifact Runtime](./embedded-artifact-runtime)。DSL、IR、Compiler 和 v2 实现细节继续保留在
-[协议与 Compiler 参考](./artifact-ui-architecture)。
+规范细节见 [Generative UI 架构](/docs/agent/architecture/generative-ui)与
+[Data Agent 成功证明门槛](/docs/agent/architecture/generative-ui-proof)。
+[协议与 Compiler 参考](./artifact-ui-architecture)和
+[嵌入式业务 Artifact Runtime](./embedded-artifact-runtime)会作为历史前置设计完整保留，
+但它们不是当前 API。

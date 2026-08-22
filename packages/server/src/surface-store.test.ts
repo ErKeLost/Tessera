@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { surfaceSessionIdSchema } from "@open-generative/protocol";
 import type { SurfaceSessionRecord } from "./surface-store";
 import { InMemorySurfaceSessionStore } from "./surface-store";
 
@@ -43,5 +44,20 @@ describe("InMemorySurfaceSessionStore", () => {
     expect(await store.compareAndSet(initial.surfaceSessionId, first.version, updated)).toBe("updated");
     expect(await store.compareAndSet(initial.surfaceSessionId, first.version, updated)).toBe("conflict");
     expect((await store.get(initial.surfaceSessionId))?.value.acknowledgedThrough).toBe(3);
+  });
+
+  test("lists sessions in stable ID order for bounded sweep pages", async () => {
+    const store = new InMemorySurfaceSessionStore();
+    const later = { ...record(), surfaceSessionId: surfaceSessionIdSchema.parse("surface:z") } as SurfaceSessionRecord;
+    const earlier = { ...record(), surfaceSessionId: surfaceSessionIdSchema.parse("surface:a") } as SurfaceSessionRecord;
+    await store.create(later);
+    await store.create(earlier);
+    const first = await store.list({ limit: 1 });
+    expect(first.map((session) => session.value.surfaceSessionId)).toEqual([earlier.surfaceSessionId]);
+    first[0]!.value.acknowledgedThrough = 99;
+    expect((await store.list({ after: surfaceSessionIdSchema.parse("surface:a"), limit: 10 })).map((session) => (
+      session.value.surfaceSessionId
+    ))).toEqual([later.surfaceSessionId]);
+    expect((await store.get(surfaceSessionIdSchema.parse("surface:a")))?.value.acknowledgedThrough).toBe(0);
   });
 });

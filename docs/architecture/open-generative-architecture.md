@@ -3,7 +3,7 @@
 - 状态：**目标架构决策**
 - 日期：2026-08-22
 - 当前仓库：Tessera Agent Generative UI 的完整参考实现与验证场
-- 范围：最终 Generative UI 底层协议、Compiler、Runtime、Host、Tessera Agent Component Catalog、Renderer 与 Open Tessera 接入边界
+- 范围：最终 Generative UI 底层协议、Compiler、Runtime、Host、Tessera Agent Component Catalog、Renderer 与 Tessera Agent 接入边界
 - 后续：验证成功后，另建独立 Open Generative 项目并提炼 framework-neutral core
 
 ## 1. 最终决定
@@ -15,12 +15,12 @@
 - 当前唯一产品验收对象是 Tessera Agent；Component、recipe、golden fixture 和 model eval 都必须来自真实数据分析任务。
 - 底层仍直接实现最终协议，不能为了验证 Tessera 引入临时 document、tool schema、固定 Query renderer 或第二套链路。
 - 本仓库通过完整 reference implementation 验证协议是否正确、生成是否有用、renderer 是否可靠。
-- 验证成立后，另建独立 Open Generative 项目；framework-neutral core、React binding 和通用 conformance fixtures 从这里提炼，Tessera 业务 recipes、数据工具与产品集成继续属于 Open Tessera。
-- 本次实现不修改 `/Users/work/data-agent`；真实 Agent/Workbench 接入由 Open Tessera 的独立实施任务完成。
+- 验证成立后，另建独立 Open Generative 项目；framework-neutral core、React binding 和通用 conformance fixtures 从这里提炼，Tessera 业务 recipes、数据工具与产品集成继续属于 Tessera Agent。
+- 本次实现不修改 `/Users/work/data-agent`；真实 Agent/Workbench 接入由 Tessera Agent 的独立实施任务完成。
 
 本文只定义一套最终架构，不定义简化架构或临时协议：
 
-- 底层从一开始就支持完整的 Component Contract、资源绑定、状态、动作、事务流、增量编辑、持久化、回放、迁移、安全与多 Renderer 边界。
+- 底层从一开始就支持完整的 Component Contract、资源绑定、状态、动作、事务流、增量编辑、持久化、回放、迁移、安全与多 framework binding 边界；每个 Surface 仍只协商一个 `RendererRegistry` 并走一条渲染链。
 - 当前只减少模型可使用的组件数量，不删减底层能力。
 - 新组件只能扩展 Catalog，不能要求更换文档协议、重写 Runtime 或绕过 Host 权限边界。
 - 实施可以按依赖顺序推进，但每一步都必须落在最终协议上，禁止临时 JSON、过渡 API 或第二套渲染链路。
@@ -35,7 +35,7 @@
 
 本仓库不是以“package 能 build”作为成功，而以 Tessera Agent 的完整行为证据验收：
 
-1. 同一个 pinned Query Resource 能按问题需要组合 `data.metric`、`data.chart`、`data.table`、`data.query-details`、filters 和解释性内容，而不是固定渲染一种 Query view。
+1. 同一次 governed Query execution 能发布同源、带 provenance 的 typed pinned Resources，并按问题需要组合 `data.metric`、`data.chart`、`data.table`、`data.query-details`、filters 和解释性内容，而不是固定渲染一种 Query view；只有采用相同 Dataset Envelope 与 schema 的 Chart/Table binding 才能复用同一个 dataset version。
 2. 模型只看到安全 descriptor、column metadata、binding/evidence offer；rows 不进入 prompt proposal、Document、chat history 或通用 transport。
 3. snapshot 与等价 operation stream 得到完全相同的 canonical content；invalid/abort/conflict 永远保留 last-good。
 4. 12 个首批 Component 全部走同一 Contract、Resource、state、action、stream 和 renderer 链；`data.chart` 覆盖锁定的全部 61 chart + 9 tooltip recipes。
@@ -46,7 +46,7 @@
 | 名称 | 永久职责 |
 | --- | --- |
 | **当前仓库** | 完整目标架构的 reference implementation；当前只为 Tessera Agent 设计 Component、renderer、recipes、fixtures 和 evals |
-| **Open Tessera** | Host 产品，提供 Mastra Agent、数据库工具、权限、资源和用户工作台；其 Agent 仓库由独立任务维护 |
+| **Tessera Agent** | 当前 Host 产品与唯一验收对象，提供 Mastra Agent、数据库工具、权限、资源和用户工作台；其 Agent 仓库由独立任务维护 |
 | **未来 Open Generative 项目** | 验证成功后单独创建的通用项目，承接 framework-neutral protocol/runtime、bindings、adapters 与通用 conformance |
 | **Tessera Data UI Catalog** | 当前第一方 Component Contracts、基于 shadcn/ui 的 React node renderers、chart coverage 和数据分析 recipes |
 
@@ -94,12 +94,12 @@ Open Generative 不生成或执行：
 
 | Profile | 规范范围 | 不得反向约束 |
 | --- | --- | --- |
-| Core protocol/runtime | Contract、Catalog、authoring、canonical IR、stream、transaction、resource、state、action、persistence 与 framework-neutral runtime | React、shadcn/ui、Open Tessera 业务模型 |
+| Core protocol/runtime | Contract、Catalog、authoring、canonical IR、stream、transaction、resource、state、action、persistence 与 framework-neutral runtime | React、shadcn/ui、Tessera Agent 业务模型 |
 | React binding | `SurfaceController` 到 `GenerativeSurface`、Renderer Registry、placements 与 Host system surfaces | canonical protocol 的语义和身份 |
 | Tessera Data UI components | Tessera Agent Component Contracts、shadcn/ui React renderers、ChartSpec、recipes 与 conformance fixtures | Core 对其他行业 Catalog 的表达方式 |
-| Open Tessera reference integration | Open Tessera 的 Resource producer、Mastra adapter、Surface stream、history 与 Workbench 接入 | Core、React binding 或其他 Host 产品 |
+| Tessera Agent reference integration | Tessera Agent 的 Resource producer、Mastra adapter、Surface stream、history 与 Workbench 接入 | Core、React binding 或其他 Host 产品 |
 
-第 18 节只对 Open Tessera reference integration 具有规范性；附录 A 只记录调研证据，不定义任何公开 type、wire shape、package boundary 或完成条件。
+第 18 节只对 Tessera Agent reference integration 具有规范性；附录 A 只记录调研证据，不定义任何公开 type、wire shape、package boundary 或完成条件。
 
 ## 5. 总体架构
 
@@ -321,7 +321,9 @@ type AuthoringValue =
   | AuthoringValue[]
   | { object: Record<string, AuthoringValue> }
   | { ref: "state"; target: AuthoringEntityRef<"state">; path?: PathSegment[] }
+  | { ref: "state-id"; target: AuthoringEntityRef<"state"> }
   | { ref: "resource"; target: AuthoringEntityRef<"resource">; path?: PathSegment[] }
+  | { ref: "resource-id"; target: AuthoringEntityRef<"resource"> }
   | { ref: "event"; port: string; path?: PathSegment[] }
   | { ref: "context"; key: "locale" | "timezone" }
   | { condition: SafeCondition }
@@ -418,6 +420,8 @@ type ProposalOperationEnvelope = {
 }
 ```
 
+值读取与身份传递是两种不同语义。`state` / `resource` 可以带 `path` 并在 materialize 时读取值；`state-id` / `resource-id` 只能传递 canonical identity，禁止携带 `path`，normalize 后分别成为 `state-id-ref` / `resource-id-ref`。HostIntent 用 identity ref 构造精确的 state/resource precondition，不得为了得到 ID 而读取 state value 或 Resource payload。
+
 `AuthoringResourceBinding` 只是在 Document 中选择或收窄 Host offer，不是创建数据源。Normalize 必须在冻结 Slice 中按 `bindingId + offerHash` 精确查找 offer，并把 selector 与 `selectorPolicy` 求交集；`resourceKey`、version、resolution mode、grant、authority 和 payload 都由 Host 填充。`AuthoringEvidenceBinding` 同样只能绑定 `evidenceId + offerHash`，provenance、content hash 和 source authority 不对模型开放。任何未 offered、过期、hash 不匹配或尝试扩张 selector/provenance 的 resource/evidence operation 都在 normalize 前拒绝。
 
 没有通用表达式语言。条件只支持有界、强类型、无 coercion 的比较与布尔组合；聚合、计算、排序、SQL 和数据转换由 Host resource/tool 层完成。
@@ -476,6 +480,18 @@ type CanonicalNode = {
   events: Record<EventPort, ActionId>
   evidence: EvidenceId[]
 }
+
+type ValueExpr =
+  | { kind: "literal"; value: JsonScalar }
+  | { kind: "array"; items: ValueExpr[] }
+  | { kind: "object"; entries: Record<string, ValueExpr> }
+  | { kind: "state-ref"; stateId: StateId; path?: PathSegment[] }
+  | { kind: "state-id-ref"; stateId: StateId }
+  | { kind: "resource-ref"; bindingId: ResourceBindingId; path?: PathSegment[] }
+  | { kind: "resource-id-ref"; bindingId: ResourceBindingId }
+  | { kind: "event-ref"; port: EventPort; path?: PathSegment[] }
+  | { kind: "context-ref"; key: "locale" | "timezone" }
+  | { kind: "condition"; op: ConditionOperator; args: ValueExpr[] }
 
 type RevisionEnvelope = {
   documentId: DocumentId
@@ -695,6 +711,26 @@ type ResourceWindowRequest = {
   serverCursor?: OpaqueServerCursor
 }
 
+type ResourceResolutionIdentity = {
+  requestId: RequestId
+  generation: number
+  bindingId: ResourceBindingId
+  expectedRevisionId: RevisionId
+  expectedResourceVersionId?: ResourceVersionId
+  serverCursor?: OpaqueServerCursor
+}
+
+type DatasetEnvelope = {
+  columns: Array<{
+    columnId: string
+    label: string
+    valueType: "boolean" | "date" | "datetime" | "number" | "string"
+  }>
+  rows: Array<Record<string, null | boolean | string | number>>
+  totalRows?: number
+  hasMore: boolean
+}
+
 type ResolvedResourceSnapshot = {
   snapshotId: ResourceSnapshotId
   bindingId: ResourceBindingId
@@ -717,6 +753,8 @@ type ResolvedResourceSnapshot = {
 - 大数据 payload 不进入 Document、prompt、proposal、chat history 或 content hash。
 - `resourceKey` 只是持久定位符，不授予任何权限；grant/actor/tenant/expiry/revocation/capabilities 永不进入 Document content hash。
 - Resource grant 由 Host 创建并放入本 turn/session；模型只能引用冻结 Slice offered 的 `bindingId + offerHash`，不能伪造 source、tenant 或 policy。
+- 每个 Surface snapshot 必须为每个 resource result 保存同 key 的 `ResourceResolutionIdentity`。`ResourceResolved` 只有在 request、generation、binding、Revision、expected version 与 cursor 都匹配当前 pending identity 时才能提交；旧 generation 即使更晚返回也必须丢弃。
+- `dataset` 只有一种严格 `DatasetEnvelope`：Chart、Table 与 Resource Gateway 共用相同 columns/rows/totalRows/hasMore schema；row key 必须来自已声明 column，scalar cell 类型、row/window 上限和 `totalRows >= rows.length` 在 Gateway 与 Contract 边界共同验证。
 - Component Contract 对允许 `ResourceBindingExpr` 的 prop path、resource kind、resolved schema 与 loading/empty/error fallback 做精确声明。
 - 分页、排序、筛选和虚拟化是 Resource capability，不是模型生成的新 SQL。
 - Cursor 由服务器创建，并绑定 actor、Surface session、binding、resource snapshot、projection 和 expiry；模型不能生成，Document 不能持久化，客户端不能解析或修改。
@@ -879,6 +917,8 @@ type RendererInput = {
 
 Renderer 不能读取整份 Document state 或其他节点的 Resource。`stateBindings`、`resourceBindings` 只包含当前 Contract path 获准并已 materialize 的值；`emit` 只能发送当前 `node.contract` 声明的 event port，并且 preview 模式不提供 emitter。`SurfaceController` 和 server 都要重新验证 revision + node ID + full ContractRef + port + payload + action binding。
 
+交互可用性按 **node + exact event port** 计算，不按“这个节点存在任意 event”计算。Renderer 的 Copy、Export、Apply、Reset 等控件只有在各自端口绑定到已提交 Action 时才启用或出现；无关端口不能误启用控件，preview 即使包含未来 action binding 也始终只读。
+
 渲染规则：
 
 - 未通过 wire、content hash、contract-set hash 和 active manifest 验证的 committed Revision 永不 mount；不能先同步显示再异步验 hash。
@@ -891,18 +931,18 @@ Renderer 不能读取整份 Document state 或其他节点的 Resource。`stateB
 
 React 是第一个官方 binding，不是协议定义。未来 Web Components、native card 或其他 renderer 必须消费同一 Canonical Document 和 conformance fixtures。
 
-Open Generative 官方 React components 统一基于 **shadcn/ui**：使用可复制、可修改的 shadcn source primitives 和 design tokens，不再维护另一套平行视觉基础设施。这个约束属于 React binding，不能让 shadcn、Radix 或 Recharts 的 props 泄漏进 Open Generative canonical protocol。
+当前 Tessera Agent reference React components 统一基于 **shadcn/ui**：使用可复制、可修改的 shadcn source primitives 和 design tokens，不再维护另一套平行视觉基础设施。这一 binding 未来原样抽离到 Open Generative；它不能让 shadcn、Radix 或 Recharts 的 props 泄漏进 canonical protocol。
 
 ### 单一 Renderer 原则
 
-Open Tessera 最终只有一条渲染链：
+Tessera Agent 最终只有一条渲染链：
 
 ```text
 trusted SurfaceEventStream
 -> one SurfaceController
 -> one GenerativeSurface
 -> one negotiated RendererRegistry
--> Open Generative shadcn/ui node renderers
+-> Tessera Agent shadcn/ui node renderers
 ```
 
 `data.metric`、`data.table`、`data.chart` 等是同一 registry 中的 node renderer，不是各自拥有协议和状态的顶层 Renderer。`data.chart` 内部根据严格 ChartSpec 选择 Area/Bar/Line/Pie/Radar/Radial recipe，也不产生第二条渲染链。
@@ -992,9 +1032,12 @@ Diagnostics 使用稳定 code、phase、entity ID、path、severity、recoverabl
 - accessibility matrix；
 - provider/model/catalog-profile 的统计样本门槛。
 
-## 15. 包边界
+## 15. 未来抽离的包边界
 
-当前 reference implementation 的最终包图如下，也是未来提炼 Open Generative core 的候选边界；它不是对旧 package graph 的机械改名清单。
+当前 reference implementation 按下列逻辑边界验证最终架构。这里的
+`@open-generative/*` 只锁定未来独立 Open Generative 项目的抽离 namespace
+和依赖方向，不代表当前存在第二个产品，也不证明这些包已经可以发布；
+它不是对旧 package graph 的机械改名清单。
 
 | Package | 职责 |
 | --- | --- |
@@ -1043,7 +1086,7 @@ flowchart TD
 
 ### shadcn/ui 是实现基础，不是模型 DSL
 
-Open Generative 的所有官方 React node renderer 必须优先组合 shadcn/ui primitives。发行方式继续采用 shadcn registry/source distribution，使 Host 可以拥有代码、调整主题并审查依赖。
+当前 Tessera Agent reference 的所有官方 React node renderer 必须优先组合 shadcn/ui primitives。未来抽离到 Open Generative 后继续采用 shadcn registry/source distribution，使 Host 可以拥有代码、调整主题并审查依赖。
 
 永久规则：
 
@@ -1197,7 +1240,7 @@ Loading、error、approval、pending effect 和 conflict 不作为模型随意�
 
 这些组件必须全部走相同的 `ResourceBindingExpr`、state、event、ActionIntent、streaming、fallback 与 accessibility Contract。它们不是特例。
 
-framework-neutral core 不定义固定 chart/table/SQL/lineage 大组件。Open Tessera 直接使用 Tessera Data UI components 生成下面的组合：
+framework-neutral core 不定义固定 chart/table/SQL/lineage 大组件。Tessera Agent 直接使用 Tessera Data UI components 生成下面的组合：
 
 ```text
 layout.section
@@ -1206,15 +1249,15 @@ layout.section
   -> data.query-details
 ```
 
-首批分析 recipes 由 Open Tessera 的真实 jobs、golden conversations 和 evals 决定。当前仓库中的 Trend、Anomaly、Forecast、Funnel、Cohort、Experiment 等实现只作为候选研究样本，不构成必须继承的产品范围。被选中的 recipe 可以推荐组件组合、Resource schema、evidence 和 prompt guidance，但最终仍编译成相同 nodes，不产生第二套 renderer 或协议。
+首批分析 recipes 由 Tessera Agent 的真实 jobs、golden conversations 和 evals 决定。当前仓库中的 Trend、Anomaly、Forecast、Funnel、Cohort、Experiment 等实现只作为候选研究样本，不构成必须继承的产品范围。被选中的 recipe 可以推荐组件组合、Resource schema、evidence 和 prompt guidance，但最终仍编译成相同 nodes，不产生第二套 renderer 或协议。
 
-## 18. Open Tessera 的最终接入链
+## 18. Tessera Agent 的最终接入链
 
-本节不约束 Open Generative core，但对 Open Tessera reference integration profile 是规范性的。Open Tessera 现有 SQL policy、RequestContext 与 query execution 可以在安全复审后复用；Mastra tool result schema、Memory serialization、UI stream 和 renderer 必须改为 Open Generative 的 Resource/Document 模型。
+本节不约束未来 Open Generative core，但对 Tessera Agent reference integration profile 是规范性的。Tessera Agent 现有 SQL policy、RequestContext 与 query execution 可以在安全复审后复用；Mastra tool result schema、Memory serialization、UI stream 和 renderer 必须改为本文定义的 Resource/Document 模型。
 
 ```text
 User
--> Open Tessera / Mastra planning
+-> Tessera Agent / Mastra planning
 -> governed data tool
 -> query tool publishes pinned Query Resource + Evidence
 -> tool returns QueryResourcePublicationResult without rows
@@ -1226,7 +1269,7 @@ User
 -> GenerativeSurface
 -> negotiated RendererRegistry + Tessera Data UI renderers
 -> typed ActionIntent
--> Open Tessera capability handler
+-> Tessera Agent capability handler
 -> Resource version / state event / Document revision
 ```
 
@@ -1290,7 +1333,7 @@ type QueryResourcePublicationResult = {
 
 - Data tool 不再决定最终 `chartKind/xKey/yKeys/title/layout`；它只发布真实数据和 evidence，并返回引用、schema descriptor 与安全 metadata。
 - 完整 rows 不再进入 tool output、chat stream 或 Memory。
-- 不再维护 Open Tessera type、Mastra Zod schema、component schema 三份固定 Query-result 真相。
+- 不再维护 Tessera Agent type、Mastra Zod schema、component schema 三份固定 Query-result 真相。
 - Workbench 不再扫描 tool part 并固定调用旧 Query view；它只 mount `GenerativeSurface`，由 `SurfaceController` 消费可信 Open Generative events。
 - table filter/sort/page 不再是不可恢复的组件私有 React state。
 
@@ -1343,7 +1386,7 @@ protocol identity and terminology
 -> ActionIntent/capability end-to-end
 -> AI SDK + Mastra streaming adapters
 -> small Tessera Data UI Catalog
--> Open Tessera reference integration through the single Surface path
+-> Tessera Agent reference integration through the single Surface path
 -> conformance, replay, security, accessibility and model eval gates
 ```
 
@@ -1351,7 +1394,7 @@ protocol identity and terminology
 
 ## 21. 完成标准
 
-四个 profile 独立判定；未通过 Core 不能用 React 或 Open Tessera demo 宣称底层完成，未通过某个 binding/integration 也不应伪报为 Core 缺陷。
+四个 profile 独立判定；未通过 Core 不能用 React 或 Tessera Agent demo 宣称底层完成，未通过某个 binding/integration 也不应伪报为 Core 缺陷。
 
 ### Core protocol/runtime
 
@@ -1382,9 +1425,9 @@ protocol identity and terminology
 - Chart manifest 锁定 upstream tree、shadcn source、CLI、Recharts exact versions、package integrity 与 renderer lockfile hash；任何漂移都重新跑 conformance。
 - 每个 chart 提供同一 Resource snapshot 的 table 或 text-summary 等价视图，并满足尺寸、数据量、降采样和 reduced-motion 限制。
 
-### Open Tessera reference integration
+### Tessera Agent reference integration
 
-- 同一个 pinned Query Resource 可以组合生成 metric、chart、table 与 query details，proposal、Document 和聊天链路不复制 rows。
+- 同一次 governed Query execution 可以发布符合各自 Contract 的 typed pinned Resources，并组合生成 metric、chart、table 与 query details；这些资源共享 evidence/provenance，只有 schema 一致的 Chart/Table Dataset binding 才复用同一个 dataset version，proposal、Document 和聊天链路不复制 rows。
 - Query tool output、Mastra Memory、history API、AI SDK stream 和 observability 均通过 no-payload tests。
 - Chat route 建立真实 AuthorityContext、Surface session、CatalogSetSlice、Resource grants 和 transaction，并只发布 trusted Surface events。
 - Workbench 只使用一个 `SurfaceController` 和一个 `GenerativeSurface`；桌面/移动只是 placements，不是两套状态或 renderer。
@@ -1392,7 +1435,7 @@ protocol identity and terminology
 - 现有 SQL policy、read-only DB、access mode、attempt guard 与 domain metric tests 在新 publication boundary 下继续通过。
 - Ref-only history 能恢复 message text 与 committed Surface revision；grant 失效或 Resource retention 到期时显示确定的 unavailable 状态。
 
-这套完成标准保证 Open Generative 是长期底座，而 Open Tessera 只是第一个 reference integration profile。
+这套完成标准保证本文架构可以在验证成功后抽离为长期的 Open Generative 底座，而当前唯一产品验收对象和第一个 reference integration profile 始终是 Tessera Agent。
 
 ## 附录 A：非规范调研基线
 
@@ -1400,9 +1443,9 @@ protocol identity and terminology
 
 - `@assistant-ui/react-generative-ui@0.0.15`，repository commit `16bbf6f`；
 - OpenUI `lang-core@0.2.15` / `react-lang@0.2.14`，repository commit `c3c0d1b`；
-- 当前 Open Tessera 与当前仓库工作树，2026-08-22。
+- 当前 Tessera Agent 与当前仓库工作树，2026-08-22。
 
-| 维度 | Open Tessera 当前 | assistant-ui Generative UI | OpenUI | 当前仓库原型 | 本架构决策 |
+| 维度 | Tessera Agent 当前 | assistant-ui Generative UI | OpenUI | 当前仓库原型 | 本架构决策 |
 | --- | --- | --- | --- | --- | --- |
 | 生成单位 | 固定 Query tool output | 一个 `present` JSON tree | 行式 assignment DSL | nested authoring tree | 单一 `present_ui` proposal 通道 |
 | Component schema | Query schema 手写多份 | 所有 props 合并为可选大 bag | Library 生成 signature/schema | `NodeContract` 生成 provider schema | 每 Component 独立严格 Contract，按 provider profile 降级但服务端完整校验 |

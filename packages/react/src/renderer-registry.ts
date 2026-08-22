@@ -1,13 +1,19 @@
 import {
   contractRefKey,
   placementConstraintSchema,
+  placementContextSchema,
+  verifyRendererCapabilityManifest,
   type ComponentContract,
   type PlacementConstraint,
   type PlacementContext,
+  type RendererCapabilityManifest,
 } from "@open-generative/catalog";
 import {
+  canonicalStringify,
   contractRefSchema,
+  sha256HashSchema,
   type ContractRef,
+  type HashProvider,
 } from "@open-generative/protocol";
 import type {
   RendererRegistration,
@@ -34,6 +40,7 @@ export class RendererRegistry {
         contract,
         placements,
         renderer: candidate.renderer,
+        ...(candidate.integrity === undefined ? {} : { integrity: freezeIntegrity(candidate.integrity) }),
       });
       const key = contractRefKey(contract);
       if (byContract.has(key)) {
@@ -64,13 +71,14 @@ export class RendererRegistry {
     contract: ComponentContract,
     placement: PlacementContext,
   ): RendererResolution {
+    const parsedPlacement = placementContextSchema.parse(placement);
     const registration = this.get(contract.ref);
     if (!registration) {
       return Object.freeze({ status: "unsupported", reason: "renderer-missing" });
     }
     if (
-      !contract.placements.some((constraint) => placementMatches(constraint, placement))
-      || !registration.placements.some((constraint) => placementMatches(constraint, placement))
+      !contract.placements.some((constraint) => placementMatches(constraint, parsedPlacement))
+      || !registration.placements.some((constraint) => placementMatches(constraint, parsedPlacement))
     ) {
       return Object.freeze({ status: "unsupported", reason: "placement-unsupported" });
     }
@@ -82,6 +90,37 @@ export function createRendererRegistry(
   registrations: readonly RendererRegistration[] = [],
 ): RendererRegistry {
   return new RendererRegistry(registrations);
+}
+
+export async function createVerifiedRendererRegistry(
+  registrations: readonly RendererRegistration[],
+  manifest: RendererCapabilityManifest,
+  provider?: HashProvider,
+): Promise<RendererRegistry> {
+  const verified = await verifyRendererCapabilityManifest(manifest, provider);
+  if (registrations.length !== verified.contracts.length) {
+    throw new TypeError("Verified renderer registrations must exactly cover the capability manifest.");
+  }
+  const byContract = new Map(registrations.map((registration) => [contractRefKey(registration.contract), registration]));
+  const bound = verified.contracts.map((capability) => {
+    const registration = byContract.get(contractRefKey(capability.contract));
+    if (registration === undefined) {
+      throw new TypeError(`Renderer registration is missing ${contractRefKey(capability.contract)}.`);
+    }
+    if (canonicalStringify(registration.placements) !== canonicalStringify(capability.placements)) {
+      throw new TypeError(`Renderer placement binding does not match ${contractRefKey(capability.contract)}.`);
+    }
+    return {
+      ...registration,
+      integrity: {
+        rendererCapabilityManifestHash: verified.manifestHash,
+        implementationHash: verified.implementationHash,
+        chunkHash: capability.chunkHash,
+        assetHashes: capability.assetHashes,
+      },
+    } satisfies RendererRegistration;
+  });
+  return new RendererRegistry(bound);
 }
 
 function placementMatches(
@@ -97,4 +136,20 @@ function placementMatches(
 
 function freezeContractRef(contract: ContractRef): ContractRef {
   return Object.freeze({ ...contract });
+}
+
+function freezeIntegrity(
+  integrity: NonNullable<RendererRegistration["integrity"]>,
+): NonNullable<RendererRegistration["integrity"]> {
+  const assetHashes = integrity.assetHashes.map((hash) => sha256HashSchema.parse(hash));
+  const sorted = [...assetHashes].sort();
+  if (new Set(assetHashes).size !== assetHashes.length || assetHashes.some((hash, index) => hash !== sorted[index])) {
+    throw new TypeError("Renderer asset hashes must be sorted and unique.");
+  }
+  return Object.freeze({
+    rendererCapabilityManifestHash: sha256HashSchema.parse(integrity.rendererCapabilityManifestHash),
+    implementationHash: sha256HashSchema.parse(integrity.implementationHash),
+    chunkHash: sha256HashSchema.parse(integrity.chunkHash),
+    assetHashes: Object.freeze(assetHashes),
+  });
 }

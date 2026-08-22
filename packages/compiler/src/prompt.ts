@@ -28,6 +28,7 @@ export function compilePresentUi(input: {
   return deepFreeze({
     catalogSliceHash: input.catalog.slice.sliceHash,
     contractSetHash: input.catalog.slice.contractSetHash,
+    maxOperations: input.catalog.slice.limits.maxOperations,
     providerSchemaProfile: profile.id,
     canonicalInputSchema,
     providerInputSchema,

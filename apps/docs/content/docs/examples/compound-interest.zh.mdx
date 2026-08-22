@@ -1,21 +1,33 @@
 ---
 title: 复利计算
-description: 让交互式公式探索保持本地执行、确定性和 Catalog 控制。
+description: 组合受治理数值控件与 Host 计算后的 Metric、Chart 结果。
 ---
 
-Calculator Artifact 运行宿主已注册的计算器。Agent 只选择计算器并提供经过验证的
-输入，不会提供可执行公式或浏览器代码。
+这里不存在 Calculator 业务大组件。Agent 使用 `control.group` 与数值型
+`control.filter` Node，并组合 `data.metric`、`data.chart`。应用控件时只发出已声明的
+HostIntent；可信 Host 代码执行计算，再返回新的 Surface Operation。模型不会提供可执行公式或浏览器代码。
 
 <ComponentPreview
   filename="examples/compound-interest.tsx"
-  code={`import { CalculatorArtifact } from "@/components/tessera-agent/calculator-artifact"
+  code={`import {
+  GenerativeSurface,
+  type RendererRegistry,
+  type SurfaceControllerPort,
+} from "@open-generative/react"
 
-export function CompoundInterest({ artifact }) {
-  return <CalculatorArtifact artifact={artifact} />
+export function CompoundInterest({ controller, registry }: {
+  controller: SurfaceControllerPort
+  registry: RendererRegistry
+}) {
+  return <GenerativeSurface
+    controller={controller}
+    registry={registry}
+    placement={{ kind: "inline", width: 800, height: 640 }}
+  />
 }`}
 >
   <CalculatorDemo />
 </ComponentPreview>
 
-注册、Provider 接线和 Action 处理请查看
-[Calculator Artifact 组件](/docs/components/calculator-artifact)。
+Control、Metric、Chart Contract 及其 Event Port 请查看
+[当前 Component Catalog](/docs/components/generative-ui-catalog)。

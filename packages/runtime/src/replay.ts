@@ -23,6 +23,7 @@ import {
   type JsonValue,
   type NodeId,
   type ResourceBindingId,
+  type ResourceResolutionIdentity,
   type Sha256Hash,
   type StateId,
   type StreamId,
@@ -37,6 +38,7 @@ import {
 } from "@open-generative/protocol";
 import { applyCanonicalOperationUnchecked } from "./document-operations";
 import { verifyValidatedPreviewHash } from "./preview";
+import type { SurfaceStateValidationPort } from "./local-state";
 import { immutableClone } from "./utils";
 
 export type SurfacePreviewOverlay = {
@@ -84,6 +86,7 @@ export type SurfaceReplayState = {
 
 export type SurfaceReplayOptions = {
   hashProvider?: HashProvider;
+  stateValidation?: SurfaceStateValidationPort;
   maxDiagnostics?: number;
   maxRememberedEvents?: number;
 };
@@ -286,7 +289,7 @@ async function replaceFromSnapshot(
   fingerprint: Sha256Hash,
   options: SurfaceReplayOptions,
 ): Promise<SurfaceReplayResult> {
-  const issues = await validateSnapshotEvent(event, options.hashProvider);
+  const issues = await validateSnapshotEvent(event, options.hashProvider, options.stateValidation);
   if (issues.length > 0) return reject(source, issues, options, true);
   const next = baseStateFromSnapshot(source, event);
   rememberEvent(next, event, fingerprint);
@@ -361,7 +364,7 @@ async function applyInSequence(
   let event = firstEvent;
   let fingerprint = firstFingerprint;
   while (true) {
-    const issues = await applyPayload(next, event, options.hashProvider);
+    const issues = await applyPayload(next, event, options.hashProvider, options.stateValidation);
     if (issues.length > 0) return reject(next, issues, options, true);
     next.acceptedThroughSequence = event.sequence;
     next.cursor = event.cursor;
@@ -382,13 +385,14 @@ async function applyPayload(
   state: SurfaceReplayState,
   event: SurfaceEventEnvelope,
   provider?: HashProvider,
+  stateValidation?: SurfaceStateValidationPort,
 ): Promise<Diagnostic[]> {
   const envelopeIssue = validateEnvelopeContinuity(state, event);
   if (envelopeIssue) return [envelopeIssue];
   const payload = event.payload;
   switch (payload.type) {
     case "snapshot-published": {
-      const issues = await validateSnapshotEvent(event as SurfaceEventEnvelope<typeof payload>, provider);
+      const issues = await validateSnapshotEvent(event as SurfaceEventEnvelope<typeof payload>, provider, stateValidation);
       if (issues.length > 0) return issues;
       state.lastGood = payload.snapshot;
       state.streamPolicy = payload.streamPolicy;
@@ -405,9 +409,9 @@ async function applyPayload(
     case "revision-committed":
       return applyCommittedRevision(state, payload, event, provider);
     case "state-changed":
-      return applyStateChange(state, payload, event, provider);
+      return applyStateChange(state, payload, event, provider, stateValidation);
     case "resource-resolved":
-      return applyResourceResolution(state, payload.result, event);
+      return applyResourceResolution(state, payload.identity, payload.result, event);
     case "action-accepted":
       return applyActionAccepted(state, payload.action, event);
     case "approval-requested":
@@ -460,6 +464,7 @@ async function applyPayload(
 async function validateSnapshotEvent(
   event: SnapshotPublishedEvent,
   provider?: HashProvider,
+  stateValidation?: SurfaceStateValidationPort,
 ): Promise<Diagnostic[]> {
   const snapshot = event.payload.snapshot;
   const revision = snapshot.revision;
@@ -487,6 +492,20 @@ async function validateSnapshotEvent(
     ) {
       return [diagnostic("stream.snapshot-state-invalid", `Snapshot state ${stateId} does not match its definition.`, event)];
     }
+    if (stateValidation) {
+      const issues = await stateValidation.validateSurfaceStateValue({
+        stateId,
+        definition,
+        value: state.value,
+      });
+      if (issues.length > 0) {
+        return [diagnostic(
+          "stream.snapshot-state-schema-invalid",
+          issues.map((issue) => issue.message).join("; "),
+          event,
+        )];
+      }
+    }
   }
   for (const [bindingIdText, result] of Object.entries(snapshot.resources)) {
     const bindingId = bindingIdText as ResourceBindingId;
@@ -509,6 +528,23 @@ async function validateSnapshotEvent(
       return [diagnostic(
         "stream.snapshot-resource-schema-mismatch",
         `Snapshot resource ${bindingId} violates its exact schema constraint.`,
+        event,
+      )];
+    }
+  }
+  for (const [bindingIdText, identity] of Object.entries(snapshot.resourceResolutionIdentities)) {
+    const bindingId = bindingIdText as ResourceBindingId;
+    if (
+      identity.bindingId !== bindingId
+      || !revision.content.resourceBindings[bindingId]
+      || (
+        snapshot.resources[bindingId] === undefined
+        && identity.expectedRevisionId !== revision.envelope.revisionId
+      )
+    ) {
+      return [diagnostic(
+        "stream.snapshot-resource-resolution-identity-invalid",
+        `Snapshot resource resolution identity ${bindingId} is not current for the committed document.`,
         event,
       )];
     }
@@ -724,15 +760,27 @@ async function applyCommittedRevision(
     ) nextState[stateId] = snapshot;
   }
   const nextResources = {} as SurfaceSnapshot["resources"];
+  const nextResourceResolutionIdentities = {} as SurfaceSnapshot["resourceResolutionIdentities"];
   for (const [bindingIdText, result] of Object.entries(lastGood.resources)) {
     const bindingId = bindingIdText as ResourceBindingId;
-    if (payload.revision.content.resourceBindings[bindingId]) nextResources[bindingId] = result;
+    const previousDeclaration = lastGood.revision.content.resourceBindings[bindingId];
+    const nextDeclaration = payload.revision.content.resourceBindings[bindingId];
+    if (
+      previousDeclaration
+      && nextDeclaration
+      && canonicalStringify(previousDeclaration) === canonicalStringify(nextDeclaration)
+    ) {
+      nextResources[bindingId] = result;
+      const identity = lastGood.resourceResolutionIdentities[bindingId];
+      if (identity) nextResourceResolutionIdentities[bindingId] = identity;
+    }
   }
   state.lastGood = {
     ...lastGood,
     revision: payload.revision,
     state: nextState,
     resources: nextResources,
+    resourceResolutionIdentities: nextResourceResolutionIdentities,
   };
   state.overlays = {} as Record<TransactionId, SurfacePreviewOverlay>;
   state.overlayOrder = [];
@@ -744,6 +792,7 @@ async function applyStateChange(
   payload: Extract<SurfaceEventPayload, { type: "state-changed" }>,
   event: SurfaceEventEnvelope,
   provider?: HashProvider,
+  stateValidation?: SurfaceStateValidationPort,
 ): Promise<Diagnostic[]> {
   const definition = state.lastGood!.revision.content.stateDefinitions[payload.state.stateId];
   const previous = state.lastGood!.state[payload.state.stateId];
@@ -765,6 +814,16 @@ async function applyStateChange(
   if (payload.receipt.valueHash !== await computeStateValueHash(payload.state.value, provider)) {
     return [diagnostic("stream.state-value-hash-invalid", "State change value hash is invalid.", event)];
   }
+  if (stateValidation) {
+    const issues = await stateValidation.validateSurfaceStateValue({
+      stateId: payload.state.stateId,
+      definition,
+      value: payload.state.value,
+    });
+    if (issues.length > 0) {
+      return [diagnostic("stream.state-value-schema-invalid", issues.map((issue) => issue.message).join("; "), event)];
+    }
+  }
   const parsed = stateValueSnapshotSchema.safeParse(payload.state);
   if (!parsed.success) {
     return [diagnostic("stream.state-snapshot-invalid", parsed.error.message, event)];
@@ -775,13 +834,73 @@ async function applyStateChange(
 
 function applyResourceResolution(
   state: SurfaceReplayState,
+  identity: ResourceResolutionIdentity,
   result: Extract<SurfaceEventPayload, { type: "resource-resolved" }>["result"],
   event: SurfaceEventEnvelope,
 ): Diagnostic[] {
   const bindingId = result.status === "resolved" ? result.snapshot.bindingId : result.unavailable.bindingId;
   const declaration = state.lastGood!.revision.content.resourceBindings[bindingId];
-  if (!declaration) {
+  if (!declaration || identity.bindingId !== bindingId) {
     return [diagnostic("stream.resource-binding-missing", "Resource result references an unknown binding.", event)];
+  }
+  if (identity.expectedRevisionId !== state.lastGood!.revision.envelope.revisionId) {
+    return [diagnostic(
+      "stream.resource-resolution-revision-precondition-mismatch",
+      "Resource result revision precondition is not current.",
+      event,
+    )];
+  }
+  const currentIdentity = state.lastGood!.resourceResolutionIdentities[bindingId];
+  const currentResult = state.lastGood!.resources[bindingId];
+  if (currentIdentity) {
+    if (identity.generation < currentIdentity.generation) {
+      return [diagnostic(
+        "stream.resource-resolution-stale",
+        "Resource resolution generation moved backwards.",
+        event,
+      )];
+    }
+    if (identity.generation === currentIdentity.generation) {
+      if (
+        currentResult !== undefined
+        || canonicalStringify(identity) !== canonicalStringify(currentIdentity)
+      ) {
+        return [diagnostic(
+          "stream.resource-resolution-identity-not-current",
+          "Resource result does not complete the exact current pending request identity.",
+          event,
+        )];
+      }
+    } else if (identity.requestId === currentIdentity.requestId) {
+      return [diagnostic(
+        "stream.resource-resolution-request-id-reused",
+        "Resource request identity was reused across generations.",
+        event,
+      )];
+    }
+  } else if (identity.generation === 0) {
+    return [diagnostic(
+      "stream.resource-resolution-generation-not-advanced",
+      "Streamed resource resolutions must advance beyond the snapshot baseline generation.",
+      event,
+    )];
+  }
+
+  const expectedCurrentVersion = currentResult?.status === "resolved"
+    ? currentResult.snapshot.resourceVersionId
+    : currentResult === undefined ? currentIdentity?.expectedResourceVersionId : undefined;
+  const completingPendingIdentity = currentResult === undefined
+    && currentIdentity !== undefined
+    && canonicalStringify(identity) === canonicalStringify(currentIdentity);
+  if (
+    !completingPendingIdentity
+    && identity.expectedResourceVersionId !== expectedCurrentVersion
+  ) {
+    return [diagnostic(
+      "stream.resource-resolution-version-precondition-mismatch",
+      "Resource result version precondition is not current.",
+      event,
+    )];
   }
   if (
     result.status === "resolved"
@@ -791,6 +910,7 @@ function applyResourceResolution(
     return [diagnostic("stream.resource-schema-mismatch", "Resolved resource violates its exact schema constraint.", event)];
   }
   state.lastGood!.resources[bindingId] = result;
+  state.lastGood!.resourceResolutionIdentities[bindingId] = identity;
   return [];
 }
 

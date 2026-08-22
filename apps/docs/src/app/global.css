@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "fumadocs-ui/css/shadcn.css";
 @import "fumadocs-ui/css/preset.css";
+@import "@open-generative/ui/styles.css";
 @source "../../../../packages/react/src";
 
 @custom-variant dark (&:is(.dark *));
@@ -353,31 +354,31 @@ html > body[data-scroll-locked] { margin-right: 0 !important; --removed-body-scr
   border-top: 1px solid var(--border);
 }
 
-.de-brand-lockup {
-  --artifact-logo-surface: #1f2123;
-  --artifact-logo-glyph: #fff;
-  --artifact-logo-border-start: #2e3032;
-  --artifact-logo-border-end: #101214;
-  --artifact-logo-outline: rgb(0 0 0 / 0.6);
+.tessera-brand-lockup {
+  --tessera-logo-surface: #1f2123;
+  --tessera-logo-glyph: #fff;
+  --tessera-logo-border-start: #2e3032;
+  --tessera-logo-border-end: #101214;
+  --tessera-logo-outline: rgb(0 0 0 / 0.6);
   display: inline-flex;
   align-items: center;
   gap: .7rem;
   color: var(--foreground);
   font-size: 1rem;
   font-weight: 650;
-  letter-spacing: -.025em;
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
-.dark .de-brand-lockup {
-  --artifact-logo-surface: #f4f4f5;
-  --artifact-logo-glyph: #18181b;
-  --artifact-logo-border-start: #fff;
-  --artifact-logo-border-end: #d4d4d8;
-  --artifact-logo-outline: rgb(255 255 255 / 0.18);
+.dark .tessera-brand-lockup {
+  --tessera-logo-surface: #f4f4f5;
+  --tessera-logo-glyph: #18181b;
+  --tessera-logo-border-start: #fff;
+  --tessera-logo-border-end: #d4d4d8;
+  --tessera-logo-outline: rgb(255 255 255 / 0.18);
 }
 
-.de-brand-logo {
+.tessera-brand-logo {
   width: 1.95rem;
   height: auto;
   flex: none;
@@ -388,5 +389,5 @@ html > body[data-scroll-locked] { margin-right: 0 !important; --removed-body-scr
 .de-source-code [data-diffs-header="default"] { background: color-mix(in oklab, var(--muted) 42%, transparent); }
 
 @media (max-width: 640px) {
-  .de-brand-lockup { gap: .5rem; }
+  .tessera-brand-lockup { gap: .5rem; }
 }

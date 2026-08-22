@@ -1,22 +1,26 @@
 ---
 title: Tessera Agent
-description: 把业务问题转化为受限、可审查分析的受治理工作台。
+description: 用于证明 Tessera Agent 终局 Generative UI 架构的受治理 Data Agent 工作流。
 ---
 
-Tessera Agent 是一个 Local-first 数据分析产品。它把自然语言问题转化为
-语义计划、受限的只读查询、经过验证的证据和 Markdown 答案，同时避免把数据库
-凭据或原始 Runtime Payload 暴露给浏览器。
+Tessera Agent 把自然语言问题转化为语义计划、受限只读查询、经过验证的 Evidence 与
+Committed Generative UI Surface，同时避免把 Credential、原始 Tool Payload 或 Query Row 暴露给模型。
 
 ![Tessera Agent Studio 架构](/diagrams/tessera-data-agent-studio.svg)
 
-模型只提出语义意图。Catalog 发现、授权范围、查询编译、执行限制、结果验证、
-证据和发布都由 Tessera 掌控。
+模型先提出语义分析意图，再提议声明式 UI Node。Catalog 发现、授权范围、查询编译、执行限制、
+Resource 与 Evidence 发布、UI 校验、Commit、可信事件和渲染都由 Tessera 掌控。
+
+```text
+受治理分析 -> Resource/Evidence Offer -> present_ui -> Committed Revision
+-> SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
+```
 
 <Cards>
-  <Card title="快速开始" description="安装 Runtime 并启动第一个本地 Studio。" href="/docs/agent/getting-started" />
-  <Card title="配置" description="配置模型、限制、权限和仅服务端可见的密钥。" href="/docs/agent/configuration" />
+  <Card title="快速开始" description="运行仓库证明门槛，并检查当前 Data Agent 组件目录。" href="/docs/agent/getting-started" />
+  <Card title="成功证明配置" description="理解每项协议、权限、Resource 与 Renderer 决策由哪个 Package 拥有。" href="/docs/agent/configuration" />
   <Card title="数据库连接" description="分别配置 PostgreSQL、MySQL、SQLite 和 Turso。" href="/docs/agent/databases" />
-  <Card title="运行流程" description="查看一个问题如何从 Catalog 检索走到验证和叙述。" href="/docs/agent/run-workflow" />
-  <Card title="Tool 契约" description="理解模型 Tool、公开生命周期和 Trust Boundary。" href="/docs/agent/tool-contract" />
+  <Card title="运行流程" description="查看一个问题如何从 Catalog 检索走到 Committed 并渲染完成的 Surface。" href="/docs/agent/run-workflow" />
+  <Card title="Tool 契约" description="理解 Data Agent Tool、present_ui、可信事件与 Node-scoped Browser Projection。" href="/docs/agent/tool-contract" />
   <Card title="架构" description="查看生产拓扑、证据模型、安全门槛与评估。" href="/docs/agent/architecture" />
 </Cards>

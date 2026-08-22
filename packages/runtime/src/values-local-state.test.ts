@@ -4,6 +4,7 @@ import {
   documentContentSchema,
   eventPortSchema,
   requestIdSchema,
+  resourceBindingIdSchema,
   stateIdSchema,
   surfaceSessionIdSchema,
   valueExprSchema,
@@ -78,6 +79,28 @@ describe("strict ValueExpr materialization", () => {
     })).toEqual({ ok: true, value: "first" });
   });
 
+  test("materializes canonical identities without reading state values or resource payloads", () => {
+    const stateId = stateIdSchema.parse("filter.region");
+    const bindingId = resourceBindingIdSchema.parse("dataset.sales");
+    const expression = valueExprSchema.parse({
+      kind: "object",
+      entries: {
+        stateId: { kind: "state-id-ref", stateId },
+        bindingId: { kind: "resource-id-ref", bindingId },
+      },
+    });
+
+    expect(materializeValueExpr(expression, {})).toEqual({
+      ok: true,
+      value: { stateId: "filter.region", bindingId: "dataset.sales" },
+    });
+    const dependencies = collectValueExprDependencies(expression);
+    expect(dependencies.stateIds.map(String)).toEqual(["filter.region"]);
+    expect(dependencies.resourceBindingIds.map(String)).toEqual(["dataset.sales"]);
+    expect(dependencies.eventPorts).toEqual([]);
+    expect(dependencies.contextKeys).toEqual([]);
+  });
+
   test("extracts deterministic dependencies and scopes node materialization", () => {
     const base = createDocumentContent();
     const root = base.nodes[base.rootNodeId]!;
@@ -103,6 +126,25 @@ describe("strict ValueExpr materialization", () => {
     expect(materializeNodeProps(node, scoped)).toEqual({
       ok: true,
       value: { count: 4, locale: "zh-CN" },
+    });
+  });
+
+  test("treats a props map containing a kind property as a map", () => {
+    const base = createDocumentContent();
+    const root = base.nodes[base.rootNodeId]!;
+    const filterStateId = stateIdSchema.parse("filter.value");
+    const node = {
+      ...root,
+      props: {
+        kind: { kind: "literal" as const, value: "select" },
+        value: { kind: "state-ref" as const, stateId: filterStateId },
+      },
+    };
+
+    expect(collectValueExprDependencies(node.props).stateIds.map(String)).toEqual(["filter.value"]);
+    expect(materializeNodeProps(node, { state: { [filterStateId]: "north" } })).toEqual({
+      ok: true,
+      value: { kind: "select", value: "north" },
     });
   });
 });

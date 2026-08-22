@@ -1,11 +1,11 @@
 {
   "name": "@open-tessera/studio",
-  "version": "0.3.5",
+  "version": "0.3.8",
   "license": "MIT",
-  "homepage": "https://data-elements.dev",
+  "homepage": "https://open-tessera.netlify.app",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/data-elements/data-elements.git",
+    "url": "git+https://github.com/ErKeLost/Tessera.git",
     "directory": "apps/studio"
   },
   "description": "Local-first Nitro server for the Tessera database analysis workspace on Node.js and Bun.",
@@ -58,7 +58,6 @@
     "@open-tessera/mongodb": "workspace:*",
     "@open-tessera/mysql": "workspace:*",
     "@open-tessera/postgres": "workspace:*",
-    "@open-generative/ui": "workspace:*",
     "@open-tessera/runtime": "workspace:*",
     "@open-tessera/schema": "workspace:*",
     "@open-tessera/sqlite": "workspace:*",

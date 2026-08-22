@@ -201,7 +201,7 @@ const componentFixtures = [
       pagination: { pageSize: 25 },
     },
     {
-      data: { rows: resolvedDataset.rows, totalRows: 2, hasMore: false },
+      data: { ...resolvedDataset, hasMore: false },
       columns: [
         { column: "month", label: "Month", format: { kind: "date", dateStyle: "medium" } },
         { column: "revenue", label: "Revenue", format: { kind: "currency", currency: "USD" }, align: "end" },

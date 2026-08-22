@@ -1,9 +1,11 @@
 ---
-title: Current Generative UI catalog
-description: The 12 Component Contracts used to prove Tessera Agent data-agent workflows.
+title: Tessera Agent Generative UI catalog
+description: The 12 Component Contracts and 70 chart recipes used to prove Tessera Agent Data Agent workflows.
 ---
 
-The current Catalog contains only the 12 orthogonal components required by Tessera Agent data-agent workflows. The architecture is final, while product-specific component scope remains deliberately small. Trend, anomaly, forecast, funnel, and cohort experiences are recipes composed from these primitives rather than fixed business components.
+This is the Generative UI component catalog for the **Tessera Agent Data Agent**. It proves the final Open Generative architecture against the real product workflow while keeping the initial component scope deliberately focused. It is not a gallery of fixed business artifacts.
+
+The Catalog contains the 12 orthogonal Component Contracts required by Tessera Agent. Trend, anomaly, forecast, funnel, and cohort experiences are recipes composed from these primitives rather than fixed business components.
 
 | Category | Contracts |
 | --- | --- |
@@ -12,8 +14,26 @@ The current Catalog contains only the 12 orthogonal components required by Tesse
 | Data | `data.metric`, `data.table`, `data.chart`, `data.query-details` |
 | Control | `control.filter`, `control.group` |
 
-Layout and content contracts can commit progressively. Resource-backed data and state-bound controls commit atomically. Metric, Chart, Table, and Query Details may share one pinned Resource version, but rows remain inside the Resource Gateway and enter only a node-scoped resolved render projection.
+Layout and content contracts can commit progressively. Resource-backed data and state-bound controls commit atomically. Every data binding uses a typed pinned Resource that satisfies its exact Contract and may share evidence and provenance with resources from the same governed query execution. Chart and Table may reuse one dataset version only when both bind the same Dataset Envelope and schema. Rows remain inside the Resource Gateway and enter only a node-scoped resolved render projection.
 
-The Catalog publishes only three HostIntent contracts: `data.export`, `surface.retry`, and `control.apply`. Local selection and view state remain browser-local. A renderer emits only a declared event port; the Host resolves its committed Action binding and authority.
+The Catalog publishes only three HostIntent contracts: `data.export`, `surface.retry`, and `control.apply`. Local selection and view state remain browser-local. Identity-only inputs use `state-id-ref` or `resource-id-ref` without materializing state values or Resource payloads. A renderer enables an interaction only for that node's exact committed event port; preview nodes remain read-only.
 
 `@open-generative/components` is the source of truth for Contracts, props schemas, ChartSpec, 70 chart/tooltip recipes, fixtures, and manifests. `@open-generative/ui` maps those exact Contracts to the official React UI primitives and Recharts. Documentation and renderer conformance must be derived from the same Contract definitions.
+
+## Data Agent proof compositions
+
+These are the three current Tessera Agent product compositions. Their Resource payloads are published, granted, filtered, and resolved by the server-side Resource Gateway; the browser receives only a trusted Surface event and renders it through the single negotiated registry.
+
+<DataAgentCompositionGallery />
+
+## Component Contracts
+
+Every preview below runs through the trusted Surface event pipeline, the browser `SurfaceController`, `GenerativeSurface`, and the official renderer registry. These are the actual Tessera Agent renderers, not documentation-only replicas.
+
+<GenerativeContractGallery />
+
+## Chart and tooltip recipes
+
+All 70 official recipes are selectable here. Each selected recipe is resolved and rendered through the same Generative UI surface as a model-authored Tessera Agent response.
+
+<GenerativeChartRecipeGallery />

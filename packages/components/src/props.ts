@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { chartSpecSchema, resolvedChartSpecSchema, chartCellValueSchema } from "./chart-spec";
+import { resourceDatasetPayloadSchema } from "@open-generative/protocol";
+import { chartSpecSchema, resolvedChartSpecSchema } from "./chart-spec";
 import {
   columnIdValueSchema,
   formatTokenSchema,
@@ -86,11 +87,7 @@ export const dataTableColumnSchema = z.object({
   sortable: z.boolean().default(false),
 }).strict();
 
-export const resolvedTableDataSchema = z.object({
-  rows: z.array(z.record(columnIdValueSchema, chartCellValueSchema)).max(10_000),
-  totalRows: z.number().int().nonnegative().optional(),
-  hasMore: z.boolean().default(false),
-}).strict();
+export const resolvedTableDataSchema = resourceDatasetPayloadSchema;
 
 const tableSelectionAuthoringSchema = z.object({
   mode: z.enum(["none", "single", "multiple"]),

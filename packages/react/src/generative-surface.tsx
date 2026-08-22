@@ -1,6 +1,9 @@
 "use client";
 
-import { contractRefKey } from "@open-generative/catalog";
+import {
+  contractRefKey,
+  placementContextSchema,
+} from "@open-generative/catalog";
 import type {
   NodeProjection,
 } from "@open-generative/client";
@@ -44,9 +47,29 @@ export function GenerativeSurface({
   );
   const snapshot = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const surfaces = useMemo<SystemSurfaceRenderers>(() => ({
-    ...defaultSystemSurfaces,
-    ...systemSurfaces,
+    loading: systemSurfaces?.loading ?? defaultSystemSurfaces.loading,
+    empty: systemSurfaces?.empty ?? defaultSystemSurfaces.empty,
+    error: systemSurfaces?.error ?? defaultSystemSurfaces.error,
+    unsupported: systemSurfaces?.unsupported ?? defaultSystemSurfaces.unsupported,
   }), [systemSurfaces]);
+  const placementResult = useMemo(() => {
+    const parsed = placementContextSchema.safeParse(placement);
+    return parsed.success
+      ? Object.freeze({ ok: true as const, value: Object.freeze(parsed.data) })
+      : Object.freeze({ ok: false as const, error: parsed.error });
+  }, [placement]);
+
+  if (!placementResult.ok) {
+    return (
+      <surfaces.error
+        diagnostics={snapshot.diagnostics}
+        error={placementResult.error}
+        reason="placement-invalid"
+        scope="surface"
+      />
+    );
+  }
+  const resolvedPlacement = placementResult.value;
 
   if (snapshot.status === "awaiting-snapshot") {
     return (
@@ -141,7 +164,7 @@ export function GenerativeSurface({
           contract={projection.node.contract}
           diagnostics={projection.diagnostics}
           nodeId={nodeId}
-          placement={placement}
+          placement={resolvedPlacement}
           reason="unsupported-contract"
         />
       );
@@ -165,7 +188,7 @@ export function GenerativeSurface({
 
     let resolution;
     try {
-      resolution = registry.resolve(projection.contract, placement);
+      resolution = registry.resolve(projection.contract, resolvedPlacement);
     } catch (error) {
       return renderError({
         scope: "node",
@@ -181,7 +204,7 @@ export function GenerativeSurface({
           contract={projection.contract.ref}
           diagnostics={projection.diagnostics}
           nodeId={nodeId}
-          placement={placement}
+          placement={resolvedPlacement}
           reason={resolution.reason}
         />
       );
@@ -203,7 +226,7 @@ export function GenerativeSurface({
       slots,
       stateBindings: projection.stateBindings,
       resourceBindings: projection.resourceBindings,
-      placement,
+      placement: resolvedPlacement,
     } as const;
     const input: RendererInput = projection.projectionMode === "committed"
       ? {
@@ -216,7 +239,7 @@ export function GenerativeSurface({
         projectionMode: "read-only-preview",
       };
     const Renderer = resolution.registration.renderer;
-    const resetKey = `${projection.nodeId}:${projection.revisionId}:${contractRefKey(projection.contract.ref)}`;
+    const resetKey = `${projection.nodeId}:${projection.revisionId}:${contractRefKey(projection.contract.ref)}:${snapshot.version}`;
 
     return (
       <NodeErrorBoundary

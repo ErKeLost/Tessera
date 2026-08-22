@@ -1,9 +1,11 @@
 import {
   actionTriggerRequestSchema,
   approvalDecisionSchema,
+  canonicalStringify,
   causationIdSchema,
   createDiagnostic,
   hostCommandEnvelopeSchema,
+  resourceResolutionIdentitySchema,
   resourceWindowRequestSchema,
   stateWriteRequestSchema,
   verifyHostCommandEnvelope,
@@ -15,6 +17,7 @@ import {
   type HostCommandEnvelope,
   type JsonValue,
   type ResourceBindingId,
+  type ResourceResolutionIdentity,
   type ResourceResolutionResult,
   type ResourceVersionId,
   type StateId,
@@ -35,7 +38,7 @@ import {
   CapabilityDeniedError,
   type CapabilityAuthority,
 } from "@open-generative/capabilities";
-import { ResourceGateway, ResourceGatewayError } from "@open-generative/resources";
+import type { ResourceGateway, ResourceGatewayError } from "@open-generative/resources";
 import { z } from "zod";
 import {
   createAuthorityContext,
@@ -224,26 +227,19 @@ export class HostServer {
       const current = await this.#journal.get(command.surfaceSessionId);
       if (!current) throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
       const next = structuredClone(current.value);
-      const activePreview = next.activePreview;
-      delete next.activePreview;
-      const events: SurfaceEventDraft[] = [];
-      if (activePreview) {
-        events.push({
-          correlationId: command.correlationId,
-          causationId: causationIdSchema.parse(command.commandId),
-          payload: {
-            type: "preview-invalidated",
-            transactionId: activePreview.transactionId,
-            invalidatedOverlayHash: activePreview.overlayHash,
-            reason: "epoch-change",
-          },
-        });
+      if (current.value.streamId !== command.streamId || current.value.epoch !== command.epoch) {
+        throw new HostServerError("transport.stream-mismatch", "Surface lineage changed while the resume request was being handled.");
       }
-      events.push({
+      next.epoch = current.value.epoch + 1;
+      next.acknowledgedThrough = 0;
+      delete next.activeTransaction;
+      delete next.activePreview;
+      delete next.pendingRevisionPublication;
+      const events: SurfaceEventDraft[] = [{
         correlationId: command.correlationId,
         causationId: causationIdSchema.parse(command.commandId),
         payload: snapshotPayload(next),
-      });
+      }];
       const result = await this.#journal.commit({
         surfaceSessionId: command.surfaceSessionId,
         expectedVersion: current.version,
@@ -263,6 +259,9 @@ export class HostServer {
     authority: AuthorityContext,
     context: HostCommandContext,
   ): Promise<HostCommandResult> {
+    if (command.payload.type === "resource-window-request") {
+      return this.#resolveResourceCommand(command, authority);
+    }
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const current = await this.#journal.get(command.surfaceSessionId);
       if (!current) throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
@@ -289,6 +288,220 @@ export class HostServer {
       return { status: "events", events: result.events, replayed: false };
     }
     throw new HostCommandRejected("transport.command-conflict", "transport", "Host command changed concurrently too many times.");
+  }
+
+  async #resolveResourceCommand(
+    command: HostCommandEnvelope,
+    authority: AuthorityContext,
+  ): Promise<HostCommandResult> {
+    if (command.payload.type !== "resource-window-request") {
+      throw new TypeError("Expected resource window request.");
+    }
+    const request = resourceWindowRequestSchema.parse(command.payload.request);
+    assertRequestSurface(request.surfaceSessionId, command.surfaceSessionId);
+    if (request.requestId !== command.commandId) {
+      throw rejected(
+        "resource.request-identity-mismatch",
+        "resource",
+        "Resource request identity must match its Host command identity.",
+      );
+    }
+
+    const reserved = await this.#reserveResourceResolution(command, request);
+    let result: ResourceResolutionResult;
+    try {
+      result = await this.#resources.resolve({
+        request,
+        declaration: reserved.declaration,
+        authority,
+        activeRevisionId: reserved.identity.expectedRevisionId,
+        stateValues: reserved.stateValues,
+      });
+    } catch (error) {
+      await this.#releaseResourceResolution(command.surfaceSessionId, reserved.identity);
+      throw error;
+    }
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const current = await this.#journal.get(command.surfaceSessionId);
+      if (!current) throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
+      const prior = current.value.commandReceipts[command.commandId];
+      if (prior) {
+        if (prior.payloadHash !== command.payloadHash) {
+          throw new HostServerError("transport.command-id-reused", "Command ID was reused with another payload.");
+        }
+        const replay = await this.#journal.eventsForCommand(command);
+        return replay === undefined
+          ? { status: "snapshot-required", reason: "retention-gap" }
+          : { status: "events", events: replay, replayed: true };
+      }
+      const activeIdentity = current.value.resourceResolutionIdentities[request.bindingId];
+      if (
+        !activeIdentity
+        || canonicalStringify(activeIdentity) !== canonicalStringify(reserved.identity)
+        || current.value.committedRevision.envelope.revisionId !== reserved.identity.expectedRevisionId
+      ) {
+        return this.#publishRejection(command, rejected(
+          "resource.resolution-stale",
+          "resource",
+          "Resource resolution completed after its request identity was superseded.",
+        ));
+      }
+      const resultBindingId = result.status === "resolved"
+        ? result.snapshot.bindingId
+        : result.unavailable.bindingId;
+      if (resultBindingId !== reserved.identity.bindingId) {
+        throw rejected(
+          "resource.resolution-identity-mismatch",
+          "resource",
+          "Resource resolver returned a result for another binding.",
+        );
+      }
+      const next = structuredClone(current.value);
+      next.resources[request.bindingId] = result;
+      const committed = await this.#journal.commit({
+        surfaceSessionId: command.surfaceSessionId,
+        expectedVersion: current.version,
+        next,
+        command,
+        events: [{
+          correlationId: command.correlationId,
+          causationId: causationIdSchema.parse(command.commandId),
+          payload: {
+            type: "resource-resolved",
+            identity: reserved.identity,
+            result,
+          },
+        }],
+      });
+      if (committed.status === "conflict") continue;
+      if (committed.status === "missing") {
+        throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
+      }
+      return { status: "events", events: committed.events, replayed: false };
+    }
+    throw rejected(
+      "resource.resolution-conflict",
+      "resource",
+      "Resource resolution changed concurrently too many times.",
+    );
+  }
+
+  async #reserveResourceResolution(
+    command: HostCommandEnvelope,
+    request: ReturnType<typeof resourceWindowRequestSchema.parse>,
+  ): Promise<Readonly<{
+    identity: ResourceResolutionIdentity;
+    declaration: NonNullable<SurfaceSessionRecord["committedRevision"]["content"]["resourceBindings"][ResourceBindingId]>;
+    stateValues: Record<StateId, JsonValue>;
+  }>> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const current = await this.#journal.get(command.surfaceSessionId);
+      if (!current) throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
+      const prior = current.value.commandReceipts[command.commandId];
+      if (prior) {
+        throw rejected(
+          "resource.request-already-completed",
+          "resource",
+          "Resource request was already completed before reservation.",
+        );
+      }
+      if (current.value.streamId !== command.streamId || current.value.epoch !== command.epoch) {
+        throw rejected("transport.stream-mismatch", "transport", "Resource request stream identity is stale.");
+      }
+      if (request.expectedRevisionId !== current.value.committedRevision.envelope.revisionId) {
+        throw rejected(
+          "resource.revision-precondition-conflict",
+          "resource",
+          "Resource request revision precondition does not match the committed Surface.",
+        );
+      }
+      const declaration = current.value.committedRevision.content.resourceBindings[request.bindingId];
+      if (!declaration) {
+        throw rejected("resource.binding-missing", "resource", "Resource binding is not committed on this Surface.");
+      }
+      const activeIdentity = current.value.resourceResolutionIdentities[request.bindingId];
+      const activeResult = current.value.resources[request.bindingId];
+      const activeVersion = activeResult?.status === "resolved"
+        ? activeResult.snapshot.resourceVersionId
+        : activeResult === undefined ? activeIdentity?.expectedResourceVersionId : undefined;
+      if (request.expectedResourceVersionId !== activeVersion) {
+        throw rejected(
+          "resource.version-precondition-conflict",
+          "resource",
+          "Resource version precondition does not match the current resolution lineage.",
+        );
+      }
+
+      let identity: ResourceResolutionIdentity;
+      if (activeIdentity?.requestId === request.requestId) {
+        const sameRequest = resourceIdentityFrom(request, activeIdentity.generation);
+        if (canonicalStringify(sameRequest) !== canonicalStringify(activeIdentity)) {
+          throw rejected(
+            "resource.request-id-reused",
+            "resource",
+            "Resource request ID was reused with different preconditions.",
+          );
+        }
+        identity = activeIdentity;
+      } else {
+        const generation = (activeIdentity?.generation ?? 0) + 1;
+        if (!Number.isSafeInteger(generation)) {
+          throw rejected(
+            "resource.generation-exhausted",
+            "resource",
+            "Resource resolution generation cannot advance safely.",
+          );
+        }
+        identity = resourceIdentityFrom(request, generation);
+      }
+
+      const next = structuredClone(current.value);
+      next.resourceResolutionIdentities[request.bindingId] = identity;
+      delete next.resources[request.bindingId];
+      const reserved = await this.#journal.commit({
+        surfaceSessionId: command.surfaceSessionId,
+        expectedVersion: current.version,
+        next,
+        events: [],
+      });
+      if (reserved.status === "conflict") continue;
+      if (reserved.status === "missing") {
+        throw new HostServerError("transport.surface-missing", "Surface session does not exist.");
+      }
+      return {
+        identity,
+        declaration,
+        stateValues: stateValues(current.value),
+      };
+    }
+    throw rejected(
+      "resource.reservation-conflict",
+      "resource",
+      "Resource request changed concurrently too many times before resolution.",
+    );
+  }
+
+  async #releaseResourceResolution(
+    surfaceSessionId: SurfaceSessionId,
+    identity: ResourceResolutionIdentity,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const current = await this.#journal.get(surfaceSessionId);
+      if (!current) return;
+      const active = current.value.resourceResolutionIdentities[identity.bindingId];
+      if (!active || canonicalStringify(active) !== canonicalStringify(identity)) return;
+      const next = structuredClone(current.value);
+      delete next.resourceResolutionIdentities[identity.bindingId];
+      delete next.resources[identity.bindingId];
+      const released = await this.#journal.commit({
+        surfaceSessionId,
+        expectedVersion: current.version,
+        next,
+        events: [],
+      });
+      if (released.status !== "conflict") return;
+    }
   }
 
   async #dispatch(
@@ -324,19 +537,7 @@ export class HostServer {
         return { next, events: [draft({ type: "state-changed", state: result.state, receipt: result.receipt })] };
       }
       case "resource-window-request": {
-        const request = resourceWindowRequestSchema.parse(command.payload.request);
-        assertRequestSurface(request.surfaceSessionId, command.surfaceSessionId);
-        const declaration = session.committedRevision.content.resourceBindings[request.bindingId];
-        if (!declaration) throw rejected("resource.binding-missing", "resource", "Resource binding is not committed on this Surface.");
-        const result = await this.#resources.resolve({
-          request,
-          declaration,
-          authority,
-          activeRevisionId: session.committedRevision.envelope.revisionId,
-          stateValues: stateValues(session),
-        });
-        next.resources[request.bindingId] = result;
-        return { next, events: [draft({ type: "resource-resolved", requestId: request.requestId, result })] };
+        throw new TypeError("Resource resolution is reserved before asynchronous dispatch.");
       }
       case "action-trigger-request": {
         const request = actionTriggerRequestSchema.parse(command.payload.request);
@@ -498,9 +699,16 @@ function rejected(code: string, phase: DiagnosticPhase, message: string): HostCo
 function rejectionFrom(error: unknown): HostCommandRejected {
   if (error instanceof HostCommandRejected) return error;
   if (error instanceof CapabilityDeniedError) return rejected(error.code, "action", error.message);
-  if (error instanceof ResourceGatewayError) return rejected(error.code, "resource", error.message);
+  if (isResourceGatewayError(error)) return rejected(error.code, "resource", error.message);
   if (error instanceof z.ZodError) return rejected("validate.command-invalid", "validate", "Host command failed exact schema validation.");
   return rejected("transport.command-failed", "transport", "Host command failed before it could be committed.");
+}
+
+function isResourceGatewayError(error: unknown): error is ResourceGatewayError {
+  return error instanceof Error
+    && error.name === "ResourceGatewayError"
+    && "code" in error
+    && typeof error.code === "string";
 }
 
 function snapshotPayload(session: SurfaceSessionRecord): Extract<SurfaceEventDraft["payload"], { type: "snapshot-published" }> {
@@ -510,6 +718,7 @@ function snapshotPayload(session: SurfaceSessionRecord): Extract<SurfaceEventDra
       revision: session.committedRevision,
       state: session.state,
       resources: session.resources,
+      resourceResolutionIdentities: session.resourceResolutionIdentities,
       actions: session.actions,
       approvals: session.approvals,
     },
@@ -539,6 +748,22 @@ function assertRequestSurface(actual: SurfaceSessionId, expected: SurfaceSession
   if (actual !== expected) throw rejected("transport.surface-mismatch", "transport", "Nested request Surface identity does not match its envelope.");
 }
 
+function resourceIdentityFrom(
+  request: ReturnType<typeof resourceWindowRequestSchema.parse>,
+  generation: number,
+): ResourceResolutionIdentity {
+  return resourceResolutionIdentitySchema.parse({
+    requestId: request.requestId,
+    generation,
+    bindingId: request.bindingId,
+    expectedRevisionId: request.expectedRevisionId,
+    ...(request.expectedResourceVersionId === undefined
+      ? {}
+      : { expectedResourceVersionId: request.expectedResourceVersionId }),
+    ...(request.serverCursor === undefined ? {} : { serverCursor: request.serverCursor }),
+  });
+}
+
 function collectRefs(expressions: Readonly<Record<string, ValueExpr>>): {
   state: Set<StateId>;
   resources: Set<ResourceBindingId>;
@@ -546,8 +771,8 @@ function collectRefs(expressions: Readonly<Record<string, ValueExpr>>): {
   const state = new Set<StateId>();
   const resources = new Set<ResourceBindingId>();
   const visit = (expression: ValueExpr): void => {
-    if (expression.kind === "state-ref") state.add(expression.stateId);
-    else if (expression.kind === "resource-ref") resources.add(expression.bindingId);
+    if (expression.kind === "state-ref" || expression.kind === "state-id-ref") state.add(expression.stateId);
+    else if (expression.kind === "resource-ref" || expression.kind === "resource-id-ref") resources.add(expression.bindingId);
     else if (expression.kind === "array") expression.items.forEach(visit);
     else if (expression.kind === "object") Object.values(expression.entries).forEach(visit);
     else if (expression.kind === "condition") expression.args.forEach(visit);

@@ -4,6 +4,9 @@ import {
   documentContentSchema,
   effectReceiptSchema,
   nodeIdSchema,
+  resourceBindingIdSchema,
+  resourceResolutionIdentitySchema,
+  resourceResolutionResultSchema,
   revisionIdSchema,
   surfaceSnapshotSchema,
   surfaceSessionIdSchema,
@@ -29,6 +32,8 @@ import {
   defaultStreamPolicy,
   testHash,
 } from "./test-fixtures";
+
+const DATASET_BINDING_ID = resourceBindingIdSchema.parse("dataset");
 
 describe("trusted Surface replay", () => {
   test("buffers bounded gaps, drains in order, and replays identical events idempotently", async () => {
@@ -332,6 +337,14 @@ describe("trusted Surface replay", () => {
           },
         },
       },
+      resourceResolutionIdentities: {
+        dataset: {
+          requestId: "request-resource-schema-mismatch",
+          generation: 0,
+          bindingId: "dataset",
+          expectedRevisionId: revision.envelope.revisionId,
+        },
+      },
     });
     const event = await createSurfaceEvent({
       payload: { type: "snapshot-published", snapshot, streamPolicy: defaultStreamPolicy },
@@ -342,6 +355,164 @@ describe("trusted Surface replay", () => {
     const result = await reduceTrustedSurfaceEvent(createSurfaceReplayState(), event);
     expect(result.status).toBe("resync-required");
     expect(result.issues[0]?.code).toBe("stream.snapshot-resource-schema-mismatch");
+  });
+
+  test("accepts only the exact current pending resource identity and rejects stale generations", async () => {
+    const revision = await createResourceRevision();
+    const pendingIdentity = resourceResolutionIdentitySchema.parse({
+      requestId: "request-resource-current",
+      generation: 2,
+      bindingId: DATASET_BINDING_ID,
+      expectedRevisionId: revision.envelope.revisionId,
+    });
+    const snapshot = surfaceSnapshotSchema.parse({
+      ...createSurfaceSnapshot(revision),
+      resourceResolutionIdentities: { [DATASET_BINDING_ID]: pendingIdentity },
+    });
+    const initial = await reduceTrustedSurfaceEvent(createSurfaceReplayState(), await createSurfaceEvent({
+      payload: { type: "snapshot-published", snapshot, streamPolicy: defaultStreamPolicy },
+      sequence: 1,
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+
+    const wrongCurrent = await reduceTrustedSurfaceEvent(initial.state, await createSurfaceEvent({
+      payload: {
+        type: "resource-resolved",
+        identity: resourceResolutionIdentitySchema.parse({
+          ...pendingIdentity,
+          requestId: "request-resource-other",
+        }),
+        result: resolvedDataset("snapshot-wrong-current"),
+      },
+      sequence: 2,
+      eventId: "event-resource-wrong-current",
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+    expect(wrongCurrent.status).toBe("resync-required");
+    expect(wrongCurrent.issues[0]?.code).toBe("stream.resource-resolution-identity-not-current");
+
+    const completed = await reduceTrustedSurfaceEvent(initial.state, await createSurfaceEvent({
+      payload: {
+        type: "resource-resolved",
+        identity: pendingIdentity,
+        result: resolvedDataset("snapshot-current"),
+      },
+      sequence: 2,
+      eventId: "event-resource-current",
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+    expect(completed.status).toBe("applied");
+    expect(completed.state.lastGood?.resourceResolutionIdentities[DATASET_BINDING_ID]).toEqual(pendingIdentity);
+
+    const stale = await reduceTrustedSurfaceEvent(completed.state, await createSurfaceEvent({
+      payload: {
+        type: "resource-resolved",
+        identity: resourceResolutionIdentitySchema.parse({
+          ...pendingIdentity,
+          requestId: "request-resource-stale",
+          generation: 1,
+          expectedResourceVersionId: "resource-version-1",
+        }),
+        result: resolvedDataset("snapshot-stale"),
+      },
+      sequence: 3,
+      eventId: "event-resource-stale",
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+    expect(stale.status).toBe("resync-required");
+    expect(stale.issues[0]?.code).toBe("stream.resource-resolution-stale");
+    expect(stale.state.lastGood?.resources[DATASET_BINDING_ID]).toEqual(resolvedDataset("snapshot-current"));
+  });
+
+  test("rejects a newer resource generation whose version precondition is not current", async () => {
+    const revision = await createResourceRevision();
+    const snapshot = surfaceSnapshotSchema.parse({
+      ...createSurfaceSnapshot(revision),
+      resources: { [DATASET_BINDING_ID]: resolvedDataset("snapshot-baseline") },
+      resourceResolutionIdentities: {
+        [DATASET_BINDING_ID]: {
+          requestId: "request-resource-baseline",
+          generation: 1,
+          bindingId: DATASET_BINDING_ID,
+          expectedRevisionId: revision.envelope.revisionId,
+        },
+      },
+    });
+    const initial = await reduceTrustedSurfaceEvent(createSurfaceReplayState(), await createSurfaceEvent({
+      payload: { type: "snapshot-published", snapshot, streamPolicy: defaultStreamPolicy },
+      sequence: 1,
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+    const result = await reduceTrustedSurfaceEvent(initial.state, await createSurfaceEvent({
+      payload: {
+        type: "resource-resolved",
+        identity: resourceResolutionIdentitySchema.parse({
+          requestId: "request-resource-wrong-version",
+          generation: 2,
+          bindingId: DATASET_BINDING_ID,
+          expectedRevisionId: revision.envelope.revisionId,
+          expectedResourceVersionId: "resource-version-other",
+        }),
+        result: resolvedDataset("snapshot-wrong-version"),
+      },
+      sequence: 2,
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    }));
+    expect(result.status).toBe("resync-required");
+    expect(result.issues[0]?.code).toBe("stream.resource-resolution-version-precondition-mismatch");
+  });
+
+  test("rejects state values that fail their exact schema during trusted snapshot replay", async () => {
+    const original = createDocumentContent();
+    const content = documentContentSchema.parse({
+      ...original,
+      stateDefinitions: {
+        count: {
+          schema: { type: "integer", minimum: 0 },
+          schemaHash: testHash("4"),
+          initial: 0,
+          sensitivity: "public",
+          modelVisibility: "value",
+          retention: "retain",
+          scope: "surface",
+          persistence: "session",
+        },
+      },
+    });
+    const revision = await createCommittedRevision({ content });
+    const snapshot = surfaceSnapshotSchema.parse({
+      ...createSurfaceSnapshot(revision),
+      state: {
+        count: {
+          stateId: "count",
+          stateRevisionId: "state-revision-invalid-count",
+          schemaHash: testHash("4"),
+          scope: "surface",
+          value: "not-an-integer",
+        },
+      },
+    });
+    const event = await createSurfaceEvent({
+      payload: { type: "snapshot-published", snapshot, streamPolicy: defaultStreamPolicy },
+      sequence: 1,
+      committedRevisionId: revision.envelope.revisionId,
+      contractSetHash: revision.content.contracts.contractSetHash,
+    });
+    const result = await reduceTrustedSurfaceEvent(createSurfaceReplayState(), event, {
+      stateValidation: {
+        validateSurfaceStateValue: ({ value }) => Number.isInteger(value)
+          ? []
+          : [{ code: "state.integer-required", message: "State value must be an integer." }],
+      },
+    });
+    expect(result.status).toBe("resync-required");
+    expect(result.issues[0]?.code).toBe("stream.snapshot-state-schema-invalid");
   });
 
   test("rejects action status regressions and effect receipt identity reuse", async () => {
@@ -403,7 +574,7 @@ describe("trusted Surface replay", () => {
       idempotencyKeyHash: testHash("4"),
       normalizedInputHash: testHash("5"),
       effectSummaryHash: testHash("6"),
-      outcome: { status: "succeeded", result: null, resultHash: testHash("7") },
+      outcome: { status: "succeeded", receipt: {}, result: null, resultHash: testHash("7") },
       resultingStateRevisions: {},
       resultingResourceVersions: {},
       startedAt: "2026-08-22T00:01:00Z",
@@ -455,6 +626,49 @@ async function replayFixture() {
   }, acceptingValidationPort);
   if (!projected.ok) throw new Error("expected valid preview");
   return { base, operation, draft, preview: projected.preview };
+}
+
+async function createResourceRevision() {
+  const content = documentContentSchema.parse({
+    ...createDocumentContent(),
+    resourceBindings: {
+      dataset: {
+        resourceKey: "tessera-dataset",
+        kind: "dataset",
+        schemaConstraint: {
+          schemaId: "schema-dataset",
+          schemaRevision: 1,
+          schemaHash: testHash("4"),
+          compatibility: "exact",
+        },
+        selector: {},
+        resolution: {
+          mode: "pinned",
+          versionId: "resource-version-1",
+          contentHash: testHash("5"),
+        },
+      },
+    },
+  });
+  return createCommittedRevision({ content });
+}
+
+function resolvedDataset(snapshotId: string) {
+  return resourceResolutionResultSchema.parse({
+    status: "resolved",
+    snapshot: {
+      snapshotId,
+      bindingId: DATASET_BINDING_ID,
+      resourceVersionId: "resource-version-1",
+      schemaHash: testHash("4"),
+      contentHash: testHash("5"),
+      observedAt: "2026-08-22T00:00:00Z",
+      projectionHash: testHash("8"),
+      policyProjectionHash: testHash("9"),
+      payload: { kind: "json", value: [], byteLength: 2 },
+      evidenceIds: [],
+    },
+  });
 }
 
 async function snapshotPublishedEvent(

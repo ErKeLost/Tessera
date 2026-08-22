@@ -8,6 +8,9 @@ import {
   type DatabaseQueryResult,
 } from "@open-tessera/database";
 import { semanticCatalogSchema, type DataAgent } from "@open-tessera/data-agent";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createStudioApp,
   createStudioCatalogProvider,
@@ -18,6 +21,7 @@ import {
 } from "./server";
 import { defineTesseraConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
+import { createTesseraSessionMemory } from "./session-memory";
 
 const catalog = finalizeCatalog({
   connectorId: "postgres:catalog-secret",
@@ -772,6 +776,114 @@ describe("Tessera Studio Nitro app", () => {
     expect(body).toContain('"status":"approval_required"');
     expect(body).toContain("database-action-request-1");
     expect(body).toContain("database-action-checkpoint-1");
+  });
+
+  test("treats a suspended SQL approval stream as waiting instead of failed", async () => {
+    const info: StudioLogEvent[] = [];
+    const errors: StudioLogEvent[] = [];
+    const runs: StudioAgentRunInput[] = [];
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-suspended-stream-"));
+    const sessionMemory = createTesseraSessionMemory({ rootDirectory });
+    const app = createStudioApp({
+      connector: createConnector(),
+      sessionMemory,
+      logger: {
+        info(event) { info.push(event); },
+        error(event) { errors.push(event); },
+      },
+      agent: {
+        async run() {
+          return { status: "completed", message: "Unused fallback." };
+        },
+        streamUI(input) {
+          runs.push(input);
+          if (input.resumeData !== undefined) {
+            return new ReadableStream<TesseraUIMessageChunk>({
+              start(controller) {
+                controller.enqueue({ type: "start", messageId: "provider-resumed-message" });
+                controller.enqueue({ type: "text-start", id: "provider-resumed-text" });
+                controller.enqueue({ type: "text-delta", id: "provider-resumed-text", delta: "The approved delete completed." });
+                controller.enqueue({ type: "text-end", id: "provider-resumed-text" });
+                controller.enqueue({ type: "finish", finishReason: "stop" });
+                controller.close();
+              },
+            });
+          }
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "provider-suspended-message" });
+              controller.enqueue({
+                type: "data-tool-call-suspended",
+                data: {
+                  state: "data-tool-call-suspended",
+                  runId: "run-delete",
+                  toolCallId: "tool-delete",
+                  toolName: "execute_sql",
+                  suspendPayload: {
+                    requestId: "request-delete",
+                    checkpointId: "checkpoint-delete",
+                    operation: "delete",
+                    target: "public.orders",
+                    purpose: "Delete the selected order",
+                  },
+                },
+              } as unknown as TesseraUIMessageChunk);
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-suspended-delete",
+        threadId: "thread-suspended-delete",
+        trigger: "submit-message",
+        messages: [{ id: "user-suspended-delete", role: "user", parts: [{ type: "text", text: "Delete the selected order." }] }],
+      }),
+    }));
+    const body = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(body).toContain('"type":"data-tool-call-suspended"');
+    expect(body).not.toContain('"type":"error"');
+    expect(errors).toEqual([]);
+    expect(info).toEqual(expect.arrayContaining([
+      expect.objectContaining({ event: "stream", stage: "suspended" }),
+      expect.objectContaining({ event: "stream", stage: "suspended", outcome: "suspended" }),
+    ]));
+
+    const resumedResponse = await app.fetch(request("/api/chat/resume", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        threadId: "thread-suspended-delete",
+        runId: "run-delete",
+        decision: "approve",
+        requestId: "request-delete",
+        checkpointId: "checkpoint-delete",
+      }),
+    }));
+    const resumedBody = await resumedResponse.text();
+
+    expect(resumedResponse.status).toBe(200);
+    expect(resumedBody).toContain("The approved delete completed.");
+    expect(resumedBody).not.toContain('"type":"error"');
+    expect(runs).toHaveLength(2);
+    expect(runs[1]).toMatchObject({
+      runId: "run-delete",
+      threadId: "thread-suspended-delete",
+      resumeData: {
+        decision: "approve",
+        requestId: "request-delete",
+        checkpointId: "checkpoint-delete",
+      },
+    });
+    await sessionMemory.close();
+    rmSync(rootDirectory, { force: true, recursive: true });
   });
 
   test("streams bounded chat events while keeping tool payloads server-side", async () => {

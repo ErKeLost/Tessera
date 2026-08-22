@@ -12,8 +12,9 @@ limited to Tessera data-analysis workflows. After this reference proves the
 architecture, the framework-neutral core will be extracted into a separate
 Open Generative project.
 
-This repository does not contain or modify the Tessera Agent product. Agent and
-Workbench integration happens in the Open Tessera repository.
+Existing Agent, Studio, and Workbench sources are outside this Generative UI
+workstream. This implementation does not modify them; Tessera Agent integration
+is handled as a separate task after the reference contracts are proven here.
 
 ## Invariants
 
@@ -28,15 +29,20 @@ Workbench integration happens in the Open Tessera repository.
 
 ## Current Proof
 
-The repository is successful only when one governed query resource can produce
-and render useful combinations of metric, chart, table, query details, filters,
-and explanatory content without copying rows into model proposals, canonical
-documents, or transport history.
+The repository is successful only when one governed query execution can publish
+typed, provenance-linked pinned resources and render useful combinations of
+metric, chart, table, query details, filters, and explanatory content without
+copying rows into model proposals, canonical documents, or transport history.
 
 The measurable proof plan is documented in
 [`docs/architecture/tessera-data-agent-generative-ui-proof.md`](docs/architecture/tessera-data-agent-generative-ui-proof.md).
 
-## Architecture Packages
+## Future Extraction Boundaries
+
+The `@open-generative/*` names below describe the package boundaries implemented
+by this reference and reserved for extraction into the future Open Generative
+project. They do not name a second current product: the current product proof and
+acceptance profile remain Tessera Agent.
 
 | Package | Responsibility |
 | --- | --- |
@@ -50,7 +56,7 @@ The measurable proof plan is documented in
 | `@open-generative/capabilities` | Action policy, approval, idempotency, effects, receipts |
 | `@open-generative/react` | GenerativeSurface and React RendererRegistry |
 | `@open-generative/components` | Official framework-neutral component contracts and ChartSpec |
-| `@open-generative/ui` | Official React UI components and artifact renderers |
+| `@open-generative/ui` | Official React UI components and node renderers |
 | `@open-generative/ai-sdk` | AI SDK server/client transport adapter |
 | `@open-generative/mastra` | Server-only Mastra adapter |
 | `@open-generative/ag-ui` | AG-UI server/client event adapter |

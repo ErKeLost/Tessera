@@ -107,6 +107,13 @@ export class InMemoryDocumentStateWriter implements DocumentStateWriter {
     ) return denied("state.revision-conflict", "Document state revision precondition does not match.", "conflict");
     const parsedValue = z.fromJSONSchema(input.definition.schema).safeParse(request.value);
     if (!parsedValue.success) return denied("state.value-invalid", "Document state value failed its exact schema.", "denied");
+    if (canonicalStringify(parsedValue.data) !== canonicalStringify(request.value)) {
+      return denied(
+        "state.value-transformation-forbidden",
+        "Document state validation must not add defaults, coerce, or transform the canonical request value.",
+        "denied",
+      );
+    }
     const policy = await this.#policy.authorize({ request, definition: input.definition, current, authority: input.authority });
     if (!policy.allowed) return denied(policy.code, policy.message, "denied");
 
@@ -114,7 +121,7 @@ export class InMemoryDocumentStateWriter implements DocumentStateWriter {
     if (raced && raced.stateRevisionId !== authoritative.stateRevisionId) {
       return denied("state.revision-conflict", "Document state changed during authorization.", "conflict");
     }
-    const value = parsedValue.data as JsonValue;
+    const value = request.value as JsonValue;
     const [stateRevisionId, valueHash] = await Promise.all([
       hashCanonical(HASH_DOMAINS.operationPayload, {
         kind: "document-state-write",

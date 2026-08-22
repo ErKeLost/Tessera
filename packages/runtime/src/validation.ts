@@ -18,15 +18,18 @@ export interface RuntimeValidationPort {
     node: CanonicalNode;
     document: DocumentContent;
     phase: "preview" | "commit";
+    signal?: AbortSignal;
   }): MaybePromise<readonly RuntimeValidationIssue[]>;
   validateDocument(input: {
     document: DocumentContent;
     phase: "commit";
+    signal?: AbortSignal;
   }): MaybePromise<readonly RuntimeValidationIssue[]>;
-  commitPolicy(contract: ContractRef): MaybePromise<"progressive" | "atomic">;
+  commitPolicy(contract: ContractRef, options?: { signal?: AbortSignal }): MaybePromise<"progressive" | "atomic">;
   isNodeReady(input: {
     nodeId: NodeId;
     node: CanonicalNode;
     document: DocumentContent;
+    signal?: AbortSignal;
   }): MaybePromise<boolean>;
 }

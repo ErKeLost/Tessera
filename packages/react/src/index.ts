@@ -3,6 +3,7 @@
 export { GenerativeSurface } from "./generative-surface";
 export {
   createRendererRegistry,
+  createVerifiedRendererRegistry,
   RendererRegistry,
 } from "./renderer-registry";
 export {
@@ -25,6 +26,7 @@ export type {
   PreviewRendererInput,
   RenderedSlots,
   RendererInput,
+  RendererIntegrityBinding,
   RendererRegistration,
   RendererResolution,
   SurfaceControllerPort,

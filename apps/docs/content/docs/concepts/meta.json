@@ -1,4 +1,4 @@
 {
   "title": "Concepts",
-  "pages": ["architecture", "embedded-artifact-runtime", "artifact-ui-architecture", "agent-selection", "state-and-actions", "security"]
+  "pages": ["architecture", "agent-selection", "state-and-actions", "security", "---Historical predecessor designs---", "embedded-artifact-runtime", "artifact-ui-architecture"]
 }

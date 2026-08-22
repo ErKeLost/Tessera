@@ -1,22 +1,35 @@
 ---
 title: Compound Interest
-description: Keep interactive formula exploration local, deterministic, and catalog controlled.
+description: Compose governed numeric controls with host-computed Metric and Chart results.
 ---
 
-Calculator Artifact runs a host-registered calculator. The Agent selects the
-calculator and provides validated inputs; it never supplies executable formulas
-or browser code.
+There is no Calculator business component. The Agent composes `control.group`
+and numeric `control.filter` nodes with `data.metric` and `data.chart`. Applying
+the controls emits a declared HostIntent; trusted host code performs the
+calculation and returns new surface operations. The model never supplies an
+executable formula or browser code.
 
 <ComponentPreview
   filename="examples/compound-interest.tsx"
-  code={`import { CalculatorArtifact } from "@/components/tessera-agent/calculator-artifact"
+  code={`import {
+  GenerativeSurface,
+  type RendererRegistry,
+  type SurfaceControllerPort,
+} from "@open-generative/react"
 
-export function CompoundInterest({ artifact }) {
-  return <CalculatorArtifact artifact={artifact} />
+export function CompoundInterest({ controller, registry }: {
+  controller: SurfaceControllerPort
+  registry: RendererRegistry
+}) {
+  return <GenerativeSurface
+    controller={controller}
+    registry={registry}
+    placement={{ kind: "inline", width: 800, height: 640 }}
+  />
 }`}
 >
   <CalculatorDemo />
 </ComponentPreview>
 
-See the [Calculator Artifact component](/docs/components/calculator-artifact)
-for registration, provider wiring, and action handling.
+See the [current Component Catalog](/docs/components/generative-ui-catalog)
+for the Control, Metric, and Chart contracts and their event ports.

@@ -1,82 +1,40 @@
 ---
 title: Components
-description: Trusted analytical surfaces for data agents.
+description: The current Tessera Agent data-agent catalog and its preserved historical design inputs.
 ---
 
-Tessera Agent is a catalog of declarative interfaces for data agents. Each
-component accepts a versioned, validated payload and renders application-owned
-React instead of model-generated JSX.
+Tessera Agent now generates interfaces by composing a small, orthogonal
+Component Contract catalog. The final architecture is generic, but the current
+renderers, recipes, fixtures, and proof prompts are deliberately designed for
+data-agent workflows.
 
-## Start here
+## Current Generative UI catalog
 
-<Cards>
-  <Card title="Artifact primitives" description="Build a consistent shadcn-style frame for every generated result." href="/docs/components/artifact" />
-  <Card title="Query Artifact" description="Keep the chart, exact rows, SQL, filters, warnings, and lineage together." href="/docs/components/query-artifact" />
-  <Card title="Metric Artifact" description="Present a compact operational snapshot with typed drill-down actions." href="/docs/components/metric-artifact" />
-  <Card title="Artifact Renderer" description="Render the complete catalog from validated v1 artifacts or committed v2 runtime parts." href="/docs/integrations/ai-sdk" />
-</Cards>
+The current source of truth contains 12 contracts:
 
-## Track priorities and execution
+- Layout: `layout.stack`, `layout.grid`, `layout.section`
+- Content: `content.text`, `content.callout`, `content.empty`
+- Data: `data.metric`, `data.table`, `data.chart`, `data.query-details`
+- Controls: `control.filter`, `control.group`
 
-<Cards>
-  <Card title="Target" description="Measure one objective against an explicit target, direction, status, and deadline." href="/docs/components/target-artifact" />
-  <Card title="Ranking" description="Order entities by one trusted metric with changes, highlights, and drill-down." href="/docs/components/ranking-artifact" />
-  <Card title="Timeline" description="Present trusted milestones with explicit time, status, actor, and order." href="/docs/components/timeline-artifact" />
-</Cards>
-
-## Explain what changed
+`data.chart` supports all 61 shadcn/Recharts chart recipes and nine tooltip
+recipes through one strict ChartSpec. Analytical experiences such as trend,
+breakdown, anomaly, forecast, funnel, cohort, experiment, and data quality are
+composition recipes over these primitives.
 
 <Cards>
-  <Card title="Trend" description="A focused time series with change, target, and interpretation." href="/docs/components/trend-artifact" />
-  <Card title="Breakdown" description="Ranked category contribution with share and period change." href="/docs/components/breakdown-artifact" />
-  <Card title="Driver" description="Reconcile a metric from its starting value through signed contributions." href="/docs/components/driver-artifact" />
-  <Card title="Anomaly" description="Prioritize deviations with expected values and structured next steps." href="/docs/components/anomaly-artifact" />
+  <Card title="Current catalog reference" description="Read the exact contracts, actions, recipes, fixtures, and conformance ownership." href="/docs/components/generative-ui-catalog" />
+  <Card title="Generative UI architecture" description="Understand how Contracts flow through the compiler, Controller, Surface, and renderer registry." href="/docs/agent/architecture/generative-ui" />
+  <Card title="Proof gates" description="See what must pass before the framework-neutral core can be extracted." href="/docs/agent/architecture/generative-ui-proof" />
 </Cards>
 
-## Compare populations and outcomes
+## Preserved design inputs
 
-<Cards>
-  <Card title="Distribution" description="Inspect bins, quantiles, center, spread, and outlier context." href="/docs/components/distribution-artifact" />
-  <Card title="Cohort" description="Compare retention across cohort start dates and elapsed periods." href="/docs/components/cohort-artifact" />
-  <Card title="Experiment" description="Show variants, sample sizes, effect, uncertainty, and guardrails." href="/docs/components/experiment-artifact" />
-  <Card title="Comparison" description="Evaluate options across stable criteria and explain a recommendation." href="/docs/components/comparison-artifact" />
-</Cards>
+The remaining pages in this section are intentionally retained. They document
+the fixed Artifact recipes, schemas, previews, and interaction ideas explored
+before the current compositional architecture. They are **historical design
+inputs**, not current protocol Contracts or public installation APIs.
 
-## Forecast, funnel, and trust
-
-<Cards>
-  <Card title="Forecast" description="Separate observed values from a bounded forecast and confidence interval." href="/docs/components/forecast-artifact" />
-  <Card title="Funnel" description="Inspect conversion and local drop-off across sequential stages." href="/docs/components/funnel-artifact" />
-  <Card title="Data Quality" description="Pair a quality score with freshness, completeness, and integrity checks." href="/docs/components/data-quality-artifact" />
-  <Card title="Insight" description="Publish concise evidence-backed findings and one recommended action." href="/docs/components/insight-artifact" />
-</Cards>
-
-## Supporting surfaces
-
-<Cards>
-  <Card title="Calculator" description="Explore a registered deterministic formula through local controls." href="/docs/components/calculator-artifact" />
-  <Card title="Data Table" description="Search, sort, paginate, and format validated rows without hiding values." href="/docs/components/data-table" />
-  <Card title="Chart" description="Render trusted chart specifications through the shadcn Chart API." href="/docs/components/chart" />
-</Cards>
-
-## Install
-
-The npm packages and remote registry have not been published yet. The following
-commands document the public installation interface that becomes available
-after publication; use the repository-local development workflow today.
-
-After publication, install the complete editable component catalog:
-
-```bash
-npx tessera-agent@latest
-```
-
-Or add only the artifacts needed by an agent workflow after publication:
-
-```bash
-npx tessera-agent@latest add query-artifact cohort-artifact experiment-artifact
-```
-
-Every artifact uses shadcn semantic tokens and remains owned by the host
-application after installation. In this repository, run `bun install`,
-`bun run registry:build`, and `bun run dev` to inspect the same source locally.
+Those pages still matter: they define the product quality Tessera Agent's
+generated compositions must recover without reintroducing one protocol type for
+every analytical shape.

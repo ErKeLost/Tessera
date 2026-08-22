@@ -19,9 +19,11 @@ import { applyCanonicalOperationChecked } from "./document-operations";
 import { InMemoryRuntimeStore } from "./store";
 import {
   DocumentTransactionRuntime,
+  MAX_TRANSACTION_TIMEOUT_MS,
   type BeginTransactionInput,
   type RuntimeTransactionRecord,
 } from "./transaction";
+import type { RuntimeValidationPort } from "./validation";
 import {
   acceptingValidationPort,
   createOperationEnvelope,
@@ -248,6 +250,130 @@ describe("document transaction runtime", () => {
       expect(invalidFinalize.issues[0]?.code).toBe("finalize.input-invalid");
     }
     expect((await runtime.getTransaction(begin.transactionId))?.status).toBe("active");
+  });
+
+  test("caps transaction deadlines and aborts an expired active transaction exactly once", async () => {
+    let now = new Date("2026-08-22T02:00:00.000Z");
+    const base = await createStoredRevision();
+    const store = new InMemoryRuntimeStore<RuntimeTransactionRecord>();
+    store.seedRevision(base, branchHeadSchema.parse({
+      documentId: base.revision.envelope.documentId,
+      branchId: "main",
+      revisionId: base.revision.envelope.revisionId,
+      headToken: "head-base",
+    }));
+    const runtime = new DocumentTransactionRuntime({
+      store,
+      validation: acceptingValidationPort,
+      transactionTimeoutMs: 1_000,
+      now: () => now,
+    });
+    const begin = beginInput(base, "transaction-deadline", "revision-deadline", "head-deadline");
+    const begun = await runtime.begin(begin, { deadlineAt: "2026-08-22T02:00:30.000Z" });
+    expect(begun.status).toBe("begun");
+    if (begun.status !== "begun") return;
+    expect(begun.transaction.startedAt).toBe("2026-08-22T02:00:00.000Z");
+    expect(begun.transaction.deadlineAt).toBe("2026-08-22T02:00:01.000Z");
+
+    now = new Date("2026-08-22T02:00:01.000Z");
+    const rejected = await runtime.apply(await rootGapOperation(base, begin, "sm", "operation-expired"));
+    expect(rejected.status).toBe("rejected");
+    const expired = await store.getTransaction(begin.transactionId);
+    expect(expired?.value).toMatchObject({
+      status: "aborted",
+      terminalAt: "2026-08-22T02:00:01.000Z",
+      abort: { code: "transaction.timeout", message: "Transaction deadline expired." },
+    });
+    const version = expired?.version;
+    expect((await runtime.abort(begin.transactionId, "transaction.cancelled")).status).toBe("replayed");
+    expect((await store.getTransaction(begin.transactionId))?.version).toBe(version);
+
+    expect(() => new DocumentTransactionRuntime({
+      store,
+      validation: acceptingValidationPort,
+      transactionTimeoutMs: MAX_TRANSACTION_TIMEOUT_MS + 1,
+    })).toThrow();
+  });
+
+  test("deterministically sweeps interrupted operation streams and retains terminal tombstones", async () => {
+    let now = new Date("2026-08-22T03:00:00.000Z");
+    const base = await createStoredRevision();
+    const store = new InMemoryRuntimeStore<RuntimeTransactionRecord>();
+    store.seedRevision(base, branchHeadSchema.parse({
+      documentId: base.revision.envelope.documentId,
+      branchId: "main",
+      revisionId: base.revision.envelope.revisionId,
+      headToken: "head-base",
+    }));
+    const runtime = new DocumentTransactionRuntime({
+      store,
+      validation: acceptingValidationPort,
+      transactionTimeoutMs: 1_000,
+      now: () => now,
+    });
+    const later = beginInput(base, "transaction-sweep-b", "revision-sweep-b", "head-sweep-b");
+    const earlier = beginInput(base, "transaction-sweep-a", "revision-sweep-a", "head-sweep-a");
+    await runtime.begin(later);
+    await runtime.begin(earlier);
+    const gap = await createOperationEnvelope({
+      transactionId: earlier.transactionId,
+      operationId: "operation-interrupted-gap",
+      sequence: 2,
+      operation: { op: "set-meta", value: { title: "Never drained", tags: [] } },
+    });
+    expect((await runtime.apply(gap)).status).toBe("buffered");
+
+    now = new Date("2026-08-22T03:00:02.000Z");
+    const swept = await runtime.sweepExpiredTransactions({ at: now, limit: 10 });
+    expect(swept.transactions).toEqual([
+      { transactionId: earlier.transactionId, status: "aborted" },
+      { transactionId: later.transactionId, status: "aborted" },
+    ]);
+    expect((await runtime.sweepExpiredTransactions({ at: now, limit: 10 })).transactions).toEqual([]);
+    expect((await store.getTransaction(earlier.transactionId))?.value).toMatchObject({
+      status: "aborted",
+      buffered: { "2": { envelope: { operationId: "operation-interrupted-gap" } } },
+      abort: { code: "transaction.timeout" },
+    });
+    expect((await store.listTransactions({ limit: 10 })).map((entry) => entry.transactionId)).toEqual([
+      earlier.transactionId,
+      later.transactionId,
+    ]);
+  });
+
+  test("propagates AbortSignal through validation and retires the interrupted transaction", async () => {
+    const base = await createStoredRevision();
+    const store = new InMemoryRuntimeStore<RuntimeTransactionRecord>();
+    store.seedRevision(base, branchHeadSchema.parse({
+      documentId: base.revision.envelope.documentId,
+      branchId: "main",
+      revisionId: base.revision.envelope.revisionId,
+      headToken: "head-base",
+    }));
+    let validationStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      validationStarted = resolve;
+    });
+    const validation: RuntimeValidationPort = {
+      ...acceptingValidationPort,
+      validateNode: () => {
+        validationStarted();
+        return new Promise<never>(() => undefined);
+      },
+    };
+    const runtime = new DocumentTransactionRuntime({ store, validation });
+    const begin = beginInput(base, "transaction-signal", "revision-signal", "head-signal");
+    await runtime.begin(begin);
+    const controller = new AbortController();
+    const pending = runtime.apply(
+      await rootGapOperation(base, begin, "lg", "operation-signal"),
+      [],
+      { signal: controller.signal },
+    );
+    await started;
+    controller.abort();
+    expect((await pending).status).toBe("rejected");
+    expect((await runtime.getTransaction(begin.transactionId))?.abort?.code).toBe("transaction.cancelled");
   });
 });
 

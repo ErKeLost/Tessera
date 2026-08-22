@@ -1,57 +1,45 @@
 ---
 title: Introduction
-description: A persistent, editable business Artifact Runtime embedded in existing host systems.
+description: Tessera Agent's final Generative UI architecture, proven first through governed data-agent workflows.
 ---
 
-Tessera Agent is a persistent, continuously editable semantic business Artifact
-Runtime embedded in an existing host system. A model may compose only the
-Surface and semantic nodes selected by the host. The host owns validation,
-authorization, computation, interaction, rendering, persistence, and every
-external effect.
+Tessera Agent is the product documented in this site. The current repository is
+its complete Generative UI architecture and proof ground: the protocol,
+compiler, runtime, authority boundary, client controller, React surface, data
+components, fixtures, and evaluation gates all live here until the data-agent
+experience is proven end to end.
 
-<CalculatorDemo />
+The framework-neutral packages use the `@open-generative/*` namespace because
+that is the future extraction boundary. It is not a second product in this
+repository and it does not change the current acceptance target. A standalone
+Open Generative project is created only after Tessera Agent passes every proof
+gate.
 
-## Install
+## One render chain
 
-The following commands are the public installation interface after the npm
-packages and remote registry are published. They are not available yet; this
-repository is currently a local reference implementation.
-
-After publication, install every editable component through the Tessera Agent
-CLI:
-
-```bash
-npx tessera-agent@latest
+```text
+trusted SurfaceEventStream
+-> SurfaceController
+-> GenerativeSurface
+-> exact RendererRegistry
 ```
 
-Or install only the artifacts you need after publication:
+The model proposes declarative nodes. It never emits JSX, HTML, CSS, SQL, tool
+names, credentials, or executable formulas. The Host owns data, identity,
+validation, authority, state, effects, persistence, commit, and rendering.
 
-```bash
-npx tessera-agent@latest add query-artifact metric-artifact
-```
+## Current scope
 
-The command will use the existing `components.json`, install source under its
-configured components alias, and include the Tessera Agent styles through the
-generated primitives. For now, use `bun install`, `bun run registry:build`, and
-`bun run dev` to exercise the local implementation.
-
-## Core invariant
-
-The system does not generate an application. The agent never writes JSX,
-JavaScript, HTML, CSS, or executable formulas. It
-emits only the task-specific declarative Surface DSL. The server compiler
-normalizes, validates, authorizes, and commits that proposal to a locally branded
-v2 `ArtifactPart`. A serialized wire part is decoded again by
-`@open-generative/runtime` with the expected contract fingerprint before the
-trusted React renderer accepts it.
+The foundation is intentionally final rather than an MVP. The initial catalog
+is intentionally narrow: 12 orthogonal Component Contracts, 70 shadcn/Recharts
+chart and tooltip recipes, and data-agent-specific fixtures. Trend, funnel,
+cohort, anomaly, forecast, and similar experiences are compositions of those
+contracts, not separate protocol-level components.
 
 <Cards>
-  <Card title="Target architecture" description="Understand the persistent Artifact lifecycle, host boundary, editing model, and production gates." href="/docs/concepts/embedded-artifact-runtime" />
-  <Card title="Tessera Agent" description="Open the dedicated Agent documentation, from setup through production architecture." href="/docs/agent" />
-  <Card title="Agent architecture" description="Understand the agent loop, safety model, evidence, and production gates." href="/docs/agent/architecture" />
-  <Card title="Examples" description="Browse complete compositions, with one implementation and preview per page." href="/docs/examples" />
-  <Card title="Components" description="Open individual component schemas, APIs, previews, and integration notes." href="/docs/components" />
-  <Card title="Agent selection" description="Teach models when to use each surface." href="/docs/concepts/agent-selection" />
-  <Card title="Query Artifact" description="Render data, chart, SQL, and lineage together." href="/docs/components/query-artifact" />
-  <Card title="AI SDK" description="Compile Surface DSL proposals into trusted runtime parts." href="/docs/integrations/ai-sdk" />
+  <Card title="Generative UI architecture" description="Read the single protocol, authority, commit, and rendering design." href="/docs/agent/architecture/generative-ui" />
+  <Card title="Data-agent proof gates" description="See the deterministic, security, rendering, and product-quality gates Tessera Agent must pass." href="/docs/agent/architecture/generative-ui-proof" />
+  <Card title="Current catalog" description="Inspect the 12 Component Contracts and 70 chart/tooltip recipes used by the proof." href="/docs/components/generative-ui-catalog" />
+  <Card title="Agent architecture" description="Connect the Generative UI system to governed analysis, evidence, and production operation." href="/docs/agent/architecture" />
+  <Card title="Historical design inputs" description="Browse the preserved fixed Artifact recipes that inform today's compositions." href="/docs/components" />
 </Cards>

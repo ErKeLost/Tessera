@@ -1,49 +1,42 @@
 ---
-title: 智能体选择
-description: Compiler 如何为单次模型调用暴露正确的 Artifact UI Node。
+title: Agent 选择
+description: Tessera Agent 如何为单次模型调用提供最小但足够的 Component Contract Slice。
 ---
 
-智能体不会根据视觉外观推断组件。`prepareTurn()` 会结合任务、Profile、请求的 Node Type、
-Example、前置条件与负向规则，只为当前一次模型调用暴露有界的 Catalog Slice。
+模型不会通过 React Component Name 或视觉外观选择 UI。Host 会冻结当前任务专属的
+`CatalogSetSlice`，Compiler 再从这份 Slice 生成唯一允许使用的 `present_ui` Tool Schema 与 Prompt。
 
-## 推荐流程
+## 选择流程
 
-1. 获得宿主授权的 Data Tool 获取或计算权威内容，并且在没有 UI 时仍可独立使用。
-2. 宿主为允许进入模型上下文的 Resource 与 Evidence 标注信息流标签。
-3. `createArtifactUI().prepareTurn()` 选择有用的 Node Contract，并冻结 Contract Fingerprint、
-   Prompt、Provider Schema 与 Limit。
-4. 模型使用为该 Slice 生成的紧凑 Surface DSL 调用 `renderArtifact`，不能引用 Slice 之外的
-   Node 或 Resource。
-5. Compiler 对 Proposal 执行 Normalize、Validate、Authorize 与 Commit，之后才生成 Runtime
-   `ArtifactPart`。
+1. Tessera Agent 通过语义规划与服务端拥有的受限查询回答分析问题。
+2. Host 发布绑定 Grant 的 Resource 与 Evidence Offer；Query Row 继续留在 Resource Gateway 后面。
+3. Host 创建冻结 Catalog Slice，只包含有用的 Component 与 Action Contract、依赖、精确 Revision 与 Limit。
+4. `compilePresentUi()` 从经过校验的 Slice 生成 Provider Schema 与模型指导。
+5. 模型只能调用 `present_ui`，并且只能引用已提供的 Component、Resource、Evidence、State 与 Action Identity。
+6. `ProposalCompilerTurn` 在固定 Budget 内执行 Decode、Normalize、Validate、Repair，并通过共享 Server Boundary Commit。
+7. 可信 `SurfaceEventStream` 把生成的 Revision 发布到浏览器。
 
-每个 Node Contract 都包含选择与信任元数据。例如：
+## 当前选择词汇
 
-```ts
-{
-  type: "artifact.metric",
-  version: 1,
-  category: "semantic-artifact",
-  trust: "governed",
-  commitPolicy: "atomic",
-  prompt: {
-    summary: "Show one or more high-signal values and their change in a compact surface.",
-    useWhen: [
-      "The answer is primarily a small set of KPIs or status values.",
-      "A compact summary is more useful than detailed rows."
-    ],
-    avoidWhen: ["The user needs row-level inspection or trend exploration."]
-  }
-}
-```
+Tessera Agent 成功证明的完整 Catalog 包含 12 个 Contract，但单次 Turn 可以只拿到更少的集合：
 
-正向和负向规则用于区分相似 Node。稳定的命名字段、严格 Schema 与当前任务专属的 Example
-可以减少选择错误，也不需要把全部 27 个 Contract 放入每一个 Prompt。
+| 需求 | 提供的 Contract |
+| --- | --- |
+| 叙述型回答 | `layout.stack`、`layout.section`、`content.text`、`content.callout` |
+| KPI 摘要 | `layout.grid`、`data.metric` |
+| Trend 或 Comparison | `data.chart` 与合法 ChartSpec Recipe |
+| Row 检查 | `data.table`，必要时加 `data.query-details` |
+| 结果细化 | `control.group`、`control.filter` 与 Host 提供的 Action Binding |
+| 没有可用结果 | `content.empty` |
 
-## 把数据获取留在宿主边界之后
+Trend、Funnel、Cohort、Anomaly、Forecast、Ranking 与 Data Quality 都不是可选择的协议 Component
+Name，而是这组词汇之上的评测 Composition Recipe。
 
-数据访问与渲染始终分离。已渲染 Node 可以立即更新获准的本地 State；Refresh、Follow-up、
-Navigation、Approval、Export 或外部 Effect 则通过 `ArtifactUIProvider` 发出类型化 Runtime Command。
+## 选择不变量
 
-宿主决定该 Command 是否可用，并让它经过获授权的 `runtimeTransport`、Capability Policy 与必要的
-Approval。UI 代码绝不能选择 Credential、自行授权，或直接调用任意 Data Tool。
+模型不能扩大 Slice、虚构 Binding、选择任意 Renderer，也不能通过 URL 请求原始数据。正向与负向
+Contract 指导、稳定字段、严格 Schema 与 Data Agent Golden Example 会提高首轮选择准确率，
+同时无需把完整 Catalog 或 Query Result 放进每一个 Prompt。
+
+渲染与交互始终发生在选择之后。Committed Node 一律通过 `SurfaceController`、
+`GenerativeSurface` 与精确 `RendererRegistry` 渲染；选择过程不会直接调用组件。

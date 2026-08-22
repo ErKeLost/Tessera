@@ -1,11 +1,12 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { isIP } from "node:net";
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
 
 // Kept free of the __Host- prefix so localhost development can issue the same
 // cookie shape. Production still requires Secure, HttpOnly, SameSite=Strict,
 // and a host-only Path=/ cookie.
-export const BACKGROUND_SESSION_COOKIE = "artifact-background-session";
+export const BACKGROUND_SESSION_COOKIE = "tessera-background-session";
 
 const DEFAULT_RATE_LIMIT = 12;
 const DEFAULT_RATE_WINDOW_SECONDS = 60;
@@ -79,11 +80,11 @@ export class BackgroundSecurity {
     this.#now = options.now ?? Date.now;
     this.#production = this.#env.NODE_ENV === "production";
     this.#test = this.#env.NODE_ENV === "test";
-    this.#allowedOrigins = parseAllowedOrigins(this.#env.ARTIFACT_BACKGROUND_ALLOWED_ORIGINS);
-    this.#accessToken = nonEmpty(this.#env.ARTIFACT_BACKGROUND_ACCESS_TOKEN);
-    this.#sessionSecret = nonEmpty(this.#env.ARTIFACT_BACKGROUND_SESSION_SECRET);
+    this.#allowedOrigins = parseAllowedOrigins(this.#env.TESSERA_BACKGROUND_ALLOWED_ORIGINS);
+    this.#accessToken = nonEmpty(this.#env.TESSERA_BACKGROUND_ACCESS_TOKEN);
+    this.#sessionSecret = nonEmpty(this.#env.TESSERA_BACKGROUND_SESSION_SECRET);
     this.#sessionTtlSeconds = positiveInteger(
-      this.#env.ARTIFACT_BACKGROUND_SESSION_TTL_SECONDS,
+      this.#env.TESSERA_BACKGROUND_SESSION_TTL_SECONDS,
       DEFAULT_SESSION_TTL_SECONDS,
       300,
       24 * 60 * 60,
@@ -97,7 +98,7 @@ export class BackgroundSecurity {
     this.#concurrency = options.concurrency ?? new BackgroundConcurrencyGate(
       this.#test
         ? Number.MAX_SAFE_INTEGER
-        : positiveInteger(this.#env.ARTIFACT_BACKGROUND_CONCURRENCY, DEFAULT_CONCURRENCY_LIMIT, 1, 32),
+        : positiveInteger(this.#env.TESSERA_BACKGROUND_CONCURRENCY, DEFAULT_CONCURRENCY_LIMIT, 1, 32),
     );
   }
 
@@ -303,9 +304,9 @@ function createEnvironmentRateLimiter(
   now: () => number,
 ): BackgroundRateLimiter | undefined {
   if (test) return new MemoryRateLimiter(Number.MAX_SAFE_INTEGER, DEFAULT_RATE_WINDOW_SECONDS, now);
-  const limit = positiveInteger(env.ARTIFACT_BACKGROUND_RATE_LIMIT, DEFAULT_RATE_LIMIT, 1, 120);
+  const limit = positiveInteger(env.TESSERA_BACKGROUND_RATE_LIMIT, DEFAULT_RATE_LIMIT, 1, 120);
   const windowSeconds = positiveInteger(
-    env.ARTIFACT_BACKGROUND_RATE_WINDOW_SECONDS,
+    env.TESSERA_BACKGROUND_RATE_WINDOW_SECONDS,
     DEFAULT_RATE_WINDOW_SECONDS,
     1,
     60 * 60,
@@ -356,8 +357,17 @@ function normalizeOrigin(value: string): string | undefined {
 }
 
 function trustedClientIp(request: Request): string {
-  const netlifyIp = request.headers.get("x-nf-client-connection-ip")?.trim();
-  return netlifyIp && netlifyIp.length <= 128 ? netlifyIp : "unknown";
+  const candidates = [
+    request.headers.get("x-vercel-forwarded-for"),
+    request.headers.get("x-real-ip"),
+    request.headers.get("x-forwarded-for"),
+    request.headers.get("x-nf-client-connection-ip"),
+  ];
+  for (const header of candidates) {
+    const candidate = header?.split(",", 1)[0]?.trim();
+    if (candidate && candidate.length <= 64 && isIP(candidate) !== 0) return candidate;
+  }
+  return "unknown";
 }
 
 function positiveInteger(value: string | undefined, fallback: number, min: number, max: number): number {

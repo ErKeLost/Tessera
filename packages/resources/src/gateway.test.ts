@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   columnIdSchema,
+  jsonSchemaSchema,
+  resourceDatasetPayloadSchema,
   resourceBindingIdSchema,
   resourceVersionIdSchema,
   revisionIdSchema,
@@ -8,6 +10,7 @@ import {
   stateIdSchema,
   surfaceSessionIdSchema,
 } from "@open-generative/protocol";
+import { z } from "zod";
 import {
   EncryptedResourceCursorCodec,
   InMemoryResourceGrantStore,
@@ -18,29 +21,14 @@ import {
 } from "./index";
 
 const hash = (character: string) => sha256HashSchema.parse(`sha256:${character.repeat(64)}`);
+const datasetJsonSchema = jsonSchemaSchema.parse(z.toJSONSchema(resourceDatasetPayloadSchema));
 
 function fixture() {
   const schemas = new ResourceSchemaRegistry();
   const constraint = schemas.register({
     schemaId: "schema:sales",
     schemaRevision: 1,
-    schema: {
-      type: "object",
-      properties: {
-        columns: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: { id: { type: "string" }, label: { type: "string" } },
-            required: ["id"],
-            additionalProperties: false,
-          },
-        },
-        rows: { type: "array", items: { type: "object", additionalProperties: true } },
-      },
-      required: ["columns", "rows"],
-      additionalProperties: false,
-    },
+    schema: datasetJsonSchema,
   });
   const versions = new InMemoryResourceVersionStore();
   const grants = new InMemoryResourceGrantStore();
@@ -68,6 +56,31 @@ function fixture() {
 }
 
 describe("ResourceGateway", () => {
+  test("preserves JSON Schema date-time offsets without a lossy schema conversion", () => {
+    const schemas = new ResourceSchemaRegistry();
+    const constraint = schemas.register({
+      schemaId: "schema:query-details",
+      schemaRevision: 1,
+      schema: {
+        type: "object",
+        properties: {
+          observedAt: { type: "string", format: "date-time" },
+        },
+        required: ["observedAt"],
+        additionalProperties: false,
+      },
+    });
+
+    expect(schemas.validate(constraint, {
+      observedAt: "2026-08-22T09:30:00+08:00",
+    })).toEqual({
+      observedAt: "2026-08-22T09:30:00+08:00",
+    });
+    expect(() => schemas.validate(constraint, {
+      observedAt: "22 August 2026",
+    })).toThrow("Resource payload does not match its registered schema");
+  });
+
   test("publishes ref-only metadata and resolves actor-scoped projected windows", async () => {
     const { gateway, constraint } = fixture();
     const publication = await gateway.publishPinned({
@@ -79,8 +92,12 @@ describe("ResourceGateway", () => {
         windowLimit: 1,
       },
       payload: {
-        columns: [{ id: "region", label: "Region" }, { id: "revenue", label: "Revenue" }],
+        columns: [
+          { columnId: "region", label: "Region", valueType: "string" },
+          { columnId: "revenue", label: "Revenue", valueType: "number" },
+        ],
         rows: [{ region: "North", revenue: 12 }, { region: "South", revenue: 8 }],
+        hasMore: false,
       },
     });
     const serializedMetadata = JSON.stringify(publication);
@@ -119,10 +136,15 @@ describe("ResourceGateway", () => {
     expect(first.snapshot.nextCursor).toBeDefined();
     if (first.snapshot.payload.kind !== "json") throw new Error("Expected JSON data.");
     expect(first.snapshot.payload.value).toEqual({
-      columns: [{ id: "region", label: "Region" }, { id: "revenue", label: "Revenue" }],
+      columns: [
+        { columnId: "region", label: "Region", valueType: "string" },
+        { columnId: "revenue", label: "Revenue", valueType: "number" },
+      ],
       rows: [{ region: "North", revenue: 12 }],
       totalRows: 2,
+      hasMore: true,
     });
+    expect(resourceDatasetPayloadSchema.safeParse(first.snapshot.payload.value).success).toBe(true);
 
     const second = await gateway.resolve({
       request: {
@@ -140,10 +162,15 @@ describe("ResourceGateway", () => {
     expect(second.status).toBe("resolved");
     if (second.status !== "resolved" || second.snapshot.payload.kind !== "json") throw new Error("Expected the second JSON window.");
     expect(second.snapshot.payload.value).toEqual({
-      columns: [{ id: "region", label: "Region" }, { id: "revenue", label: "Revenue" }],
+      columns: [
+        { columnId: "region", label: "Region", valueType: "string" },
+        { columnId: "revenue", label: "Revenue", valueType: "number" },
+      ],
       rows: [{ region: "South", revenue: 8 }],
       totalRows: 2,
+      hasMore: false,
     });
+    expect(resourceDatasetPayloadSchema.safeParse(second.snapshot.payload.value).success).toBe(true);
   });
 
   test("fails closed for another actor and a revoked grant", async () => {
@@ -152,7 +179,11 @@ describe("ResourceGateway", () => {
       resourceKey: "resource:record",
       kind: "record",
       schemaConstraint: constraint,
-      payload: { columns: [], rows: [] },
+      payload: {
+        columns: [{ columnId: "region", label: "Region", valueType: "string" }],
+        rows: [],
+        hasMore: false,
+      },
     });
     const bindingId = resourceBindingIdSchema.parse("binding:record");
     const surfaceSessionId = surfaceSessionIdSchema.parse("surface:2");
@@ -214,18 +245,12 @@ describe("ResourceGateway", () => {
     const constraint = schemas.register({
       schemaId: "schema:filtered",
       schemaRevision: 1,
-      schema: {
-        type: "object",
-        properties: {
-          columns: { type: "array", items: { type: "object", properties: { id: { type: "string" } }, required: ["id"], additionalProperties: false } },
-          rows: { type: "array", items: { type: "object", additionalProperties: true } },
-        },
-        required: ["columns", "rows"],
-        additionalProperties: false,
-      },
+      schema: datasetJsonSchema,
     });
     const grants = new InMemoryResourceGrantStore();
     let observedState: unknown;
+    let grantSequence = 0;
+    const filterStateId = stateIdSchema.parse("state:region");
     const gateway = new ResourceGateway({
       versions: new InMemoryResourceVersionStore(),
       grants,
@@ -234,21 +259,28 @@ describe("ResourceGateway", () => {
       projectionPolicy: {
         authorize: async ({ stateValues }) => {
           observedState = stateValues;
-          return { allowed: true };
+          const selectedRegion = stateValues[filterStateId];
+          return {
+            allowed: true,
+            filterRow: (row) => row.region === selectedRegion,
+          };
         },
       },
       now: () => new Date("2026-08-22T00:00:00.000Z"),
       versionIdFactory: () => "resource-version:filtered",
       snapshotIdFactory: () => "resource-snapshot:filtered",
-      grantIdFactory: () => "resource-grant:filtered",
+      grantIdFactory: () => `resource-grant:filtered-${++grantSequence}`,
     });
-    const filterStateId = stateIdSchema.parse("state:region");
     const publication = await gateway.publishPinned({
       resourceKey: "resource:filtered",
       kind: "dataset",
       schemaConstraint: constraint,
       selector: { filterStateRef: filterStateId },
-      payload: { columns: [{ id: "region" }], rows: [{ region: "North" }] },
+      payload: {
+        columns: [{ columnId: "region", label: "Region", valueType: "string" }],
+        rows: [{ region: "North" }, { region: "South" }],
+        hasMore: false,
+      },
     });
     const bindingId = resourceBindingIdSchema.parse("binding:filtered");
     const surfaceSessionId = surfaceSessionIdSchema.parse("surface:filtered");
@@ -278,6 +310,29 @@ describe("ResourceGateway", () => {
     });
     expect(missing).toMatchObject({ status: "unavailable", unavailable: { retryable: true } });
 
+    const denied = await gateway.resolve({
+      request,
+      declaration: publication.declaration,
+      authority: { actorBindingHash, tenantBindingHash },
+      activeRevisionId: request.expectedRevisionId,
+      stateValues: { [filterStateId]: "North" },
+    });
+    expect(denied).toMatchObject({
+      status: "unavailable",
+      unavailable: { reason: "denied", retryable: false },
+    });
+
+    await gateway.createGrant({
+      bindingId,
+      surfaceSessionId,
+      authority: { actorBindingHash, tenantBindingHash },
+      authorityPolicyRevision: "policy:2",
+      allowedOperations: ["read", "window", "filter"],
+      rowPolicyHash: hash("c"),
+      columnPolicyHash: hash("d"),
+      expiresAt: "2026-08-22T01:00:00.000Z",
+    });
+
     const resolved = await gateway.resolve({
       request,
       declaration: publication.declaration,
@@ -287,6 +342,29 @@ describe("ResourceGateway", () => {
     });
     expect(resolved.status).toBe("resolved");
     expect(observedState).toEqual({ [filterStateId]: "North" });
+    if (resolved.status !== "resolved" || resolved.snapshot.payload.kind !== "json") {
+      throw new Error("Expected the North dataset window.");
+    }
+    expect(resolved.snapshot.payload.value).toMatchObject({
+      rows: [{ region: "North" }],
+      totalRows: 1,
+    });
+
+    const south = await gateway.resolve({
+      request: { ...request, requestId: "request:filtered-south" },
+      declaration: publication.declaration,
+      authority: { actorBindingHash, tenantBindingHash },
+      activeRevisionId: request.expectedRevisionId,
+      stateValues: { [filterStateId]: "South" },
+    });
+    expect(south.status).toBe("resolved");
+    if (south.status !== "resolved" || south.snapshot.payload.kind !== "json") {
+      throw new Error("Expected the South dataset window.");
+    }
+    expect(south.snapshot.payload.value).toMatchObject({
+      rows: [{ region: "South" }],
+      totalRows: 1,
+    });
   });
 
   test("rejects malformed dataset rows even when a host schema is permissive", async () => {
@@ -296,8 +374,9 @@ describe("ResourceGateway", () => {
       kind: "dataset",
       schemaConstraint: constraint,
       payload: {
-        columns: [{ id: "declared" }],
+        columns: [{ columnId: "declared", label: "Declared", valueType: "number" }],
         rows: [{ undeclared: 1 }],
+        hasMore: false,
       },
     })).rejects.toBeDefined();
   });

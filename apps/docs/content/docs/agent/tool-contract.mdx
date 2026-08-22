@@ -1,6 +1,6 @@
 ---
 title: Tool Contract and Boundaries
-description: Keep model tools semantic, browser output redacted, and database execution server-owned.
+description: Keep Data Agent tools semantic and connect UI authoring through one trusted commit path.
 ---
 
 ## Model-facing tools
@@ -11,33 +11,39 @@ inspect_catalog          -> semantic catalog slice for one question
 describe_data            -> bounded detail for inspected entities
 probe_data               -> fixed, bounded discovery probe
 run_analysis             -> read-only analysis from a semantic draft
+present_ui               -> declarative composition from the frozen UI slice
 ```
 
-Tools accept semantic identifiers returned by the current catalog. They do not
-accept SQL, connection strings, credentials, physical relation names, compiler
-output IDs, or arbitrary query limits. A final answer must be grounded in a
-verified `run_analysis` result.
+Data tools accept only semantic identifiers returned by the current catalog.
+They do not accept SQL, connection strings, credentials, physical relation
+names, compiler output IDs, or arbitrary limits. `present_ui` receives only the
+Component, Action, Resource, Evidence, and State identities offered for that
+turn. It cannot carry raw query rows or executable code.
 
 ## Trust boundaries
 
 | Boundary | Allowed | Never allowed |
 | --- | --- | --- |
-| Model | Semantic slices, opaque IDs, bounded evidence | SQL, credentials, physical table names |
-| Browser | Redacted lifecycle, safe narration, validated artifacts | Raw tool arguments, private traces, connector access |
-| Studio server | Authentication hooks, orchestration, filtering, persistence | Bypassing host authorization |
-| Data Agent | Live catalog, signed scope, typed draft, bounded result | Caller-supplied SQL or out-of-scope analysis |
-| Write surface | Typed mutation, purpose, idempotency, approval | Implicit writes from read analysis or free-form SQL |
+| Model | Semantic slices, opaque offered IDs, bounded descriptors, `present_ui` | SQL, credentials, rows, arbitrary component or tool names |
+| Compiler | Untrusted proposal plus one frozen `CatalogSetSlice` | Authority expansion or direct renderer output |
+| HostServer | Validated revisions, authority, transactions, trusted Surface events | Publishing raw model chunks as committed state |
+| Browser controller | Trusted events, node-scoped projections, revision-bound commands | Connector access, policy decisions, or effect execution |
+| Renderer | Resolved props, declared slots, placement, declared event ports | Fetching data, choosing actions, mutating canonical state directly |
+| Resource Gateway | Grant-bound schema, version, projection, window, evidence | Unbounded row dumps or model-selected credentials |
+| Capability broker | Typed HostIntent, approval, idempotency, receipt | Implicit effects from display events |
 
 ## Implementation map
 
 | Concern | Implementation |
 | --- | --- |
-| Product shell and routes | `apps/studio/src/server.ts` and `apps/studio/src/client` |
-| Default orchestration | `apps/studio/src/agent.ts` |
-| Public stream protocol | `apps/studio/src/protocol.ts` |
-| Catalog, capability, compiler, execution | `packages/data-agent/src` |
-| Database connectors | `packages/postgres`, `packages/mysql`, `packages/sqlite`, `packages/turso` |
-| Session memory | Server-side local SQLite, separate from the analyzed database |
+| Data catalog, planning, compiler, and execution | `packages/data-agent` and database connector packages |
+| Canonical Generative UI protocol | `packages/protocol`, `packages/catalog`, `packages/runtime` |
+| Proposal compilation | `packages/compiler` |
+| Resource and capability boundaries | `packages/resources`, `packages/capabilities` |
+| Trusted server publication | `packages/server` |
+| Browser control and rendering | `packages/client`, `packages/react`, `packages/ui` |
+| Current Component Contracts and recipes | `packages/components` |
 
-Continue with [Agent Architecture](/docs/agent/architecture) for production
-topology, evidence, SQL safety, and release gates.
+Framework adapters are transport glue only. AI SDK and Mastra integrations are
+not considered available until their real adapters pass the same end-to-end
+Tessera data-agent fixtures.

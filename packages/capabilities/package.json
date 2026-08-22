@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/capabilities",
-  "version": "0.3.5",
+  "version": "0.3.8",
   "description": "Server-only Open Generative action authorization, approval, idempotency, and receipts.",
   "license": "MIT",
   "type": "module",
@@ -26,6 +26,7 @@
     "zod": "4.4.3"
   },
   "devDependencies": {
+    "@open-generative/components": "workspace:*",
     "@types/bun": "1.3.14",
     "tsdown": "0.22.14",
     "typescript": "7.0.2"

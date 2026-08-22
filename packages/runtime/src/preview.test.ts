@@ -68,6 +68,49 @@ describe("validated preview projection", () => {
     expect(validationCalls).toBe(0);
   });
 
+  test("tracks identity references as preview dependencies and affected-node inputs", async () => {
+    const base = createDocumentContent();
+    const stateId = "filter.region" as never;
+    const definition = {
+      schema: { type: "string" },
+      schemaHash: base.contracts.contractSetHash,
+      initial: "all",
+      sensitivity: "private" as const,
+      modelVisibility: "descriptor" as const,
+      retention: "retain" as const,
+      scope: "surface" as const,
+      persistence: "session" as const,
+    };
+    const operation: CanonicalEntityOperation = {
+      op: "put-state",
+      stateId,
+      value: definition,
+    };
+    const document = {
+      ...base,
+      nodes: {
+        ...base.nodes,
+        root: {
+          ...base.nodes[base.rootNodeId]!,
+          props: { filterStateId: { kind: "state-id-ref", stateId } },
+        },
+      },
+      stateDefinitions: { [stateId]: definition },
+    } as DocumentContent;
+    let validatedNode = false;
+    const result = await projectValidatedPreview(previewInput(document, operation), {
+      ...validation("progressive", true),
+      validateNode: () => {
+        validatedNode = true;
+        return [];
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(validatedNode).toBe(true);
+    if (result.ok) expect(result.preview.renderableNodeIds.map(String)).toEqual(["root"]);
+  });
+
   test("rejects a dependency-closed affected node that fails Contract validation", async () => {
     const base = createDocumentContent();
     const operation = rootUpdate(base, "invalid");

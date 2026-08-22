@@ -2,15 +2,19 @@ import {
   canonicalStringify,
   jsonObjectSchema,
   jsonValueSchema,
+  type CanonicalNode,
   type ContractRef,
+  type DocumentContent,
   type EventPort,
   type HashProvider,
   type JsonObject,
   type JsonValue,
+  type NodeId,
   type Sha256Hash,
 } from "@open-generative/protocol";
 import {
   computeContractSetHash,
+  actionContractRefKey,
   contractRefKey,
   verifyComponentContract,
   type ComponentContract,
@@ -118,6 +122,73 @@ export class BrowserContractRegistry {
     const json = jsonValueSchema.safeParse(input);
     if (!json.success) return invalidJson("client.event-payload-json-invalid", json.error.message);
     return validateExactJson(validator, json.data, jsonValueSchema);
+  }
+
+  validateNodeStructure(
+    nodeId: NodeId,
+    node: CanonicalNode,
+    document: DocumentContent,
+  ): ClientValidationResult<CanonicalNode> {
+    const registration = this.get(node.contract);
+    if (!registration) return missingContract(node.contract);
+    const issues: ClientValidationIssue[] = [];
+    const contract = registration.contract;
+
+    for (const name of Object.keys(node.slots)) {
+      if (!Object.keys(contract.slots).includes(name)) {
+        issues.push({
+          code: "client.slot-unknown",
+          message: `Node ${nodeId} uses undeclared slot ${name}.`,
+          path: ["slots", name],
+        });
+      }
+    }
+    for (const [name, slot] of Object.entries(contract.slots)) {
+      const children = Object.entries(node.slots).find(([candidate]) => candidate === name)?.[1] ?? [];
+      if (children.length < slot.min || children.length > slot.max) {
+        issues.push({
+          code: "client.slot-cardinality",
+          message: `Node ${nodeId} slot ${name} violates its exact cardinality.`,
+          path: ["slots", name],
+        });
+      }
+      const accepts = new Set(slot.accepts.map((selector) => contractRefKey(selector.contract)));
+      for (const [index, childId] of children.entries()) {
+        const child = document.nodes[childId];
+        if (!child || !accepts.has(contractRefKey(child.contract))) {
+          issues.push({
+            code: "client.slot-contract-mismatch",
+            message: `Node ${nodeId} slot ${name} contains an unsupported child Contract.`,
+            path: ["slots", name, index],
+          });
+        }
+      }
+    }
+
+    for (const [port, actionId] of Object.entries(node.events)) {
+      const event = Object.entries(contract.events).find(([name]) => name === port)?.[1];
+      if (!event) {
+        issues.push({
+          code: "client.event-port-unsupported",
+          message: `Node ${nodeId} uses undeclared event port ${port}.`,
+          path: ["events", port],
+        });
+        continue;
+      }
+      const action = Object.entries(document.actions).find(([id]) => id === actionId)?.[1];
+      if (action?.kind === "host-intent") {
+        const accepted = new Set(event.actionContracts.map(actionContractRefKey));
+        if (!accepted.has(actionContractRefKey(action.contract))) {
+          issues.push({
+            code: "client.event-action-mismatch",
+            message: `Node ${nodeId} event ${port} targets an unauthorized Action Contract.`,
+            path: ["events", port],
+          });
+        }
+      }
+    }
+
+    return issues.length === 0 ? { ok: true, value: node } : { ok: false, issues };
   }
 }
 

@@ -1,72 +1,26 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import type { NextRequest } from "next/server";
-import { getRegistryOrigin, rewriteRegistryDependencies } from "./route";
+import { describe, expect, test } from "bun:test";
+import { GET } from "./route";
 
-const originalPublicUrl = process.env.TESSERA_AGENT_PUBLIC_URL;
-const originalDeployPrimeUrl = process.env.DEPLOY_PRIME_URL;
-const originalNetlifyUrl = process.env.URL;
-const originalVercelUrl = process.env.VERCEL_URL;
+describe("retired registry route", () => {
+  test("rejects invalid registry item names", async () => {
+    const response = await GET(
+      new Request("http://localhost:3000/r/unsafe"),
+      { params: Promise.resolve({ name: "../unsafe" }) },
+    );
 
-afterEach(() => {
-  if (originalPublicUrl === undefined) delete process.env.TESSERA_AGENT_PUBLIC_URL;
-  else process.env.TESSERA_AGENT_PUBLIC_URL = originalPublicUrl;
-  if (originalDeployPrimeUrl === undefined) delete process.env.DEPLOY_PRIME_URL;
-  else process.env.DEPLOY_PRIME_URL = originalDeployPrimeUrl;
-  if (originalNetlifyUrl === undefined) delete process.env.URL;
-  else process.env.URL = originalNetlifyUrl;
-  if (originalVercelUrl === undefined) delete process.env.VERCEL_URL;
-  else process.env.VERCEL_URL = originalVercelUrl;
-});
+    expect(response.status).toBe(400);
+  });
 
-describe("registry route", () => {
-  test("only rewrites registry dependency URLs", () => {
-    const payload = {
-      content: 'const example = "http://localhost:3000/r/not-a-dependency.json";',
-      items: [{
-        registryDependencies: [
-          "http://localhost:3000/r/all.json",
-          "button",
-          "https://example.com/r/external.json",
-        ],
-      }],
-    };
+  test("returns gone for the unpublished registry", async () => {
+    const response = await GET(
+      new Request("http://localhost:3000/r/all.json"),
+      { params: Promise.resolve({ name: "all.json" }) },
+    );
 
-    expect(rewriteRegistryDependencies(payload, "https://registry.example.com")).toEqual({
-      ...payload,
-      items: [{
-        registryDependencies: [
-          "https://registry.example.com/r/all.json",
-          "button",
-          "https://example.com/r/external.json",
-        ],
-      }],
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    await expect(response.json()).resolves.toEqual({
+      error: "The Tessera Agent component registry is not published. Use the repository source and proof workflow.",
     });
-  });
-
-  test("uses a configured public origin instead of request host headers", () => {
-    process.env.TESSERA_AGENT_PUBLIC_URL = "https://registry.example.com/path";
-    delete process.env.VERCEL_URL;
-    const request = {
-      headers: new Headers({ host: "attacker.example", "x-forwarded-host": "attacker.example" }),
-      nextUrl: new URL("http://localhost:3000/r/all.json"),
-    } as unknown as NextRequest;
-
-    expect(getRegistryOrigin(request)).toBe("https://registry.example.com");
-  });
-
-  test("rejects unsafe configured origins", () => {
-    process.env.TESSERA_AGENT_PUBLIC_URL = "file:///tmp/registry";
-    const request = { nextUrl: new URL("http://localhost:3000/r/all.json") } as NextRequest;
-    expect(() => getRegistryOrigin(request)).toThrow("HTTP or HTTPS");
-  });
-
-  test("uses the Netlify deploy URL when no canonical origin is configured", () => {
-    delete process.env.TESSERA_AGENT_PUBLIC_URL;
-    delete process.env.VERCEL_URL;
-    process.env.DEPLOY_PRIME_URL = "https://deploy-preview-42--artifact-agent.netlify.app";
-    process.env.URL = "https://artifact-agent.netlify.app";
-    const request = { nextUrl: new URL("http://localhost:3000/r/all.json") } as NextRequest;
-
-    expect(getRegistryOrigin(request)).toBe("https://deploy-preview-42--artifact-agent.netlify.app");
   });
 });

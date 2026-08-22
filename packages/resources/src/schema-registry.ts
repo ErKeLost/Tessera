@@ -9,13 +9,21 @@ import {
   type ResourceSchemaConstraint,
   type Sha256Hash,
 } from "@open-generative/protocol";
-import { z } from "zod";
+import Ajv2020, { type AnySchema, type ValidateFunction } from "ajv/dist/2020";
+import addFormats from "ajv-formats";
 
 type RegisteredResourceSchema = Readonly<{
   constraint: ResourceSchemaConstraint;
   schema: JSONSchema;
-  validator: z.ZodType;
+  validator: ValidateFunction<JsonValue>;
 }>;
+
+const ajv = new Ajv2020({
+  allErrors: true,
+  strict: true,
+  validateFormats: true,
+});
+addFormats(ajv);
 
 export class ResourceSchemaRegistry {
   readonly #schemas = new Map<string, RegisteredResourceSchema>();
@@ -42,7 +50,7 @@ export class ResourceSchemaRegistry {
     this.#schemas.set(key, Object.freeze({
       constraint,
       schema: structuredClone(input.schema),
-      validator: z.fromJSONSchema(input.schema),
+      validator: ajv.compile<JsonValue>(structuredClone(input.schema) as AnySchema),
     }));
     return constraint;
   }
@@ -53,7 +61,16 @@ export class ResourceSchemaRegistry {
     if (!registered || registered.constraint.schemaHash !== constraint.schemaHash) {
       throw new ResourceSchemaError("resource.schema-not-registered", "The exact resource schema is not registered.");
     }
-    return registered.validator.parse(payload) as JsonValue;
+    if (!registered.validator(payload)) {
+      const detail = registered.validator.errors
+        ?.map((issue) => `${issue.instancePath || "/"} ${issue.message ?? "is invalid"}`)
+        .join("; ");
+      throw new ResourceSchemaError(
+        "resource.payload-schema-invalid",
+        detail ? `Resource payload does not match its registered schema: ${detail}` : "Resource payload does not match its registered schema.",
+      );
+    }
+    return structuredClone(payload);
   }
 
   get(constraintInput: ResourceSchemaConstraint): Readonly<{

@@ -102,15 +102,15 @@ export function collectValueExprDependencies(
   const events = new Set<EventPort>();
   const context = new Set<"locale" | "timezone">();
   const visit = (expression: ValueExpr): void => {
-    if (expression.kind === "state-ref") states.add(expression.stateId);
-    else if (expression.kind === "resource-ref") resources.add(expression.bindingId);
+    if (expression.kind === "state-ref" || expression.kind === "state-id-ref") states.add(expression.stateId);
+    else if (expression.kind === "resource-ref" || expression.kind === "resource-id-ref") resources.add(expression.bindingId);
     else if (expression.kind === "event-ref") events.add(expression.port);
     else if (expression.kind === "context-ref") context.add(expression.key);
     else if (expression.kind === "array") expression.items.forEach(visit);
     else if (expression.kind === "object") Object.values(expression.entries).forEach(visit);
     else if (expression.kind === "condition") expression.args.forEach(visit);
   };
-  if ("kind" in input) visit(valueExprSchema.parse(input));
+  if (typeof input.kind === "string") visit(valueExprSchema.parse(input));
   else for (const expression of Object.values(input)) visit(valueExprSchema.parse(expression));
   return {
     stateIds: Object.freeze([...states].sort()),
@@ -202,8 +202,12 @@ function materializeParsed(
     }
     case "state-ref":
       return materializeReference("state", expression.stateId, expression.path, context.state);
+    case "state-id-ref":
+      return { ok: true, value: expression.stateId };
     case "resource-ref":
       return materializeReference("resource", expression.bindingId, expression.path, context.resources);
+    case "resource-id-ref":
+      return { ok: true, value: expression.bindingId };
     case "event-ref": {
       if (!context.event || context.event.port !== expression.port) {
         return failure("value.event-unavailable", `Event port ${expression.port} is unavailable.`);

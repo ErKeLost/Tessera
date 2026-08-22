@@ -10,6 +10,7 @@ import {
   hashCanonical,
   hostCommandEnvelopeSchema,
   proposalStreamEnvelopeSchema,
+  surfaceEventPayloadSchema,
   surfaceEventEnvelopeSchema,
   verifyCommitCommandEnvelope,
   verifyHostCommandEnvelope,
@@ -144,6 +145,29 @@ describe("directional wire protocols", () => {
         transactionId: "tx-1",
         previousRevisionId: "revision-1",
       },
+    }).success).toBe(false);
+  });
+
+  test("binds resource results to an exact request generation and precondition identity", () => {
+    const result = {
+      status: "unavailable" as const,
+      unavailable: { bindingId: "dataset", reason: "unavailable" as const, retryable: true },
+    };
+    expect(surfaceEventPayloadSchema.safeParse({
+      type: "resource-resolved",
+      identity: {
+        requestId: "request-resource-2",
+        generation: 2,
+        bindingId: "dataset",
+        expectedRevisionId: "revision-1",
+        expectedResourceVersionId: "resource-version-1",
+      },
+      result,
+    }).success).toBe(true);
+    expect(surfaceEventPayloadSchema.safeParse({
+      type: "resource-resolved",
+      requestId: "request-resource-2",
+      result,
     }).success).toBe(false);
   });
 });

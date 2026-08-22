@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   analysisToolRejection,
+  appendCopilotOutcome,
   buildDatabaseSchemaInventory,
   buildDatabaseSchemaContext,
   buildDataCopilotInstructions,
@@ -27,6 +28,8 @@ import {
   formatDatabaseSchemaInventory,
   inferTesseraTaskType,
   inspectDatabaseSchema,
+  listDatabaseInputSchema,
+  listDatabaseOutputSchema,
   modelEvidenceFromResult,
   modelAnalysisToolInputSchema,
   normalizeAnalysisToolDraft,
@@ -90,6 +93,16 @@ function streamOnlyTestModel() {
 
 const semanticFingerprint = `sha256:${"a".repeat(64)}`;
 
+async function readUiChunks(stream: ReadableStream<TesseraUIMessageChunk>): Promise<TesseraUIMessageChunk[]> {
+  const chunks: TesseraUIMessageChunk[] = [];
+  const reader = stream.getReader();
+  while (true) {
+    const next = await reader.read();
+    if (next.done) return chunks;
+    chunks.push(next.value);
+  }
+}
+
 function planningScope(input: Readonly<{
   tokenPart: string;
   entities: unknown[];
@@ -151,6 +164,78 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("defines unambiguous list_database operations and structured recovery", () => {
+    expect(listDatabaseInputSchema.safeParse({ operation: "list_relations" }).success).toBeTrue();
+    expect(listDatabaseInputSchema.safeParse({ operation: "describe_schema", schema: "public" }).success).toBeTrue();
+    expect(listDatabaseInputSchema.safeParse({
+      operation: "describe_relation",
+      schema: "public",
+      relation: "users",
+    }).success).toBeTrue();
+    expect(listDatabaseInputSchema.safeParse({ operation: "describe_schema" }).success).toBeFalse();
+    expect(listDatabaseInputSchema.safeParse({ operation: "describe_relation", schema: "public" }).success).toBeFalse();
+    expect(listDatabaseInputSchema.safeParse({ operation: "list_relations", schema: "public" }).success).toBeFalse();
+    expect(listDatabaseInputSchema.safeParse({
+      operation: "describe_relation",
+      schema: "public",
+      relation: "users",
+      table: "users",
+    }).success).toBeFalse();
+
+    expect(listDatabaseOutputSchema.safeParse({
+      status: "not_found",
+      operation: "describe_relation",
+      reason: "relation_not_found",
+      message: "The exact relation was not found.",
+      recovery: {
+        tool: "list_database",
+        input: { operation: "describe_schema", schema: "public" },
+      },
+    }).success).toBeTrue();
+    expect(listDatabaseOutputSchema.safeParse({
+      status: "unavailable",
+      operation: "describe_relation",
+      reason: "relation_not_exposed",
+      message: "The relation is outside the current data exposure.",
+      nextAction: "respond_without_existence_claim",
+    }).success).toBeTrue();
+  });
+
+  test("treats a suspended tool call without finish as a valid stream terminal state", async () => {
+    const suspended = {
+      type: "data-tool-call-suspended",
+      data: {
+        state: "data-tool-call-suspended",
+        runId: "run-approval",
+        toolCallId: "tool-delete",
+        toolName: "execute_sql",
+        suspendPayload: {
+          requestId: "request-delete",
+          checkpointId: "checkpoint-delete",
+          operation: "delete",
+          target: "public.orders",
+          purpose: "Delete the selected order",
+        },
+      },
+    } as unknown as TesseraUIMessageChunk;
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-approval" });
+        controller.enqueue(suspended);
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(appendCopilotOutcome(source));
+
+    expect(chunks).toEqual([
+      { type: "start", messageId: "message-approval" },
+      suspended,
+    ]);
+    expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
+    expect(chunks.some((chunk) => chunk.type === "finish")).toBeFalse();
+  });
+
   test("passes an environment provider key to an explicit gateway model", () => {
     const previous = process.env.OPENROUTER_API_KEY;
     process.env.OPENROUTER_API_KEY = "environment-provider-secret";
@@ -552,7 +637,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(JSON.stringify(inventory)).not.toContain("customer_id");
     expect(JSON.stringify(inventory)).not.toContain("secret-connector");
 
-    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" });
+    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", relation: "orders" });
     expect(expanded).toMatchObject({
       status: "completed",
       schema: {
@@ -580,14 +665,16 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(expandedJson).not.toContain("private comment");
 
     expect(inspectDatabaseSchema(catalog, { schema: "missing" })).toEqual({
-      status: "blocked",
-      reason: "schema_not_discovered",
-      nextAction: "list_database",
+      status: "not_found",
+      reason: "schema_not_found",
+      message: "The exact schema or namespace is not present in the refreshed database catalog. This does not mean the database has no schemas or relations.",
+      recovery: { tool: "list_database", input: { operation: "list_relations" } },
     });
-    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "missing" })).toEqual({
-      status: "blocked",
-      reason: "table_not_discovered",
-      nextAction: "list_database",
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", relation: "missing" })).toEqual({
+      status: "not_found",
+      reason: "relation_not_found",
+      message: "The exact relation is not present in this schema in the refreshed database catalog. This does not mean the schema or database is empty.",
+      recovery: { tool: "list_database", input: { operation: "describe_schema", schema: "analytics" } },
     });
 
     const truncatedInventory = {
@@ -597,7 +684,7 @@ describe("Tessera Agent vNext public boundary", () => {
       truncated: true,
       omitted: { schemas: 0, tables: 1 },
     } as NonNullable<Parameters<typeof inspectDatabaseSchema>[2]>;
-    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" }, truncatedInventory)).toMatchObject({
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", relation: "orders" }, truncatedInventory)).toMatchObject({
       status: "completed",
       schema: { tables: [{ name: "orders" }] },
       tableCount: 1,
@@ -708,7 +795,7 @@ describe("Tessera Agent vNext public boundary", () => {
       tables: [{ name: "orders", kind: "table" }],
     }]);
 
-    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", table: "orders" }, inventory, semanticCatalog);
+    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", relation: "orders" }, inventory, semanticCatalog);
     expect(expanded).toMatchObject({
       status: "completed",
       schema: {
@@ -726,10 +813,11 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(JSON.stringify(expanded)).not.toContain("secret_token");
     expect(JSON.stringify(expanded)).not.toContain("private_events");
 
-    expect(inspectDatabaseSchema(catalog, { schema: "analytics", table: "customers" }, inventory, semanticCatalog)).toEqual({
-      status: "blocked",
-      reason: "table_not_discovered",
-      nextAction: "list_database",
+    expect(inspectDatabaseSchema(catalog, { schema: "analytics", relation: "customers" }, inventory, semanticCatalog)).toEqual({
+      status: "unavailable",
+      reason: "relation_not_exposed",
+      message: "The relation is outside this Agent's current data exposure. Do not claim that it is physically missing or that the database is empty.",
+      nextAction: "respond_without_existence_claim",
     });
   });
 
@@ -1008,6 +1096,7 @@ describe("Tessera Agent vNext public boundary", () => {
     } as DatabaseCatalog;
     const calls = { inspect: 0, streams: 0 };
     const prompts: string[] = [];
+    let modelTools: unknown;
     const dataAgent = {
       connectorId: "test-connector",
       async inspectCatalog() {
@@ -1024,9 +1113,10 @@ describe("Tessera Agent vNext public boundary", () => {
       async doGenerate() {
         throw new Error("Tessera must use Agent.stream for every model turn.");
       },
-      async doStream(options: { prompt?: unknown }) {
+      async doStream(options: { prompt?: unknown; tools?: unknown }) {
         calls.streams += 1;
         prompts.push(JSON.stringify(options.prompt));
+        modelTools ??= options.tools;
         const inspect = modelTurn++ === 0;
         return {
           stream: new ReadableStream({
@@ -1037,7 +1127,7 @@ describe("Tessera Agent vNext public boundary", () => {
                   type: "tool-call",
                   toolCallId: "schema-call-1",
                   toolName: "list_database",
-                  input: JSON.stringify({ scope: "schema", schema: "analytics", table: "orders" }),
+                  input: JSON.stringify({ operation: "describe_relation", schema: "analytics", relation: "orders" }),
                   providerExecuted: false,
                 });
                 controller.enqueue({
@@ -1090,6 +1180,27 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(prompts[0]).toContain("orders");
       expect(prompts[1]).toContain("created_at");
       expect(prompts[1]).not.toContain("<database_schema_inventory>");
+
+      const tools = modelTools as Array<Record<string, unknown>>;
+      const listDatabaseTool = tools.find((tool) => tool.name === "list_database");
+      expect(listDatabaseTool?.description).toContain("one explicit operation");
+      const inputSchema = listDatabaseTool?.inputSchema as {
+        description?: string;
+        oneOf?: Array<{
+          properties?: Record<string, { const?: string; description?: string }>;
+          required?: string[];
+          additionalProperties?: boolean;
+        }>;
+      };
+      expect(inputSchema.description).toContain("Do not omit a required field");
+      const describeSchema = inputSchema.oneOf?.find((branch) => branch.properties?.operation?.const === "describe_schema");
+      const describeRelation = inputSchema.oneOf?.find((branch) => branch.properties?.operation?.const === "describe_relation");
+      expect(describeSchema?.required).toEqual(["operation", "schema"]);
+      expect(describeRelation?.required).toEqual(["operation", "schema", "relation"]);
+      expect(describeSchema?.additionalProperties).toBeFalse();
+      expect(describeRelation?.additionalProperties).toBeFalse();
+      expect(describeSchema?.properties?.schema?.description).toContain("Copy it verbatim");
+      expect(describeRelation?.properties?.relation?.description).toContain("never translate");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1115,7 +1226,7 @@ describe("Tessera Agent vNext public boundary", () => {
       },
     } as unknown as DataAgent;
     const toolTurns = [
-      { toolName: "list_database", input: { scope: "current" } },
+      { toolName: "list_database", input: { operation: "current_relation" } },
       { toolName: "list_catalog", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
     ] as const;
     let modelTurn = 0;
@@ -1671,11 +1782,11 @@ describe("Tessera Agent vNext public boundary", () => {
     })).toEqual({ status: "completed", mode: "search", entityCount: 3, truncated: true });
 
     expect(publicToolOutput("list_database", "completed", {
-      scope: "schema",
+      operation: "describe_schema",
       tableCount: 2,
       columnCount: 8,
       schema: { tables: [{ name: "private_orders" }] },
-    })).toEqual({ status: "completed", scope: "schema", tableCount: 2, columnCount: 8, foreignKeyCount: 0 });
+    })).toEqual({ status: "completed", operation: "describe_schema", tableCount: 2, columnCount: 8, foreignKeyCount: 0 });
 
     expect(publicToolOutput("execute_sql", "completed", {
       status: "approval_required",

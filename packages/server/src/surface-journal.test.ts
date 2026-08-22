@@ -5,9 +5,15 @@ import {
   OPEN_GENERATIVE_PROTOCOL_REVISION,
   correlationIdSchema,
   hashCanonical,
+  hostCommandEnvelopeSchema,
   requestIdSchema,
 } from "@open-generative/protocol";
+import {
+  createSurfaceReplayState,
+  reduceTrustedSurfaceEvent,
+} from "@open-generative/runtime";
 import { EncryptedSurfaceResumeCursorCodec } from "./event-ledger";
+import { HostServer } from "./host-server";
 import {
   InMemorySurfaceSessionJournal,
   commandReceipt,
@@ -124,5 +130,85 @@ describe("InMemorySurfaceSessionJournal", () => {
       audienceBindingHash: fixture.record.audienceBindingHash,
       now: new Date("2026-08-22T00:30:00.000Z"),
     })).toEqual({ status: "events", events: [...committed.events] });
+  });
+
+  test("rotates the epoch and publishes a sequence-one snapshot across a retention gap", async () => {
+    const fixture = await createServerFixture();
+    let event = 0;
+    const journal = new InMemorySurfaceSessionJournal({
+      cursors: new EncryptedSurfaceResumeCursorCodec(new Uint8Array(32).fill(5)),
+      maxRetainedEvents: 1,
+      eventIdFactory: () => `event:${++event}`,
+    });
+    const created = await journal.create(fixture.record, fixture.initialEvent);
+    if (created.status !== "created") throw new Error("Expected session creation.");
+    const advanced = await journal.commit({
+      surfaceSessionId: fixture.record.surfaceSessionId,
+      expectedVersion: created.session.version,
+      next: created.session.value,
+      events: [rejected("request:retained")],
+    });
+    if (advanced.status !== "committed") throw new Error("Expected retained event commit.");
+    const beyondRetention = await journal.commit({
+      surfaceSessionId: fixture.record.surfaceSessionId,
+      expectedVersion: advanced.session.version,
+      next: advanced.session.value,
+      events: [rejected("request:beyond-retention")],
+    });
+    if (beyondRetention.status !== "committed") throw new Error("Expected retention-gap commit.");
+
+    const resumePayload = {
+      type: "resume-request" as const,
+      request: {
+        requestId: requestIdSchema.parse("request:resume-gap"),
+        cursor: created.event.cursor,
+        acknowledgedThrough: 0,
+      },
+    };
+    const command = hostCommandEnvelopeSchema.parse({
+      protocol: OPEN_GENERATIVE_HOST_COMMAND_PROTOCOL,
+      protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+      surfaceSessionId: fixture.record.surfaceSessionId,
+      streamId: fixture.record.streamId,
+      epoch: fixture.record.epoch,
+      commandId: requestIdSchema.parse("command:resume-gap"),
+      correlationId: correlationIdSchema.parse("correlation:resume-gap"),
+      payloadHash: await hashCanonical(HASH_DOMAINS.hostCommandPayload, resumePayload),
+      payload: resumePayload,
+    });
+    const server = new HostServer({
+      journal,
+      resources: {} as never,
+      capabilities: {} as never,
+      documentState: {} as never,
+      components: { resolve: async () => fixture.contract },
+      authorityPolicy: { authorize: async () => ({ allowed: true }) },
+      now: () => new Date("2026-08-22T00:30:00.000Z"),
+    });
+
+    const result = await server.handleCommand(command, fixture.record.authority, {
+      operationScope: "test",
+      locale: "en-US",
+      timezone: "UTC",
+    });
+    expect(result.status).toBe("events");
+    if (result.status !== "events") throw new Error("Expected replacement snapshot.");
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0]).toMatchObject({
+      streamId: fixture.record.streamId,
+      epoch: 2,
+      sequence: 1,
+      payload: { type: "snapshot-published" },
+    });
+
+    const initial = await reduceTrustedSurfaceEvent(createSurfaceReplayState(), created.event);
+    const replaced = await reduceTrustedSurfaceEvent(initial.state, result.events[0]);
+    expect(replaced.status).toBe("applied");
+    expect(replaced.state).toMatchObject({
+      epoch: 2,
+      acceptedThroughSequence: 1,
+      requiresSnapshot: false,
+    });
+    expect((await journal.get(fixture.record.surfaceSessionId))?.value.epoch).toBe(2);
   });
 });

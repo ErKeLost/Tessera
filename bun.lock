@@ -13,16 +13,19 @@
     },
     "apps/docs": {
       "name": "@open-tessera/docs",
-      "version": "0.3.4",
+      "version": "0.3.8",
       "dependencies": {
         "@ai-sdk/react": "4.0.79",
         "@fumadocs/language": "0.2.2",
         "@gsap/react": "2.1.2",
         "@iconify-icons/simple-icons": "1.2.74",
         "@iconify/react": "6.0.2",
+        "@open-generative/client": "workspace:*",
+        "@open-generative/components": "workspace:*",
+        "@open-generative/protocol": "workspace:*",
+        "@open-generative/react": "workspace:*",
+        "@open-generative/resources": "workspace:*",
         "@open-generative/ui": "workspace:*",
-        "@open-tessera/runtime": "workspace:*",
-        "@open-tessera/schema": "workspace:*",
         "@openrouter/ai-sdk-provider": "3.0.0",
         "@paper-design/shaders-react": "0.0.80",
         "@pierre/diffs": "1.3.5",
@@ -50,6 +53,7 @@
         "shiki": "3.23.0",
         "streamdown": "2.4.0",
         "use-stick-to-bottom": "^1.1.6",
+        "zod": "4.4.3",
       },
       "devDependencies": {
         "@tailwindcss/postcss": "4.3.3",
@@ -65,7 +69,7 @@
     },
     "apps/studio": {
       "name": "@open-tessera/studio",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "bin": {
         "studio": "./dist/main.mjs",
       },
@@ -85,7 +89,6 @@
         "@mastra/core": "1.61.0",
         "@mastra/libsql": "1.21.1",
         "@mastra/memory": "1.27.0",
-        "@open-generative/ui": "workspace:*",
         "@open-tessera/capabilities": "workspace:*",
         "@open-tessera/compiler": "workspace:*",
         "@open-tessera/data-agent": "workspace:*",
@@ -160,7 +163,7 @@
     },
     "packages/ag-ui": {
       "name": "@open-generative/ag-ui",
-      "version": "0.3.4",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/client": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -174,7 +177,7 @@
     },
     "packages/ai-sdk": {
       "name": "@open-generative/ai-sdk",
-      "version": "0.3.4",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/client": "workspace:*",
         "@open-generative/compiler": "workspace:*",
@@ -193,13 +196,14 @@
     },
     "packages/capabilities": {
       "name": "@open-generative/capabilities",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@open-generative/components": "workspace:*",
         "@types/bun": "1.3.14",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
@@ -207,7 +211,7 @@
     },
     "packages/catalog": {
       "name": "@open-generative/catalog",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
         "zod": "4.4.3",
@@ -220,7 +224,7 @@
     },
     "packages/client": {
       "name": "@open-generative/client",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -235,7 +239,7 @@
     },
     "packages/compiler": {
       "name": "@open-generative/compiler",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -243,6 +247,7 @@
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@open-generative/components": "workspace:*",
         "@types/bun": "1.3.14",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
@@ -250,7 +255,7 @@
     },
     "packages/components": {
       "name": "@open-generative/components",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -264,7 +269,7 @@
     },
     "packages/data-agent": {
       "name": "@open-tessera/data-agent",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "zod": "4.4.3",
@@ -276,7 +281,7 @@
     },
     "packages/database": {
       "name": "@open-tessera/database",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -287,13 +292,14 @@
     },
     "packages/mastra": {
       "name": "@open-generative/mastra",
-      "version": "0.3.4",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/capabilities": "workspace:*",
         "@open-generative/compiler": "workspace:*",
         "@open-generative/protocol": "workspace:*",
         "@open-generative/resources": "workspace:*",
         "@open-generative/server": "workspace:*",
+        "zod": "4.4.3",
       },
       "devDependencies": {
         "@mastra/core": "1.61.0",
@@ -302,12 +308,12 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "@mastra/core": ">=1.61.0",
+        "@mastra/core": ">=1.61.0 <2",
       },
     },
     "packages/mongodb": {
       "name": "@open-tessera/mongodb",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "mongodb": "^6.20.0",
@@ -320,7 +326,7 @@
     },
     "packages/mysql": {
       "name": "@open-tessera/mysql",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "mysql2": "^3.23.3",
@@ -334,7 +340,7 @@
     },
     "packages/postgres": {
       "name": "@open-tessera/postgres",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "pg": "8.23.0",
@@ -349,7 +355,7 @@
     },
     "packages/protocol": {
       "name": "@open-generative/protocol",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -361,7 +367,7 @@
     },
     "packages/react": {
       "name": "@open-generative/react",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/client": "workspace:*",
@@ -383,9 +389,11 @@
     },
     "packages/resources": {
       "name": "@open-generative/resources",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
+        "ajv": "8.20.0",
+        "ajv-formats": "3.0.1",
         "zod": "4.4.3",
       },
       "devDependencies": {
@@ -396,7 +404,7 @@
     },
     "packages/runtime": {
       "name": "@open-generative/runtime",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
       },
@@ -408,7 +416,7 @@
     },
     "packages/server": {
       "name": "@open-generative/server",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-generative/capabilities": "workspace:*",
         "@open-generative/catalog": "workspace:*",
@@ -426,7 +434,7 @@
     },
     "packages/sqlite": {
       "name": "@open-tessera/sqlite",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@libsql/client": "0.17.4",
         "@open-tessera/database": "workspace:*",
@@ -441,7 +449,7 @@
     },
     "packages/tessera-capabilities": {
       "name": "@open-tessera/capabilities",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/runtime": "workspace:*",
         "zod": "4.4.3",
@@ -453,7 +461,7 @@
     },
     "packages/tessera-compiler": {
       "name": "@open-tessera/compiler",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/capabilities": "workspace:*",
         "@open-tessera/core": "workspace:*",
@@ -468,7 +476,7 @@
     },
     "packages/tessera-core": {
       "name": "@open-tessera/core",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/schema": "workspace:*",
         "zod": "4.4.3",
@@ -480,7 +488,7 @@
     },
     "packages/tessera-runtime": {
       "name": "@open-tessera/runtime",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/schema": "workspace:*",
         "zod": "4.4.3",
@@ -492,7 +500,7 @@
     },
     "packages/tessera-schema": {
       "name": "@open-tessera/schema",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -503,7 +511,7 @@
     },
     "packages/turso": {
       "name": "@open-tessera/turso",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
         "@open-tessera/sqlite": "workspace:*",
       },
@@ -516,16 +524,18 @@
     },
     "packages/ui": {
       "name": "@open-generative/ui",
-      "version": "0.3.5",
+      "version": "0.3.8",
       "dependencies": {
-        "@open-tessera/core": "workspace:*",
-        "@open-tessera/runtime": "workspace:*",
-        "@open-tessera/schema": "workspace:*",
-        "@radix-ui/react-tabs": "1.1.21",
+        "@open-generative/catalog": "workspace:*",
+        "@open-generative/components": "workspace:*",
+        "@open-generative/protocol": "workspace:*",
+        "@open-generative/react": "workspace:*",
         "lucide-react": "1.31.0",
         "recharts": "3.10.1",
       },
       "devDependencies": {
+        "@open-generative/client": "workspace:*",
+        "@types/bun": "1.3.14",
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
         "react": "19.2.8",
@@ -534,8 +544,8 @@
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "react": ">=18.3.0",
-        "react-dom": ">=18.3.0",
+        "react": ">=19.0.0",
+        "react-dom": ">=19.0.0",
       },
     },
   },
@@ -1621,6 +1631,8 @@
     "ai": ["ai@7.0.76", "", { "dependencies": { "@ai-sdk/gateway": "4.0.61", "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Mytm/RFJzwJ0nzXiHYAE3dgNpFG/2K2Tks5alwm+PzAQeB6RJAJ97eGuZ8wssy66PcvtGWGIscS4tRi6dg0KLQ=="],
 
     "ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
+
+    "ajv-formats": ["ajv-formats@3.0.1", "", { "dependencies": { "ajv": "^8.0.0" } }, "sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ=="],
 
     "ansis": ["ansis@4.3.1", "", {}, "sha512-BJ8/l4R5LRE7hW9WdSuGYrLSHi2ynxeFpDFbH0K/CgNeY/tyhk+vO6TYxXC5r5CpUhNVX310xzPsN/H9lCdfOA=="],
 

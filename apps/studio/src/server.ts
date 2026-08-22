@@ -2242,6 +2242,7 @@ function monitorStudioChatStream(
 }> {
   let failed = false;
   let cancelled = false;
+  let suspended = false;
   let finishReason: FinishReason | undefined;
   let emittedFirstEvent = false;
   const activeTools = new Map<string, TesseraToolName>();
@@ -2289,15 +2290,24 @@ function monitorStudioChatStream(
         if (chunk.type === "abort") {
           cancelled = true;
         }
+        if (chunk.type === "data-tool-call-suspended") {
+          suspended = true;
+          logAgentEvent(context.logger, "info", context.request, context.runId, {
+            event: "stream",
+            stage: "suspended",
+            durationMs: elapsedMilliseconds(context.startedAt),
+          });
+        }
         if (chunk.type === "error") {
           failed = true;
         }
         if (chunk.type === "finish") {
           finishReason = chunk.finishReason;
-          if (chunk.finishReason !== undefined && chunk.finishReason !== "stop") failed = true;
-          logAgentEvent(context.logger, chunk.finishReason === "stop" ? "info" : "warn", context.request, context.runId, {
+          const suspendedFinish = suspended || (chunk.finishReason as string | undefined) === "suspended";
+          if (!suspendedFinish && chunk.finishReason !== undefined && chunk.finishReason !== "stop") failed = true;
+          logAgentEvent(context.logger, suspendedFinish || chunk.finishReason === "stop" ? "info" : "warn", context.request, context.runId, {
             event: "stream",
-            stage: chunk.finishReason === "stop" ? "completed" : "failed",
+            stage: suspendedFinish ? "suspended" : chunk.finishReason === "stop" ? "completed" : "failed",
             durationMs: elapsedMilliseconds(context.startedAt),
             finishReason: chunk.finishReason,
           });
@@ -2307,6 +2317,8 @@ function monitorStudioChatStream(
     })),
     outcome() {
       if (cancelled) return "cancelled";
+      if (failed) return "failed";
+      if (suspended) return "suspended";
       return failed || finishReason !== "stop" ? "failed" : "completed";
     },
   };
@@ -2324,7 +2336,7 @@ function withStudioStreamLogging(
   const logCompletion = (outcome: StudioStreamOutcome) => {
     logAgentEvent(
       logger,
-      outcome === "completed" ? "info" : outcome === "cancelled" ? "warn" : "error",
+      outcome === "completed" || outcome === "suspended" ? "info" : outcome === "cancelled" ? "warn" : "error",
       request,
       stream.runId,
       {

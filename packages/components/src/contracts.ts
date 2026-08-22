@@ -32,7 +32,11 @@ import {
   type Sha256Hash,
 } from "@open-generative/protocol";
 import { z } from "zod";
-import { resolvedChartDataSchema } from "./chart-spec";
+import {
+  chartCenterTextResolvedValueSchema,
+  resolvedChartDataSchema,
+  resolvedChartInteractionStateSchema,
+} from "./chart-spec";
 import {
   contentCalloutPropsSchema,
   contentEmptyPropsSchema,
@@ -40,7 +44,6 @@ import {
   controlFilterOptionSchema,
   controlFilterPropsSchema,
   controlGroupPropsSchema,
-  dataChartAuthoringPropsSchema,
   dataChartPropsSchema,
   dataMetricPropsSchema,
   dataQueryDetailsPropsSchema,
@@ -53,6 +56,7 @@ import {
 } from "./props";
 import {
   resourceBindingExprSchema,
+  scalarLiteralExprSchema,
   scalarValueExprSchema,
   stateBindingExprSchema,
   toStrictJsonSchema,
@@ -62,7 +66,7 @@ import { hashNamespacedCanonical } from "./integrity";
 
 export const OFFICIAL_PUBLISHER = publisherIdSchema.parse("open-generative");
 export const OFFICIAL_CATALOG_ID = catalogIdSchema.parse("official");
-export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.5");
+export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.8");
 export const OFFICIAL_CONTRACT_REVISION = 1 as const;
 
 const emptyObjectSchema = z.object({}).strict();
@@ -368,12 +372,33 @@ export async function createOfficialCatalog(provider?: HashProvider): Promise<Of
     category: "data",
     resolvedPropsSchema: toStrictJsonSchema(dataChartPropsSchema),
     authoringBindings: {
-      "/spec": resourceAndStatePolicy({
-        canonicalExprSchema: toStrictJsonSchema(dataChartAuthoringPropsSchema.shape.spec),
-        resolvedValueSchema: toStrictJsonSchema(dataChartPropsSchema.shape.spec),
+      "/spec/data": resourcePolicy({
+        canonicalExprSchema: toStrictJsonSchema(resourceBindingExprSchema),
+        resolvedValueSchema: toStrictJsonSchema(resolvedChartDataSchema),
         schemaHash: schemaHashes.chart,
         resourceSchema: toStrictJsonSchema(resolvedChartDataSchema),
+        allowedSources: ["resource"],
+        readiness: "required",
+        unresolvedFallback: "loading",
+        kinds: ["dataset"],
+        maxProjectedColumns: 32,
+        maxWindowItems: 10_000,
       }),
+      "/spec/legend/visibilityState": statePolicy(
+        toStrictJsonSchema(stateBindingExprSchema),
+        toStrictJsonSchema(resolvedChartInteractionStateSchema),
+        false,
+      ),
+      "/spec/interaction/state": statePolicy(
+        toStrictJsonSchema(stateBindingExprSchema),
+        toStrictJsonSchema(resolvedChartInteractionStateSchema),
+        false,
+      ),
+      "/spec/centerText/value": literalOrStatePolicy(
+        toStrictJsonSchema(z.union([scalarLiteralExprSchema, stateBindingExprSchema])),
+        toStrictJsonSchema(chartCenterTextResolvedValueSchema),
+        false,
+      ),
     },
     slots: { toolbar: slot([controlGroup.ref], 0, 1, "omit") },
     events: {
@@ -383,7 +408,7 @@ export async function createOfficialCatalog(provider?: HashProvider): Promise<Of
     },
     trust: "governed",
     commitPolicy: "atomic",
-    requiredBindings: ["/spec"],
+    requiredBindings: ["/spec/data"],
     accessibility: accessibility("img", propertyName("/spec/accessibility/label"), ["navigate", "select"], "host-required"),
     prompt: prompt("A strict, resource-backed semantic chart specification.", ["Use for area, bar, line, pie, radar, or radial views when visual comparison adds value."], ["Do not provide inline data, renderer props, raw colors, functions, markup, or vector content."]),
   }, provider);
@@ -604,6 +629,22 @@ function statePolicy(
 ): BindingPolicy {
   return {
     allowedSources: ["state"],
+    canonicalExprSchema,
+    resolvedValueSchema,
+    nullable: !required,
+    readiness: required ? "required" : "optional",
+    unresolvedFallback: required ? "error" : "omit",
+    state: { schema: resolvedValueSchema, readableScopes: ["document", "external", "surface"] },
+  };
+}
+
+function literalOrStatePolicy(
+  canonicalExprSchema: JSONSchema,
+  resolvedValueSchema: JSONSchema,
+  required: boolean,
+): BindingPolicy {
+  return {
+    allowedSources: ["literal", "state"],
     canonicalExprSchema,
     resolvedValueSchema,
     nullable: !required,

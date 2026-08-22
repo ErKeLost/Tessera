@@ -9,9 +9,9 @@ function productionSecurity() {
   return new BackgroundSecurity({
     env: {
       NODE_ENV: "production",
-      ARTIFACT_BACKGROUND_ALLOWED_ORIGINS: origin,
-      ARTIFACT_BACKGROUND_ACCESS_TOKEN: "access-token",
-      ARTIFACT_BACKGROUND_SESSION_SECRET: "session-secret",
+      TESSERA_BACKGROUND_ALLOWED_ORIGINS: origin,
+      TESSERA_BACKGROUND_ACCESS_TOKEN: "access-token",
+      TESSERA_BACKGROUND_SESSION_SECRET: "session-secret",
     },
     rateLimiter: { check: async () => ({ allowed: true, limit: 12, remaining: 11, resetAt: Date.now() + 60_000 }) },
   });

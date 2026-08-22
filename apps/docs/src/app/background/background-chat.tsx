@@ -45,27 +45,17 @@ import {
 } from "@/components/ui/tooltip";
 import type { BackgroundAccessDialogProps } from "./background-access-dialog";
 import { BACKGROUND_MODEL } from "./model";
-import type { DecodedArtifactProps } from "./decoded-artifact";
 import styles from "./background.module.css";
 
-type ArtifactPayload = import("./decoded-artifact").ArtifactPayload;
-
-type BackgroundMessage = UIMessage<unknown, { artifact: ArtifactPayload }>;
+type BackgroundMessage = UIMessage;
 
 const transport = new DefaultChatTransport<BackgroundMessage>({
   api: "/api/background",
 });
 
-const loadDecodedArtifact = () => import("./decoded-artifact");
-
 const MessageResponse = dynamic<MessageResponseProps>(
   () => import("@/components/ai-elements/message-response").then((module) => module.MessageResponse),
   { ssr: false, loading: () => <PendingResponse /> },
-);
-
-const DecodedArtifact = dynamic<DecodedArtifactProps>(
-  () => import("./decoded-artifact").then((module) => module.DecodedArtifact),
-  { ssr: false, loading: () => <ArtifactModuleLoading /> },
 );
 
 const BackgroundAccessDialog = dynamic<BackgroundAccessDialogProps>(
@@ -106,7 +96,6 @@ export function BackgroundChat() {
     if (!trimmed || isGenerating) return;
     clearError();
     setInput("");
-    void loadDecodedArtifact();
     await sendMessage({ text: trimmed });
   }, [clearError, isGenerating, sendMessage]);
 
@@ -189,7 +178,7 @@ export function BackgroundChat() {
             <span>{statusText}</span>
           </div>
 
-          <Conversation aria-label="Artifact Playground 对话" className={styles.conversation}>
+          <Conversation aria-label="Tessera Agent 文档对话" className={styles.conversation}>
             <ConversationContent className={styles.conversationContent}>
               {messages.length === 0 ? (
                 <ConversationEmptyState
@@ -251,7 +240,7 @@ export function BackgroundChat() {
                 value={input}
               />
               <PromptInputFooter className={styles.promptFooter}>
-                <span className={styles.protocolLabel}><ShieldCheckIcon aria-hidden="true" /> Protocol 2.0</span>
+                <span className={styles.protocolLabel}><ShieldCheckIcon aria-hidden="true" /> Text preview</span>
                 <PromptInputSubmit
                   aria-label={isGenerating ? "停止生成" : "发送请求"}
                   disabled={isGenerating ? false : !input.trim()}
@@ -278,17 +267,8 @@ function PendingResponse() {
   return (
     <div className={styles.pendingResponse} role="status">
       <LoaderCircleIcon aria-hidden="true" />
-      <span>正在生成可信 Artifact</span>
+      <span>正在生成回答</span>
     </div>
-  );
-}
-
-function ArtifactModuleLoading() {
-  return (
-    <section aria-label="正在载入 Artifact" className={styles.artifactLoading}>
-      <LoaderCircleIcon aria-hidden="true" />
-      <span>正在载入 Artifact</span>
-    </section>
   );
 }
 
@@ -333,9 +313,6 @@ const BackgroundChatMessage = memo(function BackgroundChatMessage({
                 {part.text}
               </MessageResponse>
             );
-          }
-          if (part.type === "data-artifact") {
-            return <DecodedArtifact key={part.id ?? `${message.id}-${partIndex}`} payload={part.data} />;
           }
           return null;
         })}

@@ -1,25 +1,39 @@
 ---
 title: 状态与操作
-description: 保持本地 UI 状态快速响应，同时向智能体发送有意图的操作。
+description: Tessera Agent 如何保持本地交互快速，同时保留 Host Authority。
 ---
 
-Tessera Agent 使用三个状态所有者：
+Tessera Agent 将 Canonical Surface State、浏览器本地 View State 与权威 Business State
+彻底分开。三者之间不存在隐式 Mutation Path。
 
-- **权威业务状态** 位于服务端。
-- **临时交互状态** 位于 Artifact 内部。滑块移动会立即更新图表，不消耗模型 Token。
-- **持久用户状态** 位于宿主控制的存储中。
+| State Owner | 示例 | 更新路径 |
+| --- | --- | --- |
+| Canonical Surface State | Filter Value、绑定 Committed Document 的 Selection | 带 Revision 前置条件的 State Command，或经过校验的 Local Transition |
+| Browser-local View State | Tab、Hover、Focus、临时 Chart Legend 可见性 | Renderer 自己拥有，不进入 Canonical Document |
+| Host Business State | Database Record、Approval、Export、外部 Effect | 经过 Server Policy 与 Receipt 的类型化 HostIntent |
 
-使用 `TesseraPreviewProvider` 包裹渲染器以接收结构化事件：
+## Node-scoped Interaction
 
-```tsx
-<TesseraPreviewProvider
-  onAction={(event) => {
-    // event.artifactId, event.action, event.payload
-  }}
->
-  <ArtifactRenderer artifact={artifact} />
-</TesseraPreviewProvider>
+Renderer 只能得到 Resolved Props、声明过的 Slot、Node-scoped State 与 Resource Binding、
+Placement，以及一个可选的 `emit` 函数。只有 Committed Projection 才会得到这个函数；
+Read-only Preview 不能发出事件。
+
+```ts
+type NodeScopedEventEmitter = (
+  port: EventPort,
+  payload: JsonValue,
+) => Promise<NodeEventDispatchResult>;
 ```
 
-宿主决定一个事件仅作为遥测数据、直接触发工具，还是转换为发送给模型的用户消息。
-这样可以避免普通控件交互产生高成本的对话轮次。
+Renderer 只能发出精确 Component Contract 声明过的 Port，不能选择 Action、Tool、URL 或
+Credential。`SurfaceController` 会校验 Event Payload、解析已提交的 Action Binding、检查 Node
+Scope 与 Revision 前置条件，然后执行确定性 Local Transition，或发送类型化 Host Command。
+
+## HostIntent
+
+当前 Catalog 只定义三个 HostIntent Contract：`data.export`、`surface.retry` 与
+`control.apply`。可用性来自 Host 冻结的 Authority 与 Resource Offer，不来自模型或 Renderer。
+Effect 始终留在服务端，并返回幂等 Receipt。
+
+这条路径取代历史 `TesseraPreviewProvider`、`ArtifactRenderer` 与通用 `onAction` Callback。
+系统只有一条由 `SurfaceController` 拥有的 Event Bridge。

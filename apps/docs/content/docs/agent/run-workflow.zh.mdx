@@ -1,36 +1,45 @@
 ---
 title: 运行流程
-description: 理解一个问题如何变成经过验证的答案和可审查证据。
+description: 一个 Tessera Agent 问题如何变成可信证据与已提交 Generative UI Surface。
 ---
 
-面向用户的路径是固定的：
+只有受治理分析与 Generative UI 形成一条完整工作流，成功证明才算完成：
 
 ```text
 问题 -> Catalog -> 语义计划 -> 受限只读查询
-    -> 验证 -> 证据 -> Markdown 答案
+    -> 验证 -> Resource/Evidence Offer
+    -> present_ui Proposal -> Committed Revision
+    -> SurfaceEventStream -> SurfaceController
+    -> GenerativeSurface -> RendererRegistry
 ```
 
-| 步骤 | 用户看到的结果 | 服务端职责 |
+| 步骤 | 用户看到的结果 | Host 职责 |
 | --- | --- | --- |
-| 连接 | Studio 显示已配置数据库 | 把 Connector 和凭据留在服务端 |
-| 发现 | 出现相关实体、字段、指标和关系 | 加载实时 Catalog 并返回受限语义切片 |
-| 澄清 | 歧义变成明确选项 | 描述已检查实体或执行一次受限 Probe |
-| 计划 | 出现可审查的只读分析意图 | 只接收语义 ID，不接收模型生成的 SQL |
-| 执行 | 结果和进度流入 Thread | 重新验证 Scope、编译、执行并应用限制 |
-| 发布 | Markdown 答案和证据 | 脱敏私有细节并发布受限证据 |
+| Discover | 相关实体、字段、指标与关系 | 加载实时 Semantic Catalog 并返回受限 Slice |
+| Clarify | 歧义变成明确选项 | 描述已检查实体或执行一次受限 Probe |
+| Plan | 可审查的只读分析意图 | 只接收 Semantic ID，绝不接收模型生成 SQL |
+| Execute | 进度与经过验证的 Query 状态 | 重新校验 Scope、编译 SQL、执行、取消并应用限制 |
+| Offer | Evidence 与可渲染数据可用 | 发布绑定 Grant 的 Resource Descriptor、Schema、Version 与 Evidence |
+| Compose | 有用的 Metric、Chart、Table、Filter 或解释布局 | 冻结 Component Contract Slice，只接收 `present_ui` Proposal |
+| Commit | Last-good 内容原子变化，或只经过允许的 Preview | 校验 Identity、Binding、Placement、Authority 与 Canonical Revision |
+| Render | 答案成为可检查、可交互 Surface | 发布可信事件并精确解析 Node Renderer |
 
-## 公开生命周期
+## Browser Lifecycle
 
-浏览器接收产品阶段，而不是私有 Tool Payload：
+Data Agent 私有 Tool Payload 始终留在服务端。浏览器接收脱敏 Product Stage Stream 与可信
+`SurfaceEventStream`。Query Row 只有在 Committed Binding 下被请求为受限、Node-scoped Resource
+Projection 时才能进入浏览器；它们永远不会进入模型 Proposal、Canonical Document、Revision History
+或普通日志。
 
-`catalog`、`retrieval`、`planning`、`probing`、`compiling`、`executing`、
-`verifying`、`publishing` 和 `narrating`。
+`SurfaceController` 校验 Stream Identity 与 Sequence、Replay Commit、保留 Last-good、请求 Resource
+Window，并暴露 Resolved Node Projection。`GenerativeSurface` 使用官方 Registry 渲染这些 Projection，
+永远不消费原始模型或 Tool Output。
 
-只有阶段状态、受限耗时、安全叙述和证据引用会穿过 Browser 边界。SQL、Connector
-元数据、物理 Catalog 名称、原始 Tool 参数和不受限查询输出都留在服务端。
+## Retry、Interruption 与 Conflict
 
-## 重试与中断
+每次分析都会在执行前重新绑定当前 Catalog 与 Authority。陈旧 Capability、变化的 Catalog、过期
+Resource Grant、无效 Proposal、中断 Stream 或 Revision Conflict 都必须 Fail Closed。Host Repair、
+Resume、Resync 或请求用户解决 Conflict 时，当前 Committed Surface 继续可见。
 
-每次分析都会在执行前重新绑定当前 Catalog。过期 Capability 或变化后的 Catalog
-会 Fail Closed，而不是继续执行旧计划。用户可以中断、重试、澄清或在同一 Thread
-继续追问，浏览器始终不会获得数据库直连权限。
+Golden Suite 必须测试这条完整路径，而不是孤立组件 JSON。详见
+[Data Agent 成功证明门槛](./architecture/generative-ui-proof)。

@@ -1,6 +1,6 @@
 # @open-tessera/compiler
 
-Server/build-only compiler for the Data Elements Artifact Authoring DSL. It
+Server/build-only compiler for the Tessera Agent Artifact Authoring DSL. It
 normalizes nested model output, slices a node catalog for each turn, compiles
 provider-neutral JSON Schema and prompts, and validates output before creating
 an `ArtifactPart`.

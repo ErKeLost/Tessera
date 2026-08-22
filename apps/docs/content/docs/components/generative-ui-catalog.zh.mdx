@@ -1,9 +1,11 @@
 ---
-title: 当前 Generative UI Catalog
-description: 为 Tessera Agent data-agent 成功证明而实现的 12 个 Component Contracts。
+title: Tessera Agent Generative UI 组件目录
+description: 用于证明 Tessera Agent Data Agent 工作流的 12 个 Component Contracts 与 70 个图表 recipe。
 ---
 
-当前 Catalog 只包含 Tessera Agent 的 data-agent workflow 真正需要的 12 个正交 Component。底层协议是终局架构，但组件范围保持克制：Trend、Anomaly、Forecast、Funnel、Cohort 等分析形态由这些基础组件组合为 recipe，不成为固定业务大组件。
+这是 **Tessera Agent Data Agent** 的 Generative UI 组件目录。它用真实产品工作流证明 Open Generative 的终局架构，同时让首批组件范围保持克制；它不是固定业务 Artifact 的展示站。
+
+当前 Catalog 包含 Tessera Agent 真正需要的 12 个正交 Component Contracts。Trend、Anomaly、Forecast、Funnel、Cohort 等分析形态由这些基础组件组合为 recipe，不成为固定业务大组件。
 
 ## Layout
 
@@ -39,11 +41,11 @@ description: 为 Tessera Agent data-agent 成功证明而实现的 12 个 Compon
 
 ## Action Contracts
 
-Catalog 当前只发布三个 HostIntent contracts：`data.export`、`surface.retry` 和 `control.apply`。普通选择、折叠、legend toggle 与 Surface-local state 不会被伪装成 server effect。Renderer 只发出 Contract 声明的 event port；Host 再根据已提交 node binding 决定是否存在 Action。
+Catalog 当前只发布三个 HostIntent contracts：`data.export`、`surface.retry` 和 `control.apply`。普通选择、折叠、legend toggle 与 Surface-local state 不会被伪装成 server effect。只需要身份的输入使用 `state-id-ref` 或 `resource-id-ref`，不会为取得 ID 而读取 state value 或 Resource payload。Renderer 只为当前 node 精确绑定且已提交的 event port 启用交互；preview 始终只读。
 
 ## 数据边界
 
-Metric、Chart、Table 与 Query Details 可以共享一个 pinned Resource version，但它们只保存 binding。Table rows 和 Chart data 只在 Resource Gateway resolve 后进入 node-scoped render projection；不会进入模型 proposal 或 canonical Document。
+每个 data binding 都使用满足自身精确 Contract 的 typed pinned Resource；同一次 governed query execution 发布的资源可以共享 evidence 与 provenance。只有 Chart 与 Table 绑定相同的 Dataset Envelope 和 schema 时，才能复用同一个 dataset version。Table rows 和 Chart data 只在 Resource Gateway resolve 后进入 node-scoped render projection；不会进入模型 proposal 或 canonical Document。
 
 ## 组合而非业务大组件
 
@@ -61,3 +63,21 @@ filtered breakdown
 这些 recipe 属于 Tessera Agent proof fixtures。模型仍必须根据问题和资源形状选择组合，不能把 recipe 当作固定 renderer。
 
 Contract、props schema、ChartSpec、70 recipes、fixtures 和 manifest 由 `@open-generative/components` 导出。React 页面由 `@open-generative/ui` 使用 Open Generative UI primitives 与 Recharts 实现。文档中的字段、event 和 coverage 必须由同一 Contract 生成或经过 conformance test 验证。
+
+## Data Agent 成功证明
+
+下面三种组合就是当前 Tessera Agent 的真实产品目标。Resource payload 先在服务端 Resource Gateway 完成 publish、grant、filter projection 与 resolve；浏览器只接收可信 Surface event，再通过同一套 negotiated registry 完成渲染。
+
+<DataAgentCompositionGallery />
+
+## Component Contracts 实际渲染
+
+下面每个预览都经过可信 Surface event pipeline、浏览器 `SurfaceController`、`GenerativeSurface` 和官方 renderer registry。这里展示的是 Tessera Agent 实际使用的 renderer，不是文档专用的仿制组件。
+
+<GenerativeContractGallery />
+
+## Chart 与 tooltip recipes
+
+这里可以选择全部 70 个官方 recipe。每个选中的 recipe 都会像模型生成的 Tessera Agent 响应一样，经过同一套 Generative UI Surface 完成 resolve 与渲染。
+
+<GenerativeChartRecipeGallery />

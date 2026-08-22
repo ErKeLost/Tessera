@@ -1,6 +1,6 @@
 # @open-tessera/sqlite
 
-Cross-runtime SQLite connector for Data Elements. It discovers the SQLite
+Cross-runtime SQLite connector for Tessera Agent. It discovers the SQLite
 catalog and executes bounded, parser-validated read-only queries through
 `@libsql/client` on Node.js 24+ and Bun 1.3+.
 

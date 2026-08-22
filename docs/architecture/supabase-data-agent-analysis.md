@@ -1,6 +1,11 @@
 # Supabase Database Agent Analysis
 
-Status: source-based review of the pinned `vendor/supabase` submodule
+> **Historical, non-normative research input.** This source review is preserved
+> as Tessera Agent design evidence. It does not define the current Generative UI
+> protocol, component catalog, renderer path, or an Agent/Studio implementation
+> plan.
+
+Status: historical source-based review of the pinned `vendor/supabase` submodule
 
 Reviewed commit: `54f56a1baa`
 
@@ -212,8 +217,8 @@ canonical typed action hash, compiled plan hash, catalog fingerprint, policy
 version, or effect receipt. It also does not provide a general idempotent
 mutation ledger for retries across process restarts.
 
-Mastra's suspend/resume support is the right runtime primitive for Data
-Elements, but the authority must remain outside the Agent. The broker should
+Mastra's suspend/resume support is the right runtime primitive for Tessera
+Agent, but the authority must remain outside the Agent. The broker should
 preflight the action, suspend the run for approval, and revalidate the exact
 action and policy before execution.
 
