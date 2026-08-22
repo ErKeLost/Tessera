@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { packageGraph, type PackageDefinition } from "./package-graph";
 
 const root = resolve(import.meta.dir, "..");
+const repositoryUrl = "git+https://github.com/ErKeLost/Tessera.git";
 const dependencyFields = ["dependencies", "optionalDependencies", "peerDependencies"] as const;
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const publishFilePattern = /^(?:README|LICENSE|LICENCE|COPYING|NOTICE|CHANGELOG|HISTORY)(?:\..*)?$/i;
@@ -170,6 +171,14 @@ function rewriteInternalDependencies(
   if (remainingWorkspaceValues.length > 0) {
     throw new Error(`${definition.name} contains unstaged workspace specifiers at ${remainingWorkspaceValues.join(", ")}.`);
   }
+}
+
+function applyRepositoryMetadata(manifest: JsonObject, definition: PackageDefinition): void {
+  manifest.repository = {
+    type: "git",
+    url: repositoryUrl,
+    directory: definition.directory,
+  };
 }
 
 function validateManifest(
@@ -344,6 +353,7 @@ for (const definition of packageGraph) {
   const manifest = await readJson(join(sourceDirectory, "package.json"), `${definition.name} manifest`);
   const files = validateManifest(manifest, definition, releaseVersion);
   rewriteInternalDependencies(manifest, definition, releaseVersion);
+  applyRepositoryMetadata(manifest, definition);
   preparedPackages.push({ definition, sourceDirectory, manifest, files });
 }
 

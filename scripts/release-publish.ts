@@ -4,6 +4,7 @@ import { isAbsolute, relative, resolve, sep } from "node:path";
 import { packageGraph } from "./package-graph";
 
 const registry = "https://registry.npmjs.org/";
+const repositoryUrl = "git+https://github.com/ErKeLost/Tessera.git";
 const dependencyFields = ["dependencies", "optionalDependencies", "peerDependencies"] as const;
 const semverPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 
@@ -137,6 +138,21 @@ function validateInternalDependencies(
   }
 }
 
+function validateRepositoryMetadata(
+  manifest: JsonObject,
+  packageName: string,
+  packageDirectory: string,
+  label: string,
+): void {
+  const repository = manifest.repository;
+  assertObject(repository, `${label} ${packageName} repository`);
+  if (repository.type !== "git" || repository.url !== repositoryUrl || repository.directory !== packageDirectory) {
+    throw new Error(
+      `${label} ${packageName} repository must identify ${repositoryUrl} at ${packageDirectory}.`,
+    );
+  }
+}
+
 async function run(
   command: string[],
   cwd: string,
@@ -226,6 +242,12 @@ async function verifyReleaseManifest(manifestPath: string): Promise<{ version: s
         definition.name,
         definition.dependencies,
         manifest.version,
+        label,
+      );
+      validateRepositoryMetadata(
+        packageManifest,
+        definition.name,
+        definition.directory,
         label,
       );
     }

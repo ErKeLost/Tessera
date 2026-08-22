@@ -15,12 +15,12 @@ import {
 } from "./contracts";
 
 describe("official component catalog", () => {
-  test("creates exactly 12 component contracts and three action contracts at package revision 0.3.12", async () => {
+  test("creates exactly 12 component contracts and three action contracts at package revision 0.3.13", async () => {
     const catalog = await createOfficialCatalog();
     const packageJson = await Bun.file(new URL("../package.json", import.meta.url)).json();
 
-    expect(packageJson.version).toBe("0.3.12");
-    expect(String(OFFICIAL_CATALOG_REVISION)).toBe("0.3.12");
+    expect(packageJson.version).toBe("0.3.13");
+    expect(String(OFFICIAL_CATALOG_REVISION)).toBe("0.3.13");
     expect(catalog.componentContracts).toHaveLength(12);
     expect(catalog.actionContracts).toHaveLength(3);
     expect(new Set(catalog.componentContracts.map((contract) => String(contract.ref.componentType)))).toEqual(new Set([

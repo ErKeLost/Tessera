@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/data-agent",
-  "version": "0.3.12",
+  "version": "0.3.13",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
