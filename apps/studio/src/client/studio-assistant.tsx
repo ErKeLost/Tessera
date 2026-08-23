@@ -68,6 +68,7 @@ import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
 import { useStudioSettingsQuery } from "./queries/studio-queries";
 import { tesseraStudioToolkit } from "./tessera-toolkit";
+import { OpenGenerativeSurfaceDataRenderer } from "./open-generative-surface";
 
 const tesseraStudioAssistantConfig = AuiConfig({
   tools: Tools({ toolkit: tesseraStudioToolkit }),
@@ -252,6 +253,10 @@ function StudioConversation({
   useAssistantDataUI({
     name: "tool-call-suspended",
     render: SuspendedApprovalDataRenderer,
+  });
+  useAssistantDataUI({
+    name: "openGenerativeSurface",
+    render: OpenGenerativeSurfaceDataRenderer,
   });
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">

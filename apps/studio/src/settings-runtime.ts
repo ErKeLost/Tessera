@@ -18,6 +18,7 @@ import {
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
 import { createDataAgent, type DataAgent } from "@open-tessera/data-agent";
+import { createOpenGenerativeHost, type OpenGenerativeHost } from "@open-generative/host";
 import type { DurableStateStorePort } from "@open-tessera/runtime";
 import {
   databasePermissionLevelSchema,
@@ -358,6 +359,7 @@ export type TesseraStudioRuntimeBuild = Readonly<{
   /** Undefined only when no provider credential source has been configured. */
   agent?: ReturnType<typeof createTesseraStudioAgent>;
   databaseActions?: TesseraDatabaseActionService;
+  generativeHost?: OpenGenerativeHost;
   close(): Promise<void>;
 }>;
 
@@ -377,6 +379,7 @@ export type TesseraStudioRuntimeGeneration = Readonly<{
   sessionMemory?: TesseraSessionMemory;
   agent?: ReturnType<typeof createTesseraStudioAgent>;
   databaseActions?: TesseraDatabaseActionService;
+  generativeHost?: OpenGenerativeHost;
 }>;
 
 export type TesseraStudioRuntimeLease = Readonly<{
@@ -469,12 +472,14 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
           policy: config.database.permissions,
           getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
         });
+      const generativeHost = await createOpenGenerativeHost().catch(() => undefined);
       const agent = isTesseraLlmConfigured(config)
         ? createTesseraStudioAgent({
           dataAgent,
           databaseDialect: config.database.dialect,
           memory: sessionMemory.memory,
           llm: resolveTesseraLlmConfig(config),
+          ...(generativeHost === undefined ? {} : { generativeHost }),
           ...(databaseActions === undefined ? {} : { databaseActions }),
           permissionContext: {
             accessMode: options.accessMode,
@@ -489,6 +494,7 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
         sessionMemory,
         ...(agent === undefined ? {} : { agent }),
         ...(databaseActions === undefined ? {} : { databaseActions }),
+        ...(generativeHost === undefined ? {} : { generativeHost }),
         async close() {
           await Promise.allSettled([sessionMemory.close(), connector.close()]);
         },
@@ -943,6 +949,7 @@ async function buildRuntimeRecord(
       dataAgent: build.dataAgent,
       ...(build.sessionMemory === undefined ? {} : { sessionMemory: build.sessionMemory }),
       ...(build.agent === undefined ? {} : { agent: build.agent }),
+      ...(build.generativeHost === undefined ? {} : { generativeHost: build.generativeHost }),
       // Factories are injectable, so enforce the access-mode boundary here as
       // well as in the default factory. A read-only generation must never
       // expose a mutation service to Studio routes. The injected build is

@@ -1,4 +1,5 @@
 import type { UIMessage, UIMessageChunk } from "ai";
+import type { SurfaceEventEnvelope } from "@open-generative/protocol";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
 export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis" | "list_rls_policies" | "list_extensions";
@@ -136,6 +137,7 @@ export type TesseraSuspendedToolPayload = Readonly<{
 }>;
 
 export type TesseraUIData = {
+  openGenerativeSurface: SurfaceEventEnvelope;
   "tool-call-suspended": Readonly<{
     state: "data-tool-call-suspended";
     runId: string;

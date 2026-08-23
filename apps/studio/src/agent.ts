@@ -1,4 +1,6 @@
 import { toAISdkStream } from "@mastra/ai-sdk";
+import { toOpenGenerativeSurfaceDataChunk } from "@open-generative/ai-sdk/server";
+import type { OpenGenerativeHost } from "@open-generative/host";
 import { Agent, type MastraDBMessage } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import type { MastraModelConfig } from "@mastra/core/llm";
@@ -45,7 +47,8 @@ import {
   redactOpaqueAssistantIdentifiers,
 } from "./public-text";
 import { normalizeResultValue } from "./result-value";
-import { tesseraSessionResourceId } from "./session-memory";
+import { LOCAL_STUDIO_IDENTITY, tesseraSessionResourceId } from "./session-memory";
+import { createTesseraDataChartPresentation } from "./generative/presentation";
 import type {
   TesseraExecuteSqlToolOutput,
   TesseraListCatalogToolOutput,
@@ -1892,6 +1895,8 @@ export type TesseraStudioAgentOptions = Readonly<{
    * backed by the same storage as the supplied Memory so suspend/resume
    * snapshots survive Agent recreation between HTTP requests. */
   mastra?: Mastra;
+  /** Optional high-level presentation facade. Tessera never owns protocol sessions or resources. */
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
 }>;
 
 /**
@@ -1924,7 +1929,7 @@ export function createTesseraStudioAgent(options: TesseraStudioAgentOptions): St
       threadQueueKey(input),
       () => streamTesseraAgentTurn(input, options.dataAgent, memory, model, llm, mastra, emit, options.permissionContext, options.databaseActions, databaseDialect),
     ),
-    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, mastra, queue, options.permissionContext, options.databaseActions, databaseDialect),
+    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, mastra, queue, options.permissionContext, options.databaseActions, databaseDialect, options.generativeHost),
   };
 }
 
@@ -2834,7 +2839,7 @@ Base data answers on verified execution output. Catalog and schema metadata guid
 </evidence_policy>
 
 <response_contract>
-Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
+Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not emit HTML, script tags, ECharts configuration, or other visualization code as a substitute for a rendered connected-data result; Studio automatically presents supported governed analysis results through its trusted renderer. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
 </response_contract>
 `;
 }
@@ -3373,6 +3378,7 @@ function streamTesseraAgentTurnUI(
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>,
 ): ReadableStream<TesseraUIMessageChunk> {
   const controller = new AbortController();
   let cancelled = false;
@@ -3430,6 +3436,11 @@ function streamTesseraAgentTurnUI(
             async (message) => {
               try {
                 await persistCompletedCopilotTurn(memory, input, message);
+                return await presentLatestCompletedAnalysis({
+                  runtime,
+                  input,
+                  generativeHost,
+                });
               } catch (error) {
                 reportAgentDiagnostic(input, { phase: "persistence", error });
                 throw error;
@@ -3478,7 +3489,7 @@ function streamTesseraAgentTurnUI(
 /** Validates a terminal answer without touching Mastra's one-consumer fullStream. */
 export function appendCopilotOutcome(
   source: ReadableStream<TesseraUIMessageChunk>,
-  onAcceptedResponse?: (message: string) => Promise<void>,
+  onAcceptedResponse?: (message: string) => Promise<TesseraUIMessageChunk | undefined>,
 ): ReadableStream<TesseraUIMessageChunk> {
   let terminal = false;
   let hasVisibleText = false;
@@ -3556,7 +3567,8 @@ export function appendCopilotOutcome(
         }
 
         try {
-          await onAcceptedResponse?.(message);
+          const presentation = await onAcceptedResponse?.(message);
+          if (presentation) streamController.enqueue(presentation);
         } catch {
           streamController.enqueue({
             type: "error",
@@ -3580,6 +3592,30 @@ export function appendCopilotOutcome(
       streamController.enqueue({ type: "finish", finishReason: "error" });
     },
   }));
+}
+
+async function presentLatestCompletedAnalysis(input: Readonly<{
+  runtime: CopilotRuntime;
+  input: StudioAgentRunInput;
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
+}>): Promise<TesseraUIMessageChunk | undefined> {
+  const analysis = input.runtime.analyses.at(-1);
+  if (!analysis || !input.generativeHost) return undefined;
+  try {
+    const presentation = createTesseraDataChartPresentation({
+      analysis,
+      identity: input.input.identity ?? LOCAL_STUDIO_IDENTITY,
+    });
+    if (!presentation) return undefined;
+    const host = await input.generativeHost;
+    if (!host) return undefined;
+    const surface = await host.presentDataChart(presentation);
+    return await toOpenGenerativeSurfaceDataChunk(surface.event) as TesseraUIMessageChunk;
+  } catch (error) {
+    // Presentation is additive: a completed answer must remain successful.
+    reportAgentDiagnostic(input.input, { phase: "presentation", error });
+    return undefined;
+  }
 }
 
 /** An empty or whitespace-only model turn must never be reported as a completed answer. */

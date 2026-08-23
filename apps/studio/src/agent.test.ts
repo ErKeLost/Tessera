@@ -901,6 +901,8 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("After each tool result, validate the result in one or two concise lines");
     expect(instructions).toContain("Call routine, low-impact context-gathering tools directly without narration");
     expect(instructions).toContain("invoke it immediately without waiting for the user");
+    expect(instructions).toContain("Do not emit HTML, script tags, ECharts configuration");
+    expect(instructions).toContain("trusted renderer");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
     expect(instructions).toContain("system/catalog relations");

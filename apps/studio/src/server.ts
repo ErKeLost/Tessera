@@ -16,6 +16,8 @@ import {
   type PlanningCapability,
   type SemanticCatalog,
 } from "@open-tessera/data-agent";
+import { createOpenGenerativeHost, type OpenGenerativeHost } from "@open-generative/host";
+import { hostCommandEnvelopeSchema } from "@open-generative/protocol";
 import { createMongoDbConnector } from "@open-tessera/mongodb";
 import { createMySqlConnector } from "@open-tessera/mysql";
 import { createPostgresConnector } from "@open-tessera/postgres";
@@ -93,6 +95,7 @@ import {
   type StudioStreamOutcome,
 } from "./studio-logger";
 import { StudioHttpApp, type StudioHttpContext } from "./studio-http";
+import { createTesseraPresentationAuthority } from "./generative/presentation";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
@@ -388,6 +391,8 @@ export type StudioAppDependencies = Readonly<{
   sessionMemory?: TesseraSessionMemory;
   /** Typed, approval-gated database mutations. Read actions remain Data Agent-owned. */
   databaseActions?: TesseraDatabaseActionService;
+  /** A high-level Open Generative facade, kept server-only with the active runtime. */
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
   /** Enables local-only Settings endpoints backed by a lease-safe runtime manager. */
   settingsRuntime?: TesseraStudioRuntimeManager;
   /** Public model metadata used to validate and render the OpenRouter picker. */
@@ -416,6 +421,7 @@ type StudioRouteRuntime = Readonly<{
   agent?: StudioAgent;
   sessionMemory?: TesseraSessionMemory;
   databaseActions?: TesseraDatabaseActionService;
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
 }>;
 
 type StudioRouteRuntimeLease = Readonly<{
@@ -474,6 +480,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     ...(dependencies.agent === undefined ? {} : { agent: dependencies.agent }),
     ...(dependencies.sessionMemory === undefined ? {} : { sessionMemory: dependencies.sessionMemory }),
     ...(dependencies.databaseActions === undefined ? {} : { databaseActions: dependencies.databaseActions }),
+    ...(dependencies.generativeHost === undefined ? {} : { generativeHost: dependencies.generativeHost }),
   });
   const allowedOrigins = new Set(
     (dependencies.allowedOrigins ?? [])
@@ -764,6 +771,25 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     } catch (error) {
       throw databaseActionHttpError(error);
     }
+  }));
+
+  /** Browser commands are verified and executed by the same high-level host that created the surface. */
+  app.post("/api/generative/command", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const host = await runtime.generativeHost;
+    if (!host) {
+      throw new StudioHttpError(503, "generative_unavailable", "Open Generative is not available for this Studio runtime.");
+    }
+    const parsed = hostCommandEnvelopeSchema.safeParse(await readJsonBody(context.req.raw));
+    if (!parsed.success) {
+      throw new StudioHttpError(400, "invalid_generative_command", "The generative command is invalid.");
+    }
+    const identity = context.get("identity") ?? LOCAL_STUDIO_IDENTITY;
+    const result = await host.handleCommand(
+      parsed.data,
+      createTesseraPresentationAuthority(identity),
+      { operationScope: "tessera-studio", locale: "en-US", timezone: "Asia/Shanghai" },
+    );
+    return context.json(result);
   }));
 
   /**
@@ -1426,6 +1452,7 @@ function acquireStudioRouteRuntime(
       ...(lease.runtime.accessMode !== "read-write" || lease.runtime.databaseActions === undefined
         ? {}
         : { databaseActions: lease.runtime.databaseActions }),
+      ...(lease.runtime.generativeHost === undefined ? {} : { generativeHost: lease.runtime.generativeHost }),
     }),
     release: lease.release,
   });
@@ -1614,6 +1641,7 @@ export function createTesseraStudioRuntime(
         catalogProvider: createDataAgentCatalogProvider(runtime.dataAgent),
         ...(runtime.agent === undefined ? {} : { agent: runtime.agent }),
         ...(runtime.sessionMemory === undefined ? {} : { sessionMemory: runtime.sessionMemory }),
+        ...(runtime.generativeHost === undefined ? {} : { generativeHost: runtime.generativeHost }),
         ...(runtime.accessMode !== "read-write" || runtime.databaseActions === undefined
           ? {}
           : { databaseActions: runtime.databaseActions }),
@@ -1666,6 +1694,8 @@ export function createTesseraStudioRuntime(
   });
   const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const sessionMemory = createTesseraSessionMemory();
+  const generativeHost = options.generativeHost
+    ?? createOpenGenerativeHost().catch(() => undefined);
   const accessMode = options.accessMode ?? "read-only";
   const databaseActions = accessMode !== "read-write"
     || config.database.dialect === "mongodb"
@@ -1686,6 +1716,7 @@ export function createTesseraStudioRuntime(
       databaseDialect: config.database.dialect,
       memory: sessionMemory.memory,
       llm: resolveTesseraLlmConfig(config),
+      generativeHost,
       ...(databaseActions === undefined ? {} : { databaseActions }),
       permissionContext: {
         accessMode,
@@ -1700,6 +1731,7 @@ export function createTesseraStudioRuntime(
     catalogProvider,
     agent,
     sessionMemory,
+    generativeHost,
     ...(databaseActions === undefined ? {} : { databaseActions }),
     allowedOrigins: config.studio.allowedOrigins,
     authenticate: options.authenticate,
@@ -2034,6 +2066,7 @@ function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/catalog") return "catalog";
   if (path === "/api/chat") return "chat";
   if (path === "/api/connection") return "connection";
+  if (path === "/api/generative/command") return "generative";
   if (path === "/api/meta") return "meta";
   if (path === "/api/runs") return "runs";
   if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";

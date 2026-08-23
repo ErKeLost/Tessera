@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { surfaceEventEnvelopeSchema } from "@open-generative/protocol";
 import type { TesseraUIMessage } from "./protocol";
 import { sanitizeStudioErrorText } from "./studio-logger";
 
@@ -23,6 +24,7 @@ const MAX_THREAD_TITLE_LENGTH = 120;
 const MAX_UI_MESSAGES = 64;
 const MAX_UI_PARTS_PER_MESSAGE = 32;
 const MAX_UI_TRANSCRIPT_BYTES = 512 * 1024;
+const MAX_STORED_GENERATIVE_SURFACE_BYTES = 256 * 1024;
 const MAX_USER_TEXT_LENGTH = 12_000;
 const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
 const MAX_REASONING_TEXT_LENGTH = 30_000;
@@ -287,6 +289,17 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     }
 
     if (source.role !== "assistant") continue;
+    if (part.type === "data-openGenerativeSurface") {
+      const event = surfaceEventEnvelopeSchema.safeParse(part.data);
+      if (event.success && jsonByteLength(event.data) <= MAX_STORED_GENERATIVE_SURFACE_BYTES) {
+        parts.push({
+          type: "data-openGenerativeSurface",
+          id: event.data.eventId,
+          data: event.data,
+        });
+      }
+      continue;
+    }
     if (part.type === "reasoning" && typeof part.text === "string" && remainingReasoning > 0) {
       const text = sanitizeDisplayText(part.text, remainingReasoning);
       if (!text) continue;

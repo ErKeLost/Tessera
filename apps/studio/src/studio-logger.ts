@@ -1,7 +1,7 @@
 import pino, { type Logger as PinoLogger } from "pino";
 import pretty from "pino-pretty";
 
-export type StudioApiOperation = "catalog" | "chat" | "connection" | "data_preview" | "database_actions" | "meta" | "runs" | "settings" | "threads" | "unknown";
+export type StudioApiOperation = "catalog" | "chat" | "connection" | "data_preview" | "database_actions" | "generative" | "meta" | "runs" | "settings" | "threads" | "unknown";
 export type StudioStreamOutcome = "completed" | "suspended" | "failed" | "cancelled";
 export type StudioToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis" | "list_rls_policies" | "list_extensions";
 export type StudioToolState = "started" | "completed" | "blocked" | "failed";
@@ -17,7 +17,7 @@ export type StudioAgentStage =
   | "narrating";
 export type StudioAgentStageStatus = "started" | "completed" | "failed";
 export type StudioLogLevel = "debug" | "info" | "warn" | "error";
-export type StudioErrorPhase = "catalog" | "provider" | "tool-input" | "tool-output" | "persistence" | "stream" | "transport";
+export type StudioErrorPhase = "catalog" | "provider" | "tool-input" | "tool-output" | "persistence" | "presentation" | "stream" | "transport";
 export type StudioLogStage =
   | "ready"
   | "failed"

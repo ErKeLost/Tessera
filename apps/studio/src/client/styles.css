@@ -1169,6 +1169,20 @@ body { color: var(--foreground); }
 .studio-model-picker-error { border-top: 1px solid var(--border); color: var(--destructive); }
 .tessera-user-message-content { border: 0; border-radius: 14px !important; background: var(--secondary) !important; }
 .tessera-conversation-scroll { bottom: 14px !important; }
+.tessera-generative-surface {
+  width: 100%;
+  min-width: 0;
+  margin: 14px 0 2px;
+  overflow: hidden;
+  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
+  border-radius: 8px;
+  background: var(--card);
+}
+.tessera-generative-surface > * { width: 100%; }
+.tessera-generative-surface-loading {
+  min-height: 320px;
+  background: color-mix(in oklab, var(--muted) 32%, transparent);
+}
 
 @media (max-width: 640px) {
   .studio-model-picker-trigger { width: min(10rem, 42vw); flex-basis: min(10rem, 42vw); }
