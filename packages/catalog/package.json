@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/catalog",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "license": "MIT",
   "publishConfig": {
     "access": "public"

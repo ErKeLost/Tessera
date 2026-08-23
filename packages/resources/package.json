@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/resources",
-  "version": "0.3.21",
+  "version": "0.3.22",
   "description": "Server-only Open Generative resource publication, grants, windows, and evidence.",
   "license": "MIT",
   "type": "module",
