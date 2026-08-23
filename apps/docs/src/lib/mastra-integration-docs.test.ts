@@ -9,26 +9,24 @@ const documents = [
 
 describe("Mastra integration documentation", () => {
   for (const document of documents) {
-    test(`${document} keeps the incremental and observability gates`, () => {
+    test(`${document} documents the high-level Processor and observability gate`, () => {
       const content = readFileSync(
         resolve(import.meta.dir, `../../content/docs/integrations/${document}`),
         "utf8",
       );
 
-      expect(content).toContain("createMastraIncrementalPresentUi");
-      expect(content).toContain("createIncrementalPresentUiCompilerSession");
+      expect(content).toContain("createOpenGenerativeHost");
+      expect(content).toContain("createOpenGenerativeMastraProcessor");
       expect(content).toContain("MASTRA_PRESENT_UI_TRACING_OPTIONS");
-      expect(content).toContain("maxAttempts: 3");
-      expect(content).not.toContain("createMastraPresentUi({");
-      expect(content.match(/tracingOptions: presentUi\.tracingOptions/g)?.length ?? 0)
-        .toBeGreaterThanOrEqual(2);
+      expect(content).toContain("host.prepareTurn");
+      expect(content).toContain("inputProcessors: [openGenerative]");
+      expect(content).toContain("data-openGenerativeSurface");
+      expect(content).toContain("OpenGenerativeRenderer");
+      expect(content).not.toContain("createMastraIncrementalPresentUi");
+      expect(content).not.toContain("createIncrementalPresentUiCompilerSession");
       expect(content).toMatch(
-        /agent\.generate\([\s\S]*?tracingOptions: presentUi\.tracingOptions[\s\S]*?\);/,
+        /agent\.stream\([\s\S]*?tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS[\s\S]*?\);/,
       );
-      expect(content).toMatch(
-        /agent\.stream\([\s\S]*?tracingOptions: presentUi\.tracingOptions[\s\S]*?\);/,
-      );
-      expect(content).toContain("...presentUi.tracingOptions");
     });
   }
 });

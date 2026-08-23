@@ -36,16 +36,17 @@ Artifact 分叉的渲染路径。原始模型输出永远不会进入 React。
 | Resource Data | `@open-generative/resources` | 仅服务端 Schema、Grant、Projection、Window 与 Evidence |
 | Effect | `@open-generative/capabilities` | 仅服务端 Action Policy、Approval、Idempotency、Effect 与 Receipt |
 | React Binding | `@open-generative/react` | `GenerativeSurface`、精确 `RendererRegistry`、Placement 与 System Surface |
-| Data Agent Contract | `@open-generative/components` | `data.chart` Contract、严格 Recipe Union、Resource Schema 与 Fixture |
-| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts `data.chart` Renderer 与 Registry Factory |
+| Data Agent Contract | `@open-generative/components` | 六个分析 Contract、严格 Chart Recipe Union、Resource Schema 与 Fixture |
+| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts 分析 Renderer 与 Registry Factory |
 
 Framework Adapter 可以转换 Transport 细节，但不能拥有或替换这些语义。Browser Code 不能引入
 Compiler、Server、Resource、Capability、Credential、Prompt Example 或签名材料。
 
 ## 当前 Component Contract Slice
 
-Tessera Agent 成功证明的 Catalog 只有一个 Component Contract：`data.chart`。
-它的 `spec.recipe` 是由 17 种产品设计组成的严格 Discriminated Union。Steps、Funnel、Sankey、
+Tessera Agent 成功证明的 Catalog 包含六个 Component Contract：`analysis.report`、`layout.stack`、
+`layout.grid`、`data.metric`、`analysis.insight` 与 `data.chart`。Chart Contract 的 `spec.recipe`
+是由 17 种产品设计组成的严格 Discriminated Union。Steps、Funnel、Sankey、
 Scatter、Radial、Radar、Calendar、Area、Heatmap、Combo、Device 与 Ring 都是同一 Contract
 内部的 Recipe，不是额外 Component Type，也不是任意 React Props。
 

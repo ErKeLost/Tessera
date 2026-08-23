@@ -35,7 +35,7 @@ Preview、恢复、冲突、placement 和移动端布局都不能创建另一条
 
 ## 唯一 Component Contract
 
-每个组件只有一个 framework-neutral、immutable、revisioned `ComponentContract`。它同时定义 resolved props schema、可绑定字段、slots、event ports、允许的 Action Contracts、readiness、placement、accessibility、prompt metadata 和 migrations。当前 Tessera Agent Catalog 只包含 `data.chart`；17 种设计是 `spec.recipe` 的 Discriminated Union，不是 17 个 Component Contract。
+每个组件只有一个 framework-neutral、immutable、revisioned `ComponentContract`。它同时定义 resolved props schema、可绑定字段、slots、event ports、允许的 Action Contracts、readiness、placement、accessibility、prompt metadata 和 migrations。当前 Tessera Agent Catalog 包含六个分析 Contract；其中唯一的 Chart Contract `data.chart` 通过 `spec.recipe` 的 Discriminated Union 提供 17 种设计，它们不是 17 个 Component Contract。
 
 同一个 Contract 必须确定性地产生 provider schema、server validators、canonical validator、client props validator、TypeScript 类型、RendererRegistry 要求、fixtures、docs 和 contract hash。React component 不属于 Contract；React renderer 使用完整 `ContractRef` 注册。
 

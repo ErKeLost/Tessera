@@ -1,95 +1,75 @@
 ---
 title: Mastra
-description: 在 Tessera Agent 中使用已经实现的仅服务端 Mastra 1.61 present_ui Adapter。
+description: 使用一个 Processor 和一个 Renderer，把 Open Generative 接入最新 Mastra 1.61 Agent。
 ---
 
-`@open-generative/mastra` 是已经实现的 Mastra 1.61 服务端 Adapter。它调用 Mastra 真正的
-`createTool()` API，把 Compiler Output 转成 Request-scoped `present_ui` Tool，不创建第二套
-Protocol、Compiler、Runtime 或 Renderer。
+`@open-generative/mastra` 只面向当前 Mastra 1.61 Processor API。应用不需要编译组件
+Schema、维护 UI Prompt、为每个组件注册 Tool，也不管理 Proposal Transaction。
 
-## 创建本轮 Adapter
+## 服务端
 
-`createMastraIncrementalPresentUi()` 返回本轮必须绑定在一起的值：Compiler System Prompt、
-准确的 Compiled Contract、`tools.present_ui`，以及强制使用的 Tracing Options。Mastra 1.61
-的三个原生 Input Hook 会把完整 Operation Frame 送入同一个 Incremental Compiler Session，
-最终仍由 `execute` 完成确认。
+创建一个 Host，并向现有 Agent 添加一个 Processor。Domain Tool 尚未产生可渲染 Resource 时，
+`resolve` 返回 `undefined`；Resource 就绪后，Processor 自动生成并注入本轮唯一的
+`present_ui` Tool。
 
 ```ts
-import {
-  compilePresentUi,
-  createIncrementalPresentUiCompilerSession,
-} from "@open-generative/compiler";
-import { createMastraIncrementalPresentUi } from "@open-generative/mastra";
 import { Agent } from "@mastra/core/agent";
+import { createOpenGenerativeHost } from "@open-generative/host";
+import {
+  MASTRA_PRESENT_UI_TRACING_OPTIONS,
+  createOpenGenerativeMastraProcessor,
+} from "@open-generative/mastra";
 
-const compiled = compilePresentUi({ catalog: turnCatalog });
-const presentUi = createMastraIncrementalPresentUi({
-  compiled,
-  maxAttempts: 3,
-  createSession: ({ toolCallId, abortSignal }) =>
-    createIncrementalPresentUiCompilerSession({
-      compiled,
-      turn: createTurnForRequest({ toolCallId, abortSignal }),
-    }),
+const host = await createOpenGenerativeHost();
+const openGenerative = createOpenGenerativeMastraProcessor({
+  resolve: async () => host.prepareTurn({
+    authority,
+    resources: currentResources(),
+    presentationPolicy: "auto",
+  }),
 });
 
 const agent = new Agent({
-  id: "tessera-data-agent",
-  name: "Tessera Data Agent",
+  id: "data-agent",
+  name: "Data Agent",
   model,
-  instructions: presentUi.system,
-  tools: { ...domainTools, ...presentUi.tools },
+  tools: domainTools,
+  inputProcessors: [openGenerative],
 });
 
-// 每个请求只选择一种执行模式；两种模式都必须携带 Tracing Gate。
-const result = await agent.generate(messages, {
-  tracingOptions: presentUi.tracingOptions,
-});
 const stream = await agent.stream(messages, {
-  tracingOptions: presentUi.tracingOptions,
+  tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
 });
 ```
 
-上面的 `createTurnForRequest()` 是 Tessera Host Composition Helper，负责使用本请求冻结的
-Catalog Slice、Authority、Transaction 和 Runtime 创建正式的 `ProposalCompilerTurn`。应用只需要
-Tool Instance 时可以直接调用 `createMastraIncrementalPresentUiTool()`；只创建 Tool 的 Host 必须自行
-导入并传入 `MASTRA_PRESENT_UI_TRACING_OPTIONS`。Adapter 会在最终确认前使用 Compiler Canonical
-Schema 验证完整输入。无效输入会抛出 `MastraPresentUiInputError`，稳定错误码是
-`mastra.present-ui-input-invalid`。
+Agent Streaming 时，Processor 通过 Mastra 自带的 Processor Writer 写入已经 Commit 的
+`data-openGenerativeSurface` Part，并在 Commit 后移除 `present_ui`。应用不需要 Drain 或转换
+Surface Event。
 
-## 受限的模型与 Transcript 输出
+Processor 会把第一个可用 Host Turn 缓存在 Mastra 的 Request-scoped Processor State 中。
+`resolve` 可以直接调用 `host.prepareTurn()`；应用不需要维护 Per-step Turn Cache。
 
-Adapter 为 Mastra Tool 安装了 `toModelOutput`、Display Transform 与 Transcript Transform。
-原始 Proposal Input、Input Delta、执行结果与校验错误都会被替换成受限摘要。Domain Data Tool
-继续独立存在，Query Row 始终留在服务端 Resource Gateway。
+启用 Mastra Tracing 时必须使用上面的 Tracing Options。Mastra 会在 Display/Transcript
+Transform 前创建 Tool-call Span；这两个选项阻止 Proposal Payload 进入 Trace Input/Output。
 
-Mastra 会在 Per-tool Display/Transcript Transform 执行前创建 Tool-call Observability Span，因此只靠
-这些 Transform 无法保护 Trace Input/Output。凡是安装了这个 Tool 的 `agent.generate()` 或
-`agent.stream()`，都必须传入 `tracingOptions: presentUi.tracingOptions`；Adapter 把 `hideInput`
-和 `hideOutput` 固定为 `true`。如果还要合并其他 Trace 配置，必须先展开其他配置，确保这两个强制
-标志不会被覆盖：
+## 客户端
 
-```ts
-const result = await agent.generate(messages, {
-  tracingOptions: {
-    ...otherTracingOptions,
-    ...presentUi.tracingOptions,
-  },
-});
+使用 Package 自己的 Renderer 渲染 Data Part：
+
+```tsx
+import { OpenGenerativeRenderer } from "@open-generative/ui";
+import "@open-generative/ui/styles.css";
+
+<OpenGenerativeRenderer event={part.data} />
 ```
 
-Executor 仍是宿主集成点。它必须与 `compiled` 使用同一份冻结 Catalog Slice，通过 Canonical
-Compiler/Host Path Commit，并且只发布已经提交的 `SurfaceEventEnvelope`。Mastra 不能扩大本轮的
-Contract Slice、Resource Grant 或 Authority。
+Renderer 内部拥有已验证的 Contract Registry、`SurfaceController`、官方 Renderer Registry、
+Replay、Cleanup、Loading State 与 Command Bridge。只有 Surface 暴露交互时，Host 才需要传入
+`onCommand`。
 
 ```text
-Mastra 1.61 Agent or Workflow
--> validated present_ui proposal
--> shared compiler + Host commit
--> trusted SurfaceEventStream
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
+domain tool -> Resource -> Mastra Processor -> present_ui -> committed data part
+-> OpenGenerativeRenderer
 ```
 
-这个 Package 没有 Browser Export，也没有 `ArtifactPart` 或 `ArtifactRenderer` 兼容层。
+底层 Tool/Session Constructor 仍供自定义 Host 使用，但不属于普通应用接入路径。

@@ -25,8 +25,8 @@ Every component has one immutable, revisioned, framework-neutral
 validators, TypeScript types, renderer requirements, fixtures, documentation,
 and hashes. React implementations register against a complete `ContractRef`;
 they are not part of the canonical protocol. The current Tessera Agent Catalog
-contains only `data.chart`; its 17 designs are a discriminated `spec.recipe`
-union, not 17 Component Contracts.
+contains six analytical Contracts. Its sole chart Contract, `data.chart`, has
+17 designs as a discriminated `spec.recipe` union, not 17 Component Contracts.
 
 Model Proposal, Canonical Document, and Resolved Render Projection are separate representations with separate validation. Streaming applies only complete entities. A transaction follows `begin -> apply -> preview -> finalize -> commit`, preserves last-good on every failure, and permits at most one active preview overlay per Surface.
 

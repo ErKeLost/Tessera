@@ -1,91 +1,74 @@
 ---
 title: AI SDK
-description: Use the implemented AI SDK v7 proposal and trusted Surface-event adapters in Tessera Agent.
+description: Add Open Generative to AI SDK 7.0.77 with one dynamic adapter and one Renderer.
 ---
 
-Tessera Agent integrates AI SDK v7 through `@open-generative/ai-sdk`. The
-package is transport glue around the canonical Generative UI pipeline; it does
-not own Component Contracts, proposal commits, authority, resources, or React
-rendering.
+`@open-generative/ai-sdk` targets AI SDK 7.0.77 and later v7 patches. It does
+not include an AI SDK v6 compatibility path.
 
-The package root exports only wire constants and types. Server and browser code
-must use the explicit `./server` and `./client` entry points so their dependency
-closures remain separate.
+## Server
 
-## Present the model tool
-
-`createPresentUiTool()` creates a real AI SDK v7 tool from the compiler output.
-It validates tool input against the frozen turn schema before calling the
-application-supplied executor. Its `toModelOutput` transform returns a bounded
-acknowledgement, so proposal payloads and query rows do not re-enter model
-context.
+The high-level adapter returns the existing `tools + prepareStep` pair expected
+by AI SDK v7. `resolve` returns a Host Turn, not another UI adapter. Tool schema,
+prompt generation, incremental input, repair, and commit remain package-owned.
 
 ```ts
-import { compilePresentUi } from "@open-generative/compiler";
-import { createPresentUiTool } from "@open-generative/ai-sdk/server";
-import { streamText } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  streamText,
+} from "ai";
+import { createOpenGenerativeHost } from "@open-generative/host";
+import { createOpenGenerativeAISdkAdapter } from "@open-generative/ai-sdk/server";
 
-const compiled = compilePresentUi({ catalog: turnCatalog });
-const presentUi = createPresentUiTool({
-  compiled,
-  execute: acceptPresentUiProposal,
+const host = await createOpenGenerativeHost();
+
+const stream = createUIMessageStream({
+  async execute({ writer }) {
+    const openGenerative = createOpenGenerativeAISdkAdapter({
+      tools: domainTools,
+      writer,
+      resolve: async () => host.prepareTurn({
+        authority,
+        resources: currentResources(),
+        presentationPolicy: "auto",
+      }),
+    });
+
+    const result = streamText({ model, messages, ...openGenerative });
+    writer.merge(result.toUIMessageStream());
+  },
 });
 
-const result = streamText({
-  model,
-  system: compiled.systemPrompt,
-  messages,
-  tools: { ...domainTools, present_ui: presentUi },
-});
-```
-
-`turnCatalog` must be the same frozen, task-scoped Catalog slice used by
-`acceptPresentUiProposal`. That executor connects validated authoring input to
-the shared compiler and Host commit path; it must not publish model tool input
-directly as a trusted event.
-
-## Stream committed Surface events
-
-Only hash-verified `SurfaceEventEnvelope` values can enter the AI SDK data-part
-stream. The adapter uses the transient `data-openGenerativeSurface` part and
-keeps the canonical event unchanged inside `data`.
-
-```ts
-import { createOpenGenerativeUIMessageStream } from "@open-generative/ai-sdk/server";
-import { createUIMessageStreamResponse } from "ai";
-
-const stream = createOpenGenerativeUIMessageStream(surfaceEvents);
 return createUIMessageStreamResponse({ stream });
 ```
 
-Use `toOpenGenerativeSurfaceDataChunk(event)` when composing the event into an
-existing AI SDK UI message stream yourself.
+Before resources exist, only the domain tools are active. On the next AI SDK
+step, the adapter activates `present_ui` and injects the Contract-generated
+instructions. After commit it writes the verified Surface data part and removes
+the tool.
 
-## Consume in the browser
+The adapter caches the first available Host Turn for that `streamText` call, so
+`resolve` may call `host.prepareTurn()` directly without application lifecycle
+state.
 
-The client adapter recognizes the package-owned data part, parses and verifies
-the event payload, then delegates it to the existing `SurfaceController`.
+For non-UI server work, omit `writer` and call `openGenerative.drainEvents()`.
 
-```ts
-import { consumeOpenGenerativeSurfaceDataPart } from "@open-generative/ai-sdk/client";
+## Client
 
-for (const part of message.parts) {
-  await consumeOpenGenerativeSurfaceDataPart(surfaceController, part);
-}
+```tsx
+import { OpenGenerativeRenderer } from "@open-generative/ui";
+import "@open-generative/ui/styles.css";
+
+<OpenGenerativeRenderer event={part.data} />
 ```
 
-For routing without consumption, use
-`isOpenGenerativeSurfaceDataPart()` and
-`decodeOpenGenerativeSurfaceDataPart()`.
-
-The resulting render path remains exactly:
+Use `isOpenGenerativeSurfaceDataPart()` when routing mixed AI SDK parts. The
+canonical render path remains one chain:
 
 ```text
-AI SDK v7 data part
--> verified SurfaceEventEnvelope
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
+AI SDK v7 -> verified Surface data part -> OpenGenerativeRenderer
 ```
 
-There is no `ArtifactPart`, `ArtifactRenderer`, or legacy compatibility path.
+Low-level tool constructors remain available for custom Hosts; ordinary users
+do not compile or maintain a component prompt.

@@ -39,8 +39,8 @@ Raw model output never reaches React.
 | Resource data | `@open-generative/resources` | Server-only schemas, grants, projections, windows, and evidence |
 | Effects | `@open-generative/capabilities` | Server-only action policy, approval, idempotency, effects, and receipts |
 | React binding | `@open-generative/react` | `GenerativeSurface`, exact `RendererRegistry`, placement, and system surfaces |
-| Data-agent contract | `@open-generative/components` | The `data.chart` contract, strict recipe union, resource schemas, and fixtures |
-| Data-agent UI | `@open-generative/ui` | The official shadcn/Recharts `data.chart` renderer and registry factory |
+| Data-agent contracts | `@open-generative/components` | Six analytical Contracts, the strict chart recipe union, resource schemas, and fixtures |
+| Data-agent UI | `@open-generative/ui` | Official shadcn/Recharts analytical renderers and registry factory |
 
 Framework adapters may translate transport details, but they cannot own or
 replace these semantics. Browser code must not import compiler, server,
@@ -48,8 +48,10 @@ resource, capability, credentials, prompt examples, or signing material.
 
 ## Current Component Contract slice
 
-The Tessera Agent proof Catalog contains one Component Contract: `data.chart`.
-Its `spec.recipe` field is a strict discriminated union of 17 product designs.
+The Tessera Agent proof Catalog contains six Component Contracts:
+`analysis.report`, `layout.stack`, `layout.grid`, `data.metric`,
+`analysis.insight`, and `data.chart`. The chart Contract's `spec.recipe` field
+is a strict discriminated union of 17 product designs.
 Steps, funnel, Sankey, scatter, radial, radar, calendar, area, heatmap, combo,
 device, and ring treatments are recipes inside that Contract, not component
 types and not arbitrary React props.

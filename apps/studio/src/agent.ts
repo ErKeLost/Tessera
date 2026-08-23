@@ -1,6 +1,9 @@
 import { toAISdkStream } from "@mastra/ai-sdk";
-import { toOpenGenerativeSurfaceDataChunk } from "@open-generative/ai-sdk/server";
 import type { OpenGenerativeHost } from "@open-generative/host";
+import {
+  MASTRA_PRESENT_UI_TRACING_OPTIONS,
+  createOpenGenerativeMastraProcessor,
+} from "@open-generative/mastra";
 import { Agent, type MastraDBMessage } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import type { MastraModelConfig } from "@mastra/core/llm";
@@ -49,7 +52,10 @@ import {
 } from "./public-text";
 import { normalizeResultValue } from "./result-value";
 import { LOCAL_STUDIO_IDENTITY, tesseraSessionResourceId } from "./session-memory";
-import { createTesseraDataChartPresentation } from "./generative/presentation";
+import {
+  createTesseraDataResources,
+  createTesseraPresentationAuthority,
+} from "./generative/presentation";
 import type {
   TesseraExecuteSqlToolOutput,
   TesseraListCatalogToolOutput,
@@ -2130,6 +2136,7 @@ function createDataCopilotAgent(context: Readonly<{
   permissionContext?: TesseraAgentPermissionContext;
   databaseActions?: TesseraDatabaseActionService;
   databaseDialect?: DatabaseDialect;
+  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
 }>): Agent {
   const loadSchemaContext = async (refresh: boolean) => {
     const snapshot = await context.dataAgent.inspectCatalog({ refresh }, context.input.signal);
@@ -2147,6 +2154,18 @@ function createDataCopilotAgent(context: Readonly<{
     message: "The database catalog could not be loaded or refreshed. Do not infer that the database, schema, or relation is empty or missing.",
     nextAction: "respond_without_existence_claim" as const,
   });
+
+  const resolveGenerativeTurn = async () => {
+    if (!context.generativeHost || context.runtime.analyses.length === 0) return undefined;
+    const host = await context.generativeHost;
+    if (!host) return undefined;
+    return host.prepareTurn({
+      authority: createTesseraPresentationAuthority(context.input.identity ?? LOCAL_STUDIO_IDENTITY),
+      resources: createTesseraDataResources({ analyses: context.runtime.analyses }),
+      presentationPolicy: "required",
+      title: "Tessera analysis",
+    });
+  };
 
   const listDatabase = createTool({
     id: "list_database",
@@ -2774,6 +2793,9 @@ function createDataCopilotAgent(context: Readonly<{
           context.runtime.schemaSemanticCatalog = semanticCatalog;
         },
       }),
+      createOpenGenerativeMastraProcessor({
+        resolve: async () => resolveGenerativeTurn(),
+      }),
     ],
     instructions: buildDataCopilotInstructions(),
     // The object keys are the public tool ids that the AI SDK stream exposes.
@@ -2850,7 +2872,7 @@ Base data answers on verified execution output. Catalog and schema metadata guid
 </evidence_policy>
 
 <response_contract>
-Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not emit HTML, script tags, ECharts configuration, or other visualization code as a substitute for a rendered connected-data result; Studio automatically presents supported governed analysis results through its trusted renderer. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
+Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not emit HTML, script tags, ECharts configuration, or other visualization code. When a trusted presentation tool is available, use it so the result reaches the trusted renderer instead of describing UI code. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
 </response_contract>
 `;
 }
@@ -2875,6 +2897,7 @@ function copilotGenerationOptions(
       maxOutputTokens: llm.maxOutputTokens,
       temperature: llm.temperature,
     },
+    tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
     // Settings own the effort. Omit the provider option for models that do not
     // expose an effort control or when the user chose the provider default.
     ...(typeof llm.model === "string" && llm.model.startsWith("openrouter/") && llm.reasoningEffort !== undefined ? {
@@ -3458,6 +3481,7 @@ function streamTesseraAgentTurnUI(
             permissionContext,
             databaseActions,
             databaseDialect,
+            generativeHost,
           });
           // A browser can reconnect after the original SSE has gone away, so
           // the run id carried by its button is only a hint. Mastra persists
@@ -3492,11 +3516,7 @@ function streamTesseraAgentTurnUI(
             async (message) => {
               try {
                 await persistCompletedCopilotTurn(memory, executionInput, message);
-                return await presentLatestCompletedAnalysis({
-                  runtime,
-                  input: executionInput,
-                  generativeHost,
-                });
+                return undefined;
               } catch (error) {
                 reportAgentDiagnostic(input, { phase: "persistence", error });
                 throw error;
@@ -3789,30 +3809,6 @@ export function appendCopilotOutcome(
       streamController.enqueue({ type: "finish", finishReason: "error" });
     },
   }));
-}
-
-async function presentLatestCompletedAnalysis(input: Readonly<{
-  runtime: CopilotRuntime;
-  input: StudioAgentRunInput;
-  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
-}>): Promise<TesseraUIMessageChunk | undefined> {
-  const analysis = input.runtime.analyses.at(-1);
-  if (!analysis || !input.generativeHost) return undefined;
-  try {
-    const presentation = createTesseraDataChartPresentation({
-      analysis,
-      identity: input.input.identity ?? LOCAL_STUDIO_IDENTITY,
-    });
-    if (!presentation) return undefined;
-    const host = await input.generativeHost;
-    if (!host) return undefined;
-    const surface = await host.presentDataChart(presentation);
-    return await toOpenGenerativeSurfaceDataChunk(surface.event) as TesseraUIMessageChunk;
-  } catch (error) {
-    // Presentation is additive: a completed answer must remain successful.
-    reportAgentDiagnostic(input.input, { phase: "presentation", error });
-    return undefined;
-  }
 }
 
 /** An empty or whitespace-only model turn must never be reported as a completed answer. */

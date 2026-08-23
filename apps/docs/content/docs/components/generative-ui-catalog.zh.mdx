@@ -4,8 +4,9 @@ description: 为分析界面设计的 17 个图表 Recipe。
 full: true
 ---
 
-Catalog 只有一个公开 Component Contract：`data.chart`。它通过 `spec.recipe` Discriminant
-选择 17 种完整分析设计之一：
+Catalog 有六个公开 Component Contract。本页聚焦其中唯一的 Chart Contract：`data.chart`；
+`analysis.report`、`layout.stack`、`layout.grid`、`data.metric` 与 `analysis.insight` 负责把图表
+组合成完整分析答案。`data.chart` 通过 `spec.recipe` Discriminant 选择 17 种设计之一：
 
 1. Steps Bars
 2. Pipeline Stage Bars

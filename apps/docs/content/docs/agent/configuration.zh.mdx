@@ -27,9 +27,9 @@ Resource Grant、Limit、Locale、Timezone 与 Renderer Capability Manifest。
 
 ## Data Agent Profile
 
-当前产品 Profile 固定为一个 `data.chart` Component Contract 与 17 个经过审计的 Recipe。
-这些 Recipe 在同一 Contract 上组成严格 Discriminated Union；它们不是额外协议组件类型，
-也不能注入任意展示属性。
+当前产品 Profile 固定为六个分析 Component Contract；其中唯一的 Chart Contract `data.chart`
+包含 17 个经过审计的 Recipe。这些 Recipe 在同一 Contract 上组成严格 Discriminated Union；
+它们不是额外协议组件类型，也不能注入任意展示属性。
 
 Query Row 始终留在 Resource Gateway。模型只能看到受限、经过 Policy 批准的 Descriptor 与
 Binding Reference。可信事件到达 `SurfaceController` 后，Renderer Props 才会按单个 Node 解析。

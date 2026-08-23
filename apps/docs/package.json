@@ -11,7 +11,7 @@
     "lint": "oxlint src"
   },
   "dependencies": {
-    "@ai-sdk/react": "4.0.79",
+    "@ai-sdk/react": "4.0.80",
     "@fumadocs/language": "0.2.2",
     "@gsap/react": "2.1.2",
     "@iconify-icons/simple-icons": "1.2.74",
@@ -31,7 +31,7 @@
     "@streamdown/mermaid": "1.0.2",
     "@upstash/ratelimit": "2.0.8",
     "@upstash/redis": "1.36.1",
-    "ai": "7.0.76",
+    "ai": "7.0.77",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cnfast": "0.1.0",

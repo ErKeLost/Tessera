@@ -1,105 +1,80 @@
 ---
 title: Mastra
-description: Use the implemented server-only Mastra 1.61 present_ui adapter in Tessera Agent.
+description: Add Open Generative to a current Mastra 1.61 agent with one Processor and one Renderer.
 ---
 
-`@open-generative/mastra` is the implemented server-only adapter for Mastra
-1.61. It calls Mastra's real `createTool()` API and turns compiler output into a
-request-scoped `present_ui` tool without creating another protocol, compiler,
-runtime, or renderer.
+`@open-generative/mastra` targets the current Mastra 1.61 Processor API only.
+Applications do not compile component schemas, maintain UI prompts, register one
+tool per component, or manage proposal transactions.
 
-## Create the turn adapter
+## Server
 
-`createMastraIncrementalPresentUi()` returns the values that must stay together
-for the turn: the compiler system prompt, the exact compiled contract,
-`tools.present_ui`, and the mandatory tracing options. Its three Mastra 1.61
-input hooks feed complete operation frames into the same incremental compiler
-session that `execute` finalizes.
+Create one Host and add one Processor to the existing Agent. `resolve` returns
+`undefined` until a domain tool has produced renderable resources; the Processor
+then builds and injects the single turn-scoped `present_ui` tool automatically.
 
 ```ts
-import {
-  compilePresentUi,
-  createIncrementalPresentUiCompilerSession,
-} from "@open-generative/compiler";
-import { createMastraIncrementalPresentUi } from "@open-generative/mastra";
 import { Agent } from "@mastra/core/agent";
+import { createOpenGenerativeHost } from "@open-generative/host";
+import {
+  MASTRA_PRESENT_UI_TRACING_OPTIONS,
+  createOpenGenerativeMastraProcessor,
+} from "@open-generative/mastra";
 
-const compiled = compilePresentUi({ catalog: turnCatalog });
-const presentUi = createMastraIncrementalPresentUi({
-  compiled,
-  maxAttempts: 3,
-  createSession: ({ toolCallId, abortSignal }) =>
-    createIncrementalPresentUiCompilerSession({
-      compiled,
-      turn: createTurnForRequest({ toolCallId, abortSignal }),
-    }),
+const host = await createOpenGenerativeHost();
+const openGenerative = createOpenGenerativeMastraProcessor({
+  resolve: async () => host.prepareTurn({
+    authority,
+    resources: currentResources(),
+    presentationPolicy: "auto",
+  }),
 });
 
 const agent = new Agent({
-  id: "tessera-data-agent",
-  name: "Tessera Data Agent",
+  id: "data-agent",
+  name: "Data Agent",
   model,
-  instructions: presentUi.system,
-  tools: { ...domainTools, ...presentUi.tools },
+  tools: domainTools,
+  inputProcessors: [openGenerative],
 });
 
-// Use one execution mode per request. Both must carry the tracing gate.
-const result = await agent.generate(messages, {
-  tracingOptions: presentUi.tracingOptions,
-});
 const stream = await agent.stream(messages, {
-  tracingOptions: presentUi.tracingOptions,
+  tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
 });
 ```
 
-`createTurnForRequest()` above is the Tessera Host composition helper that
-constructs the official `ProposalCompilerTurn` with the request's frozen
-Catalog slice, authority, transaction, and runtime. Use
-`createMastraIncrementalPresentUiTool()` when the application only needs the
-Tool instance; tool-only hosts must import and pass
-`MASTRA_PRESENT_UI_TRACING_OPTIONS` themselves. The adapter validates complete
-input against the compiler's canonical schema before finalization. Invalid input throws
-`MastraPresentUiInputError` with the stable code
-`mastra.present-ui-input-invalid`.
+When the Agent streams, the Processor writes the committed
+`data-openGenerativeSurface` part through Mastra's own Processor writer. It
+removes `present_ui` after commit. The application does not drain or translate
+Surface events.
 
-## Bounded model and transcript output
+The Processor caches the first available Host Turn in Mastra's request-scoped
+processor state. `resolve` may call `host.prepareTurn()` directly; applications
+do not keep a per-step Turn cache.
 
-The adapter installs `toModelOutput`, display transforms, and transcript
-transforms on the Mastra Tool. Raw proposal input, input deltas, execution
-output, and validation errors are replaced with bounded summaries. Domain data
-tools stay separate; query rows remain in the server-side Resource Gateway.
+The tracing options are required whenever Mastra tracing is active because
+Mastra creates tool-call spans before display and transcript transforms run.
+They prevent proposal payloads from entering trace input or output.
 
-Mastra creates tool-call observability spans before per-tool display and
-transcript transforms run. For that reason, those transforms cannot protect
-trace input or output by themselves. Every `agent.generate()` or
-`agent.stream()` call that installs this tool must pass
-`tracingOptions: presentUi.tracingOptions`; the adapter fixes both
-`hideInput` and `hideOutput` to `true`. When combining other trace settings,
-spread them first so these two required flags cannot be overridden:
+## Client
 
-```ts
-const result = await agent.generate(messages, {
-  tracingOptions: {
-    ...otherTracingOptions,
-    ...presentUi.tracingOptions,
-  },
-});
+Render the data part with the package-owned Renderer:
+
+```tsx
+import { OpenGenerativeRenderer } from "@open-generative/ui";
+import "@open-generative/ui/styles.css";
+
+<OpenGenerativeRenderer event={part.data} />
 ```
 
-The executor is still the host integration point. It must use the same frozen
-Catalog slice as `compiled`, commit through the canonical compiler/Host path,
-and publish only committed `SurfaceEventEnvelope` values. Mastra cannot expand
-the turn's Contract slice, resource grants, or authority.
+The Renderer owns the verified Contract Registry, `SurfaceController`, official
+Renderer Registry, replay, cleanup, loading state, and command bridge. A Host
+only supplies `onCommand` when the surface exposes interactions.
 
 ```text
-Mastra 1.61 Agent or Workflow
--> validated present_ui proposal
--> shared compiler + Host commit
--> trusted SurfaceEventStream
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
+domain tool -> Resource -> Mastra Processor -> present_ui -> committed data part
+-> OpenGenerativeRenderer
 ```
 
-The package has no browser export and no `ArtifactPart` or `ArtifactRenderer`
-compatibility layer.
+Low-level tool/session constructors remain available for custom Hosts, but they
+are not part of the normal application integration.

@@ -1,84 +1,70 @@
 ---
 title: AI SDK
-description: 在 Tessera Agent 中使用已经实现的 AI SDK v7 Proposal 与可信 Surface Event Adapter。
+description: 使用一个动态 Adapter 和一个 Renderer，把 Open Generative 接入 AI SDK 7.0.77。
 ---
 
-Tessera Agent 通过 `@open-generative/ai-sdk` 接入 AI SDK v7。这个 Package 只负责把 Framework
-Transport 接到 Canonical Generative UI Pipeline；Component Contract、Proposal Commit、权限、
-Resource 与 React Renderer 仍由各自的 Canonical Package 负责。
+`@open-generative/ai-sdk` 面向 AI SDK 7.0.77 及后续 v7 Patch，不提供 AI SDK v6 兼容路径。
 
-Package Root 只导出 Wire Constant 与 Type。服务端与浏览器必须分别使用显式的 `./server` 和
-`./client` Entry，确保两侧依赖闭包保持隔离。
+## 服务端
 
-## 创建模型 Tool
-
-`createPresentUiTool()` 使用 Compiler Output 创建真正的 AI SDK v7 Tool。它先按照本轮冻结的
-Schema 校验 Tool Input，再调用应用提供的 Executor。`toModelOutput` 只向模型返回受限确认信息，
-原始 Proposal Payload 和 Query Row 不会重新进入 Model Context。
+高层 Adapter 直接返回 AI SDK v7 使用的 `tools + prepareStep`。`resolve` 返回 Host Turn，
+不是另一层 UI Adapter。Tool Schema、Prompt 生成、Incremental Input、Repair 与 Commit 全部由
+Package 内部负责。
 
 ```ts
-import { compilePresentUi } from "@open-generative/compiler";
-import { createPresentUiTool } from "@open-generative/ai-sdk/server";
-import { streamText } from "ai";
+import {
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  streamText,
+} from "ai";
+import { createOpenGenerativeHost } from "@open-generative/host";
+import { createOpenGenerativeAISdkAdapter } from "@open-generative/ai-sdk/server";
 
-const compiled = compilePresentUi({ catalog: turnCatalog });
-const presentUi = createPresentUiTool({
-  compiled,
-  execute: acceptPresentUiProposal,
+const host = await createOpenGenerativeHost();
+
+const stream = createUIMessageStream({
+  async execute({ writer }) {
+    const openGenerative = createOpenGenerativeAISdkAdapter({
+      tools: domainTools,
+      writer,
+      resolve: async () => host.prepareTurn({
+        authority,
+        resources: currentResources(),
+        presentationPolicy: "auto",
+      }),
+    });
+
+    const result = streamText({ model, messages, ...openGenerative });
+    writer.merge(result.toUIMessageStream());
+  },
 });
 
-const result = streamText({
-  model,
-  system: compiled.systemPrompt,
-  messages,
-  tools: { ...domainTools, present_ui: presentUi },
-});
-```
-
-`turnCatalog` 必须与 `acceptPresentUiProposal` 使用同一份按任务裁剪并冻结的 Catalog Slice。
-Executor 负责把已验证 Authoring Input 接到共享 Compiler 与 Host Commit Path；不能把模型 Tool
-Input 直接发布成可信 Event。
-
-## 传输已提交 Surface Event
-
-只有 Hash 验证成功的 `SurfaceEventEnvelope` 才能进入 AI SDK Data Part Stream。Adapter 使用
-Transient `data-openGenerativeSurface` Part，Canonical Event 保持原样放在 `data` 中。
-
-```ts
-import { createOpenGenerativeUIMessageStream } from "@open-generative/ai-sdk/server";
-import { createUIMessageStreamResponse } from "ai";
-
-const stream = createOpenGenerativeUIMessageStream(surfaceEvents);
 return createUIMessageStreamResponse({ stream });
 ```
 
-需要把 Event 合并到应用自己的 AI SDK UI Message Stream 时，使用
-`toOpenGenerativeSurfaceDataChunk(event)`。
+Resource 尚未就绪时，只有 Domain Tool 处于 Active 状态。下一个 AI SDK Step 中，Adapter 自动
+启用 `present_ui` 并注入 Contract 生成的 Instructions。Commit 后，它写入已验证的 Surface
+Data Part 并移除该 Tool。
 
-## 浏览器消费
+Adapter 会在本次 `streamText` 调用中缓存第一个可用 Host Turn，因此 `resolve` 可以直接调用
+`host.prepareTurn()`，应用不需要维护额外生命周期状态。
 
-Client Adapter 先识别 Package 专属 Data Part，再 Parse 并验证 Event Payload，最后交给现有
-`SurfaceController`。
+非 UI 服务端任务可以省略 `writer`，再调用 `openGenerative.drainEvents()`。
 
-```ts
-import { consumeOpenGenerativeSurfaceDataPart } from "@open-generative/ai-sdk/client";
+## 客户端
 
-for (const part of message.parts) {
-  await consumeOpenGenerativeSurfaceDataPart(surfaceController, part);
-}
+```tsx
+import { OpenGenerativeRenderer } from "@open-generative/ui";
+import "@open-generative/ui/styles.css";
+
+<OpenGenerativeRenderer event={part.data} />
 ```
 
-只需要分流或解码时，使用 `isOpenGenerativeSurfaceDataPart()` 与
-`decodeOpenGenerativeSurfaceDataPart()`。
-
-最终渲染路径仍然只有一条：
+混合处理 AI SDK Parts 时使用 `isOpenGenerativeSurfaceDataPart()` 分流。Canonical Render Path
+仍然只有一条：
 
 ```text
-AI SDK v7 data part
--> verified SurfaceEventEnvelope
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
+AI SDK v7 -> verified Surface data part -> OpenGenerativeRenderer
 ```
 
-这里没有 `ArtifactPart`、`ArtifactRenderer` 或旧兼容路径。
+底层 Tool Constructor 仍供自定义 Host 使用；普通用户不需要编译或维护组件 Prompt。

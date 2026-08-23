@@ -16,7 +16,7 @@
 
 ## 2. 当前组件边界
 
-当前官方 Catalog 只设计 Tessera Agent 当前真正需要的一个 Component：`data.chart`。它只接收严格 ChartSpec 和一个 Resource-backed Dataset binding，不接收内联 rows、样式、renderer props 或可执行内容。
+当前官方 Catalog 只设计 Tessera Agent 当前真正需要的六个分析 Component：`analysis.report`、`layout.stack`、`layout.grid`、`data.metric`、`analysis.insight` 与 `data.chart`。前五个负责分析内容组合；唯一的 Chart Contract `data.chart` 只接收严格 ChartSpec 和一个 Resource-backed Dataset binding，不接收内联 rows、样式、renderer props 或可执行内容。
 
 当前锁定 17 个 `spec.recipe`：`steps-bars`、`pipeline-stage-bars`、`sleep-score`、`revenue-per-account-scatter`、`tracked-time-sankey`、`visitors-radial`、`visitors-radar`、`activity-calendar`、`revenue-smooth-area`、`active-users-heatmap`、`sign-up-funnel`、`earned-so-far-bars`、`contributions-heatmap`、`sessions-conversion-combo`、`devices-bars`、`visitors-stacked-area`、`activity-rings`。
 
@@ -109,7 +109,7 @@
 
 产物必须可在无生产 credential 的 CI 中重放；真实 provider eval 可以作为受控外部 job，但其输入 profile 和输出摘要必须版本化。
 
-当前 Tessera Agent 文档站同时提供一层可执行 reference proof：服务端 API 必须通过真实 Resource Gateway 完成 pinned publication、grant、projection 与 resolve，再发布携带 `ResourceResolutionIdentity` 的 trusted Surface snapshot；浏览器只允许经 `SurfaceController -> GenerativeSurface -> verified RendererRegistry` 消费。该证明固定覆盖唯一 `data.chart` Contract 与全部 17 个 recipe，并断言 identity-only refs、统一 Dataset Envelope、manifest integrity 和 no-payload Document。它是确定性的协议/渲染证明，不替代第 5 项要求的真实浏览器 visual regression 与 accessibility 产物。
+当前 Tessera Agent 文档站同时提供一层可执行 reference proof：服务端 API 必须通过真实 Resource Gateway 完成 pinned publication、grant、projection 与 resolve，再发布携带 `ResourceResolutionIdentity` 的 trusted Surface snapshot；浏览器只允许经 `SurfaceController -> GenerativeSurface -> verified RendererRegistry` 消费。该证明固定覆盖六个官方 Contract、唯一的 `data.chart` Chart Contract 与全部 17 个 recipe，并断言 identity-only refs、统一 Dataset Envelope、manifest integrity 和 no-payload Document。它是确定性的协议/渲染证明，不替代第 5 项要求的真实浏览器 visual regression 与 accessibility 产物。
 
 ## 9. 与 Tessera Agent 的接入边界
 

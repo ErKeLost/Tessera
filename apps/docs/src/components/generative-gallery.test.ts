@@ -36,8 +36,15 @@ describe("Tessera Agent data.chart documentation proof", () => {
       officialChartSpecFixtures.map(fixture => fixture.recipeName),
     );
     const catalog = await createOfficialCatalog();
-    expect(catalog.componentContracts).toHaveLength(1);
-    expect(String(catalog.componentContracts[0]?.ref.componentType)).toBe("data.chart");
+    expect(catalog.componentContracts.map(contract => String(contract.ref.componentType)).sort())
+      .toEqual([
+        "analysis.insight",
+        "analysis.report",
+        "data.chart",
+        "data.metric",
+        "layout.grid",
+        "layout.stack",
+      ]);
 
     for (const descriptor of generativeGalleryConformanceDescriptors) {
       const proof = await createGenerativeGalleryProofCase(descriptor);
@@ -45,8 +52,10 @@ describe("Tessera Agent data.chart documentation proof", () => {
       try {
         expect(fixture.result.status).toBe("applied");
         expect(fixture.result.snapshot.status).toBe("ready");
-        expect(fixture.registry.size).toBe(1);
-        const registration = fixture.registry.entries()[0];
+        expect(fixture.registry.size).toBe(6);
+        const registration = fixture.registry.entries().find(
+          entry => String(entry.contract.componentType) === "data.chart",
+        );
         expect(registration?.integrity?.rendererCapabilityManifestHash).toBe(
           sha256HashSchema.parse(rendererManifest.manifestHash),
         );
