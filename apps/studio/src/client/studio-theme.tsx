@@ -9,6 +9,7 @@ import {
   type PropsWithChildren,
 } from "react";
 import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button";
+import { SwipeThemeProvider, useSwipeTheme } from "./components/ui/swipe-theme-provider";
 
 export type StudioThemePreference = "system" | "light" | "dark";
 export type ResolvedStudioTheme = Exclude<StudioThemePreference, "system">;
@@ -55,7 +56,19 @@ export function StudioThemeProvider({ children }: PropsWithChildren) {
     [preference, resolvedTheme, setPreference],
   );
 
-  return <StudioThemeContext.Provider value={value}>{children}</StudioThemeContext.Provider>;
+  return (
+    <StudioThemeContext.Provider value={value}>
+      <SwipeThemeProvider
+        angle={8}
+        direction="top-right"
+        duration={650}
+        onThemeChange={setPreference}
+        theme={resolvedTheme}
+      >
+        {children}
+      </SwipeThemeProvider>
+    </StudioThemeContext.Provider>
+  );
 }
 
 export function useStudioTheme(): StudioThemeContextValue {
@@ -65,7 +78,8 @@ export function useStudioTheme(): StudioThemeContextValue {
 }
 
 export function StudioThemePicker() {
-  const { resolvedTheme, setPreference } = useStudioTheme();
+  const { resolvedTheme } = useStudioTheme();
+  const { isAnimating, triggerSwipe } = useSwipeTheme();
   const nextTheme = resolvedTheme === "dark" ? "light" : "dark";
   const label = nextTheme === "dark" ? "Switch to dark theme" : "Switch to light theme";
 
@@ -73,7 +87,8 @@ export function StudioThemePicker() {
     <TooltipIconButton
       aria-label={label}
       className="studio-theme-picker"
-      onClick={() => setPreference(nextTheme)}
+      disabled={isAnimating}
+      onClick={() => triggerSwipe("top-right")}
       tooltip={label}
       type="button"
     >
