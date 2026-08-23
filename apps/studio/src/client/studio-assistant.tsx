@@ -67,7 +67,7 @@ import { ReasoningPanel } from "./components/elements/reasoning-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
 import { useStudioSettingsQuery } from "./queries/studio-queries";
-import { tesseraStudioToolkit } from "./tessera-toolkit";
+import { TesseraToolFallback, tesseraStudioToolkit } from "./tessera-toolkit";
 import { OpenGenerativeSurfaceDataRenderer } from "./open-generative-surface";
 
 const tesseraStudioAssistantConfig = AuiConfig({
@@ -400,7 +400,7 @@ function StudioAssistantMessage() {
                 case "reasoning":
                   return <Reasoning {...part} />;
                 case "tool-call":
-                  return part.toolUI ?? null;
+                  return part.toolUI ?? <TesseraToolFallback {...part} />;
                 case "data":
                   return part.dataRendererUI ?? <></>;
                 case "indicator":

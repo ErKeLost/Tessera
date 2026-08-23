@@ -30,11 +30,13 @@ import { ToolCall } from "./components/elements/tool-call";
 
 type SafeToolResult = Record<string, unknown>;
 type ApprovalState = "loading" | "idle" | "working" | "approved" | "rejected" | "failed";
-type NativeToolProps = ToolCallMessagePartProps<Record<string, unknown>, SafeToolResult>;
+type NativeToolProps = ToolCallMessagePartProps<Record<string, unknown>, unknown>;
 
-const NativeTesseraTool: ToolCallMessagePartComponent<Record<string, unknown>, SafeToolResult> = (props) => (
+export const TesseraToolFallback: ToolCallMessagePartComponent<Record<string, unknown>, unknown> = (props) => (
   <TesseraToolCall {...props} />
 );
+
+const NativeTesseraTool = TesseraToolFallback;
 
 function TesseraToolCall({
   args,
@@ -43,15 +45,16 @@ function TesseraToolCall({
   status,
   toolName,
 }: NativeToolProps) {
+  const safeResult = asSafeToolResult(result);
   const running = status.type === "running";
-  const failedResult = result?.error === true
-    || typeof result?.error === "string"
-    || result?.status === "failed"
-    || result?.status === "blocked"
-    || result?.status === "rejected"
-    || result?.status === "unavailable";
+  const failedResult = safeResult?.error === true
+    || typeof safeResult?.error === "string"
+    || safeResult?.status === "failed"
+    || safeResult?.status === "blocked"
+    || safeResult?.status === "rejected"
+    || safeResult?.status === "unavailable";
   const failed = status.type === "incomplete" || failedResult;
-  const initialApprovalHandles = sqlApprovalHandles(result);
+  const initialApprovalHandles = sqlApprovalHandles(safeResult);
   const [approvalState, setApprovalState] = useState<ApprovalState>(
     initialApprovalHandles === undefined ? "idle" : "loading",
   );
@@ -141,7 +144,7 @@ function TesseraToolCall({
           effect={effect}
           retrying={retrying}
           state={approvalState}
-          result={result}
+          result={safeResult}
           onApprove={() => void respondToApproval("approve")}
           onReject={() => void respondToApproval("reject")}
           onRetry={() => void retryApproval()}
@@ -346,6 +349,12 @@ function formatToolValue(value: unknown): string | undefined {
   return JSON.stringify(value, null, 2);
 }
 
+function asSafeToolResult(value: unknown): SafeToolResult | undefined {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? value as SafeToolResult
+    : undefined;
+}
+
 function sqlApprovalHandles(result: SafeToolResult | undefined): Readonly<{ requestId: string; checkpointId: string }> | undefined {
   return result?.status === "approval_required"
     && typeof result.requestId === "string"
@@ -386,6 +395,14 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
     type: "backend" as const,
     render: NativeTesseraTool,
   },
+  list_extensions: {
+    type: "backend" as const,
+    render: NativeTesseraTool,
+  },
+  list_rls_policies: {
+    type: "backend" as const,
+    render: NativeTesseraTool,
+  },
   list_catalog: {
     type: "backend" as const,
     render: NativeTesseraTool,
@@ -395,6 +412,10 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
     render: NativeTesseraTool,
   },
   run_analysis: {
+    type: "backend" as const,
+    render: NativeTesseraTool,
+  },
+  present_ui: {
     type: "backend" as const,
     render: NativeTesseraTool,
   },
