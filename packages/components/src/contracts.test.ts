@@ -8,11 +8,13 @@ import {
 } from "./contracts";
 
 describe("official component catalog", () => {
-  test("contains only the governed data.chart contract", async () => {
+  test("contains the governed analytical component contracts", async () => {
     const catalog = await createOfficialCatalog();
     const packageJson = await Bun.file(new URL("../package.json", import.meta.url)).json();
     expect(String(OFFICIAL_CATALOG_REVISION)).toBe(packageJson.version);
-    expect(catalog.componentContracts.map((contract) => String(contract.ref.componentType))).toEqual(["data.chart"]);
+    expect(catalog.componentContracts.map((contract) => String(contract.ref.componentType))).toEqual([
+      "data.chart", "data.metric", "analysis.insight", "layout.stack", "layout.grid", "analysis.report",
+    ]);
     expect(catalog.actionContracts).toEqual([]);
     expect(catalog.components.dataChart.slots).toEqual({});
     expect(catalog.components.dataChart.events).toEqual({});
@@ -40,7 +42,7 @@ describe("official component catalog", () => {
     expect(left.manifest).toEqual(right.manifest);
     expect(left.components.dataChart.ref).toEqual(right.components.dataChart.ref);
     const projection = await createOfficialBrowserCatalogProjection(left);
-    expect(projection.components).toHaveLength(1);
+    expect(projection.components).toHaveLength(6);
     expect(projection.actions).toHaveLength(0);
     expect("prompt" in projection.components[0]!).toBe(false);
     expect("authoringBindings" in projection.components[0]!).toBe(false);

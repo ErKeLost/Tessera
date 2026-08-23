@@ -47,7 +47,7 @@ export const goldenPromptCaseSchema = z.object({
   resource: goldenResourceDescriptorSchema,
   expected: z.object({
     primaryView: officialComponentTypeSchema,
-    components: z.tuple([officialComponentTypeSchema]),
+    components: z.array(officialComponentTypeSchema).min(1).max(128),
     recipe: chartRecipeSchema,
     assertions: z.array(proofAssertionTokenSchema).length(proofAssertionTokens.length),
   }).strict(),
@@ -184,7 +184,7 @@ export const deterministicProofReportSchema = z.object({
   proofVersion: z.literal(TESSERA_PROOF_VERSION),
   goldenCaseCount: z.literal(17),
   taskFamilyCounts: z.record(proofTaskFamilySchema, z.literal(1)),
-  componentContractCount: z.literal(1),
+  componentContractCount: z.number().int().positive(),
   chartRecipeCount: z.literal(17),
   rendererExpectationCount: z.literal(17),
   accessibilityFixtureCount: z.literal(17),

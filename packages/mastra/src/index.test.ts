@@ -6,12 +6,22 @@ import type {
   PresentUiAuthoringInput,
 } from "@open-generative/compiler";
 import type { ToolExecutionContext, ToolObserve } from "@mastra/core/tools";
-import { revisionIdSchema, sha256HashSchema } from "@open-generative/protocol";
+import {
+  HASH_DOMAINS,
+  OPEN_GENERATIVE_PROTOCOL_REVISION,
+  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+  hashCanonical,
+  revisionIdSchema,
+  sha256HashSchema,
+  surfaceEventEnvelopeSchema,
+} from "@open-generative/protocol";
 import { z } from "zod";
 import {
   MASTRA_PRESENT_UI_TRACING_OPTIONS,
   createMastraIncrementalPresentUi,
   createMastraPresentUi,
+  createMastraPresentUiProcessor,
+  createOpenGenerativeMastraProcessor,
   type MastraPresentUiIncrementalContext,
 } from "./index";
 
@@ -188,6 +198,115 @@ describe("Mastra 1.61 present_ui adapter", () => {
       loggerVNext: undefined,
       metrics: undefined,
     });
+  });
+
+  test("injects the turn-scoped tool and generated prompt only after resources are ready", async () => {
+    const adapter = createMastraPresentUi({ compiled, execute: async () => ({ accepted: true }) });
+    let ready = false;
+    const processor = createMastraPresentUiProcessor({
+      resolve: () => ready ? adapter : undefined,
+    });
+    const args: any = {
+      stepNumber: 0,
+      messages: [],
+      messageList: {},
+      systemMessages: [{ role: "system", content: "Base instructions." }],
+      state: {},
+      steps: [],
+      model: "openai/test",
+      tools: { run_analysis: { id: "run_analysis" } },
+      activeTools: ["run_analysis"],
+      retryCount: 0,
+      abort: () => { throw new Error("aborted"); },
+    };
+
+    expect(await processor.processInputStep?.(args)).toBeUndefined();
+    ready = true;
+    const injected = await processor.processInputStep?.(args) as any;
+    expect(injected.tools.run_analysis.id).toBe("run_analysis");
+    expect(injected.tools.present_ui).toBe(adapter.tools.present_ui);
+    expect(injected.activeTools).toEqual(["run_analysis", "present_ui"]);
+    expect(injected.systemMessages).toHaveLength(2);
+    expect(injected.systemMessages[1].content).toContain("Use present_ui.");
+
+    const reinjected = await processor.processInputStep?.({
+      ...args,
+      systemMessages: injected.systemMessages,
+      tools: injected.tools,
+      activeTools: injected.activeTools,
+    } as never) as any;
+    expect(reinjected.systemMessages).toHaveLength(2);
+  });
+
+  test("exposes the low-intrusion Processor from a Host turn", async () => {
+    let ready = false;
+    let committed = false;
+    let resolveCalls = 0;
+    const surfacePayload = {
+      type: "rejected",
+      diagnostics: [{
+        phase: "validate",
+        code: "validate.test",
+        severity: "error",
+        recoverable: true,
+        modelCorrectable: true,
+        message: "Test event.",
+      }],
+    } as const;
+    const event = surfaceEventEnvelopeSchema.parse({
+      protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+      protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+      surfaceSessionId: "surface-test",
+      streamId: "stream-test",
+      epoch: 1,
+      sequence: 1,
+      eventId: "event-test",
+      cursor: "cursor-opaque-test",
+      committedRevisionId: "revision-test",
+      audienceBindingHash: sha256HashSchema.parse(`sha256:${"2".repeat(64)}`),
+      contractSetHash: sha256HashSchema.parse(`sha256:${"3".repeat(64)}`),
+      correlationId: "correlation-test",
+      payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, surfacePayload),
+      payload: surfacePayload,
+    });
+    const chunks: unknown[] = [];
+    const turn = {
+      compiled,
+      createSession: () => idempotentSession([], committedOutcome()),
+      isCommitted: () => committed,
+      drainEvents: () => committed ? [event] : [],
+    };
+    const processor = createOpenGenerativeMastraProcessor({
+      resolve: () => {
+        resolveCalls += 1;
+        return ready ? turn : undefined;
+      },
+    });
+    const args: any = {
+      stepNumber: 0,
+      messages: [],
+      messageList: {},
+      systemMessages: [{ role: "system", content: "Base instructions." }],
+      state: {},
+      steps: [],
+      model: "openai/test",
+      tools: { run_analysis: { id: "run_analysis" } },
+      activeTools: ["run_analysis"],
+      retryCount: 0,
+      abort: () => { throw new Error("aborted"); },
+      writer: { custom: async (chunk: unknown) => { chunks.push(chunk); } },
+    };
+
+    expect(await processor.processInputStep?.(args)).toBeUndefined();
+    ready = true;
+    const injected = await processor.processInputStep?.(args) as any;
+    expect(injected.tools.present_ui.id).toBe("present_ui");
+    expect(injected.systemMessages[1].content).toContain("Use present_ui.");
+
+    committed = true;
+    expect(await processor.processInputStep?.({ ...args, stepNumber: 2 })).toBeUndefined();
+    expect(chunks).toEqual([{ type: "data-openGenerativeSurface", id: "event-test", data: event }]);
+    expect(resolveCalls).toBe(2);
   });
 
   test("routes Mastra input hooks and execute through one incremental compiler session", async () => {

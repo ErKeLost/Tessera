@@ -16,7 +16,7 @@ import {
 } from "./registry";
 
 describe("official renderer registry", () => {
-  test("registers exactly the data.chart contract", async () => {
+  test("registers exactly the official contracts", async () => {
     const catalog = await createOfficialCatalog();
     const registrations = createOfficialRendererRegistrations(catalog);
     const registry = await createOfficialRendererRegistry(catalog);
@@ -24,8 +24,8 @@ describe("official renderer registry", () => {
     const actualRefs = registrations.map((registration) => contractRefKey(registration.contract)).sort();
 
     expect(Object.keys(officialRendererComponents).sort()).toEqual([...officialComponentTypes].sort());
-    expect(registrations).toHaveLength(1);
-    expect(registry.size).toBe(1);
+    expect(registrations).toHaveLength(6);
+    expect(registry.size).toBe(6);
     expect(actualRefs).toEqual(expectedRefs);
     expect(registry.entries().map((registration) => contractRefKey(registration.contract)).sort()).toEqual(expectedRefs);
   });
@@ -58,7 +58,7 @@ describe("official renderer registry", () => {
     const { manifest } = release;
     const registry = await createVerifiedOfficialRendererRegistry(release, catalog);
 
-    expect(registry.size).toBe(1);
+    expect(registry.size).toBe(6);
     for (const registration of registry.entries()) {
       const capability = manifest.contracts.find((candidate) => contractRefKey(candidate.contract) === contractRefKey(registration.contract));
       expect(registration.integrity).toEqual({

@@ -13,9 +13,9 @@
     },
     "apps/docs": {
       "name": "@open-tessera/docs",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
-        "@ai-sdk/react": "4.0.79",
+        "@ai-sdk/react": "4.0.80",
         "@fumadocs/language": "0.2.2",
         "@gsap/react": "2.1.2",
         "@iconify-icons/simple-icons": "1.2.74",
@@ -35,7 +35,7 @@
         "@streamdown/mermaid": "1.0.2",
         "@upstash/ratelimit": "2.0.8",
         "@upstash/redis": "1.36.1",
-        "ai": "7.0.76",
+        "ai": "7.0.77",
         "class-variance-authority": "^0.7.1",
         "cmdk": "^1.1.1",
         "cnfast": "0.1.0",
@@ -69,12 +69,12 @@
     },
     "apps/studio": {
       "name": "@open-tessera/studio",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "bin": {
         "studio": "./dist/cli.mjs",
       },
       "dependencies": {
-        "@ai-sdk/react": "4.0.79",
+        "@ai-sdk/react": "4.0.80",
         "@assistant-ui/react": "0.15.16",
         "@assistant-ui/react-ai-sdk": "1.4.7",
         "@assistant-ui/react-markdown": "^0.14.10",
@@ -89,12 +89,10 @@
         "@mastra/core": "1.61.0",
         "@mastra/libsql": "1.21.1",
         "@mastra/memory": "1.27.0",
-        "@open-generative/ai-sdk": "workspace:*",
-        "@open-generative/client": "workspace:*",
         "@open-generative/components": "workspace:*",
         "@open-generative/host": "workspace:*",
+        "@open-generative/mastra": "workspace:*",
         "@open-generative/protocol": "workspace:*",
-        "@open-generative/react": "workspace:*",
         "@open-generative/ui": "workspace:*",
         "@open-tessera/capabilities": "workspace:*",
         "@open-tessera/compiler": "workspace:*",
@@ -117,7 +115,7 @@
         "@streamdown/mermaid": "^1.0.2",
         "@tanstack/react-query": "^5.101.4",
         "@xyflow/react": "^12.11.3",
-        "ai": "7.0.76",
+        "ai": "7.0.77",
         "antd": "6.1.1",
         "border-beam": "1.3.0",
         "chalk": "5.6.2",
@@ -170,7 +168,7 @@
     },
     "packages/ag-ui": {
       "name": "@open-generative/ag-ui",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/client": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -184,7 +182,7 @@
     },
     "packages/ai-sdk": {
       "name": "@open-generative/ai-sdk",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/client": "workspace:*",
         "@open-generative/compiler": "workspace:*",
@@ -192,18 +190,19 @@
         "@open-generative/server": "workspace:*",
       },
       "devDependencies": {
+        "@open-generative/host": "workspace:*",
         "@types/bun": "1.3.14",
-        "ai": "7.0.76",
+        "ai": "7.0.77",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
       },
       "peerDependencies": {
-        "ai": ">=7.0.0",
+        "ai": ">=7.0.77 <8",
       },
     },
     "packages/capabilities": {
       "name": "@open-generative/capabilities",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -218,7 +217,7 @@
     },
     "packages/catalog": {
       "name": "@open-generative/catalog",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
         "zod": "4.4.3",
@@ -231,7 +230,7 @@
     },
     "packages/client": {
       "name": "@open-generative/client",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -246,7 +245,7 @@
     },
     "packages/compiler": {
       "name": "@open-generative/compiler",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -262,7 +261,7 @@
     },
     "packages/components": {
       "name": "@open-generative/components",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/protocol": "workspace:*",
@@ -276,7 +275,7 @@
     },
     "packages/data-agent": {
       "name": "@open-tessera/data-agent",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "zod": "4.4.3",
@@ -288,7 +287,7 @@
     },
     "packages/database": {
       "name": "@open-tessera/database",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -299,13 +298,15 @@
     },
     "packages/host": {
       "name": "@open-generative/host",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/capabilities": "workspace:*",
         "@open-generative/catalog": "workspace:*",
+        "@open-generative/compiler": "workspace:*",
         "@open-generative/components": "workspace:*",
         "@open-generative/protocol": "workspace:*",
         "@open-generative/resources": "workspace:*",
+        "@open-generative/runtime": "workspace:*",
         "@open-generative/server": "workspace:*",
       },
       "devDependencies": {
@@ -316,7 +317,7 @@
     },
     "packages/mastra": {
       "name": "@open-generative/mastra",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/capabilities": "workspace:*",
         "@open-generative/compiler": "workspace:*",
@@ -326,7 +327,9 @@
         "zod": "4.4.3",
       },
       "devDependencies": {
+        "@mastra/ai-sdk": "1.9.1",
         "@mastra/core": "1.61.0",
+        "@open-generative/host": "workspace:*",
         "@types/bun": "1.3.14",
         "tsdown": "0.22.14",
         "typescript": "7.0.2",
@@ -337,7 +340,7 @@
     },
     "packages/mongodb": {
       "name": "@open-tessera/mongodb",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "mongodb": "^6.20.0",
@@ -350,7 +353,7 @@
     },
     "packages/mysql": {
       "name": "@open-tessera/mysql",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "mysql2": "^3.23.3",
@@ -364,7 +367,7 @@
     },
     "packages/postgres": {
       "name": "@open-tessera/postgres",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/database": "workspace:*",
         "pg": "8.23.0",
@@ -379,7 +382,7 @@
     },
     "packages/protocol": {
       "name": "@open-generative/protocol",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -391,7 +394,7 @@
     },
     "packages/react": {
       "name": "@open-generative/react",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
         "@open-generative/client": "workspace:*",
@@ -413,7 +416,7 @@
     },
     "packages/resources": {
       "name": "@open-generative/resources",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
         "ajv": "8.20.0",
@@ -428,7 +431,7 @@
     },
     "packages/runtime": {
       "name": "@open-generative/runtime",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/protocol": "workspace:*",
       },
@@ -440,7 +443,7 @@
     },
     "packages/server": {
       "name": "@open-generative/server",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/capabilities": "workspace:*",
         "@open-generative/catalog": "workspace:*",
@@ -458,7 +461,7 @@
     },
     "packages/sqlite": {
       "name": "@open-tessera/sqlite",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@libsql/client": "0.17.4",
         "@open-tessera/database": "workspace:*",
@@ -473,7 +476,7 @@
     },
     "packages/tessera-capabilities": {
       "name": "@open-tessera/capabilities",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/runtime": "workspace:*",
         "zod": "4.4.3",
@@ -485,7 +488,7 @@
     },
     "packages/tessera-compiler": {
       "name": "@open-tessera/compiler",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/capabilities": "workspace:*",
         "@open-tessera/core": "workspace:*",
@@ -500,7 +503,7 @@
     },
     "packages/tessera-core": {
       "name": "@open-tessera/core",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/schema": "workspace:*",
         "zod": "4.4.3",
@@ -512,7 +515,7 @@
     },
     "packages/tessera-runtime": {
       "name": "@open-tessera/runtime",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/schema": "workspace:*",
         "zod": "4.4.3",
@@ -524,7 +527,7 @@
     },
     "packages/tessera-schema": {
       "name": "@open-tessera/schema",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "zod": "4.4.3",
       },
@@ -535,7 +538,7 @@
     },
     "packages/turso": {
       "name": "@open-tessera/turso",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-tessera/sqlite": "workspace:*",
       },
@@ -548,9 +551,10 @@
     },
     "packages/ui": {
       "name": "@open-generative/ui",
-      "version": "0.3.17",
+      "version": "0.3.20",
       "dependencies": {
         "@open-generative/catalog": "workspace:*",
+        "@open-generative/client": "workspace:*",
         "@open-generative/components": "workspace:*",
         "@open-generative/protocol": "workspace:*",
         "@open-generative/react": "workspace:*",
@@ -558,9 +562,9 @@
         "lucide-react": "1.31.0",
         "radix-ui": "^1.6.7",
         "recharts": "3.10.1",
+        "zod": "4.4.3",
       },
       "devDependencies": {
-        "@open-generative/client": "workspace:*",
         "@types/bun": "1.3.14",
         "@types/react": "19.2.18",
         "@types/react-dom": "19.2.4",
@@ -575,18 +579,22 @@
       },
     },
   },
+  "overrides": {
+    "@ai-sdk/react": "4.0.80",
+    "ai": "7.0.77",
+  },
   "packages": {
     "@a2a-js/sdk-v0_3": ["@a2a-js/sdk@0.3.14", "", { "dependencies": { "uuid": "^11.1.0" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-F6Ew1AtPzCLhTn8h9yiqTe7DiDf6XVrSnq9V1YqSl9eWqPm6anMveTiKdCSb/76cW0YiJc24rNaUrVezFFHbqQ=="],
 
     "@a2a-js/sdk-v1": ["@a2a-js/sdk@1.0.1", "", { "dependencies": { "jose": "^6.2.3", "uuid": "^11.1.0" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-CJQdh3Wzwo8qIx5UUkSJ7+7BEI16PB+MXMHHNSmx8JQsQed2HlQgvx1ENOiKUfYA3PlcEvxIwv14dBblhDuPmw=="],
 
-    "@ai-sdk/gateway": ["@ai-sdk/gateway@4.0.61", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-b+PRdwM9/x0427CKqfd4zpCRgSzQeZsCZ9PtBOaLU2S1l+eRj8++Bwt766VnLerd/F5snKWAq13miV+OPcvclA=="],
+    "@ai-sdk/gateway": ["@ai-sdk/gateway@4.0.62", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.29", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-zR3pustGWhw5eUZHG+fJZx/V/PBe+LxdDpc5hDFWxozG/3MB/+eY62jn+YiR+9uOH+Hx63e5zJoeKLfZfPktWQ=="],
 
-    "@ai-sdk/mcp": ["@ai-sdk/mcp@2.0.35", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28", "pkce-challenge": "^5.0.1" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-hyaryid0qH/d8VtNZoJKeqcLy6b3v9xlkBL3JklbFXMAZJ8nmkxngrxQtjbNRTKjSFoyQ95/7IuRIijrSljMww=="],
+    "@ai-sdk/mcp": ["@ai-sdk/mcp@2.0.36", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.29", "cross-spawn": "^7.0.6", "pkce-challenge": "^5.0.1" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-0RB0THm8EcTjvgNYifsXV21O0IozTx2/uJmtIjzY4myET1iVsvUh07xVfwSRY7keBkJhmK2kaF99qFlrWZDLXQ=="],
 
     "@ai-sdk/provider": ["@ai-sdk/provider@4.0.7", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-6or44XprPzKbr8zkmzosowSE0pxkvJcoojBL+mCZvPUt3kvXp3XSNqeVun9golb1acEfSo6yaEBRT18h2VU+1Q=="],
 
-    "@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.28", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.28.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-TnHUyd/rCYQqHg5RuiOaz/hUql6U+kbUaBW0Rp+0N5UhnAInA9CzzV0HXvuAAPwppDsK6fAx9Rd+tRawpJ/3pg=="],
+    "@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.29", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.28.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-7EIbwXiXKGa7EFk6tDZpuZBs6lxhEJpOuHeqrDb3Vd85uYdjwkdRuHnZDVDIIb2+QTSRmyph2NrXcbvuO/KAjQ=="],
 
     "@ai-sdk/provider-utils-v5": ["@ai-sdk/provider-utils@3.0.30", "", { "dependencies": { "@ai-sdk/provider": "2.0.3", "@standard-schema/spec": "^1.0.0", "eventsource-parser": "^3.0.6" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-NCJ9JKow5ENAgEZxzvEvF20thwDiH+hutvzmrUDbloRX0azpJHNst8+7pZIVryYhLM9wgpT5/ShTSjPTFhkxEQ=="],
 
@@ -600,7 +608,7 @@
 
     "@ai-sdk/provider-v7": ["@ai-sdk/provider@4.0.4", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-tbHKNLirllUNF3ZlkCsXnwab2ZV1Sl4b1H/Cp9ruCce15IBmskE8Gwkk0yo9xDWY+jho2of7lVXtwSsyrq7cwQ=="],
 
-    "@ai-sdk/react": ["@ai-sdk/react@4.0.79", "", { "dependencies": { "@ai-sdk/mcp": "2.0.35", "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28", "ai": "7.0.76", "swr": "^2.4.1", "throttleit": "2.1.0" }, "peerDependencies": { "react": "^18 || ~19.0.1 || ~19.1.2 || ^19.2.1" } }, "sha512-x7dZ/teRKXgJfukoOSiKA4pMv1AbMLjTGA8/d9Dofl8Mgf4DfRNuBxs6xlcedPypWTJXkK8whac2THkOpoFzug=="],
+    "@ai-sdk/react": ["@ai-sdk/react@4.0.80", "", { "dependencies": { "@ai-sdk/mcp": "2.0.36", "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.29", "ai": "7.0.77", "swr": "^2.4.1", "throttleit": "2.1.0" }, "peerDependencies": { "react": "^18 || ~19.0.1 || ~19.1.2 || ^19.2.1" } }, "sha512-iZ/RODgwHUgeT7153wVSDCVc/Ct7gUvkauQAPcGZxgFgo1orAf6C964KwjpCwAgrQF324o3uo5QJQUvTTl8GLg=="],
 
     "@alloc/quick-lru": ["@alloc/quick-lru@5.2.0", "", {}, "sha512-UrcABB+4bUrFABwbluTIBErXwvbsU/V7TZWfmbgJfbkwiBuziS9gxdODUyuiecfdGQ85jglMW6juS3+z5TsKLw=="],
 
@@ -1656,7 +1664,7 @@
 
     "ahooks": ["ahooks@3.9.7", "", { "dependencies": { "@babel/runtime": "^7.21.0", "@types/js-cookie": "^3.0.6", "dayjs": "^1.9.1", "intersection-observer": "^0.12.0", "js-cookie": "^3.0.5", "lodash": "^4.17.21", "react-fast-compare": "^3.2.2", "resize-observer-polyfill": "^1.5.1", "screenfull": "^5.0.0", "tslib": "^2.4.1" }, "peerDependencies": { "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0", "react-dom": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0" } }, "sha512-S0lvzhbdlhK36RFBkGv+RbOM/dbbweym+BIHM/bwwuWVSVN5TuVErHPMWo4w0t1NDYg5KPp2iEf7Y7E5LASYiw=="],
 
-    "ai": ["ai@7.0.76", "", { "dependencies": { "@ai-sdk/gateway": "4.0.61", "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-Mytm/RFJzwJ0nzXiHYAE3dgNpFG/2K2Tks5alwm+PzAQeB6RJAJ97eGuZ8wssy66PcvtGWGIscS4tRi6dg0KLQ=="],
+    "ai": ["ai@7.0.77", "", { "dependencies": { "@ai-sdk/gateway": "4.0.62", "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.29" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-muLtBSTAUCreR77L16w4AFBiX2gK/RNt84EKp8m03SN9+MfNlC5EGqYYttRjYKV3xe0a33yj1Zawj1EnjejIWw=="],
 
     "ajv": ["ajv@8.20.0", "", { "dependencies": { "fast-deep-equal": "^3.1.3", "fast-uri": "^3.0.1", "json-schema-traverse": "^1.0.0", "require-from-string": "^2.0.2" } }, "sha512-Thbli+OlOj+iMPYFBVBfJ3OmCAnaSyNn4M1vz9T6Gka5Jt9ba/HIR56joy65tY6kx/FCF5VXNB819Y7/GUrBGA=="],
 
@@ -2914,6 +2922,8 @@
 
     "@ai-sdk/provider-utils-v7/@ai-sdk/provider": ["@ai-sdk/provider@4.0.4", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-tbHKNLirllUNF3ZlkCsXnwab2ZV1Sl4b1H/Cp9ruCce15IBmskE8Gwkk0yo9xDWY+jho2of7lVXtwSsyrq7cwQ=="],
 
+    "@assistant-ui/ai-sdk/@ai-sdk/mcp": ["@ai-sdk/mcp@2.0.35", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@ai-sdk/provider-utils": "5.0.28", "pkce-challenge": "^5.0.1" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-hyaryid0qH/d8VtNZoJKeqcLy6b3v9xlkBL3JklbFXMAZJ8nmkxngrxQtjbNRTKjSFoyQ95/7IuRIijrSljMww=="],
+
     "@babel/traverse/debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
 
     "@emotion/babel-plugin/@emotion/hash": ["@emotion/hash@0.9.2", "", {}, "sha512-MyqliTZGuOm3+5ZRSaaBGP3USLw6+EGykkwZns2EPC5g8jJ4z9OrdZY9apkl3+UP9+sdz76YYkwCKP5gh8iY3g=="],
@@ -3079,6 +3089,8 @@
     "stream-parser/debug": ["debug@2.6.9", "", { "dependencies": { "ms": "2.0.0" } }, "sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA=="],
 
     "thread-stream/real-require": ["real-require@1.0.0", "", {}, "sha512-P4nbQYQfePJxRSmY+v/KINxVucm4NF3p3s7pJveMTtom52FR4YGltUQLB8idDXwDDWW+eYrWDFbuzUnjoWHF7g=="],
+
+    "@assistant-ui/ai-sdk/@ai-sdk/mcp/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@5.0.28", "", { "dependencies": { "@ai-sdk/provider": "4.0.7", "@standard-schema/spec": "^1.1.0", "@workflow/serde": "4.1.0", "eventsource-parser": "^3.0.8", "undici": "^7.28.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-TnHUyd/rCYQqHg5RuiOaz/hUql6U+kbUaBW0Rp+0N5UhnAInA9CzzV0HXvuAAPwppDsK6fAx9Rd+tRawpJ/3pg=="],
 
     "@lobehub/ui/@base-ui/react/@base-ui/utils": ["@base-ui/utils@0.3.1", "", { "dependencies": { "@babel/runtime": "^7.29.2", "@floating-ui/utils": "^0.2.11", "reselect": "^5.2.0", "use-sync-external-store": "^1.6.0" }, "peerDependencies": { "@types/react": "^17 || ^18 || ^19", "react": "^17 || ^18 || ^19", "react-dom": "^17 || ^18 || ^19" }, "optionalPeers": ["@types/react"] }, "sha512-gFFiltORVmW/N6IILTGxizP3PBpVpysqML1ALY5Vk0mH+7faVkCknOU31goYHN5Aoek2dkjxva1XOD2Ce9WuIg=="],
 

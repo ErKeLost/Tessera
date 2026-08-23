@@ -55,9 +55,9 @@ describe("chart recipe coverage", () => {
 });
 
 describe("official component fixtures", () => {
-  test("contains only one data.chart component fixture and composition", () => {
-    expect(officialComponentTypes).toEqual(["data.chart"]);
-    expect(officialComponentFixtures).toHaveLength(1);
+  test("contains the official component fixtures and chart composition", () => {
+    expect(officialComponentTypes).toHaveLength(6);
+    expect(officialComponentFixtures).toHaveLength(6);
     expect(officialComponentFixtures[0]?.componentType).toBe("data.chart");
     expect(officialCompositionRecipes).toHaveLength(1);
     expect(officialCompositionRecipes[0]?.nodes).toHaveLength(1);

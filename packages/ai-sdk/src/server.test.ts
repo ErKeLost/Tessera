@@ -14,9 +14,10 @@ import {
   sha256HashSchema,
   surfaceEventEnvelopeSchema,
 } from "@open-generative/protocol";
-import { asSchema } from "ai";
+import { asSchema, jsonSchema } from "ai";
 import {
   createIncrementalPresentUiTool,
+  createOpenGenerativeAISdkAdapter,
   createPresentUiTool,
   toOpenGenerativeSurfaceDataChunk,
 } from "./server";
@@ -110,6 +111,75 @@ describe("AI SDK v7 present_ui adapter", () => {
 
     await expect(presentUi.onInputStart?.({ ...context, toolCallId: "tool-call-repair-over-budget" } as never))
       .rejects.toMatchObject({ code: "present-ui.repair-budget-exhausted", maxAttempts: 1 });
+  });
+
+  test("activates present_ui through AI SDK v7 prepareStep only after resources are ready", async () => {
+    let ready = false;
+    let committed = false;
+    let resolveCalls = 0;
+    const pendingEvents: ReturnType<typeof surfaceEvent> extends Promise<infer T> ? T[] : never = [];
+    const written: unknown[] = [];
+    const outcome = committedOutcome();
+    const session: IncrementalPresentUiSession<CompilerTurnOutcome> = {
+      start: async () => undefined,
+      pushTextDelta: async () => undefined,
+      complete: async () => outcome,
+      abort: async () => outcome,
+    };
+    const turn = {
+      compiled,
+      createSession: async () => session,
+      isCommitted: () => committed,
+      drainEvents: () => pendingEvents.splice(0),
+    };
+    const integration = createOpenGenerativeAISdkAdapter({
+      tools: {
+        run_analysis: {
+          inputSchema: jsonSchema({ type: "object", properties: {}, additionalProperties: false }),
+          execute: async () => ({ status: "completed" }),
+        },
+      },
+      resolve: () => {
+        resolveCalls += 1;
+        return ready ? turn : undefined;
+      },
+      writer: { write: (chunk) => { written.push(chunk); } },
+    });
+    const context = {
+      steps: [],
+      stepNumber: 0,
+      model: {},
+      instructions: "Base instructions.",
+      initialInstructions: "Base instructions.",
+      messages: [],
+      initialMessages: [],
+      responseMessages: [],
+      toolsContext: {},
+      runtimeContext: {},
+    } as any;
+
+    const before = await integration.prepareStep(context) as any;
+    expect(before.activeTools).toEqual(["run_analysis"]);
+    expect(before.instructions).toBe("Base instructions.");
+
+    ready = true;
+    const after = await integration.prepareStep({ ...context, stepNumber: 1 }) as any;
+    expect(after.activeTools).toEqual(["run_analysis", "present_ui"]);
+    expect(after.instructions).toContain("<open-generative-present-ui>");
+    expect(after.instructions).toContain("Use present_ui.");
+    const output = await integration.tools.present_ui?.execute?.(
+      { kind: "snapshot" } as never,
+      { toolCallId: "tool-call-high-level" } as never,
+    );
+    expect(output).toEqual(outcome);
+
+    committed = true;
+    pendingEvents.push(await surfaceEvent());
+    const committedStep = await integration.prepareStep({ ...context, stepNumber: 2 }) as any;
+    expect(committedStep.activeTools).toEqual(["run_analysis"]);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toMatchObject({ type: "data-openGenerativeSurface" });
+    expect(resolveCalls).toBe(2);
   });
 
   test("delivers surfaces as renderable message parts by default", async () => {

@@ -9,6 +9,10 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "@ai-sdk/react": "4.0.80",
+    "ai": "7.0.77"
+  },
   "scripts": {
     "build": "turbo run build",
     "build:docs": "turbo run build --filter=@open-tessera/docs",

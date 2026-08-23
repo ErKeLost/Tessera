@@ -2,13 +2,28 @@ import { jsonValueSchema } from "@open-generative/protocol";
 import { z } from "zod";
 import { officialChartSpecFixtures } from "./chart-fixtures";
 import { dataChartAuthoringPropsSchema, dataChartPropsSchema } from "./props";
+import {
+  analysisInsightPropsSchema,
+  analysisReportPropsSchema,
+  dataMetricAuthoringPropsSchema,
+  dataMetricPropsSchema,
+  layoutGridPropsSchema,
+  layoutStackPropsSchema,
+} from "./generative-spec";
 import { deepFreeze } from "./schema";
 
-export const officialComponentTypes = ["data.chart"] as const;
+export const officialComponentTypes = [
+  "data.chart",
+  "data.metric",
+  "analysis.insight",
+  "layout.stack",
+  "layout.grid",
+  "analysis.report",
+] as const;
 export const officialComponentTypeSchema = z.enum(officialComponentTypes);
 
 export const componentFixtureSchema = z.object({
-  fixtureId: z.literal("component.data.chart"),
+  fixtureId: z.string().regex(/^component\.[a-z][a-z0-9.-]+$/),
   componentType: officialComponentTypeSchema,
   authoringProps: jsonValueSchema,
   resolvedProps: jsonValueSchema,
@@ -24,13 +39,28 @@ export const officialComponentFixtures = deepFreeze([
     authoringProps: dataChartAuthoringPropsSchema.parse({ spec: chartFixture.spec }),
     resolvedProps: dataChartPropsSchema.parse({ spec: chartFixture.resolvedSpec }),
   }),
+  componentFixtureSchema.parse({
+    fixtureId: "component.data.metric",
+    componentType: "data.metric",
+    authoringProps: dataMetricAuthoringPropsSchema.parse({ label: "Total", data: { kind: "resource-ref", bindingId: "data" }, format: "number" }),
+    resolvedProps: dataMetricPropsSchema.parse({ label: "Total", data: chartFixture.dataset, format: "number" }),
+  }),
+  componentFixtureSchema.parse({
+    fixtureId: "component.analysis.insight",
+    componentType: "analysis.insight",
+    authoringProps: analysisInsightPropsSchema.parse({ title: "Insight", body: "A verified observation.", tone: "neutral" }),
+    resolvedProps: analysisInsightPropsSchema.parse({ title: "Insight", body: "A verified observation.", tone: "neutral" }),
+  }),
+  componentFixtureSchema.parse({ fixtureId: "component.layout.stack", componentType: "layout.stack", authoringProps: layoutStackPropsSchema.parse({ gap: "md" }), resolvedProps: layoutStackPropsSchema.parse({ gap: "md" }) }),
+  componentFixtureSchema.parse({ fixtureId: "component.layout.grid", componentType: "layout.grid", authoringProps: layoutGridPropsSchema.parse({ columns: 2, gap: "md" }), resolvedProps: layoutGridPropsSchema.parse({ columns: 2, gap: "md" }) }),
+  componentFixtureSchema.parse({ fixtureId: "component.analysis.report", componentType: "analysis.report", authoringProps: analysisReportPropsSchema.parse({ title: "Analysis report" }), resolvedProps: analysisReportPropsSchema.parse({ title: "Analysis report" }) }),
 ]);
 
 const recipeNodeSchema = z.object({
   nodeId: z.string().regex(/^[a-z][a-z0-9.-]+$/),
   componentType: officialComponentTypeSchema,
   propsFixtureId: componentFixtureSchema.shape.fixtureId,
-  slots: z.object({}).strict(),
+  slots: z.record(z.string(), z.array(z.string())).default({}),
 }).strict();
 
 export const compositionRecipeSchema = z.object({

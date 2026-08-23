@@ -1,6 +1,7 @@
 export * from "./chart-fixtures";
 export * from "./chart-recipes";
 export * from "./chart-spec";
+export * from "./generative-spec";
 export * from "./contracts";
 export * from "./fixtures";
 export * from "./integrity";

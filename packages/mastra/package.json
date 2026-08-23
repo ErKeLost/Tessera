@@ -15,5 +15,5 @@
   },
   "dependencies": { "@open-generative/protocol": "workspace:*", "@open-generative/compiler": "workspace:*", "@open-generative/server": "workspace:*", "@open-generative/resources": "workspace:*", "@open-generative/capabilities": "workspace:*", "zod": "4.4.3" },
   "peerDependencies": { "@mastra/core": ">=1.61.0 <2" },
-  "devDependencies": { "@mastra/core": "1.61.0", "@types/bun": "1.3.14", "tsdown": "0.22.14", "typescript": "7.0.2" }
+  "devDependencies": { "@mastra/ai-sdk": "1.9.1", "@mastra/core": "1.61.0", "@open-generative/host": "workspace:*", "@types/bun": "1.3.14", "tsdown": "0.22.14", "typescript": "7.0.2" }
 }

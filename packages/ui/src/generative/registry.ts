@@ -12,9 +12,21 @@ import {
   type RendererRegistry,
 } from "@open-generative/react";
 import { DataChartRenderer } from "./chart-renderer";
+import {
+  AnalysisInsightRenderer,
+  AnalysisReportRenderer,
+  DataMetricRenderer,
+  GridRenderer,
+  StackRenderer,
+} from "./layout-renderers";
 
 export const officialRendererComponents = Object.freeze({
   "data.chart": DataChartRenderer,
+  "data.metric": DataMetricRenderer,
+  "analysis.insight": AnalysisInsightRenderer,
+  "layout.stack": StackRenderer,
+  "layout.grid": GridRenderer,
+  "analysis.report": AnalysisReportRenderer,
 });
 
 export const officialRendererEventPorts = Object.freeze({});

@@ -91,6 +91,11 @@ export const officialRendererFeatures: Readonly<Record<OfficialComponentType, re
     "motion.reduced",
     "size.stable",
   ].sort(),
+  "data.metric": [...baseRendererFeatures, "accessibility.equivalent-view"].sort(),
+  "analysis.insight": [...baseRendererFeatures].sort(),
+  "layout.stack": [...baseRendererFeatures].sort(),
+  "layout.grid": [...baseRendererFeatures].sort(),
+  "analysis.report": [...baseRendererFeatures, "accessibility.equivalent-view"].sort(),
 });
 
 export function createSingleChunkOfficialRendererArtifactSet(input: Readonly<{
@@ -217,7 +222,7 @@ export async function verifyOfficialRendererRelease(
 
 function assertOfficialCatalogCoverage(catalog: OfficialCatalogBundle): void {
   const actual = catalog.componentContracts.map((contract) => contract.ref.componentType).sort();
-  if (canonicalStringify(actual) !== canonicalStringify([...officialComponentTypes])) {
+  if (canonicalStringify(actual) !== canonicalStringify([...officialComponentTypes].sort())) {
     throw new TypeError("Official renderer integrity requires the exact official component catalog.");
   }
 }

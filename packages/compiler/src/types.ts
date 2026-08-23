@@ -74,6 +74,8 @@ export type PresentUiTool = Readonly<{
   inputSchema: JSONSchema;
 }>;
 
+export type PresentUiPresentationPolicy = "auto" | "required";
+
 export type CompiledPresentUi = Readonly<{
   catalogSliceHash: Sha256Hash;
   contractSetHash: Sha256Hash;

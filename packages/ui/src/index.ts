@@ -17,6 +17,13 @@ export {
   DataChartRenderer,
   ResolvedChart,
 } from "./generative/chart-renderer";
+export {
+  AnalysisInsightRenderer,
+  AnalysisReportRenderer,
+  DataMetricRenderer,
+  GridRenderer,
+  StackRenderer,
+} from "./generative/layout-renderers";
 export type {
   ChartInput,
   DataChartRendererInput,
@@ -38,3 +45,5 @@ export type {
   OfficialRendererRegistration,
 } from "./generative/registry";
 export { formatValue } from "./generative/format";
+export { OpenGenerativeRenderer } from "./open-generative-renderer";
+export type { OpenGenerativeRendererProps } from "./open-generative-renderer";

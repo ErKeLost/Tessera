@@ -32,7 +32,7 @@ describe("Tessera Data Chart proof manifest", () => {
     const [left, right] = await Promise.all([createDeterministicProofReport(), createDeterministicProofReport()]);
     expect(left).toEqual(right);
     expect(left.goldenCaseCount).toBe(17);
-    expect(left.componentContractCount).toBe(1);
+    expect(left.componentContractCount).toBe(6);
     await expect(verifyDeterministicProofReport(left)).resolves.toEqual(left);
     const tampered = { ...left, goldenCasesHash: `sha256:${"0".repeat(64)}` };
     await expect(verifyDeterministicProofReport(tampered)).rejects.toThrow("does not match");

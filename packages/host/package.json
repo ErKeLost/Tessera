@@ -19,9 +19,11 @@
   "dependencies": {
     "@open-generative/capabilities": "workspace:*",
     "@open-generative/catalog": "workspace:*",
+    "@open-generative/compiler": "workspace:*",
     "@open-generative/components": "workspace:*",
     "@open-generative/protocol": "workspace:*",
     "@open-generative/resources": "workspace:*",
+    "@open-generative/runtime": "workspace:*",
     "@open-generative/server": "workspace:*"
   },
   "devDependencies": {

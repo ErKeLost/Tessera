@@ -21,7 +21,7 @@
 本文只定义一套最终架构，不定义简化架构或临时协议：
 
 - 底层从一开始就支持完整的 Component Contract、资源绑定、状态、动作、事务流、增量编辑、持久化、回放、迁移、安全与多 framework binding 边界；每个 Surface 仍只协商一个 `RendererRegistry` 并走一条渲染链。
-- 当前只减少模型可使用的组件数量，不删减底层能力。
+- 当前只减少模型可使用的组件数量，不删减底层能力。组件数量可以从 6 扩展到 100+，但每次 turn 只把任务相关的 Contract Slice 编译进 `present_ui`。
 - 新组件只能扩展 Catalog，不能要求更换文档协议、重写 Runtime 或绕过 Host 权限边界。
 - 实施可以按依赖顺序推进，但每一步都必须落在最终协议上，禁止临时 JSON、过渡 API 或第二套渲染链路。
 
@@ -38,7 +38,7 @@
 1. 同一次 governed Query execution 能发布带 provenance 的 typed pinned Dataset，并由唯一 `data.chart` Contract 根据问题选择 17 个锁定 recipe 中的任意一个，而不是把 Query 结果固定映射成一种视图或把 rows 复制进 Document。
 2. 模型只看到安全 descriptor、column metadata、binding/evidence offer；rows 不进入 prompt proposal、Document、chat history 或通用 transport。
 3. snapshot 与等价 operation stream 得到完全相同的 canonical content；invalid/abort/conflict 永远保留 last-good。
-4. 当前官方 Catalog 只包含 `data.chart`；17 个 recipe 全部走同一 Contract、Resource、stream、Surface 和 renderer 链，并由严格判别联合拒绝非法字段组合。
+4. 当前官方 Catalog 已包含报告组合所需的最小通用 Contract 集：`analysis.report`、`layout.stack`、`layout.grid`、`data.metric`、`analysis.insight` 与既有 `data.chart`。17 个 chart recipe 仍全部走原有同一 Contract、Resource、stream、Surface 和 renderer 链；新增外壳组件不会改变任何 chart recipe 样式。
 5. 常见分析任务经过固定 golden set 和 model eval，达到本文完成标准与 [Tessera 成功证明规范](./tessera-data-agent-generative-ui-proof.md)，才允许启动独立 Open Generative 项目。
 
 ## 2. 仓库、产品与未来拆分边界
@@ -945,7 +945,7 @@ trusted SurfaceEventStream
 -> Tessera Agent shadcn/ui node renderers
 ```
 
-当前 registry 只注册 `data.chart`。它内部根据严格 ChartSpec 选择 17 个 Tessera recipe 中的一个，但 recipe 不是 Component，也不产生第二条协议、SurfaceController、Registry 或渲染链。
+当前 registry 注册 `analysis.report`、`layout.stack`、`layout.grid`、`data.metric`、`analysis.insight` 与 `data.chart` 六个官方 Contract。`data.chart` 内部根据严格 ChartSpec 选择 17 个 Tessera recipe 中的一个，但 recipe 不是 Component，也不产生第二条协议、SurfaceController、Registry 或渲染链。
 
 ### Renderer Capability Handshake
 
@@ -1100,7 +1100,7 @@ flowchart TD
 
 shadcn/ui Chart 本质上是 `ChartContainer`、`ChartTooltip`、`ChartTooltipContent`、`ChartLegend`、`ChartLegendContent` 与 Recharts 的组合，并不是一个封闭 chart wrapper。Open Generative 不能让模型生成 Recharts JSX，也不应为每个官网示例创建一种 Component type。
 
-Tessera Data UI Catalog 只向模型暴露一个带独立 contract revision 的 `data.chart` Component，通过严格 discriminated `ChartSpec` 覆盖 shadcn/ui 当前全部官方 chart family：
+Tessera Data UI Catalog 向模型暴露六个分析 Component Contract；其中唯一的 Chart Contract 是带独立 contract revision 的 `data.chart`，它通过严格 discriminated `ChartSpec` 覆盖 shadcn/ui 当前全部官方 chart family：
 
 | Family | 必须覆盖的能力 |
 | --- | --- |
@@ -1200,12 +1200,17 @@ type ChartBase = {
 
 Renderer 负责将 `ChartSpec` 确定性编译成统一视觉系统。Area、Bar、Radar、Scatter 与 Combo 可以使用 Recharts；Sankey、Funnel、Heatmap、Calendar、Devices、Stage Bars 与 Rings 使用 schema 驱动的 SVG/DOM，不能把空 Recharts wrapper 当作实现。所有 recipe 强制稳定尺寸、responsive constraints、空/错误/loading 状态、数据量上限、降采样/窗口化与 prefers-reduced-motion；每个 chart 还必须提供同一 Resource snapshot 的 table 等价视图。
 
-## 17. Tessera Data Chart Catalog
+## 17. Tessera Data UI Catalog
 
-底层完整不等于当前 Catalog 必须暴露大量组件。当前官方 Catalog 只启用一个 Component：
+底层完整不等于每个 turn 必须暴露大量组件。安装后的官方 Catalog 可以扩展到 100+ 个 shadcn/ui-based Component，但 Turn Compiler 只选择当前任务需要的 Contract Slice。当前报告级组合包含：
 
 | Component | 核心 props / binding | Slots 与 event ports | Readiness / fallback | React renderer |
 | --- | --- | --- | --- | --- |
+| `analysis.report` | title、description | 一个 layout body | safe atomic | shadcn `Card` report shell |
+| `layout.stack` | semantic gap token | metric/chart/insight children | safe atomic | responsive CSS grid |
+| `layout.grid` | 1-4 columns、semantic gap token | metric/chart/insight children | safe atomic | responsive CSS grid |
+| `data.metric` | label、format token、Dataset ResourceBinding | 无 slots | governed atomic | shadcn `Card` metric |
+| `analysis.insight` | title、body、tone token | 无 slots | safe atomic；必须受 evidence policy 约束 | shadcn `Card` + `Badge` |
 | `data.chart` | 严格 `ChartSpec`、一个 Dataset ResourceBinding、列角色、聚合和 FormatToken | 无 slots；当前无模型自定义事件 | governed atomic；Host 负责 loading/empty/error/unsupported | shadcn tokens + Recharts 或 schema-driven SVG/DOM |
 
 17 个参考设计是 `spec.recipe` 的判别联合，不是 17 个 Component type：
@@ -1244,7 +1249,9 @@ User
 -> governed data tool
 -> query tool publishes pinned Query Resource + Evidence
 -> tool returns QueryResourcePublicationResult without rows
+-> Mastra processInputStep sees the new Host resource offer
 -> Open Generative turn compiler + frozen CatalogSetSlice
+-> processInputStep injects generated prompt + the single present_ui tool
 -> model present_ui proposal referencing offered bindingId + offerHash
 -> server transaction + validation + commit
 -> trusted SurfaceEventStream
@@ -1268,6 +1275,44 @@ type QueryResourcePublicationResult = {
 ```
 
 这个结果不得包含 rows、opaque `resourceKey`、grant、cursor、actor/tenant hash 或 presentation hints。完整 rows 写入 Resource Gateway；SQL、source tables、duration、queriedAt 和 metric lineage 写入受 policy 控制的 Resource/Evidence ledger。Turn Compiler 可以按 policy 临时读取 bounded descriptor、统计或 sample 供本次模型选择表达方式，但这些值不进入 Document、proposal、chat history 或 Mastra Memory。
+
+### 18.1 Mastra Processor 边界
+
+Mastra 集成不是“一个 Processor 替代全部架构”，而是一个很薄的 step adapter。Mastra 1.61 的 `processInput` 每次请求只运行一次，此时 Tessera 往往还没有执行 `run_analysis`，因此不能用它静态安装 UI schema。`@open-generative/mastra` 使用 `processInputStep`，因为它会在每次 agent loop 和 tool continuation 前运行，并允许同时更新本 step 的 `tools`、`activeTools` 与 `systemMessages`。
+
+```text
+step 0: no analysis resource -> no present_ui tool
+step 1: model calls run_analysis
+step 2: Host has resource offers -> processor resolves frozen Slice
+        -> Contract Compiler generates prompt + strict tool schema
+        -> processor injects one present_ui tool
+step 3: model calls present_ui -> compiler/Host validates and commits
+```
+
+应用开发者不为 100 个组件维护 100 个 tool，也不手写一份永远漂移的“组件说明 prompt”。唯一 prompt 由同一批 Component Contracts、slots、bindings、resource descriptors 和 generation limits 确定性生成。Processor 只负责在正确的 Mastra step 暴露这份编译结果；权限、数据、proposal validation、transaction、Surface stream 和渲染仍分别属于 Host、Compiler、Runtime 与 Renderer。
+
+### 18.2 低侵入 Public Integration Contract
+
+Open Generative 的产品接入面固定为“一个服务端适配器 + 一个客户端 Renderer”。Tessera 是第一个真实消费者，但不能获得一套只有 Tessera 能用的私有捷径。
+
+```ts
+// Mastra 1.61 server
+inputProcessors: [createOpenGenerativeMastraProcessor({ resolve })]
+
+// AI SDK 7.0.77 server
+const integration = createOpenGenerativeAISdkAdapter({ tools, resolve, writer })
+
+// React 19 client
+<OpenGenerativeRenderer event={surfaceEvent} />
+```
+
+Mastra 高层 Processor 通过当前 Processor writer 自动发布已提交的 `data-openGenerativeSurface` part。AI SDK 高层 Adapter 直接接受 Host Turn，通过 `tools + prepareStep` 动态激活 `present_ui`，并在提供 UI writer 时自动发布相同 data part。两者都不要求应用创建 Component tools、调用 `compilePresentUi`、管理 Incremental Session、维护 UI prompt、选择 recipe、拼 transaction 或翻译 Surface Event。
+
+两个 Adapter 都拥有 Turn 生命周期：Mastra 使用 Request-scoped Processor State 缓存本次请求第一个可用 Turn；AI SDK Adapter 在单次 `streamText` 生命周期内缓存第一个可用 Turn。应用的 `resolve` 可以直接调用 `host.prepareTurn()`，不会因每个模型 step 创建新 Turn 而丢失 Commit Event。
+
+`OpenGenerativeRenderer` 内部拥有官方 Browser Contract Registry、`SurfaceController`、Renderer Registry、event validation、replay、cleanup 与 system state。应用只在 Surface 存在交互时提供 `onCommand`。Tessera 唯一保留的产品专属桥接是 `DataAgentRunResult -> OpenGenerativeDatasetResource[]`；它只投影业务数据和 authority，不选择 Component 或 recipe。
+
+只支持当前框架基线：Mastra `1.61.0`、AI SDK `7.0.77`、`@ai-sdk/react 4.0.80` 与 React `19.2.8`。不提供 AI SDK v6、旧 Mastra Processor 或旧 Artifact renderer 的兼容分支。
 
 现有能力按下面的边界处理：
 
@@ -1402,7 +1447,7 @@ protocol identity and terminology
 
 ### Tessera Data UI Components
 
-- 当前唯一 `data.chart` Contract 从同一来源生成 schema、types、registry entry、fixtures、renderer requirements 与 accessibility tests，不存在手写漂移。
+- 当前唯一的 Chart Contract `data.chart` 从同一来源生成 schema、types、registry entry、fixtures、renderer requirements 与 accessibility tests，不存在手写漂移。
 - React renderer 基于 shadcn/ui source primitives，但 Tailwind、Radix、React 或 Recharts props 不泄漏到 canonical protocol。
 - `data.chart` 对 manifest 锁定的 17 个 recipe 具有一一对应的 valid ChartSpec、真实 renderer、accessibility 与 visual regression fixture。
 - Chart manifest 锁定 upstream tree、shadcn source、CLI、Recharts exact versions、package integrity 与 renderer lockfile hash；任何漂移都重新跑 conformance。
