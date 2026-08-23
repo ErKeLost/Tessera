@@ -19,12 +19,12 @@ import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { useId, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { TesseraAgentLogo } from "@/components/tessera-agent-logo";
-import { DataChartDemo } from "@/components/generative-gallery";
-import type { DataChartFixtureName } from "@/components/generative-gallery-model";
+import { ChartRecipeDemo } from "@/components/generative-gallery";
+import type { ChartRecipeName } from "@/components/generative-gallery-model";
 
-type HeroChart = Extract<
-  DataChartFixtureName,
-  "data-chart.temporal-line" | "data-chart.categorical-bar" | "data-chart.profile-radar"
+type HeroRecipe = Extract<
+  ChartRecipeName,
+  "revenue-smooth-area" | "sessions-conversion-combo" | "activity-rings"
 >;
 
 const suggestions = [
@@ -34,9 +34,9 @@ const suggestions = [
 ] as const;
 
 const views = [
-  { id: "data-chart.temporal-line", label: "Revenue", icon: LineChartIcon },
-  { id: "data-chart.categorical-bar", label: "Conversion", icon: BarChart3Icon },
-  { id: "data-chart.profile-radar", label: "Activity", icon: CircleCheckIcon },
+  { id: "revenue-smooth-area", label: "Revenue", icon: LineChartIcon },
+  { id: "sessions-conversion-combo", label: "Conversion", icon: BarChart3Icon },
+  { id: "activity-rings", label: "Activity", icon: CircleCheckIcon },
 ] as const;
 
 const runSteps = [
@@ -53,9 +53,9 @@ const chineseSuggestions = [
 ] as const;
 
 const chineseViews = {
-  "data-chart.temporal-line": "收入趋势",
-  "data-chart.categorical-bar": "转化表现",
-  "data-chart.profile-radar": "活跃进度",
+  "revenue-smooth-area": "收入趋势",
+  "sessions-conversion-combo": "转化表现",
+  "activity-rings": "活跃进度",
 } as const;
 
 const chineseRunSteps = [
@@ -71,7 +71,7 @@ export function HeroChat() {
   const localizedSuggestions = chinese ? chineseSuggestions : suggestions;
   const [input, setInput] = useState("");
   const [question, setQuestion] = useState<string>(localizedSuggestions[0]);
-  const [activeView, setActiveView] = useState<HeroChart>("data-chart.temporal-line");
+  const [activeView, setActiveView] = useState<HeroRecipe>("revenue-smooth-area");
   const [showSql, setShowSql] = useState(false);
   const tabsId = useId();
 
@@ -92,7 +92,7 @@ export function HeroChat() {
 
   function startNewAnalysis() {
     setQuestion(localizedSuggestions[0]);
-    setActiveView("data-chart.temporal-line");
+    setActiveView("revenue-smooth-area");
     setInput("");
     setShowSql(false);
   }
@@ -177,7 +177,7 @@ export function HeroChat() {
                 ))}
               </ol>
 
-              <div className="heroChatTabs" role="tablist" aria-label={chinese ? "图表语法" : "Chart grammar"}>
+              <div className="heroChatTabs" role="tablist" aria-label={chinese ? "图表 Recipe" : "Chart recipe"}>
                 {views.map(({ id, label, icon: Icon }, index) => (
                   <button
                     aria-controls={`${tabsId}-${id}-panel`}
@@ -204,7 +204,7 @@ export function HeroChat() {
                 key={activeView}
                 role="tabpanel"
               >
-                <DataChartDemo fixtureName={activeView} />
+                <ChartRecipeDemo recipeName={activeView} />
               </div>
 
               <footer className="heroChatEvidence">
@@ -253,13 +253,13 @@ export function HeroChat() {
   );
 }
 
-function inferRecipe(question: string): HeroChart {
+function inferRecipe(question: string): HeroRecipe {
   const normalized = question.toLowerCase();
   if (normalized.includes("compare") || normalized.includes("conversion") || normalized.includes("比较") || normalized.includes("转化")) {
-    return "data-chart.categorical-bar";
+    return "sessions-conversion-combo";
   }
   if (normalized.includes("activity") || normalized.includes("kpi") || normalized.includes("活跃") || normalized.includes("指标")) {
-    return "data-chart.profile-radar";
+    return "activity-rings";
   }
-  return "data-chart.temporal-line";
+  return "revenue-smooth-area";
 }

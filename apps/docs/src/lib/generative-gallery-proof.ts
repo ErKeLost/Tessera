@@ -1,7 +1,7 @@
 import {
   createOfficialCatalog,
-  dataChartGrammarFixtures,
   hashNamespacedCanonical,
+  officialChartSpecFixtures,
   type OfficialCatalogBundle,
 } from "@open-generative/components";
 import {
@@ -79,8 +79,8 @@ export async function createGenerativeGalleryProofCase(
 ): Promise<GenerativeGalleryProofCase> {
   catalogPromise ??= createOfficialCatalog();
   const catalog = await catalogPromise;
-  const fixture = dataChartGrammarFixtures.find(
-    candidate => candidate.fixtureId === descriptor.value,
+  const fixture = officialChartSpecFixtures.find(
+    candidate => candidate.recipeName === descriptor.value,
   );
   if (fixture === undefined) {
     throw new Error(`Missing official chart fixture for ${descriptor.value}.`);
@@ -99,10 +99,10 @@ export async function createGenerativeGalleryProofCase(
   }
 
   const slug = safeIdentity(descriptor.value);
-  const surfaceSessionId = `surface.fixture-${slug}`;
-  const revisionId = `revision.fixture-${slug}.1`;
-  const sourceValue = jsonValueSchema.parse(fixture.resolvedSpec.data);
-  const bindingId = resourceBindingIdSchema.parse(fixture.authoringSpec.data.bindingId);
+  const surfaceSessionId = `surface.recipe-${slug}`;
+  const revisionId = `revision.recipe-${slug}.1`;
+  const sourceValue = jsonValueSchema.parse(fixture.dataset);
+  const bindingId = resourceBindingIdSchema.parse(fixture.spec.data.bindingId);
   const schemas = new ResourceSchemaRegistry();
   const registeredConstraint = schemas.register({
     schemaId: `schema.tessera.data-chart.${slug}`,
@@ -122,9 +122,9 @@ export async function createGenerativeGalleryProofCase(
       authorize: async () => ({ allowed: true }),
     },
     now: () => new Date(FIXED_TIME),
-    versionIdFactory: () => `resource-version.fixture-${slug}.1`,
-    snapshotIdFactory: () => `resource-snapshot.fixture-${slug}.1`,
-    grantIdFactory: () => `resource-grant.fixture-${slug}.1`,
+    versionIdFactory: () => `resource-version.recipe-${slug}.1`,
+    snapshotIdFactory: () => `resource-snapshot.recipe-${slug}.1`,
+    grantIdFactory: () => `resource-grant.recipe-${slug}.1`,
   });
   const publication = await gateway.publishPinned({
     resourceKey: `tessera.docs.${bindingId}.${slug}`,
@@ -138,7 +138,7 @@ export async function createGenerativeGalleryProofCase(
   const capabilities = catalog.actionContracts
     .map(actionContract => actionContract.ref)
     .sort((left, right) => canonicalStringify(left).localeCompare(canonicalStringify(right)));
-  const props = jsonObjectSchema.parse({ spec: fixture.authoringSpec });
+  const props = jsonObjectSchema.parse({ spec: fixture.spec });
   const content = documentContentSchema.parse({
     protocol: OPEN_GENERATIVE_DOCUMENT_PROTOCOL,
     protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
@@ -170,15 +170,15 @@ export async function createGenerativeGalleryProofCase(
     evidenceBindings: {},
     claims: {},
     meta: {
-      title: `Tessera Agent ${fixture.authoringSpec.title}`,
-      description: "Official data.chart grammar fixture through the trusted render chain.",
+      title: `Tessera Agent ${fixture.spec.title}`,
+      description: "Official data.chart recipe fixture through the trusted render chain.",
       locale: "en-US",
       tags: ["data-agent", "data-chart", "tessera-agent"],
     },
   });
   const revision = committedRevisionSchema.parse({
     envelope: {
-      documentId: `document.fixture-${slug}`,
+      documentId: `document.recipe-${slug}`,
       revisionId,
       parentRevisionIds: [],
       contentHash: await hashDocumentContent(content),
@@ -191,7 +191,7 @@ export async function createGenerativeGalleryProofCase(
   });
 
   const request = resourceWindowRequestSchema.parse({
-    requestId: `request.fixture-${slug}.1`,
+    requestId: `request.recipe-${slug}.1`,
     bindingId,
     surfaceSessionId,
     expectedRevisionId: revisionId,
@@ -260,15 +260,15 @@ export async function createGenerativeGalleryProofCase(
     protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
     protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
     surfaceSessionId,
-    streamId: `stream.fixture-${slug}`,
+    streamId: `stream.recipe-${slug}`,
     epoch: 1,
     sequence: 1,
-    eventId: `event.fixture-${slug}.1`,
+    eventId: `event.recipe-${slug}.1`,
     cursor: `cursor-gallery-${slug}-0001`,
     committedRevisionId: revisionId,
     audienceBindingHash: ACTOR_BINDING_HASH,
     contractSetHash: catalog.manifest.contractSetHash,
-    correlationId: `correlation.fixture-${slug}`,
+    correlationId: `correlation.recipe-${slug}`,
     payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, payload),
     payload,
   });

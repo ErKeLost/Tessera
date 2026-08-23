@@ -1,12 +1,12 @@
 import { z } from "zod";
-import { dataChartSpecSchema, resolvedDataChartSpecSchema } from "./data-chart-spec";
+import { chartSpecSchema, resolvedChartSpecSchema } from "./chart-spec";
 
 export const dataChartAuthoringPropsSchema = z.object({
-  spec: dataChartSpecSchema,
+  spec: chartSpecSchema,
 }).strict();
 
 export const dataChartPropsSchema = z.object({
-  spec: resolvedDataChartSpecSchema,
+  spec: resolvedChartSpecSchema,
 }).strict();
 
 export type DataChartAuthoringProps = z.infer<typeof dataChartAuthoringPropsSchema>;

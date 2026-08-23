@@ -1,6 +1,6 @@
 import { jsonValueSchema } from "@open-generative/protocol";
 import { z } from "zod";
-import { dataChartGrammarFixtures } from "./data-chart-fixtures";
+import { officialChartSpecFixtures } from "./chart-fixtures";
 import { dataChartAuthoringPropsSchema, dataChartPropsSchema } from "./props";
 import { deepFreeze } from "./schema";
 
@@ -15,40 +15,40 @@ export const componentFixtureSchema = z.object({
 }).strict();
 export type ComponentFixture = z.infer<typeof componentFixtureSchema>;
 
-const chartFixture = dataChartGrammarFixtures[0]!;
+const chartFixture = officialChartSpecFixtures[0]!;
 
 export const officialComponentFixtures = deepFreeze([
   componentFixtureSchema.parse({
     fixtureId: "component.data.chart",
     componentType: "data.chart",
-    authoringProps: dataChartAuthoringPropsSchema.parse({ spec: chartFixture.authoringSpec }),
+    authoringProps: dataChartAuthoringPropsSchema.parse({ spec: chartFixture.spec }),
     resolvedProps: dataChartPropsSchema.parse({ spec: chartFixture.resolvedSpec }),
   }),
 ]);
 
-const compositionNodeSchema = z.object({
+const recipeNodeSchema = z.object({
   nodeId: z.string().regex(/^[a-z][a-z0-9.-]+$/),
   componentType: officialComponentTypeSchema,
   propsFixtureId: componentFixtureSchema.shape.fixtureId,
   slots: z.object({}).strict(),
 }).strict();
 
-export const surfaceCompositionSchema = z.object({
-  compositionId: z.literal("composition.data-chart"),
+export const compositionRecipeSchema = z.object({
+  recipeId: z.literal("composition.data-chart"),
   summary: z.string().trim().min(1).max(512),
-  rootNodeId: compositionNodeSchema.shape.nodeId,
-  nodes: z.tuple([compositionNodeSchema]),
-}).strict().superRefine((composition, context) => {
-  if (composition.nodes[0].nodeId !== composition.rootNodeId) {
+  rootNodeId: recipeNodeSchema.shape.nodeId,
+  nodes: z.tuple([recipeNodeSchema]),
+}).strict().superRefine((recipe, context) => {
+  if (recipe.nodes[0].nodeId !== recipe.rootNodeId) {
     context.addIssue({ code: "custom", path: ["rootNodeId"], message: "Composition root must identify its only chart node." });
   }
 });
 
-export type SurfaceComposition = z.infer<typeof surfaceCompositionSchema>;
+export type CompositionRecipe = z.infer<typeof compositionRecipeSchema>;
 
-export const officialSurfaceCompositions = deepFreeze([
-  surfaceCompositionSchema.parse({
-    compositionId: "composition.data-chart",
+export const officialCompositionRecipes = deepFreeze([
+  compositionRecipeSchema.parse({
+    recipeId: "composition.data-chart",
     summary: "One governed Data Chart surface backed by a Resource Binding.",
     rootNodeId: "chart",
     nodes: [{

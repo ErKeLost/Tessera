@@ -30,18 +30,18 @@ import rendererRelease from "@open-generative/ui/renderer-release.json";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
-  dataChartFixtureDocumentation,
+  chartRecipeDocumentation,
   descriptorKey,
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type DataChartFixtureName,
+  type ChartRecipeName,
   type PreviewDescriptor,
 } from "./generative-gallery-model";
 
 export {
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type DataChartFixtureName,
+  type ChartRecipeName,
   type PreviewDescriptor,
 };
 
@@ -232,19 +232,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown validation error";
 }
 
-export function DataChartDemo({ fixtureName }: { fixtureName: DataChartFixtureName }) {
-  return <SurfacePreview descriptor={{ kind: "fixture", value: fixtureName }} />;
+export function ChartRecipeDemo({ recipeName }: { recipeName: ChartRecipeName }) {
+  return <SurfacePreview descriptor={{ kind: "recipe", value: recipeName }} />;
 }
 
 export function DataChartGallery() {
   return (
     <div className="not-prose my-10 grid min-w-0 gap-y-14">
       {generativeGalleryConformanceDescriptors.map((descriptor, index) => {
-        const documentation = dataChartFixtureDocumentation[descriptor.value];
+        const documentation = chartRecipeDocumentation[descriptor.value];
         return (
           <section
             className="min-w-0 border-t border-border/70 pt-5"
-            data-chart-fixture={descriptor.value}
+            data-chart-recipe={descriptor.value}
             key={descriptor.value}
           >
             <header className="mb-5 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-8">
@@ -260,7 +260,7 @@ export function DataChartGallery() {
                 data.chart / {String(index + 1).padStart(2, "0")}
               </code>
             </header>
-            <DataChartDemo fixtureName={descriptor.value} />
+            <ChartRecipeDemo recipeName={descriptor.value} />
           </section>
         );
       })}

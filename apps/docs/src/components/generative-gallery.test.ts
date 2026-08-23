@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
   createOfficialCatalog,
-  dataChartGrammarFixtures,
   hashNamespacedCanonical,
+  officialChartSpecFixtures,
 } from "@open-generative/components";
 import {
   canonicalStringify,
@@ -21,10 +21,7 @@ import {
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
 } from "./generative-gallery";
-import {
-  dataChartFixtureNames,
-  parsePreviewDescriptor,
-} from "./generative-gallery-model";
+import { parsePreviewDescriptor } from "./generative-gallery-model";
 import {
   GALLERY_COLUMN_POLICY_HASH,
   GALLERY_ROW_POLICY_HASH,
@@ -33,10 +30,10 @@ import {
 } from "@/lib/generative-gallery-proof";
 
 describe("Tessera Agent data.chart documentation proof", () => {
-  test("renders every official grammar fixture through the trusted chain", async () => {
-    expect(generativeGalleryConformanceDescriptors).toHaveLength(6);
+  test("renders all 17 official recipes through the trusted chain", async () => {
+    expect(generativeGalleryConformanceDescriptors).toHaveLength(17);
     expect(generativeGalleryConformanceDescriptors.map(entry => entry.value)).toEqual(
-      [...dataChartFixtureNames],
+      officialChartSpecFixtures.map(fixture => fixture.recipeName),
     );
     const catalog = await createOfficialCatalog();
     expect(catalog.componentContracts).toHaveLength(1);
@@ -79,8 +76,8 @@ describe("Tessera Agent data.chart documentation proof", () => {
           generativeGalleryPlacement,
         ).status).toBe("ready");
 
-        const officialFixture = dataChartGrammarFixtures.find(
-          candidate => candidate.fixtureId === descriptor.value,
+        const officialFixture = officialChartSpecFixtures.find(
+          candidate => candidate.recipeName === descriptor.value,
         );
         if (officialFixture === undefined) {
           throw new Error(`Missing official fixture for ${descriptor.value}.`);
@@ -153,10 +150,10 @@ describe("Tessera Agent data.chart documentation proof", () => {
     }
   }, 120_000);
 
-  test("rejects every descriptor outside the official grammar fixture set", () => {
+  test("rejects every descriptor outside the official recipe set", () => {
     expect(() => parsePreviewDescriptor("component", "data.chart")).toThrow();
-    expect(() => parsePreviewDescriptor("fixture", "data-chart.unknown")).toThrow();
-    expect(() => parsePreviewDescriptor("fixture", null)).toThrow();
+    expect(() => parsePreviewDescriptor("recipe", "chart-area-default")).toThrow();
+    expect(() => parsePreviewDescriptor("recipe", null)).toThrow();
   });
 });
 
