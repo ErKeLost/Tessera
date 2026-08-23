@@ -5,9 +5,21 @@ import type {
   IncrementalPresentUiSession,
   PresentUiAuthoringInput,
 } from "@open-generative/compiler";
-import { revisionIdSchema, sha256HashSchema } from "@open-generative/protocol";
+import {
+  HASH_DOMAINS,
+  OPEN_GENERATIVE_PROTOCOL_REVISION,
+  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+  hashCanonical,
+  revisionIdSchema,
+  sha256HashSchema,
+  surfaceEventEnvelopeSchema,
+} from "@open-generative/protocol";
 import { asSchema } from "ai";
-import { createIncrementalPresentUiTool, createPresentUiTool } from "./server";
+import {
+  createIncrementalPresentUiTool,
+  createPresentUiTool,
+  toOpenGenerativeSurfaceDataChunk,
+} from "./server";
 
 const compiled = {
   catalogSliceHash: "0".repeat(64),
@@ -99,7 +111,52 @@ describe("AI SDK v7 present_ui adapter", () => {
     await expect(presentUi.onInputStart?.({ ...context, toolCallId: "tool-call-repair-over-budget" } as never))
       .rejects.toMatchObject({ code: "present-ui.repair-budget-exhausted", maxAttempts: 1 });
   });
+
+  test("delivers surfaces as renderable message parts by default", async () => {
+    const event = await surfaceEvent();
+
+    expect(await toOpenGenerativeSurfaceDataChunk(event)).toEqual({
+      type: "data-openGenerativeSurface",
+      id: "event-ai-sdk-1",
+      data: event,
+    });
+    expect(await toOpenGenerativeSurfaceDataChunk(event, { transient: true })).toMatchObject({
+      type: "data-openGenerativeSurface",
+      transient: true,
+    });
+  });
 });
+
+async function surfaceEvent() {
+  const payload = {
+    type: "rejected" as const,
+    transactionId: "transaction-ai-sdk",
+    diagnostics: [{
+      phase: "validate" as const,
+      code: "validate.fixture",
+      severity: "error" as const,
+      recoverable: true,
+      modelCorrectable: true,
+      message: "Fixture rejection.",
+    }],
+  };
+  return surfaceEventEnvelopeSchema.parse({
+    protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
+    protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+    surfaceSessionId: "surface-ai-sdk",
+    streamId: "stream-ai-sdk",
+    epoch: 1,
+    sequence: 1,
+    eventId: "event-ai-sdk-1",
+    cursor: "cursor-ai-sdk-0001",
+    committedRevisionId: "revision-ai-sdk",
+    audienceBindingHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
+    contractSetHash: sha256HashSchema.parse(`sha256:${"b".repeat(64)}`),
+    correlationId: "correlation-ai-sdk",
+    payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, payload),
+    payload,
+  });
+}
 
 function committedOutcome(): CompilerTurnOutcome {
   return {

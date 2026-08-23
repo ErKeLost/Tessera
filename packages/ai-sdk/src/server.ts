@@ -52,6 +52,11 @@ export type CreateIncrementalPresentUiToolOptions = Readonly<{
 
 type PresentUiToolCallContext = ToolExecutionOptions<Record<string, unknown>>;
 
+export type OpenGenerativeSurfaceDataChunkOptions = Readonly<{
+  /** Deliver only through AI SDK's onData callback, not UIMessage.parts. */
+  transient?: boolean;
+}>;
+
 const SAFE_PRESENT_UI_MODEL_OUTPUT = Object.freeze({
   type: "text" as const,
   value: "The Open Generative host processed the interface proposal.",
@@ -99,26 +104,28 @@ export function createIncrementalPresentUiTool(
 
 export async function toOpenGenerativeSurfaceDataChunk(
   input: unknown,
+  options: OpenGenerativeSurfaceDataChunkOptions = {},
 ): Promise<OpenGenerativeSurfaceDataChunk> {
   const event = surfaceEventEnvelopeSchema.parse(input);
   if (!await verifySurfaceEventEnvelope(event)) {
     throw new TypeError("Surface event payload hash verification failed.");
   }
-  return {
+  const chunk: OpenGenerativeSurfaceDataChunk = {
     type: OPEN_GENERATIVE_AI_SDK_DATA_TYPE,
     id: event.eventId,
     data: event,
-    transient: true,
   };
+  return options.transient ? { ...chunk, transient: true } : chunk;
 }
 
 export function createOpenGenerativeUIMessageStream(
   events: AsyncIterable<SurfaceEventEnvelope> | Iterable<SurfaceEventEnvelope>,
+  options: OpenGenerativeSurfaceDataChunkOptions = {},
 ): ReadableStream<import("ai").InferUIMessageChunk<OpenGenerativeUIMessage>> {
   return createUIMessageStream<OpenGenerativeUIMessage>({
     async execute({ writer }) {
       for await (const event of events) {
-        writer.write(await toOpenGenerativeSurfaceDataChunk(event));
+        writer.write(await toOpenGenerativeSurfaceDataChunk(event, options));
       }
     },
   });

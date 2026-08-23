@@ -17,5 +17,10 @@ export type OpenGenerativeSurfaceDataPart = Readonly<{
 }>;
 
 export type OpenGenerativeSurfaceDataChunk = OpenGenerativeSurfaceDataPart & Readonly<{
-  transient: true;
+  /**
+   * AI SDK excludes transient data from UIMessage.parts. Use this only when
+   * the consumer handles the event through useChat({ onData }) instead of a
+   * message-part renderer.
+   */
+  transient?: true;
 }>;
