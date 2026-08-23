@@ -1,6 +1,6 @@
 {
   "name": "open-generative",
-  "version": "0.3.20",
+  "version": "0.3.21",
   "private": true,
   "description": "Host-governed generative UI protocol, runtime, and official component catalog.",
   "type": "module",
