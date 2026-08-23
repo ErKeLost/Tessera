@@ -202,6 +202,7 @@ const databaseActionApprovalRequestSchema = z.object({
 const chatResumeRequestSchema = z.object({
   threadId: threadIdSchema,
   runId: z.string().trim().min(1).max(256),
+  toolCallId: z.string().trim().min(1).max(256),
   decision: z.enum(["approve", "reject"]),
   requestId: z.string().trim().min(1).max(512),
   checkpointId: z.string().trim().min(1).max(512),
@@ -325,6 +326,8 @@ export type StudioAgentRunInput = Readonly<{
   identity?: StudioIdentity;
   /** Server-only data used to resume a Mastra runtime suspension. */
   resumeData?: unknown;
+  /** Identifies the exact suspended tool when a run has multiple suspensions. */
+  toolCallId?: string;
   /** Enables Mastra runtime suspension for UI chat transports. */
   allowRuntimeSuspension?: boolean;
   /** Server-only diagnostic channel. Implementations must never expose the raw error to the browser or model. */
@@ -1293,6 +1296,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       const streamDiagnostics = createStudioStreamDiagnosticCollector();
       const source = runtime.agent.streamUI({
         runId: parsed.data.runId,
+        toolCallId: parsed.data.toolCallId,
         threadId: parsed.data.threadId,
         message,
         resumeData: {
@@ -1355,13 +1359,17 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     const payload = {
       threadId: query.threadId,
       runId: query.runId,
+      toolCallId: query.toolCallId,
       decision: query.decision,
       requestId: query.requestId,
       checkpointId: query.checkpointId,
     };
+    const headers = new Headers(context.req.raw.headers);
+    headers.set("Content-Type", "application/json");
+    headers.delete("Content-Length");
     const request = new Request(context.req.raw.url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...(context.req.header("authorization") ? { authorization: context.req.header("authorization")! } : {}) },
+      headers,
       body: JSON.stringify(payload),
     });
     return app.fetch(request);

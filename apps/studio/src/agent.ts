@@ -1,5 +1,6 @@
 import { toAISdkStream } from "@mastra/ai-sdk";
 import { Agent, type MastraDBMessage } from "@mastra/core/agent";
+import { Mastra } from "@mastra/core/mastra";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import type { InputProcessor, ProcessLLMRequestArgs } from "@mastra/core/processors";
 import { RequestContext } from "@mastra/core/request-context";
@@ -1887,6 +1888,10 @@ export type TesseraStudioAgentOptions = Readonly<{
   permissionContext?: TesseraAgentPermissionContext;
   /** Durable, approval-gated mutation boundary. Reads remain DataAgent-owned. */
   databaseActions?: TesseraDatabaseActionService;
+  /** Optional host-owned Mastra runtime. When omitted, Studio creates one
+   * backed by the same storage as the supplied Memory so suspend/resume
+   * snapshots survive Agent recreation between HTTP requests. */
+  mastra?: Mastra;
 }>;
 
 /**
@@ -1896,6 +1901,15 @@ export type TesseraStudioAgentOptions = Readonly<{
  */
 export function createTesseraStudioAgent(options: TesseraStudioAgentOptions): StudioAgent {
   const memory = options.memory;
+  // Mastra's Agent#resumeStream loads the suspended agentic-loop snapshot
+  // from the runtime workflow store. Keep one runtime for the whole Studio
+  // Agent and back it with the same persistent store used by Memory; creating
+  // a fresh Agent without this binding would create a private ephemeral store
+  // and make an otherwise valid approval resume fail with no snapshot found.
+  const mastra = options.mastra ?? new Mastra({
+    logger: false,
+    storage: memory.storage,
+  });
   const databaseDialect = options.databaseDialect ?? options.dataAgent.dialect;
   const llm = resolveTesseraLlmConfig({ llm: options.llm });
   const model = toMastraModelConfig(llm);
@@ -1903,14 +1917,14 @@ export function createTesseraStudioAgent(options: TesseraStudioAgentOptions): St
 
   return {
     catalogLoading: "data-agent" as const,
-    run: (input) => queue.run(threadQueueKey(input), () => runTesseraAgentTurn(input, options.dataAgent, memory, model, llm, options.permissionContext, options.databaseActions, databaseDialect)),
+    run: (input) => queue.run(threadQueueKey(input), () => runTesseraAgentTurn(input, options.dataAgent, memory, model, llm, mastra, options.permissionContext, options.databaseActions, databaseDialect)),
     // Keep embedded hosts on the same native Agent stream as Studio rather
     // than generating a complete message and replaying it as one fake delta.
     stream: (input, emit) => queue.run(
       threadQueueKey(input),
-      () => streamTesseraAgentTurn(input, options.dataAgent, memory, model, llm, emit, options.permissionContext, options.databaseActions, databaseDialect),
+      () => streamTesseraAgentTurn(input, options.dataAgent, memory, model, llm, mastra, emit, options.permissionContext, options.databaseActions, databaseDialect),
     ),
-    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, queue, options.permissionContext, options.databaseActions, databaseDialect),
+    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, mastra, queue, options.permissionContext, options.databaseActions, databaseDialect),
   };
 }
 
@@ -1940,12 +1954,13 @@ async function runTesseraAgentTurn(
   memory: Memory,
   model: MastraModelConfig,
   llm: TesseraLlmConfig,
+  mastra: Mastra,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
 ): Promise<StudioAgentRun> {
   const runtime: CopilotRuntime = createCopilotRuntime();
-  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, runtime, permissionContext, databaseActions, databaseDialect });
+  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, permissionContext, databaseActions, databaseDialect });
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
   const { aborted, failed, finishReason, response } = await consumeCopilotUIStream(
     appendCopilotOutcome(
@@ -1974,13 +1989,14 @@ async function streamTesseraAgentTurn(
   memory: Memory,
   model: MastraModelConfig,
   llm: TesseraLlmConfig,
+  mastra: Mastra,
   emit: (event: StudioAgentEvent) => void | Promise<void>,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
 ): Promise<StudioAgentRun> {
   const runtime: CopilotRuntime = createCopilotRuntime();
-  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, runtime, permissionContext, databaseActions, databaseDialect });
+  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, permissionContext, databaseActions, databaseDialect });
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
   const source = appendCopilotOutcome(
     toAISdkStream(output, {
@@ -2093,6 +2109,7 @@ function createDataCopilotAgent(context: Readonly<{
   memory: Memory;
   model: MastraModelConfig;
   llm: TesseraLlmConfig;
+  mastra: Mastra;
   runtime: CopilotRuntime;
   permissionContext?: TesseraAgentPermissionContext;
   databaseActions?: TesseraDatabaseActionService;
@@ -2725,6 +2742,7 @@ function createDataCopilotAgent(context: Readonly<{
     id: "tessera-data-copilot",
     name: "Tessera Data Copilot",
     model: context.model,
+    mastra: context.mastra,
     memory: context.memory,
     maxRetries: context.llm.maxRetries,
     inputProcessors: [
@@ -2822,12 +2840,13 @@ Be direct and concise. Keep internal planning in the provider-native reasoning c
 }
 
 function copilotGenerationOptions(
-  input: Pick<StudioAgentRunInput, "runId" | "signal" | "threadId" | "identity" | "message" | "turnContext" | "runtimeSignals">,
+  input: Pick<StudioAgentRunInput, "runId" | "signal" | "threadId" | "identity" | "message" | "turnContext" | "runtimeSignals" | "toolCallId">,
   llm: TesseraLlmConfig,
 ) {
   return {
     abortSignal: input.signal,
     runId: input.runId,
+    ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
     // Tools share a runtime and form a dependency chain. Mastra defaults to
     // ten concurrent calls, which is wrong for this stateful pair.
     toolCallConcurrency: 1,
@@ -3349,6 +3368,7 @@ function streamTesseraAgentTurnUI(
   memory: Memory,
   model: MastraModelConfig,
   llm: TesseraLlmConfig,
+  mastra: Mastra,
   queue: ReturnType<typeof createThreadQueue>,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
@@ -3387,6 +3407,7 @@ function streamTesseraAgentTurnUI(
             memory,
             model,
             llm,
+            mastra,
             runtime,
             permissionContext,
             databaseActions,

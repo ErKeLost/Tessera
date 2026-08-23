@@ -51,11 +51,11 @@ export const chartRecipeDocumentation = Object.freeze({
   },
   "revenue-per-account-scatter": {
     title: "Revenue per account",
-    description: "Account-level relationship and scale without collapsing outliers.",
+    description: "Tiered account revenue against sessions, with bubble scale and group averages.",
   },
   "tracked-time-sankey": {
     title: "Tracked time",
-    description: "Flow from work categories into destinations with weighted connections.",
+    description: "Interactive weighted flows from five tracked-time sources into seven destinations.",
   },
   "visitors-radial": {
     title: "Visitors radial",

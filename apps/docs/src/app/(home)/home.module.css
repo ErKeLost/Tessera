@@ -654,8 +654,8 @@
 .canvasHandle[data-corner="south-east"] { right: -.28rem; bottom: -.28rem; }
 .canvasStatus { position: absolute; right: .75rem; bottom: .65rem; z-index: 2; display: flex; align-items: center; gap: .5rem; border: 1px solid var(--home-line); border-radius: .3125rem; background: color-mix(in oklab, var(--home-surface), transparent 8%); padding: .3rem .5rem; color: var(--home-muted); font-family: var(--font-mono); font-size: .55rem; }
 .canvasStatus code { color: var(--home-ink); font-size: .55rem; }
-.componentPreview { min-width: 0; overflow: auto; padding: 1rem; border-radius: inherit; }
-.componentPreview > :global(*) { background: var(--home-surface); }
+.componentPreview { display: grid; min-width: 0; min-height: inherit; overflow: auto; place-items: center; padding: 1rem; border-radius: inherit; }
+.componentPreview > :global(*) { width: 100%; background: var(--home-surface); }
 
 .protocolStatement { max-width: 32rem; }
 .protocolStatement > svg { width: 1.25rem; height: 1.25rem; color: var(--home-accent); }

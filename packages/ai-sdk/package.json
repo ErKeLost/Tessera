@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/ai-sdk",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "description": "Explicit server and client AI SDK transport adapters for Open Generative.",
   "license": "MIT",
   "type": "module",

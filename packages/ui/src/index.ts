@@ -12,6 +12,7 @@ export {
 } from "./components/ui/card";
 export { ChartContainer, type ChartConfig, type ChartContainerProps } from "./components/ui/chart";
 export { Progress, type ProgressProps } from "./components/ui/progress";
+export { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 export {
   DataChartRenderer,
   ResolvedChart,

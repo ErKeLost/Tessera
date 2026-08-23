@@ -1676,6 +1676,175 @@ describe("Tessera Agent vNext public boundary", () => {
     }
   });
 
+  test("resumes a suspended mutation through the shared Mastra workflow store", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-suspend-resume-"));
+    const session = createTesseraSessionMemory({ rootDirectory });
+    const physicalCatalog = {
+      connectorId: "test",
+      dialect: "postgres",
+      databaseName: "analytics",
+      scannedAt: "2026-08-20T00:00:00.000Z",
+      fingerprint: semanticFingerprint,
+      schemas: [{
+        name: "public",
+        tables: [{
+          schema: "public",
+          name: "orders",
+          kind: "table",
+          columns: [{ name: "id", dataType: "text", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    } as DatabaseCatalog;
+    const calls = { stream: 0, submit: 0, approve: 0 };
+    const dataAgent = {
+      connectorId: "test",
+      async inspectCatalog() {
+        return { catalog: physicalCatalog };
+      },
+    } as unknown as DataAgent;
+    const databaseActions = {
+      async submit() {
+        calls.submit += 1;
+        return {
+          summary: { status: "awaiting-approval", requestId: "request-suspend-1" },
+          approval: { checkpointId: "checkpoint-suspend-1" },
+          review: {
+            compiled: { sql: "INSERT INTO public.orders (id) VALUES (?)", parameters: ["order-1"] },
+          },
+        };
+      },
+      async approve() {
+        calls.approve += 1;
+        return {
+          summary: { status: "succeeded" },
+          result: { affectedRows: 1 },
+        };
+      },
+      async reject() {
+        throw new Error("The test did not expect a rejection.");
+      },
+    } as never;
+    const model = {
+      specificationVersion: "v2",
+      provider: "tessera-test",
+      modelId: "suspend-resume-test",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("Tessera must use Agent.stream for every model turn.");
+      },
+      async doStream() {
+        calls.stream += 1;
+        const turn = calls.stream;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (turn === 1) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "tool-suspend-1",
+                  toolName: "execute_sql",
+                  input: JSON.stringify({
+                    mutation: {
+                      kind: "data.insert",
+                      relation: { schema: "public", table: "orders" },
+                      values: [{ id: "order-1" }],
+                      maxAffectedRows: 1,
+                    },
+                    purpose: "Create one order",
+                  }),
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-resumed" });
+                controller.enqueue({ type: "text-delta", id: "text-resumed", delta: "The order was created after approval." });
+                controller.enqueue({ type: "text-end", id: "text-resumed" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const llm: TesseraLlmConfig = {
+      model: model as unknown as string,
+      headers: {},
+      temperature: 0,
+      maxOutputTokens: 256,
+      maxSteps: 4,
+      maxRetries: 0,
+    };
+    const identity = { tenantId: "tenant-a", subject: "alice", roles: ["analyst"] } as const;
+    const signal = new AbortController().signal;
+
+    try {
+      const threadId = "thread-suspend-resume";
+      await session.createThread({ id: threadId, resourceId: tesseraSessionResourceId(identity) });
+      const agent = createTesseraStudioAgent({
+        dataAgent,
+        databaseActions,
+        memory: session.memory,
+        llm,
+        permissionContext: {
+          accessMode: "read-write",
+          databaseActionsAvailable: true,
+          sqlStatements: { read: "allow", write: "allow", destructive: "allow", unknown: "deny" },
+        },
+      });
+
+      const firstStream = agent.streamUI?.({
+        runId: "run-suspend-resume",
+        threadId,
+        message: "Create order-1 after approval.",
+        signal,
+        identity,
+      });
+      if (!firstStream) throw new Error("Expected the Studio Agent to expose its native UI stream.");
+      const firstChunks = await readUiChunks(firstStream);
+      expect(firstChunks.some((chunk) => chunk.type === "data-tool-call-suspended")).toBeTrue();
+      expect(calls.submit).toBe(1);
+      expect(calls.approve).toBe(0);
+
+      const resumedStream = agent.streamUI?.({
+        runId: "run-suspend-resume",
+        toolCallId: "tool-suspend-1",
+        threadId,
+        message: "Create order-1 after approval.",
+        resumeData: {
+          decision: "approve",
+          requestId: "request-suspend-1",
+          checkpointId: "checkpoint-suspend-1",
+        },
+        signal,
+        identity,
+      });
+      if (!resumedStream) throw new Error("Expected the Studio Agent to expose its native UI stream.");
+      const resumedChunks = await readUiChunks(resumedStream);
+      expect(JSON.stringify(resumedChunks)).toContain("The order was created after approval.");
+      expect(resumedChunks.some((chunk) => chunk.type === "error")).toBeFalse();
+      expect(calls.stream).toBe(2);
+      expect(calls.approve).toBe(1);
+    } finally {
+      await session.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
   test("normalizes a semantic model plan into a governed draft without model-generated output ids", () => {
     const draft = normalizeAnalysisToolDraft({
       mode: "aggregate",

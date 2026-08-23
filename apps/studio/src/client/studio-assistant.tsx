@@ -37,6 +37,7 @@ import {
 } from "./studio-settings";
 import { useStudioTheme } from "./studio-theme";
 import type { StudioAgentPageContext } from "./layout/studio-route-context";
+import { studioResumeApi } from "./studio-resume";
 import {
   Conversation,
   ConversationContent,
@@ -127,14 +128,7 @@ export function StudioAssistant({
           };
         },
         prepareReconnectToStreamRequest: ({ body }) => {
-          const custom = body?.custom;
-          if (!custom || typeof custom !== "object") return { api: "/api/chat/resume" };
-          const values = custom as Record<string, unknown>;
-          const params = new URLSearchParams();
-          for (const key of ["threadId", "runId", "decision", "requestId", "checkpointId"] as const) {
-            if (typeof values[key] === "string") params.set(key, values[key]);
-          }
-          return { api: `/api/chat/resume?${params.toString()}` };
+          return { api: studioResumeApi(body) };
         },
       }),
     [threadId],

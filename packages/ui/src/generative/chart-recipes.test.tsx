@@ -46,7 +46,7 @@ describe("the 17 official data chart recipes", () => {
       expect(markup).toContain('data-reduced-motion="disable-animation"');
       expect(markup).toContain(`data-equivalent-view="${accessibility.equivalentView}"`);
       expect(markup).toContain(escapeHtml(fixture.spec.title));
-      expect(markup).toContain("<svg");
+      if (expectation.rendererKind !== "dom") expect(markup).toContain("<svg");
       expect(markup).not.toContain("content.callout");
       expect(markup).not.toContain("data.table");
 

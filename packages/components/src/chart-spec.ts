@@ -115,8 +115,11 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       accountColumn: columnIdValueSchema,
       revenueColumn: columnIdValueSchema,
       comparisonColumn: columnIdValueSchema,
-      sizeColumn: columnIdValueSchema.optional(),
-      summary: chartMetricSchema.optional(),
+      sizeColumn: columnIdValueSchema,
+      groupColumn: columnIdValueSchema,
+      summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       revenueFormat: formatTokenSchema.optional(),
       comparisonFormat: formatTokenSchema.optional(),
     }).strict(),
@@ -126,7 +129,9 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       sourceColumn: columnIdValueSchema,
       targetColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
-      summary: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
+      unitLabel: z.string().trim().min(1).max(24),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -135,6 +140,8 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       categoryColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
       summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -143,7 +150,9 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       dimensionColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
       comparisonColumn: columnIdValueSchema.optional(),
-      summary: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -151,7 +160,9 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       ...common,
       dateColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
-      summary: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      series: z.array(chartSeriesColumnSchema).length(3),
+      selectedDate: z.iso.date(),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -160,6 +171,7 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       timeColumn: columnIdValueSchema,
       revenueColumn: columnIdValueSchema,
       summary: chartMetricSchema,
+      change: chartMetricSchema,
       revenueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -168,7 +180,9 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       dayColumn: columnIdValueSchema,
       timeBucketColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
-      summary: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -176,8 +190,10 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       ...common,
       stageColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
-      summary: chartMetricSchema.optional(),
-      conversion: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      conversion: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -187,6 +203,7 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       earnedColumn: columnIdValueSchema,
       targetColumn: columnIdValueSchema.optional(),
       summary: chartMetricSchema,
+      change: chartMetricSchema,
       earnedFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -195,6 +212,8 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       dateColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
       summary: chartMetricSchema,
+      change: chartMetricSchema,
+      highlights: z.array(chartMetricSchema).length(4),
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
     z.object({
@@ -205,6 +224,8 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       conversionColumn: columnIdValueSchema,
       sessionsSummary: chartMetricSchema,
       conversionSummary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
       sessionsFormat: formatTokenSchema.optional(),
       conversionFormat: formatTokenSchema.optional(),
     }).strict(),
@@ -221,7 +242,9 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       ...common,
       timeColumn: columnIdValueSchema,
       series: z.array(chartSeriesColumnSchema).min(2).max(5),
-      summary: chartMetricSchema.optional(),
+      summary: chartMetricSchema,
+      change: chartMetricSchema,
+      periodLabel: z.string().trim().min(1).max(128),
     }).strict(),
     z.object({
       recipe: z.literal("activity-rings"),
@@ -229,7 +252,7 @@ function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataS
       activityColumn: columnIdValueSchema,
       valueColumn: columnIdValueSchema,
       targetColumn: columnIdValueSchema,
-      summary: chartMetricSchema.optional(),
+      detailColumn: columnIdValueSchema,
       valueFormat: formatTokenSchema.optional(),
     }).strict(),
   ]).superRefine((spec, context) => {
@@ -324,6 +347,27 @@ export const resolvedChartSpecSchema = createChartSpecSchema(resolvedChartDataSc
       });
     }
   }
+  if (spec.recipe === "revenue-per-account-scatter") {
+    const groups = new Set(spec.data.rows.map((row) => row[spec.groupColumn]));
+    if (spec.data.rows.length !== 16 || groups.size !== 3) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "rows"],
+        message: "Revenue per account requires sixteen accounts across exactly three groups.",
+      });
+    }
+  }
+  if (spec.recipe === "tracked-time-sankey") {
+    const sources = new Set(spec.data.rows.map((row) => row[spec.sourceColumn]));
+    const targets = new Set(spec.data.rows.map((row) => row[spec.targetColumn]));
+    if (sources.size !== 5 || targets.size !== 7) {
+      context.addIssue({
+        code: "custom",
+        path: ["data", "rows"],
+        message: "Tracked time Sankey requires exactly five sources and seven destinations.",
+      });
+    }
+  }
 });
 
 type InternalMetric = Readonly<{ column: string }>;
@@ -336,6 +380,7 @@ type InternalSpec = Readonly<{
   conversion?: InternalMetric;
   sessionsSummary?: InternalMetric;
   conversionSummary?: InternalMetric;
+  highlights?: readonly InternalMetric[];
   series: readonly InternalSeries[];
 }> & Readonly<Record<string, any>>;
 
@@ -344,23 +389,24 @@ function metricColumns(spec: InternalSpec): string[] {
     case "steps-bars": return [];
     case "pipeline-stage-bars": return [spec.summary!.column, spec.change!.column];
     case "sleep-score": return [spec.score!.column];
-    case "revenue-per-account-scatter": return spec.summary === undefined ? [] : [spec.summary.column];
-    case "tracked-time-sankey": return spec.summary === undefined ? [] : [spec.summary.column];
-    case "visitors-radial": return [spec.summary!.column];
-    case "visitors-radar": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "revenue-per-account-scatter": return [spec.summary!.column, spec.change!.column];
+    case "tracked-time-sankey": return [spec.summary!.column];
+    case "visitors-radial": return [spec.summary!.column, spec.change!.column];
+    case "visitors-radar": return [spec.summary!.column, spec.change!.column];
     case "activity-calendar": return spec.summary === undefined ? [] : [spec.summary.column];
-    case "revenue-smooth-area": return [spec.summary!.column];
-    case "active-users-heatmap": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "revenue-smooth-area": return [spec.summary!.column, spec.change!.column];
+    case "active-users-heatmap": return [spec.summary!.column, spec.change!.column];
     case "sign-up-funnel": return [
-      ...(spec.summary === undefined ? [] : [spec.summary.column]),
-      ...(spec.conversion === undefined ? [] : [spec.conversion.column]),
+      spec.summary!.column,
+      spec.conversion!.column,
+      spec.change!.column,
     ];
-    case "earned-so-far-bars": return [spec.summary!.column];
-    case "contributions-heatmap": return [spec.summary!.column];
-    case "sessions-conversion-combo": return [spec.sessionsSummary!.column, spec.conversionSummary!.column];
+    case "earned-so-far-bars": return [spec.summary!.column, spec.change!.column];
+    case "contributions-heatmap": return [spec.summary!.column, spec.change!.column, ...spec.highlights!.map((metric) => metric.column)];
+    case "sessions-conversion-combo": return [spec.sessionsSummary!.column, spec.conversionSummary!.column, spec.change!.column];
     case "devices-bars": return spec.summary === undefined ? [] : [spec.summary.column];
-    case "visitors-stacked-area": return spec.summary === undefined ? [] : [spec.summary.column];
-    case "activity-rings": return spec.summary === undefined ? [] : [spec.summary.column];
+    case "visitors-stacked-area": return [spec.summary!.column, spec.change!.column];
+    case "activity-rings": return [];
   }
 }
 
@@ -370,11 +416,11 @@ function referencedColumns(spec: InternalSpec): string[] {
     case "steps-bars": return [spec.dateColumn, spec.valueColumn, spec.goalColumn, ...metrics];
     case "pipeline-stage-bars": return [spec.stageColumn, spec.valueColumn, ...metrics];
     case "sleep-score": return [spec.labelColumn, spec.detailColumn, spec.scoreColumn, spec.targetColumn, ...metrics];
-    case "revenue-per-account-scatter": return [spec.accountColumn, spec.revenueColumn, spec.comparisonColumn, ...(spec.sizeColumn === undefined ? [] : [spec.sizeColumn]), ...metrics];
+    case "revenue-per-account-scatter": return [spec.accountColumn, spec.revenueColumn, spec.comparisonColumn, spec.sizeColumn, spec.groupColumn, ...metrics];
     case "tracked-time-sankey": return [spec.sourceColumn, spec.targetColumn, spec.valueColumn, ...metrics];
     case "visitors-radial": return [spec.categoryColumn, spec.valueColumn, ...metrics];
     case "visitors-radar": return [spec.dimensionColumn, spec.valueColumn, ...(spec.comparisonColumn === undefined ? [] : [spec.comparisonColumn]), ...metrics];
-    case "activity-calendar": return [spec.dateColumn, spec.valueColumn, ...metrics];
+    case "activity-calendar": return [spec.dateColumn, spec.valueColumn, ...spec.series.map((series) => series.column), ...metrics];
     case "revenue-smooth-area": return [spec.timeColumn, spec.revenueColumn, ...metrics];
     case "active-users-heatmap": return [spec.dayColumn, spec.timeBucketColumn, spec.valueColumn, ...metrics];
     case "sign-up-funnel": return [spec.stageColumn, spec.valueColumn, ...metrics];
@@ -383,7 +429,7 @@ function referencedColumns(spec: InternalSpec): string[] {
     case "sessions-conversion-combo": return [spec.timeColumn, spec.sessionsColumn, spec.conversionColumn, ...metrics];
     case "devices-bars": return [spec.deviceColumn, spec.valueColumn, ...metrics];
     case "visitors-stacked-area": return [spec.timeColumn, ...spec.series.map((series) => series.column), ...metrics];
-    case "activity-rings": return [spec.activityColumn, spec.valueColumn, spec.targetColumn, ...metrics];
+    case "activity-rings": return [spec.activityColumn, spec.valueColumn, spec.targetColumn, spec.detailColumn, ...metrics];
   }
 }
 
@@ -393,11 +439,11 @@ function numericColumns(spec: InternalSpec): string[] {
     case "steps-bars": return [spec.valueColumn, spec.goalColumn, ...metrics];
     case "pipeline-stage-bars": return [spec.valueColumn, ...metrics];
     case "sleep-score": return [spec.scoreColumn, spec.targetColumn, ...metrics];
-    case "revenue-per-account-scatter": return [spec.revenueColumn, spec.comparisonColumn, ...(spec.sizeColumn === undefined ? [] : [spec.sizeColumn]), ...metrics];
+    case "revenue-per-account-scatter": return [spec.revenueColumn, spec.comparisonColumn, spec.sizeColumn, ...metrics];
     case "tracked-time-sankey": return [spec.valueColumn, ...metrics];
     case "visitors-radial": return [spec.valueColumn, ...metrics];
     case "visitors-radar": return [spec.valueColumn, ...(spec.comparisonColumn === undefined ? [] : [spec.comparisonColumn]), ...metrics];
-    case "activity-calendar": return [spec.valueColumn, ...metrics];
+    case "activity-calendar": return [spec.valueColumn, ...spec.series.map((series) => series.column), ...metrics];
     case "revenue-smooth-area": return [spec.revenueColumn, ...metrics];
     case "active-users-heatmap": return [spec.valueColumn, ...metrics];
     case "sign-up-funnel": return [spec.valueColumn, ...metrics];

@@ -215,7 +215,7 @@ function SurfacePreview({ descriptor }: { descriptor: PreviewDescriptor }) {
   }
   return (
     <div
-      className="min-w-0 overflow-hidden"
+      className="flex min-w-0 items-center justify-center overflow-hidden [&>*]:w-full"
       data-generative-preview={descriptor.value}
       style={{ minHeight: 440 }}
     >

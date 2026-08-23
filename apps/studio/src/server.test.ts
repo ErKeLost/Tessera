@@ -782,11 +782,16 @@ describe("Tessera Studio Nitro app", () => {
     const info: StudioLogEvent[] = [];
     const errors: StudioLogEvent[] = [];
     const runs: StudioAgentRunInput[] = [];
+    const authCookies: (string | null)[] = [];
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-suspended-stream-"));
     const sessionMemory = createTesseraSessionMemory({ rootDirectory });
     const app = createStudioApp({
       connector: createConnector(),
       sessionMemory,
+      authenticate: async ({ request: authenticatedRequest }) => {
+        authCookies.push(authenticatedRequest.headers.get("cookie"));
+        return { subject: "user-suspended", tenantId: "tenant-suspended" };
+      },
       logger: {
         info(event) { info.push(event); },
         error(event) { errors.push(event); },
@@ -862,6 +867,7 @@ describe("Tessera Studio Nitro app", () => {
       body: JSON.stringify({
         threadId: "thread-suspended-delete",
         runId: "run-delete",
+        toolCallId: "tool-delete",
         decision: "approve",
         requestId: "request-delete",
         checkpointId: "checkpoint-delete",
@@ -876,12 +882,25 @@ describe("Tessera Studio Nitro app", () => {
     expect(runs[1]).toMatchObject({
       runId: "run-delete",
       threadId: "thread-suspended-delete",
+      toolCallId: "tool-delete",
       resumeData: {
         decision: "approve",
         requestId: "request-delete",
         checkpointId: "checkpoint-delete",
       },
     });
+
+    const resumedGetResponse = await app.fetch(request(
+      "/api/chat/resume?threadId=thread-suspended-delete&runId=run-delete&toolCallId=tool-delete&decision=approve&requestId=request-delete&checkpointId=checkpoint-delete",
+      { method: "GET", headers: { Cookie: "session=approved" } },
+    ));
+    const resumedGetBody = await resumedGetResponse.text();
+
+    expect(resumedGetResponse.status).toBe(200);
+    expect(resumedGetBody).toContain("The approved delete completed.");
+    expect(resumedGetBody).not.toContain('"type":"error"');
+    expect(runs).toHaveLength(3);
+    expect(authCookies.at(-1)).toBe("session=approved");
     await sessionMemory.close();
     rmSync(rootDirectory, { force: true, recursive: true });
   });

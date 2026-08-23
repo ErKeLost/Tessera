@@ -3,6 +3,7 @@
 import type {
   ChartCellValue,
   ChartMetric,
+  ChartSeriesColumn,
   FormatToken,
   ResolvedChartData,
   ResolvedChartSpec,
@@ -48,13 +49,15 @@ import {
   XAxis,
   YAxis,
   ZAxis,
+  type BarShapeProps,
 } from "recharts";
-import { useId, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from "react";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { ChartContainer, type ChartConfig } from "../components/ui/chart";
 import { Progress } from "../components/ui/progress";
+import { Tabs, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { asFiniteNumber, formatValue } from "./format";
 
 export type ResolvedChartDataModel = ResolvedChartData;
@@ -76,23 +79,31 @@ type RecipeSpec<TRecipe extends UIResolvedChartSpec["recipe"]> = Extract<
   { recipe: TRecipe }
 >;
 
-const COLORS = ["#9CDF15", "#4E85FA", "#B373FF", "#E864AB", "#F1C300"] as const;
+const THEME_COLORS = [
+  "var(--og-lime)",
+  "var(--og-blue)",
+  "var(--og-violet)",
+  "var(--og-pink)",
+  "var(--og-yellow)",
+] as const;
 const PIPELINE_ICONS = [Eye, UserRoundPlus, Zap, Crown, UsersRound, Building2] as const;
-const GRID = "#E2E2E2";
-const MUTED = "#A3A3A3";
+const GRID = "var(--og-chart-grid)";
+const MUTED = "var(--og-muted-foreground)";
 
 export function DataChartRenderer(input: ChartInput) {
   const { spec } = input.resolvedProps;
   return (
-    <section
-      aria-label={spec.accessibility.label}
-      className={`og-ui og-chart-surface og-recipe-${spec.recipe}`}
-      data-chart-recipe={spec.recipe}
-      data-og-component="data.chart"
-      data-og-renderer="recipe"
-    >
-      <ResolvedChart input={input} spec={spec} />
-    </section>
+    <div className="og-chart-host">
+      <section
+        aria-label={spec.accessibility.label}
+        className={`og-ui og-chart-surface og-recipe-${spec.recipe}`}
+        data-chart-recipe={spec.recipe}
+        data-og-component="data.chart"
+        data-og-renderer="recipe"
+      >
+        <ResolvedChart input={input} spec={spec} />
+      </section>
+    </div>
   );
 }
 
@@ -382,266 +393,580 @@ function SleepScoreProjection({ rows, spec }: RecipeProps<"sleep-score">) {
 }
 
 function RevenueScatter({ rows, spec }: RecipeProps<"revenue-per-account-scatter">) {
+  const groups = unique(rows.map((row) => text(row, spec.groupColumn)));
+  const change = numericValue(metricValue(rows, spec.change));
+  const [activeIndex, setActiveIndex] = useState<number>();
+  const activeRow = activeIndex === undefined ? undefined : rows[activeIndex];
+  const tooltipStyle = activeRow === undefined
+    ? undefined
+    : revenueScatterTooltipStyle(
+        numeric(activeRow, spec.comparisonColumn),
+        numeric(activeRow, spec.revenueColumn),
+      );
+  const chartConfig = Object.fromEntries(groups.map((group, index) => [
+    `group-${index}`,
+    { color: `var(--og-revenue-segment-${index + 1})`, label: group },
+  ])) as ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-scatter" data-chart-mark="scatter">
+    <div className="og-revenue-scatter-panel">
+      <header className="og-revenue-scatter-header">
+        <div className="og-revenue-scatter-heading">
+          <h3>{spec.title}</h3>
+          <div>
+            <strong>{formatValue(metricValue(rows, spec.summary), spec.summary.format)}</strong>
+            <Badge variant="positive">{change > 0 ? "+" : ""}{formatValue(change, spec.change.format)}</Badge>
+          </div>
+        </div>
+        <Button aria-label={`Period: ${spec.periodLabel}`} className="og-revenue-scatter-period" disabled variant="outline">
+          <CalendarDays aria-hidden="true" />
+          <span>{spec.periodLabel}</span>
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </header>
+      <ChartContainer className="og-revenue-scatter-chart" config={chartConfig} data-chart-mark="scatter">
         <ClientChartProjection server={<ScatterProjection rows={rows} spec={spec} />}>
-          <ScatterChart height={264} margin={{ top: 12, right: 16, bottom: 14, left: 8 }} width={640}>
-            <CartesianGrid stroke={GRID} strokeDasharray="2 4" />
-            <XAxis axisLine={false} dataKey={spec.comparisonColumn} name={columnLabel(spec, spec.comparisonColumn)} tick={axisTick} tickFormatter={(value) => formatValue(value, spec.comparisonFormat)} tickLine={false} type="number" />
-            <YAxis axisLine={false} dataKey={spec.revenueColumn} name={columnLabel(spec, spec.revenueColumn)} tick={axisTick} tickFormatter={(value) => formatValue(value, spec.revenueFormat)} tickLine={false} type="number" width={56} />
-            {spec.sizeColumn ? <ZAxis dataKey={spec.sizeColumn} range={[64, 220]} /> : null}
-            <Tooltip content={<ChartTooltipContent format={spec.revenueFormat} labelColumn={spec.accountColumn} />} cursor={{ stroke: MUTED, strokeDasharray: "3 3" }} />
-            <Scatter data={rows} fill={COLORS[1]} isAnimationActive={false} name={spec.title}>
-              {rows.map((_, index) => <Cell fill={COLORS[index % COLORS.length]} key={index} />)}
+          <ScatterChart height={220} margin={{ top: 8, right: 16, bottom: 32, left: 8 }} width={576}>
+            <CartesianGrid stroke="var(--og-chart-grid)" strokeDasharray="3 5" />
+            <XAxis axisLine={false} dataKey={spec.comparisonColumn} domain={[0, 100]} name={columnLabel(spec, spec.comparisonColumn)} tick={axisTick} ticks={[0, 25, 50, 75, 100]} tickFormatter={(value) => formatValue(value, spec.comparisonFormat)} tickLine={false} type="number" />
+            <YAxis axisLine={false} dataKey={spec.revenueColumn} domain={[0, 1700]} name={columnLabel(spec, spec.revenueColumn)} tick={axisTick} ticks={[0, 550, 1100, 1700]} tickFormatter={(value) => formatValue(value, spec.revenueFormat)} tickLine={false} type="number" width={52} />
+            <ZAxis dataKey={spec.sizeColumn} range={[110, 390]} />
+            <Scatter activeShape={{ fillOpacity: 0.88, strokeWidth: 3 }} data={rows} fill="var(--og-revenue-segment-1)" fillOpacity={0.62} isAnimationActive={false} name={spec.title}>
+              {rows.map((row, index) => {
+                const groupIndex = groups.indexOf(text(row, spec.groupColumn));
+                const color = `var(--color-group-${groupIndex})`;
+                const active = activeIndex === undefined || activeIndex === index;
+                return (
+                  <Cell
+                    fill={color}
+                    fillOpacity={active ? 0.72 : 0.24}
+                    key={index}
+                    onBlur={() => setActiveIndex(undefined)}
+                    onFocus={() => setActiveIndex(index)}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onMouseLeave={() => setActiveIndex(undefined)}
+                    stroke={color}
+                    strokeWidth={activeIndex === index ? 3 : 2}
+                    tabIndex={0}
+                  />
+                );
+              })}
             </Scatter>
           </ScatterChart>
         </ClientChartProjection>
+      </ChartContainer>
+      <div className="og-revenue-scatter-axis-labels"><span>{columnLabel(spec, spec.revenueColumn)}</span><span>{columnLabel(spec, spec.comparisonColumn)}</span></div>
+      {activeRow ? <RevenueScatterTooltip row={activeRow} spec={spec} style={tooltipStyle} /> : null}
+      <div className="og-revenue-scatter-summary-grid">
+        {groups.map((group, index) => {
+          const groupRows = rows.filter((row) => text(row, spec.groupColumn) === group);
+          const average = groupRows.reduce((sum, row) => sum + numeric(row, spec.revenueColumn), 0) / groupRows.length;
+          return (
+            <Card className={`og-revenue-scatter-summary-card og-revenue-tone-${index}`} key={group}>
+              <div><i aria-hidden="true" /><span>{group} · avg</span></div>
+              <strong>{formatValue(average, spec.summary.format)}</strong>
+            </Card>
+          );
+        })}
       </div>
-    </RecipeLayout>
+    </div>
   );
 }
 
 function TrackedTimeSankey({ rows, spec }: RecipeProps<"tracked-time-sankey">) {
-  const layout = sankeyLayout(rows, spec.sourceColumn, spec.targetColumn, spec.valueColumn);
+  const layout = trackedTimeLayout(rows, spec.sourceColumn, spec.targetColumn, spec.valueColumn);
+  const [activeEdgeIndex, setActiveEdgeIndex] = useState<number>();
+  const activeEdge = activeEdgeIndex === undefined ? undefined : layout.edges[activeEdgeIndex];
+  const total = numericValue(metricValue(rows, spec.summary));
+  const heading = activeEdge === undefined ? spec.title : `${activeEdge.source} \u2192 ${activeEdge.target}`;
+  const headingValue = activeEdge?.value ?? total;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <svg aria-label={spec.accessibility.label} className="og-schema-chart og-sankey-chart" role="img" viewBox="0 0 620 286">
-        {layout.edges.map((edge, index) => (
-          <path className={`og-flow-fill-${edge.colorIndex % COLORS.length}`} d={edge.path} key={`${edge.source}-${edge.target}-${index}`} opacity="0.48"><title>{`${edge.source} to ${edge.target}`}</title></path>
-        ))}
-        {layout.left.map((node, index) => (
-          <g key={`source-${node.name}`}>
-            <text className="og-svg-label" dominantBaseline="middle" textAnchor="end" x="104" y={node.y + node.height / 2}>{node.name}</text>
-            <rect className={`og-accent-fill-${index % COLORS.length}`} height={node.height} rx="3" width="12" x="116" y={node.y} />
-          </g>
-        ))}
-        {layout.right.map((node, index) => (
-          <g key={`target-${node.name}`}>
-            <rect className={`og-accent-fill-${(index + 1) % COLORS.length}`} height={node.height} rx="3" width="12" x="492" y={node.y} />
-            <text className="og-svg-label" dominantBaseline="middle" x="516" y={node.y + node.height / 2}>{node.name}</text>
-          </g>
-        ))}
-      </svg>
-    </RecipeLayout>
+    <div className="og-tracked-time-panel">
+      <header className="og-tracked-time-header">
+        <div className="og-tracked-time-heading">
+          <h3>{heading}</h3>
+          <strong>{formatValue(headingValue, spec.valueFormat)}{spec.unitLabel}</strong>
+        </div>
+        <Button aria-label={`Period: ${spec.periodLabel}`} className="og-tracked-time-period" disabled variant="outline">
+          <CalendarDays aria-hidden="true" />
+          <span>{spec.periodLabel}</span>
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </header>
+      <ChartContainer className="og-tracked-time-chart" config={trackedTimeChartConfig}>
+        <svg
+          aria-label={spec.accessibility.label}
+          className={activeEdge === undefined ? "og-tracked-time-svg" : "og-tracked-time-svg is-interacting"}
+          onPointerLeave={() => setActiveEdgeIndex(undefined)}
+          role="img"
+          viewBox="0 0 672 480"
+        >
+          <title>{spec.accessibility.label}</title>
+          {layout.edges.map((edge, index) => (
+            <path
+              aria-label={`${edge.source} to ${edge.target}: ${formatValue(edge.value, spec.valueFormat)}${spec.unitLabel}`}
+              className={activeEdgeIndex === index ? `og-tracked-time-flow og-tracked-time-source-${edge.sourceIndex} is-active` : `og-tracked-time-flow og-tracked-time-source-${edge.sourceIndex}`}
+              d={edge.path}
+              key={`${edge.source}-${edge.target}`}
+              onBlur={() => setActiveEdgeIndex(undefined)}
+              onFocus={() => setActiveEdgeIndex(index)}
+              onPointerEnter={() => setActiveEdgeIndex(index)}
+              tabIndex={0}
+            >
+              <title>{`${edge.source} to ${edge.target}: ${formatValue(edge.value, spec.valueFormat)}${spec.unitLabel}`}</title>
+            </path>
+          ))}
+          {activeEdge ? <path className={`og-tracked-time-flow og-tracked-time-source-${activeEdge.sourceIndex} is-active-overlay`} d={activeEdge.path} pointerEvents="none" /> : null}
+          {layout.sources.map((node) => {
+            const active = activeEdge === undefined || activeEdge.source === node.name;
+            return (
+              <g className={active ? `og-tracked-time-node og-tracked-time-source-${node.index}` : `og-tracked-time-node og-tracked-time-source-${node.index} is-dimmed`} key={`source-${node.name}`}>
+                <text className="og-tracked-time-source-name" textAnchor="end" x="96" y={node.y + node.height / 2 - 4}>{node.name}</text>
+                <text className="og-tracked-time-source-value" textAnchor="end" x="96" y={node.y + node.height / 2 + 13}>{formatValue(node.value, spec.valueFormat)}{spec.unitLabel}</text>
+                <rect className="og-tracked-time-source-node" height={node.height} rx="var(--og-radius-mark)" width="12" x="104" y={node.y} />
+              </g>
+            );
+          })}
+          {layout.targets.map((node) => {
+            const active = activeEdge === undefined || activeEdge.target === node.name;
+            return (
+              <g className={active ? "og-tracked-time-node" : "og-tracked-time-node is-dimmed"} key={`target-${node.name}`}>
+                <rect className="og-tracked-time-target-node" height={node.height} rx="var(--og-radius-mark)" width="12" x="494" y={node.y} />
+                <text className="og-tracked-time-target-name" x="514" y={node.y + node.height / 2 + 5}>{node.name}<tspan> · {formatPercent(node.value / total)}</tspan></text>
+              </g>
+            );
+          })}
+          <text className="og-tracked-time-axis-label" x="16" y="461">Tracked time</text>
+          <text className="og-tracked-time-axis-label" textAnchor="end" x="656" y="461">Share of tracked time</text>
+        </svg>
+      </ChartContainer>
+    </div>
   );
 }
+
+const trackedTimeChartConfig = {
+  focus: { color: "var(--og-tracked-source-1)", label: "Focus" },
+  meetings: { color: "var(--og-tracked-source-2)", label: "Meetings" },
+  breaks: { color: "var(--og-tracked-source-3)", label: "Breaks" },
+  admin: { color: "var(--og-tracked-source-4)", label: "Admin" },
+  learning: { color: "var(--og-tracked-source-5)", label: "Learning" },
+} satisfies ChartConfig;
 
 function VisitorsRadial({ rows, spec }: RecipeProps<"visitors-radial">) {
   const visible = rows.slice(0, 5);
   const max = Math.max(...visible.map((row) => numeric(row, spec.valueColumn)), 1);
+  const [activeIndex, setActiveIndex] = useState<number>();
+  const headline = activeIndex === undefined
+    ? metricValue(rows, spec.summary)
+    : visible[activeIndex]?.[spec.valueColumn];
+  const chartConfig = Object.fromEntries(visible.map((row, index) => [
+    `ring-${index}`,
+    { color: THEME_COLORS[index]!, label: text(row, spec.categoryColumn) },
+  ])) as ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec} />}>
-      <div className="og-radial-layout">
-        <svg aria-label={spec.accessibility.label} className="og-radial-chart" role="img" viewBox="0 0 260 260">
+    <Card className="og-visitors-radial-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        periodLabel={spec.periodLabel}
+        title={spec.title}
+        value={headline}
+      />
+      <ChartContainer className="og-visitors-radial-chart" config={chartConfig}>
+        <svg aria-label={spec.accessibility.label} onPointerLeave={() => setActiveIndex(undefined)} role="img" viewBox="0 0 360 360">
+          <title>{spec.accessibility.label}</title>
           {visible.map((row, index) => {
-            const radius = 108 - index * 16;
+            const radius = 142 - index * 20;
             const circumference = 2 * Math.PI * radius;
             const ratio = clamp(numeric(row, spec.valueColumn) / max, 0, 1);
             return (
-              <g key={`${text(row, spec.categoryColumn)}-${index}`}>
-                <circle cx="130" cy="130" fill="none" r={radius} stroke="#E5E5E5" strokeWidth="10" />
-                <circle cx="130" cy="130" fill="none" r={radius} stroke={COLORS[index % COLORS.length]} strokeDasharray={`${ratio * circumference} ${circumference}`} strokeLinecap="round" strokeWidth="10" transform="rotate(-90 130 130)"><title>{`${text(row, spec.categoryColumn)}: ${formatValue(row[spec.valueColumn], spec.valueFormat)}`}</title></circle>
+              <g className={activeIndex === undefined || activeIndex === index ? "og-radial-ring" : "og-radial-ring is-dimmed"} key={`${text(row, spec.categoryColumn)}-${index}`}>
+                <circle className="og-radial-track" cx="180" cy="180" fill="none" r={radius} strokeWidth="12" />
+                <circle
+                  className={`og-radial-value og-tone-${index}`}
+                  cx="180"
+                  cy="180"
+                  fill="none"
+                  onBlur={() => setActiveIndex(undefined)}
+                  onFocus={() => setActiveIndex(index)}
+                  onPointerEnter={() => setActiveIndex(index)}
+                  r={radius}
+                  strokeDasharray={`${ratio * circumference} ${circumference}`}
+                  strokeLinecap="round"
+                  strokeWidth="12"
+                  tabIndex={0}
+                  transform="rotate(-90 180 180)"
+                ><title>{`${text(row, spec.categoryColumn)}: ${formatValue(row[spec.valueColumn], spec.valueFormat)}`}</title></circle>
               </g>
             );
           })}
-          <text className="og-svg-score og-svg-score-sm" dominantBaseline="middle" textAnchor="middle" x="130" y="122">{formatValue(metricValue(rows, spec.summary), spec.summary.format)}</text>
-          <text className="og-svg-caption" dominantBaseline="middle" textAnchor="middle" x="130" y="149">{spec.summary.label ?? "Visitors"}</text>
         </svg>
-        <div className="og-chart-legend-list">
-          {visible.map((row, index) => (
-            <div className="og-legend-row" key={`${text(row, spec.categoryColumn)}-${index}`}>
-              <span className={`og-legend-swatch og-accent-bg-${index % COLORS.length}`} />
-              <span>{text(row, spec.categoryColumn)}</span>
-              <strong>{formatValue(row[spec.valueColumn], spec.valueFormat)}</strong>
-            </div>
-          ))}
-        </div>
+      </ChartContainer>
+      <div className="og-dashboard-card-grid og-visitors-radial-summary">
+        {visible.map((row, index) => (
+          <DashboardValueCard
+            index={index}
+            key={`${text(row, spec.categoryColumn)}-${index}`}
+            label={text(row, spec.categoryColumn)}
+            value={formatValue(row[spec.valueColumn], spec.valueFormat)}
+          />
+        ))}
       </div>
-    </RecipeLayout>
+    </Card>
   );
 }
 
 function VisitorsRadar({ rows, spec }: RecipeProps<"visitors-radar">) {
+  const chartConfig = {
+    visitors: { color: "var(--og-lime)", label: columnLabel(spec, spec.valueColumn) },
+  } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-radar" data-chart-mark="radar">
+    <Card className="og-visitors-radar-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        periodLabel={spec.periodLabel}
+        title={spec.title}
+        value={metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-visitors-radar-chart" config={chartConfig} data-chart-mark="radar">
         <ClientChartProjection server={<RadarProjection rows={rows} spec={spec} />}>
-          <RadarChart data={rows} height={286} margin={{ top: 24, right: 52, bottom: 24, left: 52 }} width={640}>
-            <PolarGrid gridType="polygon" radialLines={false} stroke={GRID} />
-            <PolarAngleAxis dataKey={spec.dimensionColumn} tick={{ fill: "#777777", fontSize: 11 }} />
+          <RadarChart data={rows} height={310} margin={{ top: 34, right: 62, bottom: 30, left: 62 }} width={576}>
+            <PolarGrid gridType="polygon" stroke="var(--og-chart-grid)" />
+            <PolarAngleAxis dataKey={spec.dimensionColumn} tick={{ fill: "var(--og-muted-foreground)", fontSize: 14 }} />
             <Tooltip content={<ChartTooltipContent format={spec.valueFormat} />} />
-            <Radar dataKey={spec.valueColumn} fill={COLORS[0]} fillOpacity={0.24} isAnimationActive={false} name={columnLabel(spec, spec.valueColumn)} stroke={COLORS[0]} strokeWidth={2.5} />
-            {spec.comparisonColumn ? <Radar dataKey={spec.comparisonColumn} fill={COLORS[1]} fillOpacity={0.09} isAnimationActive={false} name={columnLabel(spec, spec.comparisonColumn)} stroke={COLORS[1]} strokeWidth={2} /> : null}
+            <Radar dataKey={spec.valueColumn} fill="var(--og-lime)" fillOpacity={0.22} isAnimationActive={false} name={columnLabel(spec, spec.valueColumn)} stroke="var(--og-lime)" strokeWidth={3} />
           </RadarChart>
         </ClientChartProjection>
+      </ChartContainer>
+      <div className="og-dashboard-card-grid og-visitors-radar-summary">
+        {rows.map((row, index) => (
+          <Card className="og-dashboard-value-card og-radar-value-card" key={`${text(row, spec.dimensionColumn)}-${index}`}>
+            <span>{text(row, spec.dimensionColumn)}</span>
+            <strong>{formatValue(row[spec.valueColumn], spec.valueFormat)}</strong>
+          </Card>
+        ))}
       </div>
-    </RecipeLayout>
+    </Card>
   );
 }
 
 function ActivityCalendar({ rows, spec }: RecipeProps<"activity-calendar">) {
   const cells = monthCalendarCells(rows, spec.dateColumn, spec.valueColumn);
-  const max = Math.max(...cells.map((cell) => cell.value), 1);
+  const [selectedDate, setSelectedDate] = useState(spec.selectedDate);
+  const selectedRow = rows.find((row) => text(row, spec.dateColumn) === selectedDate) ?? rows[0]!;
+  const month = parseDate(rows[0]?.[spec.dateColumn])!;
+  const monthLabel = new Intl.DateTimeFormat("en-US", { month: "long", timeZone: "UTC" }).format(month);
+  const selectedLabel = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" }).format(parseDate(selectedRow[spec.dateColumn])!);
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <svg aria-label={spec.accessibility.label} className="og-schema-chart og-month-calendar" role="img" viewBox="0 0 560 318">
-        {WEEKDAYS.map((day, index) => <text className="og-calendar-weekday" key={day} textAnchor="middle" x={52 + index * 76} y="18">{day}</text>)}
-        {cells.map((cell) => {
-          const x = 20 + cell.day * 76;
-          const y = 34 + cell.week * 46;
-          return (
-            <g key={cell.key}>
-              <rect className={`og-calendar-cell og-intensity-${intensity(cell.value, max)}`} height="38" rx="6" width="68" x={x} y={y}><title>{`${cell.key}: ${formatValue(cell.value, spec.valueFormat)}`}</title></rect>
-              <text className="og-calendar-day" x={x + 9} y={y + 15}>{cell.date.getUTCDate()}</text>
-              {cell.value > 0 ? <text className="og-calendar-value" textAnchor="end" x={x + 59} y={y + 29}>{formatValue(cell.value, spec.valueFormat)}</text> : null}
-            </g>
-          );
-        })}
-      </svg>
-    </RecipeLayout>
+    <div className="og-activity-calendar-layout">
+      <Card className="og-activity-calendar-panel">
+        <header className="og-activity-calendar-header">
+          <div><h3>{spec.title}</h3><p><strong>{formatValue(metricValue(rows, spec.summary), spec.summary.format)}</strong><span>total steps</span></p></div>
+          <div className="og-month-control">
+            <Button aria-label="Previous month" disabled size="icon-xs" variant="ghost"><ChevronLeft aria-hidden="true" /></Button>
+            <span>{monthLabel}</span>
+            <Button aria-label="Next month" disabled size="icon-xs" variant="ghost"><ChevronRight aria-hidden="true" /></Button>
+          </div>
+        </header>
+        <div className="og-calendar-scroll">
+          <h4>{monthLabel.slice(0, 3)}</h4>
+          <div className="og-activity-calendar-grid">
+            {cells.map((cell) => {
+              const row = rows.find((candidate) => text(candidate, spec.dateColumn) === cell.key);
+              return (
+                <button
+                  aria-label={`${cell.key}: ${formatValue(cell.value, spec.valueFormat)} steps`}
+                  aria-pressed={selectedDate === cell.key}
+                  className="og-activity-day"
+                  key={cell.key}
+                  onClick={() => setSelectedDate(cell.key)}
+                  style={{ gridColumn: cell.day + 1 }}
+                  type="button"
+                >
+                  <span>{cell.date.getUTCDate()}</span>
+                  <MiniActivityRings row={row} series={spec.series} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
+      <Card className="og-selected-activity-panel">
+        <h3>Activity for {selectedLabel}</h3>
+        <div className="og-activity-stat-grid">
+          {spec.series.map((series, index) => (
+            <DashboardValueCard
+              index={activityTone(index)}
+              key={series.column}
+              label={series.label ?? columnLabel(spec, series.column)}
+              value={formatActivityDetail(series.label ?? series.column, numeric(selectedRow, series.column))}
+            />
+          ))}
+        </div>
+        <ChartContainer className="og-selected-activity-rings" config={activityChartConfig(spec.series)}>
+          <ActivityRingsSvg row={selectedRow} series={spec.series} />
+        </ChartContainer>
+      </Card>
+    </div>
   );
 }
 
 function RevenueSmoothArea({ instanceId, rows, spec }: RecipeProps<"revenue-smooth-area"> & { instanceId: string }) {
   const gradientId = `og-revenue-${instanceId}`;
+  const chartConfig = { revenue: { color: "var(--og-lime)", label: columnLabel(spec, spec.revenueColumn) } } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}><SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /></RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-area" data-chart-mark="area">
+    <Card className="og-revenue-area-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        tabs
+        title={spec.title}
+        value={metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-revenue-area-chart" config={chartConfig} data-chart-mark="area">
         <ClientChartProjection server={<AreaProjection format={spec.revenueFormat} rows={rows} timeColumn={spec.timeColumn} valueColumn={spec.revenueColumn} />}>
-          <AreaChart data={rows} height={252} margin={{ top: 18, right: 8, bottom: 2, left: 8 }} width={640}>
-            <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={COLORS[0]} stopOpacity="0.48" /><stop offset="100%" stopColor={COLORS[0]} stopOpacity="0.02" /></linearGradient></defs>
-            <CartesianGrid stroke={GRID} strokeDasharray="2 4" vertical={false} />
+          <AreaChart data={rows} height={330} margin={{ top: 18, right: 12, bottom: 4, left: 12 }} width={760}>
+            <defs><linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={THEME_COLORS[0]} stopOpacity="0.48" /><stop offset="100%" stopColor={THEME_COLORS[0]} stopOpacity="0.02" /></linearGradient></defs>
+            <CartesianGrid horizontal={false} vertical={false} />
             <XAxis axisLine={false} dataKey={spec.timeColumn} tick={axisTick} tickFormatter={timeTick} tickLine={false} />
-            <YAxis hide />
+            <YAxis axisLine={false} domain={[0, 6000]} tick={axisTick} tickFormatter={currencyAxisTick} tickLine={false} ticks={[0, 2000, 4000, 6000]} width={52} />
             <Tooltip content={<ChartTooltipContent format={spec.revenueFormat} />} cursor={{ stroke: MUTED, strokeDasharray: "3 3" }} />
-            <Area dataKey={spec.revenueColumn} fill={`url(#${gradientId})`} isAnimationActive={false} name={columnLabel(spec, spec.revenueColumn)} stroke={COLORS[0]} strokeWidth={3} type="monotone" />
+            <Area activeDot={{ fill: "var(--og-lime)", r: 5, stroke: "var(--og-surface)", strokeWidth: 3 }} dataKey={spec.revenueColumn} fill={`url(#${gradientId})`} isAnimationActive={false} name={columnLabel(spec, spec.revenueColumn)} stroke="var(--og-lime)" strokeWidth={3} type="monotone" />
           </AreaChart>
         </ClientChartProjection>
-      </div>
-    </RecipeLayout>
+      </ChartContainer>
+    </Card>
   );
 }
 
 function ActiveUsersHeatmap({ rows, spec }: RecipeProps<"active-users-heatmap">) {
-  const days = unique(rows.map((row) => text(row, spec.dayColumn))).slice(0, 8);
-  const buckets = unique(rows.map((row) => text(row, spec.timeBucketColumn))).slice(0, 14);
+  const days = unique(rows.map((row) => text(row, spec.dayColumn))).slice(0, 7);
+  const buckets = unique(rows.map((row) => text(row, spec.timeBucketColumn))).slice(0, 12);
   const values = new Map(rows.map((row) => [`${text(row, spec.dayColumn)}\u0000${text(row, spec.timeBucketColumn)}`, numeric(row, spec.valueColumn)]));
   const max = Math.max(...values.values(), 1);
-  const cellWidth = buckets.length > 0 ? Math.min(34, 440 / buckets.length) : 34;
-  const viewWidth = 104 + buckets.length * cellWidth;
-  const viewHeight = 54 + days.length * 30;
+  const [activeKey, setActiveKey] = useState<string>();
+  const activeValue = activeKey === undefined ? undefined : values.get(activeKey);
+  const config = { users: { color: "var(--og-blue)", label: columnLabel(spec, spec.valueColumn) } } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <svg aria-label={spec.accessibility.label} className="og-schema-chart og-active-heatmap" role="img" viewBox={`0 0 ${Math.max(520, viewWidth)} ${Math.max(240, viewHeight)}`}>
-        {buckets.map((bucket, index) => <text className="og-heatmap-axis" key={bucket} textAnchor="middle" x={96 + index * cellWidth + (cellWidth - 5) / 2} y="24">{bucket}</text>)}
-        {days.map((day, dayIndex) => (
-          <g key={day}>
-            <text className="og-svg-label" dominantBaseline="middle" textAnchor="end" x="80" y={48 + dayIndex * 30 + 10}>{day}</text>
-            {buckets.map((bucket, bucketIndex) => {
-              const value = values.get(`${day}\u0000${bucket}`) ?? 0;
-              return <rect className={`og-heatmap-cell og-intensity-${intensity(value, max)}`} height="20" key={bucket} rx="4" width={Math.max(5, cellWidth - 5)} x={96 + bucketIndex * cellWidth} y={48 + dayIndex * 30}><title>{`${day} ${bucket}: ${formatValue(value, spec.valueFormat)}`}</title></rect>;
-            })}
-          </g>
-        ))}
-      </svg>
-    </RecipeLayout>
+    <Card className="og-active-users-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        periodLabel={spec.periodLabel}
+        title={activeKey === undefined ? spec.title : activeKey.replace("\u0000", " · ")}
+        value={activeValue ?? metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-active-users-grid" config={config} onPointerLeave={() => setActiveKey(undefined)} role="grid">
+        <span aria-hidden="true" />
+        {buckets.map((bucket) => <span className="og-active-hour" key={bucket}>{bucket}</span>)}
+        {days.flatMap((day) => [
+          <span className="og-active-day" key={`${day}-label`}>{day}</span>,
+          ...buckets.map((bucket) => {
+            const key = `${day}\u0000${bucket}`;
+            const value = values.get(key) ?? 0;
+            return (
+              <button
+                aria-label={`${day} ${bucket}: ${formatValue(value, spec.valueFormat)}`}
+                className={`og-active-cell og-blue-intensity-${intensity(value, max)}`}
+                key={key}
+                onBlur={() => setActiveKey(undefined)}
+                onFocus={() => setActiveKey(key)}
+                onPointerEnter={() => setActiveKey(key)}
+                type="button"
+              />
+            );
+          }),
+        ])}
+      </ChartContainer>
+      <div className="og-active-users-scale"><span>Less</span>{[0, 1, 2, 3, 4].map((level) => <i className={`og-blue-intensity-${level}`} key={level} />)}<span>More</span></div>
+    </Card>
   );
 }
 
 function SignUpFunnel({ rows, spec }: RecipeProps<"sign-up-funnel">) {
-  const visible = rows.slice(0, 6);
+  const visible = rows.slice(0, 4);
   const max = Math.max(...visible.map((row) => numeric(row, spec.valueColumn)), 1);
-  const segmentWidth = 480 / Math.max(visible.length, 1);
+  const [activeIndex, setActiveIndex] = useState<number>();
+  const activeRow = activeIndex === undefined ? undefined : visible[activeIndex];
+  const segmentWidth = 720 / Math.max(visible.length, 1);
+  const chartConfig = Object.fromEntries(visible.map((row, index) => [
+    `stage-${index}`,
+    { color: THEME_COLORS[index]!, label: text(row, spec.stageColumn) },
+  ])) as ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}{spec.conversion ? <SummaryStat metric={spec.conversion} spec={spec} value={metricValue(rows, spec.conversion)} /> : null}</RecipeHeader>}>
-      <svg aria-label={spec.accessibility.label} className="og-schema-chart og-funnel-chart" role="img" viewBox="0 0 560 252">
+    <Card className="og-signup-funnel-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        periodLabel={spec.periodLabel}
+        title={activeRow === undefined ? spec.title : text(activeRow, spec.stageColumn)}
+        value={activeRow?.[spec.valueColumn] ?? metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-signup-funnel-chart" config={chartConfig}>
+        <svg aria-label={spec.accessibility.label} onPointerLeave={() => setActiveIndex(undefined)} role="img" viewBox="0 0 760 220">
+          <title>{spec.accessibility.label}</title>
         {visible.map((row, index) => {
           const current = numeric(row, spec.valueColumn);
           const next = index === visible.length - 1 ? current : numeric(visible[index + 1]!, spec.valueColumn);
-          const h0 = 36 + 104 * current / max;
-          const h1 = 36 + 104 * next / max;
-          const x0 = 36 + index * segmentWidth;
-          const x1 = x0 + segmentWidth - 3;
-          const y0 = 112 - h0 / 2;
-          const y1 = 112 - h1 / 2;
+          const h0 = 46 + 116 * current / max;
+          const h1 = 46 + 116 * next / max;
+          const x0 = 20 + index * segmentWidth;
+          const x1 = x0 + segmentWidth - 2;
+          const y0 = 110 - h0 / 2;
+          const y1 = 110 - h1 / 2;
           const points = `${x0},${y0} ${x1},${y1} ${x1},${y1 + h1} ${x0},${y0 + h0}`;
+          const percentage = numeric(row, spec.conversion.column);
           return (
-            <g key={`${text(row, spec.stageColumn)}-${index}`}>
-              <polygon className={`og-accent-fill-${index % COLORS.length}`} points={points}><title>{`${text(row, spec.stageColumn)}: ${formatValue(current, spec.valueFormat)}`}</title></polygon>
-              <text className="og-funnel-value" dominantBaseline="middle" textAnchor="middle" x={(x0 + x1) / 2} y="112">{formatValue(current, spec.valueFormat)}</text>
-              <text className="og-funnel-label" textAnchor="middle" x={(x0 + x1) / 2} y="210">{text(row, spec.stageColumn)}</text>
-              {index > 0 ? <text className="og-funnel-rate" textAnchor="middle" x={(x0 + x1) / 2} y="232">{formatPercent(current / Math.max(numeric(visible[0]!, spec.valueColumn), 1))}</text> : null}
+            <g className={activeIndex === undefined || activeIndex === index ? "og-funnel-stage" : "og-funnel-stage is-dimmed"} key={`${text(row, spec.stageColumn)}-${index}`}>
+              <polygon
+                className={`og-funnel-track og-tone-${index}`}
+                onBlur={() => setActiveIndex(undefined)}
+                onFocus={() => setActiveIndex(index)}
+                onPointerEnter={() => setActiveIndex(index)}
+                points={points}
+                tabIndex={0}
+              ><title>{`${text(row, spec.stageColumn)}: ${formatValue(current, spec.valueFormat)}`}</title></polygon>
+              <rect className="og-funnel-pill" height="26" rx="var(--og-radius-pill)" width="58" x={(x0 + x1) / 2 - 29} y="97" />
+              <text className="og-funnel-percent" dominantBaseline="middle" textAnchor="middle" x={(x0 + x1) / 2} y="110">{formatPercent(percentage)}</text>
             </g>
           );
         })}
-      </svg>
-    </RecipeLayout>
+        </svg>
+      </ChartContainer>
+      <div className="og-dashboard-card-grid og-funnel-summary-grid">
+        {visible.map((row, index) => (
+          <DashboardValueCard index={index} key={`${text(row, spec.stageColumn)}-${index}`} label={text(row, spec.stageColumn)} value={formatValue(row[spec.valueColumn], spec.valueFormat)} />
+        ))}
+      </div>
+    </Card>
   );
 }
 
 function EarnedSoFarBars({ rows, spec }: RecipeProps<"earned-so-far-bars">) {
+  const maximum = Math.max(...rows.map((row) => numeric(row, spec.targetColumn ?? spec.earnedColumn)), 1);
+  const chartConfig = { earned: { color: "var(--og-lime)", label: columnLabel(spec, spec.earnedColumn) } } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}><SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /></RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-earned" data-chart-mark="bars">
+    <Card className="og-earned-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        tabs
+        title={spec.title}
+        value={metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-earned-chart" config={chartConfig} data-chart-mark="bars">
         <ClientChartProjection server={<BarsProjection categoryColumn={spec.periodColumn} format={spec.earnedFormat} rows={rows} targetColumn={spec.targetColumn} valueColumn={spec.earnedColumn} />}>
-          <BarChart barCategoryGap="28%" data={rows} height={250} margin={{ top: 14, right: 8, bottom: 0, left: 8 }} width={640}>
-            <CartesianGrid stroke={GRID} strokeDasharray="2 4" vertical={false} />
+          <BarChart barCategoryGap="34%" data={rows} height={330} margin={{ top: 16, right: 8, bottom: 0, left: 8 }} width={820}>
             <XAxis axisLine={false} dataKey={spec.periodColumn} tick={axisTick} tickLine={false} />
-            <YAxis hide />
-            <Tooltip content={<ChartTooltipContent format={spec.earnedFormat} />} cursor={{ fill: "rgba(255,255,255,.5)" }} />
-            {spec.targetColumn ? <Bar dataKey={spec.targetColumn} fill="#DCDCDC" isAnimationActive={false} name={columnLabel(spec, spec.targetColumn)} radius={[4, 4, 1, 1]} /> : null}
-            <Bar dataKey={spec.earnedColumn} fill={COLORS[0]} isAnimationActive={false} name={columnLabel(spec, spec.earnedColumn)} radius={[4, 4, 1, 1]} />
+            <YAxis axisLine={false} domain={[0, maximum]} tick={axisTick} tickFormatter={currencyAxisTick} tickLine={false} ticks={[0, 3000, 5000, 10000]} width={55} />
+            <Tooltip content={<ChartTooltipContent format={spec.earnedFormat} />} cursor={{ fill: "var(--og-card)", fillOpacity: 0.5 }} />
+            <Bar background={ThemedLargeBarBackground} dataKey={spec.earnedColumn} fill="var(--og-lime)" isAnimationActive={false} name={columnLabel(spec, spec.earnedColumn)} shape={ThemedLargeBarShape} />
           </BarChart>
         </ClientChartProjection>
-      </div>
-    </RecipeLayout>
+      </ChartContainer>
+    </Card>
   );
 }
 
 function ContributionsHeatmap({ rows, spec }: RecipeProps<"contributions-heatmap">) {
   const cells = contributionCells(rows, spec.dateColumn, spec.valueColumn);
   const max = Math.max(...cells.map((cell) => cell.value), 1);
-  const width = Math.max(620, 68 + (cells.at(-1)?.week ?? 0) * 12 + 20);
+  const [activeKey, setActiveKey] = useState<string>();
+  const activeCell = activeKey === undefined ? undefined : cells.find((cell) => cell.key === activeKey);
+  const chartConfig = { contributions: { color: "var(--og-violet)", label: columnLabel(spec, spec.valueColumn) } } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}><SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /></RecipeHeader>}>
-      <div className="og-contribution-scroll">
-        <svg aria-label={spec.accessibility.label} className="og-schema-chart og-contribution-chart" role="img" viewBox={`0 0 ${width} 142`}>
-          <text className="og-heatmap-axis" x="4" y="45">Mon</text><text className="og-heatmap-axis" x="4" y="81">Wed</text><text className="og-heatmap-axis" x="4" y="117">Fri</text>
-          {cells.map((cell) => <rect className={`og-contribution-cell og-intensity-${intensity(cell.value, max)}`} height="10" key={cell.key} rx="2" width="10" x={48 + cell.week * 12} y={18 + cell.day * 16}><title>{`${cell.key}: ${formatValue(cell.value, spec.valueFormat)}`}</title></rect>)}
-        </svg>
+    <Card className="og-contributions-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={activeCell === undefined ? spec.summary.format : spec.valueFormat}
+        title={activeCell === undefined ? spec.title : activeCell.key}
+        value={activeCell?.value ?? metricValue(rows, spec.summary)}
+      />
+      <div className="og-contribution-highlights">
+        {spec.highlights.map((metric) => (
+          <Card className="og-contribution-highlight" key={metric.column}>
+            <strong>{formatContributionHighlight(metric.label ?? columnLabel(spec, metric.column), metricValue(rows, metric), metric.format)}</strong>
+            <span>{metric.label ?? columnLabel(spec, metric.column)}</span>
+          </Card>
+        ))}
       </div>
-      <div className="og-heatmap-scale"><span>Less</span>{[0, 1, 2, 3, 4].map((level) => <i className={`og-intensity-${level}`} key={level} />)}<span>More</span></div>
-    </RecipeLayout>
+      <div className="og-contribution-toolbar"><span>Activity</span><TimeframeTabs /></div>
+      <ChartContainer className="og-contribution-grid" config={chartConfig} onPointerLeave={() => setActiveKey(undefined)} role="grid">
+        {cells.map((cell) => (
+          <button
+            aria-label={`${cell.key}: ${formatValue(cell.value, spec.valueFormat)}`}
+            className={`og-contribution-button og-purple-intensity-${intensity(cell.value, max)}`}
+            key={cell.key}
+            onBlur={() => setActiveKey(undefined)}
+            onFocus={() => setActiveKey(cell.key)}
+            onPointerEnter={() => setActiveKey(cell.key)}
+            style={{ gridColumn: cell.week + 1, gridRow: cell.day + 1 }}
+            type="button"
+          />
+        ))}
+      </ChartContainer>
+      <div className="og-contribution-months">{["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"].map((month) => <span key={month}>{month}</span>)}</div>
+    </Card>
   );
 }
 
 function SessionsConversionCombo({ rows, spec }: RecipeProps<"sessions-conversion-combo">) {
+  const chartConfig = {
+    sessions: { color: "var(--og-lime)", label: columnLabel(spec, spec.sessionsColumn) },
+    conversion: { color: "var(--og-blue)", label: columnLabel(spec, spec.conversionColumn) },
+  } satisfies ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}><SummaryStat metric={spec.sessionsSummary} spec={spec} value={metricValue(rows, spec.sessionsSummary)} /><SummaryStat metric={spec.conversionSummary} spec={spec} value={metricValue(rows, spec.conversionSummary)} /></RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-combo" data-chart-mark="bar line">
+    <Card className="og-combo-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.sessionsSummary.format}
+        periodLabel={spec.periodLabel}
+        title={spec.title}
+        value={metricValue(rows, spec.sessionsSummary)}
+      />
+      <ChartContainer className="og-combo-chart" config={chartConfig} data-chart-mark="bar line">
         <ClientChartProjection server={<ComboProjection rows={rows} spec={spec} />}>
-          <ComposedChart data={rows} height={264} margin={{ top: 16, right: 10, bottom: 0, left: 10 }} width={640}>
-            <CartesianGrid stroke={GRID} strokeDasharray="2 4" vertical={false} />
+          <ComposedChart data={rows} height={320} margin={{ top: 14, right: 16, bottom: 0, left: 8 }} width={760}>
+            <CartesianGrid stroke="var(--og-chart-grid)" strokeDasharray="3 5" vertical={false} />
             <XAxis axisLine={false} dataKey={spec.timeColumn} tick={axisTick} tickFormatter={timeTick} tickLine={false} />
-            <YAxis hide yAxisId="sessions" />
-            <YAxis hide orientation="right" yAxisId="conversion" />
-            <Tooltip content={<ChartTooltipContent />} cursor={{ fill: "rgba(255,255,255,.55)" }} />
-            <Bar dataKey={spec.sessionsColumn} fill={COLORS[1]} isAnimationActive={false} name={columnLabel(spec, spec.sessionsColumn)} radius={[4, 4, 1, 1]} yAxisId="sessions" />
-            <Line activeDot={{ r: 4, fill: COLORS[3] }} dataKey={spec.conversionColumn} dot={false} isAnimationActive={false} name={columnLabel(spec, spec.conversionColumn)} stroke={COLORS[3]} strokeWidth={3} type="monotone" yAxisId="conversion" />
+            <YAxis axisLine={false} domain={[0, 10500]} tick={axisTick} tickFormatter={compactAxisTick} tickLine={false} ticks={[0, 3500, 7000, 10500]} width={52} yAxisId="sessions" />
+            <YAxis axisLine={false} domain={[0, 0.06]} orientation="right" tick={axisTick} tickFormatter={percentAxisTick} tickLine={false} ticks={[0, 0.02, 0.04, 0.06]} width={42} yAxisId="conversion" />
+            <Tooltip content={<ChartTooltipContent />} cursor={{ fill: "var(--og-card)", fillOpacity: 0.55 }} />
+            <Bar dataKey={spec.sessionsColumn} fill="var(--og-lime)" isAnimationActive={false} name={columnLabel(spec, spec.sessionsColumn)} shape={ThemedBarShape} yAxisId="sessions" />
+            <Line activeDot={{ fill: "var(--og-blue)", r: 5, stroke: "var(--og-surface)", strokeWidth: 3 }} dataKey={spec.conversionColumn} dot={{ fill: "var(--og-blue)", r: 3, stroke: "var(--og-surface)", strokeWidth: 2 }} isAnimationActive={false} name={columnLabel(spec, spec.conversionColumn)} stroke="var(--og-blue)" strokeWidth={3} type="monotone" yAxisId="conversion" />
           </ComposedChart>
         </ClientChartProjection>
+      </ChartContainer>
+      <div className="og-dashboard-card-grid og-combo-summary-grid">
+        <DashboardValueCard index={0} label={`${columnLabel(spec, spec.sessionsColumn)} · total`} value={formatValue(metricValue(rows, spec.sessionsSummary), spec.sessionsSummary.format)} />
+        <DashboardValueCard index={1} label={`${columnLabel(spec, spec.conversionColumn)} · average`} value={formatValue(metricValue(rows, spec.conversionSummary), spec.conversionSummary.format)} />
       </div>
-      <div className="og-inline-legend"><span><i className="og-accent-bg-1" />{columnLabel(spec, spec.sessionsColumn)}</span><span><i className="og-accent-bg-3" />{columnLabel(spec, spec.conversionColumn)}</span></div>
-    </RecipeLayout>
+    </Card>
   );
 }
 
 function DevicesBars({ rows, spec }: RecipeProps<"devices-bars">) {
-  const visible = rows.slice(0, 6);
-  const max = Math.max(...visible.map((row) => numeric(row, spec.valueColumn)), 1);
+  const visible = rows.slice(0, 3);
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
+    <Card className="og-devices-panel">
+      <header className="og-devices-tabs">
+        <Tabs defaultValue="devices">
+          <TabsList>
+            <TabsTrigger value="devices">Devices</TabsTrigger>
+            <TabsTrigger value="browsers">Browsers</TabsTrigger>
+            <TabsTrigger value="operating-systems">Operating systems</TabsTrigger>
+          </TabsList>
+        </Tabs>
+        <span>{spec.summary?.label ?? "Visitors"}</span>
+      </header>
       <div className="og-device-list" role="img" aria-label={spec.accessibility.label}>
         {visible.map((row, index) => {
           const label = text(row, spec.deviceColumn);
@@ -649,65 +974,268 @@ function DevicesBars({ rows, spec }: RecipeProps<"devices-bars">) {
           const Icon = deviceIcon(label);
           return (
             <div className="og-device-row" key={`${label}-${index}`}>
+              <Progress className="og-device-progress" indicatorClassName="og-device-progress-value" value={value * 100} />
               <span className="og-device-label"><Icon aria-hidden="true" size={17} strokeWidth={1.8} /><span>{label}</span></span>
-              <svg aria-hidden="true" className="og-device-bar" preserveAspectRatio="none" viewBox="0 0 100 9"><title>{`${label}: ${formatValue(value, spec.valueFormat)}`}</title><rect fill="#E4E4E4" height="9" rx="4" width="100" /><rect className={`og-accent-fill-${index % COLORS.length}`} height="9" rx="4" width={Math.max(1, 100 * value / max)} /></svg>
               <strong>{formatValue(value, spec.valueFormat)}</strong>
             </div>
           );
         })}
       </div>
-    </RecipeLayout>
+    </Card>
   );
 }
 
 function VisitorsStackedArea({ instanceId, rows, spec }: RecipeProps<"visitors-stacked-area"> & { instanceId: string }) {
+  const chartConfig = Object.fromEntries(spec.series.map((series, index) => [
+    series.column,
+    { color: THEME_COLORS[index]!, label: series.label ?? columnLabel(spec, series.column) },
+  ])) as ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <div className="og-chart-plot og-chart-plot-stacked" data-chart-mark="stacked-area">
+    <Card className="og-stacked-area-panel">
+      <DashboardHeader
+        change={numericValue(metricValue(rows, spec.change))}
+        changeFormat={spec.change.format}
+        format={spec.summary.format}
+        periodLabel={spec.periodLabel}
+        title={spec.title}
+        value={metricValue(rows, spec.summary)}
+      />
+      <ChartContainer className="og-stacked-area-chart" config={chartConfig} data-chart-mark="stacked-area">
         <ClientChartProjection server={<StackedAreaProjection rows={rows} spec={spec} />}>
-          <AreaChart data={rows} height={260} margin={{ top: 16, right: 8, bottom: 0, left: 8 }} width={640}>
-            <defs>{spec.series.map((series, index) => <linearGradient id={`og-stack-${instanceId}-${index}`} key={series.column} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={COLORS[index % COLORS.length]} stopOpacity="0.78" /><stop offset="100%" stopColor={COLORS[index % COLORS.length]} stopOpacity="0.2" /></linearGradient>)}</defs>
-            <CartesianGrid stroke={GRID} strokeDasharray="2 4" vertical={false} />
+          <AreaChart data={rows} height={330} margin={{ top: 16, right: 10, bottom: 2, left: 8 }} width={760}>
+            <defs>{spec.series.map((series, index) => <linearGradient id={`og-stack-${instanceId}-${index}`} key={series.column} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor={THEME_COLORS[index % THEME_COLORS.length]} stopOpacity="0.78" /><stop offset="100%" stopColor={THEME_COLORS[index % THEME_COLORS.length]} stopOpacity="0.2" /></linearGradient>)}</defs>
+            <CartesianGrid stroke="var(--og-chart-grid)" strokeDasharray="3 5" vertical={false} />
             <XAxis axisLine={false} dataKey={spec.timeColumn} tick={axisTick} tickFormatter={timeTick} tickLine={false} />
-            <YAxis hide />
+            <YAxis axisLine={false} domain={[0, 13500]} tick={axisTick} tickFormatter={compactAxisTick} tickLine={false} ticks={[0, 4500, 9000, 13500]} width={52} />
             <Tooltip content={<ChartTooltipContent />} cursor={{ stroke: MUTED, strokeDasharray: "3 3" }} />
-            {spec.series.map((series, index) => <Area dataKey={series.column} fill={`url(#og-stack-${instanceId}-${index})`} isAnimationActive={false} key={series.column} name={series.label ?? columnLabel(spec, series.column)} stackId="visitors" stroke={COLORS[index % COLORS.length]} strokeWidth={2} type="monotone" />)}
+            {spec.series.map((series, index) => <Area dataKey={series.column} fill={`url(#og-stack-${instanceId}-${index})`} isAnimationActive={false} key={series.column} name={series.label ?? columnLabel(spec, series.column)} stackId="visitors" stroke={THEME_COLORS[index]} strokeWidth={2.5} type="monotone" />)}
           </AreaChart>
         </ClientChartProjection>
+      </ChartContainer>
+      <div className="og-dashboard-card-grid og-stacked-area-summary">
+        {spec.series.map((series, index) => (
+          <DashboardValueCard
+            index={index}
+            key={series.column}
+            label={series.label ?? columnLabel(spec, series.column)}
+            value={formatValue(rows.reduce((sum, row) => sum + numeric(row, series.column), 0), series.format)}
+          />
+        ))}
       </div>
-      <div className="og-inline-legend">{spec.series.map((series, index) => <span key={series.column}><i className={`og-accent-bg-${index % COLORS.length}`} />{series.label ?? columnLabel(spec, series.column)}</span>)}</div>
-    </RecipeLayout>
+    </Card>
   );
 }
 
 function ActivityRings({ rows, spec }: RecipeProps<"activity-rings">) {
-  const visible = rows.slice(0, 5);
+  const visible = rows.slice(0, 3);
+  const [activeIndex, setActiveIndex] = useState<number>();
+  const chartConfig = Object.fromEntries(visible.map((row, index) => [
+    `activity-${index}`,
+    { color: activityColor(index), label: text(row, spec.activityColumn) },
+  ])) as ChartConfig;
   return (
-    <RecipeLayout header={<RecipeHeader spec={spec}>{spec.summary ? <SummaryStat metric={spec.summary} spec={spec} value={metricValue(rows, spec.summary)} /> : null}</RecipeHeader>}>
-      <div className="og-rings-layout">
-        <svg aria-label={spec.accessibility.label} className="og-activity-rings" role="img" viewBox="0 0 260 260">
+    <Card className="og-activity-rings-panel">
+      <h3>{spec.title}</h3>
+      <div className="og-activity-stat-grid">
+        {visible.map((row, index) => (
+          <DashboardValueCard index={activityTone(index)} key={`${text(row, spec.activityColumn)}-${index}`} label={text(row, spec.activityColumn)} value={text(row, spec.detailColumn)} />
+        ))}
+      </div>
+      <ChartContainer className="og-activity-rings-chart" config={chartConfig}>
+        <svg aria-label={spec.accessibility.label} onPointerLeave={() => setActiveIndex(undefined)} role="img" viewBox="0 0 360 360">
+          <title>{spec.accessibility.label}</title>
           {visible.map((row, index) => {
-            const radius = 108 - index * 18;
+            const radius = 142 - index * 42;
             const circumference = 2 * Math.PI * radius;
             const ratio = clamp(numeric(row, spec.valueColumn) / Math.max(numeric(row, spec.targetColumn), 1), 0, 1);
             return (
-              <g key={`${text(row, spec.activityColumn)}-${index}`}>
-                <circle cx="130" cy="130" fill="none" r={radius} stroke="#E3E3E3" strokeWidth="13" />
-                <circle cx="130" cy="130" fill="none" r={radius} stroke={COLORS[index % COLORS.length]} strokeDasharray={`${circumference * ratio} ${circumference}`} strokeLinecap="round" strokeWidth="13" transform="rotate(-90 130 130)"><title>{`${text(row, spec.activityColumn)}: ${formatValue(row[spec.valueColumn], spec.valueFormat)} / ${formatValue(row[spec.targetColumn], spec.valueFormat)}`}</title></circle>
+              <g className={activeIndex === undefined || activeIndex === index ? "og-activity-ring" : "og-activity-ring is-dimmed"} key={`${text(row, spec.activityColumn)}-${index}`}>
+                <circle className={`og-activity-ring-track og-activity-tone-${index}`} cx="180" cy="180" fill="none" r={radius} strokeWidth="30" />
+                <circle
+                  className={`og-activity-ring-value og-activity-tone-${index}`}
+                  cx="180"
+                  cy="180"
+                  fill="none"
+                  onBlur={() => setActiveIndex(undefined)}
+                  onFocus={() => setActiveIndex(index)}
+                  onPointerEnter={() => setActiveIndex(index)}
+                  r={radius}
+                  strokeDasharray={`${circumference * ratio} ${circumference}`}
+                  strokeLinecap="round"
+                  strokeWidth="30"
+                  tabIndex={0}
+                  transform="rotate(-90 180 180)"
+                ><title>{`${text(row, spec.activityColumn)}: ${text(row, spec.detailColumn)}`}</title></circle>
               </g>
             );
           })}
         </svg>
-        <div className="og-ring-stats">
-          {visible.map((row, index) => {
-            const value = row[spec.valueColumn];
-            const target = row[spec.targetColumn];
-            return <div className="og-ring-stat" key={`${text(row, spec.activityColumn)}-${index}`}><span className={`og-ring-dot og-accent-bg-${index % COLORS.length}`} /><div><span>{text(row, spec.activityColumn)}</span><strong>{formatValue(value, spec.valueFormat)} <small>/ {formatValue(target, spec.valueFormat)}</small></strong></div></div>;
-          })}
+      </ChartContainer>
+    </Card>
+  );
+}
+
+function DashboardHeader({ change, changeFormat, format, periodLabel, tabs = false, title, value }: {
+  change: number;
+  changeFormat: FormatToken | undefined;
+  format: FormatToken | undefined;
+  periodLabel?: string;
+  tabs?: boolean;
+  title: string;
+  value: ChartCellValue | undefined;
+}) {
+  return (
+    <header className="og-dashboard-header">
+      <div className="og-dashboard-heading">
+        <h3>{title}</h3>
+        <div>
+          <strong>{formatValue(value, format)}</strong>
+          <Badge variant="positive">{change > 0 ? "+" : ""}{formatValue(change, changeFormat)}</Badge>
         </div>
       </div>
-    </RecipeLayout>
+      {tabs ? <TimeframeTabs /> : periodLabel ? <PeriodControl label={periodLabel} /> : null}
+    </header>
   );
+}
+
+function PeriodControl({ label }: { label: string }) {
+  return (
+    <Button aria-label={`Period: ${label}`} className="og-dashboard-period" disabled variant="outline">
+      <CalendarDays aria-hidden="true" />
+      <span>{label}</span>
+      <ChevronDown aria-hidden="true" />
+    </Button>
+  );
+}
+
+function TimeframeTabs() {
+  return (
+    <Tabs className="og-timeframe-tabs" defaultValue="weekly">
+      <TabsList>
+        <TabsTrigger value="weekly">Weekly</TabsTrigger>
+        <TabsTrigger value="monthly">Monthly</TabsTrigger>
+        <TabsTrigger value="yearly">Yearly</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
+function DashboardValueCard({ index, label, value }: { index: number; label: string; value: string }) {
+  return (
+    <Card className={`og-dashboard-value-card og-tone-${index}`}>
+      <div><i aria-hidden="true" /><span>{label}</span></div>
+      <strong>{value}</strong>
+    </Card>
+  );
+}
+
+function MiniActivityRings({ row, series }: { row: DataRow | undefined; series: readonly ChartSeriesColumn[] }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 44 44">
+      {series.map((entry, index) => {
+        const radius = 18 - index * 5;
+        const circumference = 2 * Math.PI * radius;
+        const ratio = row === undefined ? 0 : activityRatio(entry.label ?? entry.column, numeric(row, entry.column));
+        return (
+          <g key={entry.column}>
+            <circle className={`og-mini-ring-track og-activity-tone-${index}`} cx="22" cy="22" fill="none" r={radius} strokeWidth="3" />
+            <circle className={`og-mini-ring-value og-activity-tone-${index}`} cx="22" cy="22" fill="none" r={radius} strokeDasharray={`${circumference * ratio} ${circumference}`} strokeLinecap="round" strokeWidth="3" transform="rotate(-90 22 22)" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function ActivityRingsSvg({ row, series }: { row: DataRow; series: readonly ChartSeriesColumn[] }) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 360 360">
+      {series.map((entry, index) => {
+        const radius = 142 - index * 42;
+        const circumference = 2 * Math.PI * radius;
+        const ratio = activityRatio(entry.label ?? entry.column, numeric(row, entry.column));
+        return (
+          <g key={entry.column}>
+            <circle className={`og-activity-ring-track og-activity-tone-${index}`} cx="180" cy="180" fill="none" r={radius} strokeWidth="30" />
+            <circle className={`og-activity-ring-value og-activity-tone-${index}`} cx="180" cy="180" fill="none" r={radius} strokeDasharray={`${circumference * ratio} ${circumference}`} strokeLinecap="round" strokeWidth="30" transform="rotate(-90 180 180)" />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function activityRatio(label: string, value: number): number {
+  const normalized = label.toLowerCase();
+  const target = normalized.includes("move") ? 900 : normalized.includes("exercise") ? 120 : 6.5;
+  return clamp(value / target, 0, 1);
+}
+
+function activityTone(index: number): number {
+  return [3, 0, 1][index] ?? index;
+}
+
+function ThemedBarShape(props: BarShapeProps) {
+  return <ThemedBarRect {...props} themedRadius="var(--og-radius-bar)" />;
+}
+
+function ThemedLargeBarShape(props: BarShapeProps) {
+  return <ThemedBarRect {...props} themedRadius="var(--og-radius-large)" />;
+}
+
+function ThemedLargeBarBackground(props: BarShapeProps) {
+  return <ThemedBarRect {...props} fill="var(--og-progress-track)" themedRadius="var(--og-radius-large)" />;
+}
+
+function ThemedBarRect({ fill, height, themedRadius, width, x, y }: BarShapeProps & { themedRadius: string }) {
+  return (
+    <rect
+      fill={fill}
+      height={Math.max(height, 0)}
+      rx={themedRadius}
+      width={Math.max(width, 0)}
+      x={x}
+      y={y}
+    />
+  );
+}
+
+function activityColor(index: number): string {
+  return ["var(--og-pink)", "var(--og-lime)", "var(--og-blue)"][index] ?? "var(--og-muted)";
+}
+
+function activityChartConfig(series: readonly ChartSeriesColumn[]): ChartConfig {
+  return Object.fromEntries(series.map((entry, index) => [
+    entry.column,
+    { color: activityColor(index), label: entry.label ?? entry.column },
+  ]));
+}
+
+function formatActivityDetail(label: string, value: number): string {
+  const normalized = label.toLowerCase();
+  if (normalized.includes("move")) return `${formatValue(value, { kind: "number", notation: "standard", maximumFractionDigits: 0 })} kcal`;
+  if (normalized.includes("exercise")) return `${Math.floor(value / 60)}h ${Math.round(value % 60)}m`;
+  return `${formatValue(value, { kind: "number", notation: "standard", maximumFractionDigits: 1 })} km`;
+}
+
+function formatContributionHighlight(label: string, value: ChartCellValue | undefined, format: FormatToken | undefined): string {
+  const number = numericValue(value);
+  const normalized = label.toLowerCase();
+  if (normalized.includes("longest")) return `${Math.floor(number)}h ${Math.round((number % 1) * 60)}m`;
+  if (normalized.includes("streak")) return `${formatValue(number, format)} days`;
+  return formatValue(value, format);
+}
+
+function currencyAxisTick(value: number): string {
+  return value === 0 ? "$0" : `$${Math.round(value / 1000)}K`;
+}
+
+function compactAxisTick(value: number): string {
+  return value === 0 ? "0" : value >= 1000 ? `${Number((value / 1000).toFixed(1))}K` : String(value);
+}
+
+function percentAxisTick(value: number): string {
+  return `${Math.round(value * 100)}%`;
 }
 
 const subscribeHydration = () => () => undefined;
@@ -744,8 +1272,8 @@ function BarsProjection({ categoryColumn, format, rows, targetColumn, valueColum
         const targetHeight = target === undefined ? 0 : target / max * (plot.bottom - plot.top);
         return (
           <g key={`${text(row, categoryColumn)}-${index}`}>
-            {target !== undefined ? <rect fill="#DEDEDE" height={targetHeight} rx="4" width={barWidth} x={x} y={plot.bottom - targetHeight}><title>{`Target: ${formatValue(target, format)}`}</title></rect> : null}
-            <rect fill={COLORS[0]} height={valueHeight} rx="4" width={target === undefined ? barWidth : barWidth * 0.64} x={target === undefined ? x : x + barWidth * 0.18} y={plot.bottom - valueHeight}><title>{`${text(row, categoryColumn)}: ${formatValue(value, format)}`}</title></rect>
+            {target !== undefined ? <rect fill="var(--og-progress-track)" height={targetHeight} rx="var(--og-radius-mark)" width={barWidth} x={x} y={plot.bottom - targetHeight}><title>{`Target: ${formatValue(target, format)}`}</title></rect> : null}
+            <rect fill={THEME_COLORS[0]} height={valueHeight} rx="var(--og-radius-mark)" width={target === undefined ? barWidth : barWidth * 0.64} x={target === undefined ? x : x + barWidth * 0.18} y={plot.bottom - valueHeight}><title>{`${text(row, categoryColumn)}: ${formatValue(value, format)}`}</title></rect>
             <text className="og-heatmap-axis" textAnchor="middle" x={x + barWidth / 2} y="226">{text(row, categoryColumn)}</text>
           </g>
         );
@@ -755,26 +1283,30 @@ function BarsProjection({ categoryColumn, format, rows, targetColumn, valueColum
 }
 
 function ScatterProjection({ rows, spec }: RecipeProps<"revenue-per-account-scatter">) {
-  const visible = rows.slice(0, 40);
-  const xs = visible.map((row) => numeric(row, spec.comparisonColumn));
-  const ys = visible.map((row) => numeric(row, spec.revenueColumn));
-  const sizes = spec.sizeColumn ? visible.map((row) => numeric(row, spec.sizeColumn!)) : visible.map(() => 1);
-  const xRange = numericRange(xs);
-  const yRange = numericRange(ys);
+  const groups = unique(rows.map((row) => text(row, spec.groupColumn)));
+  const sizes = rows.map((row) => numeric(row, spec.sizeColumn));
   const sizeRange = numericRange(sizes);
+  const plot = { bottom: 166, left: 60, right: 560, top: 8 } as const;
   return (
-    <svg aria-hidden="true" className="og-server-chart" viewBox="0 0 640 264">
-      {[0, 1, 2, 3].map((index) => <line key={index} stroke={GRID} strokeDasharray="2 4" x1="54" x2="622" y1={24 + index * 62} y2={24 + index * 62} />)}
-      {visible.map((row, index) => {
+    <svg aria-hidden="true" className="og-server-chart" viewBox="0 0 576 220">
+      {[0, 550, 1100, 1700].map((value) => {
+        const y = scale(value, [0, 1700], [plot.bottom, plot.top]);
+        return <g key={value}><line stroke="var(--og-chart-grid)" strokeDasharray="3 5" x1={plot.left} x2={plot.right} y1={y} y2={y} /><text className="og-revenue-axis-tick" textAnchor="end" x="51" y={y + 4}>{formatValue(value, spec.revenueFormat)}</text></g>;
+      })}
+      {[0, 25, 50, 75, 100].map((value) => {
+        const x = scale(value, [0, 100], [plot.left, plot.right]);
+        return <g key={value}><line stroke="var(--og-chart-grid)" strokeDasharray="3 5" x1={x} x2={x} y1={plot.top} y2={plot.bottom} /><text className="og-revenue-axis-tick" textAnchor="middle" x={x} y="190">{formatValue(value, spec.comparisonFormat)}</text></g>;
+      })}
+      {rows.map((row, index) => {
         const xValue = numeric(row, spec.comparisonColumn);
         const yValue = numeric(row, spec.revenueColumn);
         const sizeValue = sizes[index]!;
-        const x = scale(xValue, xRange, [64, 612]);
-        const y = scale(yValue, yRange, [218, 26]);
-        const radius = scale(sizeValue, sizeRange, [5, 11]);
-        return <circle cx={x} cy={y} fill={COLORS[index % COLORS.length]} key={index} opacity="0.84" r={radius}><title>{`${text(row, spec.accountColumn)}: ${formatValue(yValue, spec.revenueFormat)}`}</title></circle>;
+        const groupIndex = groups.indexOf(text(row, spec.groupColumn));
+        const x = scale(xValue, [0, 100], [plot.left, plot.right]);
+        const y = scale(yValue, [0, 1700], [plot.bottom, plot.top]);
+        const radius = scale(sizeValue, sizeRange, [7, 14]);
+        return <circle className={`og-revenue-projection-point og-revenue-tone-${groupIndex}`} cx={x} cy={y} key={index} r={radius}><title>{`${text(row, spec.accountColumn)}: ${formatValue(yValue, spec.revenueFormat)}`}</title></circle>;
       })}
-      <text className="og-heatmap-axis" textAnchor="middle" x="320" y="256">{columnLabel(spec, spec.comparisonColumn)}</text>
     </svg>
   );
 }
@@ -797,8 +1329,8 @@ function RadarProjection({ rows, spec }: RecipeProps<"visitors-radar">) {
         const angle = -Math.PI / 2 + index * Math.PI * 2 / visible.length;
         return <text className="og-svg-label" dominantBaseline="middle" key={index} textAnchor={Math.cos(angle) > 0.2 ? "start" : Math.cos(angle) < -0.2 ? "end" : "middle"} x={center.x + Math.cos(angle) * 119} y={center.y + Math.sin(angle) * 119}>{text(row, spec.dimensionColumn)}</text>;
       })}
-      {spec.comparisonColumn ? <polygon fill={COLORS[1]} fillOpacity="0.09" points={polygon(spec.comparisonColumn)} stroke={COLORS[1]} strokeWidth="2"><title>{columnLabel(spec, spec.comparisonColumn)}</title></polygon> : null}
-      <polygon fill={COLORS[0]} fillOpacity="0.24" points={polygon(spec.valueColumn)} stroke={COLORS[0]} strokeWidth="2.5"><title>{columnLabel(spec, spec.valueColumn)}</title></polygon>
+      {spec.comparisonColumn ? <polygon fill={THEME_COLORS[1]} fillOpacity="0.09" points={polygon(spec.comparisonColumn)} stroke={THEME_COLORS[1]} strokeWidth="2"><title>{columnLabel(spec, spec.comparisonColumn)}</title></polygon> : null}
+      <polygon fill={THEME_COLORS[0]} fillOpacity="0.24" points={polygon(spec.valueColumn)} stroke={THEME_COLORS[0]} strokeWidth="2.5"><title>{columnLabel(spec, spec.valueColumn)}</title></polygon>
     </svg>
   );
 }
@@ -816,8 +1348,8 @@ function AreaProjection({ format, rows, timeColumn, valueColumn }: {
   return (
     <svg aria-hidden="true" className="og-server-chart" viewBox="0 0 640 252">
       {[0, 1, 2, 3].map((index) => <line key={index} stroke={GRID} strokeDasharray="2 4" x1="34" x2="620" y1={24 + index * 61} y2={24 + index * 61} />)}
-      <path d={area} fill={COLORS[0]} fillOpacity="0.26"><title>{rows.map((row) => `${text(row, timeColumn)}: ${formatValue(row[valueColumn], format)}`).join(", ")}</title></path>
-      <path d={line} fill="none" stroke={COLORS[0]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
+      <path d={area} fill={THEME_COLORS[0]} fillOpacity="0.26"><title>{rows.map((row) => `${text(row, timeColumn)}: ${formatValue(row[valueColumn], format)}`).join(", ")}</title></path>
+      <path d={line} fill="none" stroke={THEME_COLORS[0]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" />
       {axisLabels(rows, timeColumn, 40, 614, 242)}
     </svg>
   );
@@ -836,10 +1368,10 @@ function ComboProjection({ rows, spec }: RecipeProps<"sessions-conversion-combo"
       {rows.map((row, index) => {
         const height = sessions[index]! / sessionMax * 188;
         const x = 54 + index * step - width / 2;
-        return <rect fill={COLORS[1]} height={height} key={index} rx="4" width={width} x={x} y={212 - height}><title>{`${text(row, spec.timeColumn)}: ${formatValue(row[spec.sessionsColumn], spec.sessionsFormat)}`}</title></rect>;
+        return <rect fill={THEME_COLORS[1]} height={height} key={index} rx="var(--og-radius-mark)" width={width} x={x} y={212 - height}><title>{`${text(row, spec.timeColumn)}: ${formatValue(row[spec.sessionsColumn], spec.sessionsFormat)}`}</title></rect>;
       })}
-      <path d={pathFromPoints(conversionPoints)} fill="none" stroke={COLORS[3]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"><title>{columnLabel(spec, spec.conversionColumn)}</title></path>
-      {conversionPoints.map((point, index) => <circle cx={point.x} cy={point.y} fill={COLORS[3]} key={index} r="3.5" />)}
+      <path d={pathFromPoints(conversionPoints)} fill="none" stroke={THEME_COLORS[3]} strokeLinecap="round" strokeLinejoin="round" strokeWidth="3"><title>{columnLabel(spec, spec.conversionColumn)}</title></path>
+      {conversionPoints.map((point, index) => <circle cx={point.x} cy={point.y} fill={THEME_COLORS[3]} key={index} r="3.5" />)}
       {axisLabels(rows, spec.timeColumn, 54, 610, 252)}
     </svg>
   );
@@ -858,7 +1390,7 @@ function StackedAreaProjection({ rows, spec }: RecipeProps<"visitors-stacked-are
         const lowerPoints = stackedPoints(lower, max, 40, 614, 22, 211).reverse();
         const path = polygonPath([...upperPoints, ...lowerPoints]);
         lower = upper;
-        return <path d={path} fill={COLORS[seriesIndex % COLORS.length]} fillOpacity={0.56 + seriesIndex * 0.05} key={series.column} stroke={COLORS[seriesIndex % COLORS.length]} strokeWidth="1.5"><title>{series.label ?? series.column}</title></path>;
+        return <path d={path} fill={THEME_COLORS[seriesIndex % THEME_COLORS.length]} fillOpacity={0.56 + seriesIndex * 0.05} key={series.column} stroke={THEME_COLORS[seriesIndex % THEME_COLORS.length]} strokeWidth="1.5"><title>{series.label ?? series.column}</title></path>;
       })}
       {axisLabels(rows, spec.timeColumn, 40, 614, 250)}
     </svg>
@@ -956,9 +1488,31 @@ function ChartTooltipContent({ active, format, label, labelColumn, payload }: {
   return (
     <div className="og-chart-tooltip">
       {resolvedLabel !== undefined ? <strong>{String(resolvedLabel)}</strong> : null}
-      {payload.map((entry, index) => <div key={`${String(entry.name)}-${index}`}><i className={`og-accent-bg-${index % COLORS.length}`} /><span>{entry.name}</span><b>{formatValue(entry.value, format)}</b></div>)}
+      {payload.map((entry, index) => <div key={`${String(entry.name)}-${index}`}><i className={`og-accent-bg-${index % THEME_COLORS.length}`} /><span>{entry.name}</span><b>{formatValue(entry.value, format)}</b></div>)}
     </div>
   );
+}
+
+function RevenueScatterTooltip({ row, spec, style }: {
+  row: DataRow;
+  spec: RecipeSpec<"revenue-per-account-scatter">;
+  style: CSSProperties | undefined;
+}) {
+  return (
+    <Card className="og-revenue-scatter-tooltip" style={style}>
+      <header><strong>{text(row, spec.accountColumn)}</strong><span>{text(row, spec.groupColumn)}</span></header>
+      <div><span>{columnLabel(spec, spec.revenueColumn)}</span><strong>{formatValue(row[spec.revenueColumn], spec.revenueFormat)}</strong></div>
+      <div><span>{columnLabel(spec, spec.comparisonColumn)}</span><strong>{formatValue(row[spec.comparisonColumn], spec.comparisonFormat)}</strong></div>
+    </Card>
+  );
+}
+
+function revenueScatterTooltipStyle(comparison: number, revenue: number): CSSProperties {
+  const x = 11.8 + clamp(comparison, 0, 100) * 0.84;
+  const top = clamp(17 + (1 - clamp(revenue, 0, 1700) / 1700) * 43, 18, 57);
+  return x > 55
+    ? { right: `${clamp(102 - x, 2, 78)}%`, top: `${top}%` }
+    : { left: `${clamp(x + 2, 2, 72)}%`, top: `${top}%` };
 }
 
 function EmptyChart({ title }: { title: string }) {
@@ -1033,36 +1587,35 @@ function timeTick(value: ChartCellValue | undefined): string {
     : new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).format(date);
 }
 
-const axisTick = { fill: "#8A8A8A", fontSize: 11 } as const;
+const axisTick = { fill: "var(--og-muted-foreground)", fontSize: 11 } as const;
 
-type FlowNode = { height: number; name: string; value: number; y: number };
-type FlowEdge = { colorIndex: number; path: string; source: string; target: string };
+type TrackedTimeNode = { height: number; index: number; name: string; value: number; y: number };
+type TrackedTimeEdge = { path: string; source: string; sourceIndex: number; target: string; value: number };
 
-function sankeyLayout(rows: DataRow[], sourceColumn: string, targetColumn: string, valueColumn: string): { edges: FlowEdge[]; left: FlowNode[]; right: FlowNode[] } {
+function trackedTimeLayout(rows: DataRow[], sourceColumn: string, targetColumn: string, valueColumn: string): { edges: TrackedTimeEdge[]; sources: TrackedTimeNode[]; targets: TrackedTimeNode[] } {
   const edges = rows.map((row) => ({ source: text(row, sourceColumn), target: text(row, targetColumn), value: Math.max(0, numeric(row, valueColumn)) })).filter((edge) => edge.value > 0);
-  const total = Math.max(edges.reduce((sum, edge) => sum + edge.value, 0), 1);
   const sourceTotals = totalsBy(edges, "source");
   const targetTotals = totalsBy(edges, "target");
-  const left = flowNodes(sourceTotals, total);
-  const right = flowNodes(targetTotals, total);
-  const leftByName = new Map(left.map((node) => [node.name, node]));
-  const rightByName = new Map(right.map((node) => [node.name, node]));
+  const sources = trackedTimeNodes(sourceTotals, 118);
+  const targets = trackedTimeNodes(targetTotals, 90);
+  const sourceByName = new Map(sources.map((node) => [node.name, node]));
+  const targetByName = new Map(targets.map((node) => [node.name, node]));
   const sourceOffsets = new Map<string, number>();
   const targetOffsets = new Map<string, number>();
-  const flowEdges = edges.map((edge, index) => {
-    const source = leftByName.get(edge.source)!;
-    const target = rightByName.get(edge.target)!;
-    const thickness = edge.value / total * 202;
+  const flowEdges = edges.map((edge) => {
+    const source = sourceByName.get(edge.source)!;
+    const target = targetByName.get(edge.target)!;
+    const thickness = edge.value * 3;
     const sourceOffset = sourceOffsets.get(edge.source) ?? 0;
     const targetOffset = targetOffsets.get(edge.target) ?? 0;
     const y0 = source.y + sourceOffset;
     const y1 = target.y + targetOffset;
     sourceOffsets.set(edge.source, sourceOffset + thickness);
     targetOffsets.set(edge.target, targetOffset + thickness);
-    const path = `M128 ${y0} C250 ${y0},370 ${y1},492 ${y1} L492 ${y1 + thickness} C370 ${y1 + thickness},250 ${y0 + thickness},128 ${y0 + thickness} Z`;
-    return { colorIndex: index, path, source: edge.source, target: edge.target };
+    const path = `M116 ${y0} C245 ${y0},365 ${y1},494 ${y1} L494 ${y1 + thickness} C365 ${y1 + thickness},245 ${y0 + thickness},116 ${y0 + thickness} Z`;
+    return { path, source: edge.source, sourceIndex: source.index, target: edge.target, value: edge.value };
   });
-  return { edges: flowEdges, left, right };
+  return { edges: flowEdges, sources, targets };
 }
 
 function totalsBy(edges: readonly { source: string; target: string; value: number }[], side: "source" | "target"): Map<string, number> {
@@ -1071,12 +1624,12 @@ function totalsBy(edges: readonly { source: string; target: string; value: numbe
   return result;
 }
 
-function flowNodes(totals: Map<string, number>, grandTotal: number): FlowNode[] {
-  let y = 28;
-  return [...totals].map(([name, value]) => {
-    const height = value / grandTotal * 202;
-    const node = { height, name, value, y };
-    y += height + 8;
+function trackedTimeNodes(totals: Map<string, number>, startY: number): TrackedTimeNode[] {
+  let y = startY;
+  return [...totals].map(([name, value], index) => {
+    const height = value * 3;
+    const node = { height, index, name, value, y };
+    y += height + 14;
     return node;
   });
 }
@@ -1153,14 +1706,14 @@ function rendererKind(recipe: UIResolvedChartSpec["recipe"]): "dom" | "recharts"
     case "visitors-stacked-area": return "recharts";
     case "sleep-score": return "recharts";
     case "steps-bars":
-    case "pipeline-stage-bars": return "dom";
-    case "tracked-time-sankey":
-    case "visitors-radial":
+    case "pipeline-stage-bars":
     case "activity-calendar":
     case "active-users-heatmap":
-    case "sign-up-funnel":
     case "contributions-heatmap":
-    case "devices-bars":
+    case "devices-bars": return "dom";
+    case "tracked-time-sankey":
+    case "visitors-radial":
+    case "sign-up-funnel":
     case "activity-rings": return "svg";
   }
 }
