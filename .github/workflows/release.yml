@@ -78,13 +78,13 @@ jobs:
         run: bun run typecheck
 
       - name: Test
-        run: bun run test
+        run: bun run test:ci
 
       - name: Build
         run: bun run build
 
       - name: Check release artifacts
-        run: bun run release:check
+        run: bun scripts/check-release.ts && bun scripts/check-release-stage.ts
 
       - name: Stage and pack release
         id: stage

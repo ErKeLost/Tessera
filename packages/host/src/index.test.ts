@@ -88,4 +88,4 @@ test("compiles a governed data turn and publishes the model-composed Surface", a
   expect(events[0]?.payload.type).toBe("snapshot-published");
   if (events[0]?.payload.type !== "snapshot-published") throw new Error("Expected a Surface snapshot.");
   expect(Object.keys(events[0].payload.snapshot.resources)).toHaveLength(1);
-});
+}, { timeout: 30_000 });

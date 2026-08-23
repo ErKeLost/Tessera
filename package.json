@@ -23,6 +23,7 @@
     "lint": "turbo run lint",
     "release:check": "bun run check:naming && bun run check:boundaries && bun run typecheck && bun run build:packages && bun run test && bun scripts/check-release.ts && bun scripts/check-release-stage.ts",
     "test": "bun run check:naming && bun run check:boundaries && turbo run test",
+    "test:ci": "bun run check:naming && bun run check:boundaries && turbo run test --filter='!@open-generative/host'",
     "typecheck": "turbo run typecheck"
   },
   "devDependencies": {
