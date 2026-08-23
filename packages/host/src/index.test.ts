@@ -17,25 +17,25 @@ test("presents a governed data chart from one host call", async () => {
     },
     dataset: {
       columns: [
-        { columnId: "category", label: "Category", valueType: "string" },
-        { columnId: "value", label: "Value", valueType: "number" },
+        { columnId: "device", label: "Device", valueType: "string" },
+        { columnId: "visitors", label: "Visitors", valueType: "number" },
       ],
       rows: [
-        { category: "North", value: 12 },
-        { category: "South", value: 8 },
+        { device: "Desktop", visitors: 0.61 },
+        { device: "Mobile", visitors: 0.39 },
       ],
       totalRows: 2,
       hasMore: false,
     },
     spec: {
-      mark: "bar",
-      title: "Results",
-      x: { field: columnIdSchema.parse("category"), type: "nominal", title: "Category" },
-      y: { field: columnIdSchema.parse("value"), type: "quantitative", title: "Value" },
-      tooltip: { mode: "auto" },
-      options: { orientation: "vertical", stack: "none", curve: "monotone", grid: true, legend: "auto" },
+      recipe: "devices-bars",
+      title: "Devices",
+      deviceColumn: columnIdSchema.parse("device"),
+      valueColumn: columnIdSchema.parse("visitors"),
+      summary: { column: columnIdSchema.parse("visitors"), aggregate: "sum", label: "Visitors", format: { kind: "percent", maximumFractionDigits: 1 } },
+      valueFormat: { kind: "percent", maximumFractionDigits: 1 },
       equivalentView: "table",
-      accessibility: { label: "Results chart" },
+      accessibility: { label: "Device visitors chart" },
     },
   });
 

@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/compiler",
-  "version": "0.3.19",
+  "version": "0.3.20",
   "description": "Server-only Open Generative proposal normalization and commit compiler.",
   "license": "MIT",
   "type": "module",
