@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/ui",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "Official React renderers for the Open Generative component catalog and ChartSpec.",
   "license": "MIT",
   "type": "module",

@@ -3419,12 +3419,28 @@ function streamTesseraAgentTurnUI(
             databaseActions,
             databaseDialect,
           });
-          const generationOptions = copilotGenerationOptions({ ...input, signal: controller.signal }, llm);
+          // A browser can reconnect after the original SSE has gone away, so
+          // the run id carried by its button is only a hint. Mastra persists
+          // suspended runs in workflow storage specifically so a host can
+          // rediscover the pending call before resuming it.
+          const resumed = input.resumeData === undefined
+            ? undefined
+            : await resolvePendingMutationResume(agent, input);
+          const executionInput = resumed === undefined
+            ? { ...input, signal: controller.signal }
+            : {
+              ...input,
+              runId: resumed.runId,
+              toolCallId: resumed.toolCallId,
+              resumeData: resumed.resumeData,
+              signal: controller.signal,
+            };
+          const generationOptions = copilotGenerationOptions(executionInput, llm);
           const output = input.resumeData === undefined
             ? await agent.stream(agentUserContent(input), generationOptions)
-            : await agent.resumeStream(input.resumeData, generationOptions);
+            : await agent.resumeStream(executionInput.resumeData, generationOptions);
           const source = appendCopilotOutcome(
-            toAISdkStream(output, {
+            normalizeTesseraToolInvocationOrder(toAISdkStream(output, {
               from: "agent",
               sendReasoning: true,
               version: "v7",
@@ -3432,13 +3448,13 @@ function streamTesseraAgentTurnUI(
                 reportAgentDiagnostic(input, { phase: "provider", error });
                 return safeStudioErrorDetails(error).errorMessage;
               },
-            }) as ReadableStream<TesseraUIMessageChunk>,
+            }) as ReadableStream<TesseraUIMessageChunk>),
             async (message) => {
               try {
-                await persistCompletedCopilotTurn(memory, input, message);
+                await persistCompletedCopilotTurn(memory, executionInput, message);
                 return await presentLatestCompletedAnalysis({
                   runtime,
-                  input,
+                  input: executionInput,
                   generativeHost,
                 });
               } catch (error) {
@@ -3484,6 +3500,147 @@ function streamTesseraAgentTurnUI(
       cancelSourceReader();
     },
   });
+}
+
+const pendingMutationResumeSchema = z.object({
+  decision: z.enum(["approve", "reject"]),
+  requestId: z.string().min(1).max(512),
+  checkpointId: z.string().min(1).max(512),
+}).strict();
+
+const pendingMutationSuspendPayloadSchema = z.object({
+  requestId: z.string().min(1).max(512),
+  checkpointId: z.string().min(1).max(512),
+}).passthrough();
+
+class PendingMutationResumeError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PendingMutationResumeError";
+  }
+}
+
+/**
+ * Browser-held run ids become stale after a reconnect, server restart, or a
+ * previous decision. Mastra's storage-backed discovery API is the authority
+ * for whether a custom tool suspension is still actionable.
+ */
+async function resolvePendingMutationResume(
+  agent: Agent,
+  input: StudioAgentRunInput,
+): Promise<Readonly<{
+  runId: string;
+  toolCallId: string;
+  resumeData: z.infer<typeof pendingMutationResumeSchema>;
+}>> {
+  const requestedResume = pendingMutationResumeSchema.safeParse(input.resumeData);
+  if (!requestedResume.success || input.toolCallId === undefined) {
+    throw new PendingMutationResumeError("This database approval request is invalid.");
+  }
+
+  const { runs } = await agent.listSuspendedRuns({
+    threadId: input.threadId,
+    resourceId: tesseraSessionResourceId(input.identity),
+  });
+  const matches = runs.flatMap((run) => run.toolCalls.flatMap((toolCall) => {
+    const toolCallId = toolCall.toolCallId;
+    if (toolCallId === undefined
+      || toolCallId !== input.toolCallId
+      || toolCall.toolName !== "execute_sql"
+      || toolCall.requiresApproval) return [];
+    const suspendPayload = pendingMutationSuspendPayloadSchema.safeParse(toolCall.suspendPayload);
+    return suspendPayload.success ? [{ runId: run.runId, toolCallId, suspendPayload: suspendPayload.data }] : [];
+  }));
+
+  if (matches.length === 0) {
+    throw new PendingMutationResumeError(
+      "This database approval is no longer pending. It may already have been completed, rejected, or expired.",
+    );
+  }
+  if (matches.length > 1) {
+    throw new PendingMutationResumeError("The database approval could not be uniquely identified. Please retry the original action.");
+  }
+
+  const match = matches[0]!;
+  // The stored suspend payload, not query-string values, authorizes the
+  // database action. The browser only supplies the user's decision.
+  return {
+    runId: match.runId,
+    toolCallId: match.toolCallId,
+    resumeData: {
+      decision: requestedResume.data.decision,
+      requestId: match.suspendPayload.requestId,
+      checkpointId: match.suspendPayload.checkpointId,
+    },
+  };
+}
+
+/**
+ * Mastra may emit a custom `tool-call-suspended` event after streamed tool
+ * arguments but before its regular `tool-call` event. AI SDK requires the
+ * corresponding `tool-input-available` part to exist before that event is
+ * later resumed with a tool output. Materialize a redacted public invocation
+ * at suspension time so the client retains a stable tool-call record.
+ */
+export function normalizeTesseraToolInvocationOrder(
+  source: ReadableStream<TesseraUIMessageChunk>,
+): ReadableStream<TesseraUIMessageChunk> {
+  const startedTools = new Map<string, TesseraToolName>();
+  const availableTools = new Set<string>();
+  return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
+    transform(chunk, controller) {
+      const publishInput = (toolCallId: string, toolName: TesseraToolName) => {
+        if (availableTools.has(toolCallId)) return;
+        availableTools.add(toolCallId);
+        controller.enqueue({
+          type: "tool-input-available",
+          toolCallId,
+          toolName,
+          input: publicTesseraToolInput(toolName),
+          providerExecuted: true,
+        } as TesseraUIMessageChunk);
+      };
+
+      if (chunk.type === "tool-input-start") {
+        const toolName = asTesseraToolName(chunk.toolName);
+        if (toolName !== undefined) startedTools.set(chunk.toolCallId, toolName);
+        controller.enqueue(chunk);
+        return;
+      }
+
+      if (chunk.type === "tool-input-available") {
+        const toolName = asTesseraToolName(chunk.toolName);
+        if (toolName !== undefined) {
+          startedTools.set(chunk.toolCallId, toolName);
+          if (availableTools.has(chunk.toolCallId)) return;
+          availableTools.add(chunk.toolCallId);
+        }
+        controller.enqueue(chunk);
+        return;
+      }
+
+      if (chunk.type === "data-tool-call-suspended") {
+        const data = isRecord(chunk.data) ? chunk.data : undefined;
+        const toolCallId = typeof data?.toolCallId === "string" ? data.toolCallId : undefined;
+        const toolName = asTesseraToolName(data?.toolName) ?? (toolCallId === undefined ? undefined : startedTools.get(toolCallId));
+        if (toolCallId !== undefined && toolName !== undefined) {
+          startedTools.set(toolCallId, toolName);
+          publishInput(toolCallId, toolName);
+        }
+      }
+
+      controller.enqueue(chunk);
+    },
+  }));
+}
+
+function publicTesseraToolInput(tool: TesseraToolName): Record<string, string> {
+  if (tool === "list_database") return { action: "list_database" };
+  if (tool === "list_catalog") return { action: "list_catalog" };
+  if (tool === "execute_sql") return { action: "execute_sql" };
+  if (tool === "run_analysis") return { action: "run_governed_analysis" };
+  if (tool === "list_rls_policies") return { action: "list_rls_policies" };
+  return { action: "list_extensions" };
 }
 
 /** Validates a terminal answer without touching Mastra's one-consumer fullStream. */

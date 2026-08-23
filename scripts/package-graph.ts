@@ -18,6 +18,7 @@ export const packageGraph: readonly PackageDefinition[] = [
   { directory: "packages/ai-sdk", name: "@open-generative/ai-sdk", dependencies: ["@open-generative/protocol", "@open-generative/compiler", "@open-generative/server", "@open-generative/client"] },
   { directory: "packages/ag-ui", name: "@open-generative/ag-ui", dependencies: ["@open-generative/protocol", "@open-generative/server", "@open-generative/client"] },
   { directory: "packages/mastra", name: "@open-generative/mastra", dependencies: ["@open-generative/protocol", "@open-generative/compiler", "@open-generative/server", "@open-generative/resources", "@open-generative/capabilities"] },
+  { directory: "packages/host", name: "@open-generative/host", dependencies: ["@open-generative/capabilities", "@open-generative/catalog", "@open-generative/components", "@open-generative/protocol", "@open-generative/resources", "@open-generative/server"] },
   { directory: "packages/tessera-schema", name: "@open-tessera/schema", dependencies: [] },
   { directory: "packages/tessera-runtime", name: "@open-tessera/runtime", dependencies: ["@open-tessera/schema"] },
   { directory: "packages/tessera-core", name: "@open-tessera/core", dependencies: ["@open-tessera/schema"] },
@@ -31,7 +32,7 @@ export const packageGraph: readonly PackageDefinition[] = [
   { directory: "packages/postgres", name: "@open-tessera/postgres", dependencies: ["@open-tessera/database"] },
   { directory: "packages/sqlite", name: "@open-tessera/sqlite", dependencies: ["@open-tessera/database"] },
   { directory: "packages/turso", name: "@open-tessera/turso", dependencies: ["@open-tessera/sqlite"] },
-  { directory: "apps/studio", name: "@open-tessera/studio", dependencies: ["@open-tessera/capabilities", "@open-tessera/compiler", "@open-tessera/data-agent", "@open-tessera/database", "@open-tessera/mongodb", "@open-tessera/mysql", "@open-tessera/postgres", "@open-tessera/runtime", "@open-tessera/schema", "@open-tessera/sqlite", "@open-tessera/turso"] },
+  { directory: "apps/studio", name: "@open-tessera/studio", dependencies: ["@open-generative/ai-sdk", "@open-generative/client", "@open-generative/components", "@open-generative/host", "@open-generative/protocol", "@open-generative/react", "@open-generative/ui", "@open-tessera/capabilities", "@open-tessera/compiler", "@open-tessera/data-agent", "@open-tessera/database", "@open-tessera/mongodb", "@open-tessera/mysql", "@open-tessera/postgres", "@open-tessera/runtime", "@open-tessera/schema", "@open-tessera/sqlite", "@open-tessera/turso"] },
 ];
 
 export const packageByName = new Map(packageGraph.map((definition) => [definition.name, definition]));

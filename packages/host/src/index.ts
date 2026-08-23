@@ -87,7 +87,7 @@ export type PresentDataChartInput = Readonly<{
   authority: OpenGenerativeAuthority;
   /** The chart contract accepts a strict resource binding; raw data never becomes model props. */
   dataset: ResourceDatasetPayload;
-  /** A validated data.chart recipe with `data` bound by the host. */
+  /** A validated semantic data.chart grammar with `data` bound by the host. */
   spec: DataChartSpecInput;
   title?: string;
   correlationId?: string;

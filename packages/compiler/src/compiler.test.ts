@@ -40,7 +40,7 @@ import {
 } from "@open-generative/runtime";
 import {
   createOfficialCatalog,
-  officialChartSpecFixtures,
+  dataChartGrammarFixtures,
   officialGoldenPromptCases,
 } from "@open-generative/components";
 import { createCompilerCatalog } from "./catalog";
@@ -60,13 +60,13 @@ import type {
 const FIXTURE_HASH = sha256HashSchema.parse(`sha256:${"1".repeat(64)}`);
 
 describe("proposal normalization", () => {
-  test("keeps snapshot and operation normalization equivalent for all 17 chart recipes", async () => {
+  test("keeps snapshot and operation normalization equivalent for every supported chart mark", async () => {
     const fixture = await createFixture();
-    expect(officialGoldenPromptCases).toHaveLength(17);
+    expect(officialGoldenPromptCases).toHaveLength(6);
 
     for (const [index, golden] of officialGoldenPromptCases.entries()) {
       const title = `${golden.caseId}: ${golden.prompt}`;
-      const meta = { title: golden.caseId, tags: [golden.family] };
+      const meta = { title: golden.caseId, tags: [golden.mark] };
       const snapshot = authoringSnapshotProposalSchema.parse({
         kind: "snapshot",
         root: {
@@ -750,10 +750,10 @@ async function createOfficialChartCompilerFixture() {
     .find(([pointer]) => pointer === "/spec/data")?.[1];
   const schemaConstraint = dataPolicy?.resource?.schemaConstraints[0];
   if (!schemaConstraint) throw new TypeError("The official chart data binding has no resource schema constraint.");
-  const chartFixture = officialChartSpecFixtures.find(
-    (fixture) => fixture.recipeName === "revenue-smooth-area",
+  const chartFixture = dataChartGrammarFixtures.find(
+    (fixture) => fixture.mark === "area",
   );
-  if (!chartFixture) throw new TypeError("The official revenue area fixture is missing.");
+  if (!chartFixture) throw new TypeError("The semantic area fixture is missing.");
 
   const renderer = await createRendererCapabilityManifest({
     rendererId: "tessera-chart-proof",
@@ -831,7 +831,7 @@ async function createOfficialChartCompilerFixture() {
   };
   const baseBindingId = "resource-base-chart-data";
   const baseSpec = {
-    ...structuredClone(chartFixture.spec),
+    ...structuredClone(chartFixture.authoringSpec),
     data: { kind: "resource-ref" as const, bindingId: baseBindingId },
   };
   const base = documentContentSchema.parse({
@@ -892,7 +892,7 @@ async function createOfficialChartCompilerFixture() {
     meta: { expectedMetaHash: revisions.metaHash },
   };
 
-  const { data: _data, ...literalSpec } = structuredClone(chartFixture.spec);
+  const { data: _data, ...literalSpec } = structuredClone(chartFixture.authoringSpec);
   const authoringSpec = toCompilerAuthoringLiteral(literalSpec) as { object: Record<string, unknown> };
   authoringSpec.object.data = {
     ref: "resource",

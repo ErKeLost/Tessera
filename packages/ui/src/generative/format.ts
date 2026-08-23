@@ -1,10 +1,10 @@
 import type {
-  ChartCellValue,
+  DataChartCellValue,
   FormatToken,
 } from "@open-generative/components";
 
 export function formatValue(
-  value: ChartCellValue | undefined,
+  value: DataChartCellValue | undefined,
   format?: FormatToken,
   locale = "en-US",
 ): string {
@@ -53,7 +53,7 @@ export function formatValue(
   }).format(date);
 }
 
-export function asFiniteNumber(value: ChartCellValue | undefined): number | undefined {
+export function asFiniteNumber(value: DataChartCellValue | undefined): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   return undefined;
 }

@@ -25,14 +25,14 @@ import {
   type Sha256Hash,
 } from "@open-generative/protocol";
 import { z } from "zod";
-import { resolvedChartDataSchema } from "./chart-spec";
+import { resourceDatasetPayloadSchema } from "@open-generative/protocol";
 import { dataChartPropsSchema } from "./props";
 import { resourceBindingExprSchema, toStrictJsonSchema, deepFreeze } from "./schema";
 import { hashNamespacedCanonical } from "./integrity";
 
 export const OFFICIAL_PUBLISHER = publisherIdSchema.parse("open-generative");
 export const OFFICIAL_CATALOG_ID = catalogIdSchema.parse("official");
-export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.17");
+export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.18");
 export const OFFICIAL_CONTRACT_REVISION = 1 as const;
 
 export type OfficialActions = Readonly<Record<never, never>>;
@@ -47,7 +47,7 @@ export type OfficialCatalogBundle = Readonly<{
 }>;
 
 export async function createOfficialCatalog(provider?: HashProvider): Promise<OfficialCatalogBundle> {
-  const resolvedDatasetJsonSchema = toStrictJsonSchema(resolvedChartDataSchema);
+  const resolvedDatasetJsonSchema = toStrictJsonSchema(resourceDatasetPayloadSchema);
   const resourceSchemaHash = await hashNamespacedCanonical(
     "open-generative.resource-schema",
     resolvedDatasetJsonSchema,
@@ -90,8 +90,8 @@ export async function createOfficialCatalog(provider?: HashProvider): Promise<Of
       equivalentView: "host-required",
     },
     prompt: {
-      summary: "A strict resource-backed chart selected from the official Data Chart recipe catalog.",
-      useWhen: ["Use when a governed dataset benefits from one of the declared visual comparisons."],
+      summary: "A strict resource-backed data chart described with semantic marks and encodings.",
+      useWhen: ["Use when a governed dataset benefits from a bar, line, area, scatter, pie, or radar comparison."],
       avoidWhen: ["Do not provide inline rows, colors, CSS, callbacks, React props, or SVG markup."],
       examples: [],
     },

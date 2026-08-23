@@ -1,24 +1,19 @@
 import type { HashProvider } from "@open-generative/protocol";
 import { z } from "zod";
-import {
-  officialChartAccessibilityFixtures,
-  officialChartSpecFixtures,
-  officialRendererExpectationFixtures,
-} from "./chart-fixtures";
-import { officialChartRecipeDefinitions } from "./chart-recipes";
-import { chartRecipeSchema, chartRecipes } from "./chart-spec";
+import { dataChartGrammarFixtures } from "./data-chart-fixtures";
+import { dataChartMarkSchema, dataChartMarks } from "./data-chart-spec";
 import { officialComponentTypes, officialComponentTypeSchema } from "./fixtures";
 import { hashNamespacedCanonical } from "./integrity";
 import { deepFreeze } from "./schema";
 
-export const TESSERA_PROOF_VERSION = "2026-08-22" as const;
-export const proofTaskFamilies = chartRecipes;
-export const proofTaskFamilySchema = chartRecipeSchema;
+export const TESSERA_PROOF_VERSION = "2026-08-23" as const;
+export const proofTaskFamilies = dataChartMarks;
+export const proofTaskFamilySchema = dataChartMarkSchema;
 export type ProofTaskFamily = z.infer<typeof proofTaskFamilySchema>;
 
 export const proofAssertionTokens = [
   "accessible-equivalent-view",
-  "exact-recipe",
+  "grammar-validated",
   "no-inline-payload",
   "resource-semantics-preserved",
 ] as const;
@@ -40,20 +35,20 @@ export const goldenResourceDescriptorSchema = z.object({
 }).strict();
 
 export const goldenPromptCaseSchema = z.object({
-  caseId: z.string().regex(/^golden\.[0-9]{3}\.[a-z0-9-]+$/),
+  caseId: z.string().regex(/^golden\.[0-9]{3}\.[a-z-]+$/),
   proofVersion: z.literal(TESSERA_PROOF_VERSION),
-  family: proofTaskFamilySchema,
+  mark: proofTaskFamilySchema,
   prompt: z.string().trim().min(12).max(1_024),
   resource: goldenResourceDescriptorSchema,
   expected: z.object({
     primaryView: officialComponentTypeSchema,
     components: z.tuple([officialComponentTypeSchema]),
-    recipe: chartRecipeSchema,
+    mark: proofTaskFamilySchema,
     assertions: z.array(proofAssertionTokenSchema).length(proofAssertionTokens.length),
   }).strict(),
 }).strict().superRefine((value, context) => {
-  if (value.family !== value.expected.recipe) {
-    context.addIssue({ code: "custom", path: ["expected", "recipe"], message: "The expected recipe must match the task family." });
+  if (value.mark !== value.expected.mark) {
+    context.addIssue({ code: "custom", path: ["expected", "mark"], message: "The expected mark must match the requested mark." });
   }
 });
 export type GoldenPromptCase = z.infer<typeof goldenPromptCaseSchema>;
@@ -62,24 +57,28 @@ function fixedHash(seed: number): `sha256:${string}` {
   return `sha256:${seed.toString(16).padStart(64, "0")}`;
 }
 
-export const officialGoldenPromptCases = deepFreeze(officialChartSpecFixtures.map((fixture, index) => (
+/**
+ * Verification fixtures only. They assert grammar conformance and never act
+ * as the host's component-selection input.
+ */
+export const officialGoldenPromptCases = deepFreeze(dataChartGrammarFixtures.map((fixture, index) => (
   goldenPromptCaseSchema.parse({
-    caseId: `golden.${String(index + 1).padStart(3, "0")}.${fixture.recipeName}`,
+    caseId: `golden.${String(index + 1).padStart(3, "0")}.${fixture.mark}`,
     proofVersion: TESSERA_PROOF_VERSION,
-    family: fixture.recipeName,
-    prompt: `Render the governed dataset as the ${fixture.recipeName} Data Chart recipe.`,
+    mark: fixture.mark,
+    prompt: `Render the governed dataset with a semantic ${fixture.mark} Data Chart specification.`,
     resource: {
-      bindingId: `binding.${fixture.recipeName}`,
+      bindingId: `binding.${fixture.mark}`,
       offerHash: fixedHash(index + 1),
       kind: "dataset",
-      label: fixture.spec.title,
-      columns: fixture.dataset.columns,
-      estimatedItems: fixture.dataset.totalRows ?? fixture.dataset.rows.length,
+      label: fixture.resolvedSpec.title,
+      columns: fixture.resolvedSpec.data.columns,
+      estimatedItems: fixture.resolvedSpec.data.totalRows ?? fixture.resolvedSpec.data.rows.length,
     },
     expected: {
       primaryView: "data.chart",
       components: ["data.chart"],
-      recipe: fixture.recipeName,
+      mark: fixture.mark,
       assertions: [...proofAssertionTokens],
     },
   })
@@ -122,18 +121,7 @@ export const officialNoPayloadFixtures = deepFreeze([
 ]);
 
 const prohibitedPayloadKeys = new Set([
-  "accesstoken",
-  "credential",
-  "grant",
-  "grantid",
-  "password",
-  "payload",
-  "rawresult",
-  "records",
-  "resourcekey",
-  "rows",
-  "samplerows",
-  "servercursor",
+  "accesstoken", "credential", "grant", "grantid", "password", "payload", "rawresult", "records", "resourcekey", "rows", "samplerows", "servercursor",
 ]);
 const prohibitedStringPatterns = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]+/i,
@@ -141,10 +129,7 @@ const prohibitedStringPatterns = [
   /\bsk-[A-Za-z0-9_-]{12,}\b/,
 ] as const;
 
-export type NoPayloadIssue = Readonly<{
-  code: "prohibited-key" | "credential-like-string";
-  path: string;
-}>;
+export type NoPayloadIssue = Readonly<{ code: "prohibited-key" | "credential-like-string"; path: string }>;
 
 export function scanNoPayload(input: unknown): readonly NoPayloadIssue[] {
   const issues: NoPayloadIssue[] = [];
@@ -157,15 +142,12 @@ export function scanNoPayload(input: unknown): readonly NoPayloadIssue[] {
     if (ancestors.has(value)) throw new TypeError(`Cannot scan cyclic proof fixture at ${path}.`);
     ancestors.add(value);
     try {
-      if (Array.isArray(value)) {
-        value.forEach((item, index) => visit(item, `${path}[${index}]`, ancestors));
-      } else {
-        for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
-          const keyPath = `${path}.${key}`;
-          const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
-          if (prohibitedPayloadKeys.has(normalized)) issues.push({ code: "prohibited-key", path: keyPath });
-          visit(nested, keyPath, ancestors);
-        }
+      if (Array.isArray(value)) value.forEach((item, index) => visit(item, `${path}[${index}]`, ancestors));
+      else for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+        const keyPath = `${path}.${key}`;
+        const normalized = key.toLowerCase().replaceAll(/[^a-z0-9]/g, "");
+        if (prohibitedPayloadKeys.has(normalized)) issues.push({ code: "prohibited-key", path: keyPath });
+        visit(nested, keyPath, ancestors);
       }
     } finally {
       ancestors.delete(value);
@@ -182,38 +164,29 @@ export function assertNoPayload(input: unknown): void {
 
 export const deterministicProofReportSchema = z.object({
   proofVersion: z.literal(TESSERA_PROOF_VERSION),
-  goldenCaseCount: z.literal(17),
+  goldenCaseCount: z.literal(dataChartMarks.length),
   taskFamilyCounts: z.record(proofTaskFamilySchema, z.literal(1)),
   componentContractCount: z.literal(1),
-  chartRecipeCount: z.literal(17),
-  rendererExpectationCount: z.literal(17),
-  accessibilityFixtureCount: z.literal(17),
+  dataChartMarkCount: z.literal(dataChartMarks.length),
   noPayloadFixtureCount: z.literal(5),
   goldenCasesHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
-  chartCoverageHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  grammarFixturesHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
   noPayloadFixturesHash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
 }).strict();
 export type DeterministicProofReport = z.infer<typeof deterministicProofReportSchema>;
 
 export async function createDeterministicProofReport(provider?: HashProvider): Promise<DeterministicProofReport> {
   for (const fixture of officialNoPayloadFixtures) assertNoPayload(fixture.value);
-  const taskFamilyCounts = Object.fromEntries(proofTaskFamilies.map((family) => [family, 1]));
+  const taskFamilyCounts = Object.fromEntries(proofTaskFamilies.map((mark) => [mark, 1]));
   return deepFreeze(deterministicProofReportSchema.parse({
     proofVersion: TESSERA_PROOF_VERSION,
     goldenCaseCount: officialGoldenPromptCases.length,
     taskFamilyCounts,
     componentContractCount: officialComponentTypes.length,
-    chartRecipeCount: officialChartRecipeDefinitions.length,
-    rendererExpectationCount: officialRendererExpectationFixtures.length,
-    accessibilityFixtureCount: officialChartAccessibilityFixtures.length,
+    dataChartMarkCount: dataChartMarks.length,
     noPayloadFixtureCount: officialNoPayloadFixtures.length,
     goldenCasesHash: await hashNamespacedCanonical("open-generative.proof.golden-cases", officialGoldenPromptCases, provider),
-    chartCoverageHash: await hashNamespacedCanonical("open-generative.proof.chart-coverage", {
-      definitions: officialChartRecipeDefinitions,
-      specs: officialChartSpecFixtures,
-      renderers: officialRendererExpectationFixtures,
-      accessibility: officialChartAccessibilityFixtures,
-    }, provider),
+    grammarFixturesHash: await hashNamespacedCanonical("open-generative.proof.grammar-fixtures", dataChartGrammarFixtures, provider),
     noPayloadFixturesHash: await hashNamespacedCanonical("open-generative.proof.no-payload", officialNoPayloadFixtures, provider),
   }));
 }

@@ -1234,33 +1234,25 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
 
       const source = runtime.agent.streamUI?.(agentInput)
         ?? streamLegacyAgentToUI(runtime.agent, agentInput);
-      const durableSource = createUIMessageStream<TesseraUIMessage>({
-        execute: ({ writer }) => writer.merge(source),
-        onError: (error) => {
-          streamDiagnostics.capture({ phase: "stream", error });
-          return safeStudioErrorDetails(error).errorMessage;
-        },
-        onEnd: async ({ responseMessage, isAborted, finishReason }) => {
-          // `consumeSseStream` below ensures this callback also runs after an
-          // interrupted SSE response.
-          // Persist only a complete, visible assistant turn; partial/error
-          // messages must not become future Mastra memory context.
-          if (hasSuspendedToolCall(responseMessage)) return;
-          if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) {
-            chatRetries.mark({
-              resourceId: sessionResourceId,
-              threadId,
-              messageId: responseMessage.id,
-              message,
-            });
-            return;
-          }
-          await appendStudioUiMessages(runtime.sessionMemory, {
-            id: threadId,
+      const durableSource = observeStudioAssistantMessage(source, async (outcome) => {
+        // A suspension is a valid terminal state owned by Mastra. In
+        // particular, do not reparse its custom data chunk: Mastra has already
+        // persisted the exact run snapshot that Agent#resumeStream will load.
+        if (outcome.suspended) return;
+        if (outcome.aborted || outcome.finishReason !== "stop" || !hasVisibleAssistantText(outcome.message)) {
+          chatRetries.mark({
             resourceId: sessionResourceId,
-            messages: [responseMessage],
+            threadId,
+            messageId: outcome.message.id,
+            message,
           });
-        },
+          return;
+        }
+        await appendStudioUiMessages(runtime.sessionMemory, {
+          id: threadId,
+          resourceId: sessionResourceId,
+          messages: [outcome.message],
+        });
       });
       const streamStartedAt = performance.now();
       logAgentEvent(logger, "info", context.get("apiRequest"), runId, {
@@ -1334,21 +1326,14 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         reportDiagnostic: streamDiagnostics.capture,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       });
-      const durableSource = createUIMessageStream<TesseraUIMessage>({
-        execute: ({ writer }) => writer.merge(source),
-        onError: (error) => {
-          streamDiagnostics.capture({ phase: "stream", error });
-          return safeStudioErrorDetails(error).errorMessage;
-        },
-        onEnd: async ({ responseMessage, isAborted, finishReason }) => {
-          if (hasSuspendedToolCall(responseMessage)) return;
-          if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) return;
-          await appendStudioUiMessages(runtime.sessionMemory, {
-            id: parsed.data.threadId,
-            resourceId: resourceIdForContext(context),
-            messages: [responseMessage],
-          });
-        },
+      const durableSource = observeStudioAssistantMessage(source, async (outcome) => {
+        if (outcome.suspended || outcome.aborted || outcome.finishReason !== "stop"
+          || !hasVisibleAssistantText(outcome.message)) return;
+        await appendStudioUiMessages(runtime.sessionMemory, {
+          id: parsed.data.threadId,
+          resourceId: resourceIdForContext(context),
+          messages: [outcome.message],
+        });
       });
       const streamStartedAt = performance.now();
       const stream = monitorStudioChatStream(durableSource, {
@@ -2138,10 +2123,132 @@ function hasVisibleAssistantText(value: unknown): boolean {
   });
 }
 
-function hasSuspendedToolCall(value: unknown): boolean {
-  const message = asRecord(value);
-  if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
-  return message.parts.some((part) => asRecord(part)?.type === "data-tool-call-suspended");
+type StudioAssistantStreamOutcome = Readonly<{
+  message: TesseraUIMessage;
+  aborted: boolean;
+  suspended: boolean;
+  finishReason?: FinishReason;
+}>;
+
+/**
+ * Observes a native Mastra UI stream without feeding it back through
+ * `createUIMessageStream`. The latter is a UI-message assembler, and parsing
+ * a `data-tool-call-suspended` event as a second tool stream loses Mastra's
+ * persisted suspension state before a later `resumeStream()` can read it.
+ */
+function observeStudioAssistantMessage(
+  source: ReadableStream<TesseraUIMessageChunk>,
+  onEnd: (outcome: StudioAssistantStreamOutcome) => void | Promise<void>,
+): ReadableStream<TesseraUIMessageChunk> {
+  let messageId: string | undefined;
+  let aborted = false;
+  let suspended = false;
+  let finishReason: FinishReason | undefined;
+  const parts: Record<string, unknown>[] = [];
+  const textParts = new Map<string, Record<string, unknown>>();
+  const reasoningParts = new Map<string, Record<string, unknown>>();
+  const toolParts = new Map<string, Record<string, unknown>>();
+  const toolNames = new Map<string, TesseraToolName>();
+
+  const addTextPart = (id: string) => {
+    const existing = textParts.get(id);
+    if (existing) return existing;
+    const part = { type: "text", text: "" };
+    parts.push(part);
+    textParts.set(id, part);
+    return part;
+  };
+  const addReasoningPart = (id: string) => {
+    const existing = reasoningParts.get(id);
+    if (existing) return existing;
+    const part = { type: "reasoning", text: "" };
+    parts.push(part);
+    reasoningParts.set(id, part);
+    return part;
+  };
+  const toolPart = (toolCallId: string, toolName: TesseraToolName, input: unknown) => {
+    toolNames.set(toolCallId, toolName);
+    const existing = toolParts.get(toolCallId);
+    if (existing) return existing;
+    const part: Record<string, unknown> = {
+      type: `tool-${toolName}`,
+      toolCallId,
+      state: "input-available",
+      input,
+      providerExecuted: true,
+    };
+    parts.push(part);
+    toolParts.set(toolCallId, part);
+    return part;
+  };
+  const message = (): TesseraUIMessage => ({
+    id: messageId ?? `assistant-message-${randomUUID()}`,
+    role: "assistant",
+    parts: parts as TesseraUIMessage["parts"],
+  });
+
+  return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
+    transform(chunk, controller) {
+      if (chunk.type === "start") {
+        messageId = chunk.messageId;
+      } else if (chunk.type === "text-start") {
+        addTextPart(chunk.id);
+      } else if (chunk.type === "text-delta") {
+        const part = addTextPart(chunk.id);
+        part.text = `${part.text as string}${chunk.delta}`;
+      } else if (chunk.type === "reasoning-start") {
+        addReasoningPart(chunk.id);
+      } else if (chunk.type === "reasoning-delta") {
+        const part = addReasoningPart(chunk.id);
+        part.text = `${part.text as string}${chunk.delta}`;
+      } else if (chunk.type === "tool-input-start") {
+        const toolName = asTesseraToolName(chunk.toolName);
+        if (toolName !== undefined) toolNames.set(chunk.toolCallId, toolName);
+      } else if (chunk.type === "tool-input-available") {
+        const toolName = asTesseraToolName(chunk.toolName);
+        if (toolName !== undefined) toolPart(chunk.toolCallId, toolName, chunk.input);
+      } else if (chunk.type === "tool-output-available") {
+        const existing = toolParts.get(chunk.toolCallId);
+        if (existing) {
+          existing.state = "output-available";
+          existing.output = chunk.output;
+        }
+      } else if (chunk.type === "tool-input-error" || chunk.type === "tool-output-error") {
+        const toolName = chunk.type === "tool-input-error"
+          ? asTesseraToolName(chunk.toolName)
+          : toolNames.get(chunk.toolCallId);
+        if (toolName !== undefined) {
+          const existing = toolPart(chunk.toolCallId, toolName, {});
+          existing.state = "output-error";
+          existing.errorText = chunk.errorText;
+        }
+      } else if (chunk.type === "tool-output-denied") {
+        const toolName = toolNames.get(chunk.toolCallId);
+        if (toolName !== undefined) {
+          const existing = toolPart(chunk.toolCallId, toolName, {});
+          existing.state = "output-error";
+          existing.errorText = "The tool call was denied.";
+        }
+      } else if (chunk.type === "data-tool-call-suspended") {
+        suspended = true;
+      } else if (chunk.type === "abort") {
+        aborted = true;
+      } else if (chunk.type === "finish") {
+        finishReason = chunk.finishReason;
+      } else if (chunk.type === "data-openGenerativeSurface") {
+        parts.push({ type: chunk.type, id: chunk.id, data: chunk.data });
+      }
+      controller.enqueue(chunk);
+    },
+    async flush() {
+      await onEnd({
+        message: message(),
+        aborted,
+        suspended,
+        ...(finishReason === undefined ? {} : { finishReason }),
+      });
+    },
+  }));
 }
 
 function elapsedMilliseconds(startedAt: number): number {

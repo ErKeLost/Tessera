@@ -30,18 +30,18 @@ import rendererRelease from "@open-generative/ui/renderer-release.json";
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import {
-  chartRecipeDocumentation,
+  dataChartFixtureDocumentation,
   descriptorKey,
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type ChartRecipeName,
+  type DataChartFixtureName,
   type PreviewDescriptor,
 } from "./generative-gallery-model";
 
 export {
   generativeGalleryConformanceDescriptors,
   generativeGalleryPlacement,
-  type ChartRecipeName,
+  type DataChartFixtureName,
   type PreviewDescriptor,
 };
 
@@ -232,19 +232,19 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown validation error";
 }
 
-export function ChartRecipeDemo({ recipeName }: { recipeName: ChartRecipeName }) {
-  return <SurfacePreview descriptor={{ kind: "recipe", value: recipeName }} />;
+export function DataChartDemo({ fixtureName }: { fixtureName: DataChartFixtureName }) {
+  return <SurfacePreview descriptor={{ kind: "fixture", value: fixtureName }} />;
 }
 
 export function DataChartGallery() {
   return (
     <div className="not-prose my-10 grid min-w-0 gap-y-14">
       {generativeGalleryConformanceDescriptors.map((descriptor, index) => {
-        const documentation = chartRecipeDocumentation[descriptor.value];
+        const documentation = dataChartFixtureDocumentation[descriptor.value];
         return (
           <section
             className="min-w-0 border-t border-border/70 pt-5"
-            data-chart-recipe={descriptor.value}
+            data-chart-fixture={descriptor.value}
             key={descriptor.value}
           >
             <header className="mb-5 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-start md:gap-8">
@@ -260,7 +260,7 @@ export function DataChartGallery() {
                 data.chart / {String(index + 1).padStart(2, "0")}
               </code>
             </header>
-            <ChartRecipeDemo recipeName={descriptor.value} />
+            <DataChartDemo fixtureName={descriptor.value} />
           </section>
         );
       })}

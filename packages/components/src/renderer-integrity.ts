@@ -12,7 +12,6 @@ import {
   type Sha256Hash,
 } from "@open-generative/protocol";
 import { z } from "zod";
-import { chartCapabilityTokens, officialChartRecipeSource } from "./chart-recipes";
 import {
   type OfficialCatalogBundle,
 } from "./contracts";
@@ -64,20 +63,16 @@ export type OfficialRendererRelease = z.infer<typeof officialRendererReleaseSche
 
 export const officialRendererBuildProfile = deepFreeze({
   rendererId: "open-generative.ui",
-  rendererRevision: "0.3.17",
-  conformanceRevision: "0.3.17",
+  rendererRevision: "0.3.18",
+  conformanceRevision: "0.3.18",
   packageName: "@open-generative/ui",
-  packageVersion: "0.3.17",
+  packageVersion: "0.3.18",
   peerDependencies: {
     react: ">=19.0.0",
     reactDom: ">=19.0.0",
   },
   runtimeDependencies: [
-    {
-      packageName: officialChartRecipeSource.rendererPackages.chartEngine.packageName,
-      version: officialChartRecipeSource.rendererPackages.chartEngine.version,
-      integrity: officialChartRecipeSource.rendererPackages.chartEngine.integrity,
-    },
+    { packageName: "recharts", version: "3.10.1", integrity: "npm:recharts@3.10.1" },
   ],
 } as const);
 
@@ -87,7 +82,18 @@ export const officialRendererFeatures: Readonly<Record<OfficialComponentType, re
   "data.chart": [
     ...baseRendererFeatures,
     "accessibility.equivalent-view",
-    ...chartCapabilityTokens,
+    "chart.area",
+    "chart.bar",
+    "chart.line",
+    "chart.pie",
+    "chart.radar",
+    "chart.scatter",
+    "encoding.axis",
+    "encoding.color",
+    "encoding.stack",
+    "legend.semantic",
+    "theme.host-tokens",
+    "tooltip.semantic",
     "motion.reduced",
     "size.stable",
   ].sort(),

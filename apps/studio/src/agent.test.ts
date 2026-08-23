@@ -35,6 +35,7 @@ import {
   modelEvidenceFromResult,
   modelAnalysisToolInputSchema,
   normalizeAnalysisToolDraft,
+  normalizeTesseraToolInvocationOrder,
   hasVisibleCopilotText,
   publicToolOutput,
   safeAssistantNarration,
@@ -258,6 +259,46 @@ describe("Tessera Agent vNext public boundary", () => {
     ]);
     expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
     expect(chunks.some((chunk) => chunk.type === "finish")).toBeFalse();
+  });
+
+  test("materializes a public tool invocation before a custom suspension event", async () => {
+    const suspended = {
+      type: "data-tool-call-suspended",
+      data: {
+        state: "data-tool-call-suspended",
+        runId: "run-approval",
+        toolCallId: "tool-delete",
+        toolName: "execute_sql",
+        suspendPayload: {
+          requestId: "request-delete",
+          checkpointId: "checkpoint-delete",
+          operation: "delete",
+          target: "public.orders",
+          purpose: "Delete the selected order",
+        },
+      },
+    } as unknown as TesseraUIMessageChunk;
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-approval" });
+        controller.enqueue({ type: "tool-input-start", toolCallId: "tool-delete", toolName: "execute_sql" });
+        controller.enqueue(suspended);
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(normalizeTesseraToolInvocationOrder(source));
+    const invocationIndex = chunks.findIndex((chunk) => chunk.type === "tool-input-available");
+    const suspensionIndex = chunks.findIndex((chunk) => chunk.type === "data-tool-call-suspended");
+
+    expect(invocationIndex).toBeGreaterThan(-1);
+    expect(invocationIndex).toBeLessThan(suspensionIndex);
+    expect(chunks[invocationIndex]).toMatchObject({
+      type: "tool-input-available",
+      toolCallId: "tool-delete",
+      toolName: "execute_sql",
+      input: { action: "execute_sql" },
+    });
   });
 
   test("does not surface a recovered intermediate stream error as a failed message", async () => {
@@ -1729,7 +1770,7 @@ describe("Tessera Agent vNext public boundary", () => {
       },
     } as never;
     const model = {
-      specificationVersion: "v2",
+      specificationVersion: "v4",
       provider: "tessera-test",
       modelId: "suspend-resume-test",
       supportedUrls: {},
@@ -1744,25 +1785,40 @@ describe("Tessera Agent vNext public boundary", () => {
             start(controller) {
               controller.enqueue({ type: "stream-start", warnings: [] });
               if (turn === 1) {
+                const input = JSON.stringify({
+                  mutation: {
+                    kind: "data.insert",
+                    relation: { schema: "public", table: "orders" },
+                    values: [{ id: "order-1" }],
+                    maxAffectedRows: 1,
+                  },
+                  purpose: "Create one order",
+                });
+                controller.enqueue({
+                  type: "tool-input-start",
+                  id: "tool-suspend-1",
+                  toolName: "execute_sql",
+                });
+                controller.enqueue({
+                  type: "tool-input-delta",
+                  id: "tool-suspend-1",
+                  delta: input,
+                });
+                controller.enqueue({ type: "tool-input-end", id: "tool-suspend-1" });
                 controller.enqueue({
                   type: "tool-call",
                   toolCallId: "tool-suspend-1",
                   toolName: "execute_sql",
-                  input: JSON.stringify({
-                    mutation: {
-                      kind: "data.insert",
-                      relation: { schema: "public", table: "orders" },
-                      values: [{ id: "order-1" }],
-                      maxAffectedRows: 1,
-                    },
-                    purpose: "Create one order",
-                  }),
+                  input,
                   providerExecuted: false,
                 });
                 controller.enqueue({
                   type: "finish",
-                  finishReason: "tool-calls",
-                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                  finishReason: { unified: "tool-calls", raw: "tool_calls" },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 0, reasoning: 0 },
+                  },
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-resumed" });
@@ -1770,14 +1826,16 @@ describe("Tessera Agent vNext public boundary", () => {
                 controller.enqueue({ type: "text-end", id: "text-resumed" });
                 controller.enqueue({
                   type: "finish",
-                  finishReason: "stop",
-                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                  finishReason: { unified: "stop", raw: "stop" },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
                 });
               }
               controller.close();
             },
           }),
-          warnings: [],
           request: {},
           response: {},
         };
@@ -1817,20 +1875,25 @@ describe("Tessera Agent vNext public boundary", () => {
         identity,
       });
       if (!firstStream) throw new Error("Expected the Studio Agent to expose its native UI stream.");
+      // The native Mastra stream must reach the client untouched. Reassembling
+      // it with createUIMessageStream makes AI SDK treat the custom suspension
+      // data event as a normal tool result and deletes the resumable snapshot.
       const firstChunks = await readUiChunks(firstStream);
       expect(firstChunks.some((chunk) => chunk.type === "data-tool-call-suspended")).toBeTrue();
       expect(calls.submit).toBe(1);
       expect(calls.approve).toBe(0);
 
       const resumedStream = agent.streamUI?.({
-        runId: "run-suspend-resume",
+        // A client reconnect can retain an obsolete run id. Mastra's durable
+        // suspended-run index must select the live snapshot instead.
+        runId: "browser-stale-run-id",
         toolCallId: "tool-suspend-1",
         threadId,
         message: "Create order-1 after approval.",
         resumeData: {
           decision: "approve",
-          requestId: "request-suspend-1",
-          checkpointId: "checkpoint-suspend-1",
+          requestId: "browser-stale-request-id",
+          checkpointId: "browser-stale-checkpoint-id",
         },
         signal,
         identity,

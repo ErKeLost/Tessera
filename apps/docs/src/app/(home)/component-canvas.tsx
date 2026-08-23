@@ -15,20 +15,20 @@ import {
 import Link from "next/link";
 import { useI18n } from "fumadocs-ui/contexts/i18n";
 import { type CSSProperties, type KeyboardEvent, useId, useState } from "react";
-import { ChartRecipeDemo } from "@/components/generative-gallery";
+import { DataChartDemo } from "@/components/generative-gallery";
 import {
-  chartRecipeDocumentation,
+  dataChartFixtureDocumentation,
   generativeGalleryConformanceDescriptors,
-  type ChartRecipeName,
+  type DataChartFixtureName,
 } from "@/components/generative-gallery-model";
 import styles from "./home.module.css";
 import { localizedPath } from "@/lib/i18n";
 
 const items = generativeGalleryConformanceDescriptors.map(descriptor => ({
   id: descriptor.value,
-  recipeName: descriptor.value,
-  label: chartRecipeDocumentation[descriptor.value].title,
-  detail: chartRecipeDocumentation[descriptor.value].description,
+  fixtureName: descriptor.value,
+  label: dataChartFixtureDocumentation[descriptor.value].title,
+  detail: dataChartFixtureDocumentation[descriptor.value].description,
   href: "/docs/components/generative-ui-catalog",
   icon: ChartNoAxesCombinedIcon,
 }));
@@ -39,33 +39,22 @@ const viewports = [
   { id: "mobile", label: "Mobile preview", size: "390 px", icon: SmartphoneIcon },
 ] as const;
 
-const chineseDescriptions: Readonly<Record<ChartRecipeName, string>> = {
-  "steps-bars": "展示选中日期、周范围与七天目标进度。",
-  "pipeline-stage-bars": "展示六个管线阶段的转化进度、周期变化与汇总数据。",
-  "sleep-score": "把三项睡眠贡献分数合成为一个分段总分。",
-  "revenue-per-account-scatter": "按层级展示账号收入与 Session 的气泡分布及组均值。",
-  "tracked-time-sankey": "交互展示五类记录时间流向七个目标的加权关系。",
-  "visitors-radial": "用克制的径向构图表达访问总量与分类构成。",
-  "visitors-radar": "在同一量纲下比较多维访问者画像。",
-  "activity-calendar": "按熟悉的月历布局展示每日活跃强度。",
-  "revenue-smooth-area": "展示连续收入变化与派生的主要指标。",
-  "active-users-heatmap": "比较不同日期与时间段的活跃集中度。",
-  "sign-up-funnel": "展示注册流程各阶段的转化与流失。",
-  "earned-so-far-bars": "对比累计收入与可选目标或参照值。",
-  "contributions-heatmap": "在紧凑周网格中展示长期每日贡献密度。",
-  "sessions-conversion-combo": "在同一时间轴对齐 Session 数量与转化趋势。",
-  "devices-bars": "通过直接易读的横向条形图表达设备占比。",
-  "visitors-stacked-area": "同时展示访问者构成与总量随时间的变化。",
-  "activity-rings": "在一个紧凑状态界面中展示多项有界进度。",
+const chineseDescriptions: Readonly<Record<DataChartFixtureName, string>> = {
+  "data-chart.categorical-bar": "使用明确的定量度量比较分类数据。",
+  "data-chart.temporal-line": "使用时间 x 编码和定量 y 编码展示时间序列。",
+  "data-chart.stacked-area": "使用分类颜色编码展示分组时间序列。",
+  "data-chart.correlation-scatter": "使用可选的颜色和尺寸编码展示定量关系。",
+  "data-chart.share-pie": "使用定量角度编码展示分类占比。",
+  "data-chart.profile-radar": "使用可比较的定量半径展示分类画像。",
 };
 
-type ItemId = ChartRecipeName;
+type ItemId = DataChartFixtureName;
 type ViewportId = (typeof viewports)[number]["id"];
 
 export function ComponentCanvas() {
   const { locale = "en" } = useI18n();
   const chinese = locale === "zh";
-  const [active, setActive] = useState<ItemId>("steps-bars");
+  const [active, setActive] = useState<ItemId>("data-chart.categorical-bar");
   const [viewport, setViewport] = useState<ViewportId>("desktop");
   const [showGrid, setShowGrid] = useState(true);
   const [zoom, setZoom] = useState(88);
@@ -103,12 +92,12 @@ export function ComponentCanvas() {
   return (
     <div className={styles.componentCanvas} data-home-canvas>
       <nav
-        aria-label={chinese ? "Data Chart Recipe 预览" : "Data Chart recipe previews"}
+        aria-label={chinese ? "Data Chart grammar 预览" : "Data Chart grammar previews"}
         className={styles.componentRail}
         data-home-canvas-item
         role="tablist"
       >
-        <p>Recipes</p>
+        <p>Grammar</p>
         {items.map(({ icon: ItemIcon, id, label }, index) => (
           <button
             aria-controls={`${tabsId}-${id}-panel`}
@@ -195,7 +184,7 @@ export function ComponentCanvas() {
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-west" />
               <span aria-hidden="true" className={styles.canvasHandle} data-corner="south-east" />
               <div aria-live="polite" className={styles.componentPreview} key={active}>
-                <ChartRecipeDemo recipeName={item.recipeName} />
+                <DataChartDemo fixtureName={item.fixtureName} />
               </div>
             </div>
             <div className={styles.canvasStatus}>

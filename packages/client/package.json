@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/client",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "Browser-safe Open Generative SurfaceController and trusted stream reducer.",
   "license": "MIT",
   "type": "module",

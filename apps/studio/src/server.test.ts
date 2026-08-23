@@ -818,6 +818,22 @@ describe("Tessera Studio Nitro app", () => {
             start(controller) {
               controller.enqueue({ type: "start", messageId: "provider-suspended-message" });
               controller.enqueue({
+                type: "tool-input-start",
+                toolCallId: "tool-delete",
+                toolName: "execute_sql",
+              });
+              controller.enqueue({
+                type: "tool-input-delta",
+                toolCallId: "tool-delete",
+                inputTextDelta: '{"mutation":{"kind":"data.delete"}}',
+              });
+              controller.enqueue({
+                type: "tool-input-available",
+                toolCallId: "tool-delete",
+                toolName: "execute_sql",
+                input: { action: "execute_sql" },
+              });
+              controller.enqueue({
                 type: "data-tool-call-suspended",
                 data: {
                   state: "data-tool-call-suspended",

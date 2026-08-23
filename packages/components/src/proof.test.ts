@@ -8,12 +8,12 @@ import {
   scanNoPayload,
   verifyDeterministicProofReport,
 } from "./proof";
-import { chartRecipes } from "./chart-spec";
+import { dataChartMarks } from "./data-chart-spec";
 
 describe("Tessera Data Chart proof manifest", () => {
-  test("contains one payload-free golden case for every recipe", () => {
-    expect(officialGoldenPromptCases).toHaveLength(17);
-    expect(proofTaskFamilies).toEqual(chartRecipes);
+  test("contains one payload-free golden case for every supported semantic mark", () => {
+    expect(officialGoldenPromptCases).toHaveLength(dataChartMarks.length);
+    expect(proofTaskFamilies).toEqual(dataChartMarks);
     for (const golden of officialGoldenPromptCases) {
       expect(goldenPromptCaseSchema.parse(golden)).toEqual(golden);
       expect(scanNoPayload(golden)).toEqual([]);
@@ -31,7 +31,7 @@ describe("Tessera Data Chart proof manifest", () => {
   test("generates and verifies one deterministic report", async () => {
     const [left, right] = await Promise.all([createDeterministicProofReport(), createDeterministicProofReport()]);
     expect(left).toEqual(right);
-    expect(left.goldenCaseCount).toBe(17);
+    expect(left.goldenCaseCount).toBe(dataChartMarks.length);
     expect(left.componentContractCount).toBe(1);
     await expect(verifyDeterministicProofReport(left)).resolves.toEqual(left);
     const tampered = { ...left, goldenCasesHash: `sha256:${"0".repeat(64)}` };

@@ -1,6 +1,6 @@
 {
   "name": "@open-generative/host",
-  "version": "0.3.17",
+  "version": "0.3.18",
   "description": "High-level server facade for governed Open Generative surfaces.",
   "type": "module",
   "files": ["dist", "README.md", "LICENSE"],

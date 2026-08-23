@@ -24,7 +24,6 @@ export type {
   ResolvedChartDataModel,
   ResolvedChartProps,
   UIResolvedChartSpec,
-  WithResolvedChartData,
 } from "./generative/chart-renderer";
 export {
   createOfficialRendererRegistrations,
@@ -38,3 +37,11 @@ export type {
   OfficialRendererRegistration,
 } from "./generative/registry";
 export { formatValue } from "./generative/format";
+export {
+  dataChartThemeStyle,
+  dataChartThemeTokens,
+} from "./generative/theme";
+export type {
+  DataChartTheme,
+  DataChartThemeToken,
+} from "./generative/theme";
