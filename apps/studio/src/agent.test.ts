@@ -1917,7 +1917,6 @@ describe("Tessera Agent vNext public boundary", () => {
       measures: [{ kind: "aggregate", aggregate: "count" }],
       dimensions: [],
       relationshipIds: [],
-      aggregateOrderBy: [],
       output: "scalar",
       limit: 100,
     });
@@ -1926,6 +1925,32 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(draft).toMatchObject({
       mode: "aggregate",
       measures: [{ kind: "aggregate", aggregate: "count", outputId: "out_measure_1" }],
+    });
+  });
+
+  test("describes required aggregate ordering in the model tool schema", () => {
+    const aggregateOrderBy = modelAnalysisToolInputSchema.shape.aggregateOrderBy;
+
+    expect(aggregateOrderBy.description).toContain("Required for output=table, series, or ranking");
+    expect(aggregateOrderBy.description).toContain("Never send an empty array");
+    expect(aggregateOrderBy.description).toContain("zero-based index");
+    expect(modelAnalysisToolInputSchema.shape.output.description).toContain("require a non-empty aggregateOrderBy");
+  });
+
+  test("preserves explicit aggregate ordering", () => {
+    const draft = normalizeAnalysisToolDraft({
+      mode: "aggregate",
+      primaryEntityId: "ent_0123456789abcdef",
+      measures: [{ kind: "aggregate", aggregate: "count" }],
+      dimensions: [{ fieldId: "fld_0123456789abcdef" }],
+      relationshipIds: [],
+      aggregateOrderBy: [{ by: "dimension", index: 0, direction: "desc" }],
+      output: "ranking",
+      limit: 100,
+    });
+
+    expect(draft).toMatchObject({
+      orderBy: [{ outputId: "out_dimension_1", direction: "desc" }],
     });
   });
 
@@ -2020,6 +2045,16 @@ describe("Tessera Agent vNext public boundary", () => {
       status: "rejected",
       reason: "invalid_plan",
       nextAction: "revise_plan",
+    });
+    expect(analysisToolRejection({ name: "DataAgentError", code: "invalid_analysis_spec" })).toEqual({
+      status: "rejected",
+      reason: "invalid_plan",
+      nextAction: "revise_plan",
+    });
+    expect(analysisToolRejection({ name: "DataAgentError", code: "made_up_code" })).toEqual({
+      status: "rejected",
+      reason: "data_unavailable",
+      nextAction: "respond",
     });
     expect(analysisToolRejection(new Error("postgresql://private-host/warehouse"))).toEqual({
       status: "rejected",

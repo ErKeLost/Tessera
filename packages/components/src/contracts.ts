@@ -32,7 +32,7 @@ import { hashNamespacedCanonical } from "./integrity";
 
 export const OFFICIAL_PUBLISHER = publisherIdSchema.parse("open-generative");
 export const OFFICIAL_CATALOG_ID = catalogIdSchema.parse("official");
-export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.18");
+export const OFFICIAL_CATALOG_REVISION = catalogRevisionSchema.parse("0.3.19");
 export const OFFICIAL_CONTRACT_REVISION = 1 as const;
 
 export type OfficialActions = Readonly<Record<never, never>>;

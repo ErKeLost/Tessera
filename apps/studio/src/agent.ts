@@ -14,6 +14,7 @@ import {
   DATA_AGENT_VERSION,
   analysisDraftSchema,
   DataAgentError,
+  type DataAgentErrorCode,
   entityIdSchema,
   fieldIdFor,
   fieldIdSchema,
@@ -197,11 +198,21 @@ export const modelAnalysisToolInputSchema = z.object({
   measures: z.array(modelAnalysisMeasureSchema).min(1).max(16).optional(),
   dimensions: z.array(modelAnalysisDimensionSchema).max(8).optional(),
   aggregateOrderBy: z.array(z.object({
-    by: z.enum(["dimension", "measure"]),
-    index: z.number().int().min(0).max(15),
-    direction: z.enum(["asc", "desc"]),
-  }).strict()).max(8).optional(),
-  output: z.enum(["scalar", "table", "series", "ranking"]).optional(),
+    by: z.enum(["dimension", "measure"]).describe(
+      "Selects the dimensions or measures array to order by.",
+    ),
+    index: z.number().int().min(0).max(15).describe(
+      "Zero-based index into the selected dimensions or measures array; it must identify an output included in this plan.",
+    ),
+    direction: z.enum(["asc", "desc"]).describe(
+      "Sort direction for this output.",
+    ),
+  }).strict()).min(1).max(8).optional().describe(
+    "Required for output=table, series, or ranking; omit it only for output=scalar. Never send an empty array. For table, order by its first dimension ascending (then further dimensions ascending when useful). For series, order the time dimension ascending. For ranking, order the primary measure descending, then a dimension ascending as a tie-breaker. Each entry uses by plus a zero-based index into that plan array.",
+  ),
+  output: z.enum(["scalar", "table", "series", "ranking"]).optional().describe(
+    "Presentation shape. scalar returns one aggregate value and omits aggregateOrderBy. table, series, and ranking require a non-empty aggregateOrderBy that references this plan's included outputs.",
+  ),
 }).strict().describe(
   "A governed semantic analysis plan. Use only catalog-returned opaque identifiers; never include SQL, physical relation names, connection details, compiler output ids, or invented identifiers.",
 );
@@ -2660,7 +2671,7 @@ function createDataCopilotAgent(context: Readonly<{
       "Use it only after list_catalog has supplied the identifiers needed for the current interpretation, or when those identifiers are already present in trusted catalog results from the same request.",
       "If the current catalog contains multiple plausible candidate entities and has not been expanded, the tool returns catalog_incomplete with nextAction=describe_or_clarify. Expand the trusted candidates with list_catalog(mode=describe), search again, or ask one concise clarification before retrying; never guess around unresolved candidates.",
       "Every entity, field, metric, and relationship identifier in the plan must come from that catalog result. The service, not the model, performs binding, compilation, execution, and verification; this tool never accepts SQL.",
-      "For mode=records, supply fields as field identifiers and recordOrderBy as field-based ordering. For mode=aggregate, supply measures, optional dimensions, optional aggregateOrderBy, and output. Omit filter when the question is unfiltered; never invent identifiers or values.",
+      "For mode=records, supply fields as field identifiers and recordOrderBy as field-based ordering. For mode=aggregate, supply measures, optional dimensions, output, and aggregateOrderBy whenever output is table, series, or ranking. table and series need ascending dimension ordering (the time dimension ascending for a series); ranking needs its primary measure descending and a dimension ascending as a tie-breaker. Omit aggregateOrderBy only for scalar output; never send an empty ordering array. Omit filter when the question is unfiltered; never invent identifiers or values.",
     ].join(" "),
     strict: true,
     inputSchema: modelAnalysisToolInputSchema,
@@ -3310,13 +3321,14 @@ function incompleteCatalogRejection(): RunAnalysisRejected {
  * physical schema name, or internal error message crosses this boundary.
  */
 export function analysisToolRejection(error: unknown): RunAnalysisRejected {
-  if (error instanceof DataAgentError) {
-    if (error.code === "catalog_stale") {
+  const dataAgentErrorCode = readDataAgentErrorCode(error);
+  if (dataAgentErrorCode !== undefined) {
+    if (dataAgentErrorCode === "catalog_stale") {
       return { status: "rejected", reason: "catalog_changed", nextAction: "list_catalog" };
     }
-    if (error.code === "invalid_analysis_spec"
-      || error.code === "compile_failed"
-      || error.code === "query_limit_exceeded") {
+    if (dataAgentErrorCode === "invalid_analysis_spec"
+      || dataAgentErrorCode === "compile_failed"
+      || dataAgentErrorCode === "query_limit_exceeded") {
       return { status: "rejected", reason: "invalid_plan", nextAction: "revise_plan" };
     }
   }
@@ -3327,6 +3339,34 @@ export function analysisToolRejection(error: unknown): RunAnalysisRejected {
     return { status: "rejected", reason: "invalid_plan", nextAction: "revise_plan" };
   }
   return { status: "rejected", reason: "data_unavailable", nextAction: "respond" };
+}
+
+const dataAgentErrorCodes = new Set<DataAgentErrorCode>([
+  "catalog_stale",
+  "invalid_analysis_spec",
+  "invalid_semantic_catalog",
+  "invalid_relation_context",
+  "invalid_relation_preview",
+  "compile_failed",
+  "query_policy_rejected",
+  "query_failed",
+  "query_limit_exceeded",
+]);
+
+/**
+ * Workflow runs cross a serialization boundary, so a DataAgentError can arrive
+ * as a plain object rather than retain its class prototype. Restrict structural
+ * recognition to the exact error name and documented code set.
+ */
+function readDataAgentErrorCode(error: unknown): DataAgentErrorCode | undefined {
+  if (error instanceof DataAgentError) return error.code;
+  if (typeof error !== "object" || error === null) return undefined;
+
+  const candidate = error as { name?: unknown; code?: unknown };
+  if (candidate.name !== "DataAgentError" || typeof candidate.code !== "string") return undefined;
+  return dataAgentErrorCodes.has(candidate.code as DataAgentErrorCode)
+    ? candidate.code as DataAgentErrorCode
+    : undefined;
 }
 
 /** Discovery errors stay actionable without revealing a connector or query diagnostic. */

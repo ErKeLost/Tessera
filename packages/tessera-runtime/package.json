@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/runtime",
-  "version": "0.3.18",
+  "version": "0.3.19",
   "license": "MIT",
   "publishConfig": {
     "access": "public"
