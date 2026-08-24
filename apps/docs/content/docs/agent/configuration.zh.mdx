@@ -1,43 +1,60 @@
 ---
-title: 成功证明配置
-description: 在不虚构公开 Studio 配置 API 的前提下，让 Tessera Agent Generative UI 证明可复现。
+title: 配置
+description: 配置 Tessera Studio、数据库安全边界与模型运行时。
 ---
 
-这套 Generative UI 成功证明不依赖另行发布的 `@open-tessera/studio` 配置 Facade，
-当前也不存在 `tessera-agent` 组件 CLI。它的配置由明确的 Package Contract 与测试 Fixture
-负责，而不是再创建一套顶层产品 API。
+Tessera 读取一份只在服务端使用的 `tessera.config.ts`。它负责数据库连接、语义定义、模型设置与
+Studio 网络边界。生成式分析视图已经内置在 Studio 中，没有独立安装步骤或公开配置块。
 
-## 所有权
+```ts
+import { defineTesseraConfig } from "@open-tessera/studio";
 
-| 关注点 | 当前 source of truth |
-| --- | --- |
-| Protocol Limit 与 Wire Schema | `packages/protocol` |
-| Component Identity、Schema 与 Catalog Slice | `packages/catalog` 与 `packages/components` |
-| Proposal Normalize、Validate 与 Commit | `packages/compiler` |
-| Query Resource、Grant 与 Projection | `packages/resources` |
-| Host Authority、Session 与可信事件 | `packages/server` |
-| 浏览器 Replay、Resolved Props 与 Command | `packages/client` |
-| React Surface 与精确 Renderer Lookup | `packages/react` |
-| Tessera data-agent Renderer 与 Recipe | `packages/ui` |
-| 确定性测试与模型评测验收 | 成功证明规范与 Fixture |
+export default defineTesseraConfig({
+  database: {
+    url: process.env.DATABASE_URL!,
+    schemas: ["analytics"],
+    maxRows: 5_000,
+    statementTimeoutMs: 30_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+    reasoningEffort: "low",
+    temperature: 0.1,
+    maxOutputTokens: 12_800,
+    maxSteps: 50,
+    maxRetries: 0,
+  },
+  studio: {
+    host: "127.0.0.1",
+    port: 4317,
+    catalogCacheTtlMs: 60_000,
+  },
+});
+```
 
-Host 必须为每个 Surface Session 冻结 Component Contract Slice、Authority、
-Resource Grant、Limit、Locale、Timezone 与 Renderer Capability Manifest。
-模型无权配置或扩大其中任何一项。
+## 数据库
 
-## Data Agent Profile
+`database.url` 为必填项。除非同时提供匹配的 `database.dialect`，Tessera 会从 URL 推断方言。
+PostgreSQL 与 MySQL 可以通过 `schemas` 收窄发现范围；`maxRows`、`statementTimeoutMs` 与
+`permissions` 共同限制 Agent 可以执行的工作。
 
-当前产品 Profile 固定为六个分析 Component Contract；其中唯一的 Chart Contract `data.chart`
-包含 17 个经过审计的 Recipe。这些 Recipe 在同一 Contract 上组成严格 Discriminated Union；
-它们不是额外协议组件类型，也不能注入任意展示属性。
+Turso 凭据使用 `database.authToken` 或 `TURSO_AUTH_TOKEN`，Token 必须与数据库 URL 分开。
 
-Query Row 始终留在 Resource Gateway。模型只能看到受限、经过 Policy 批准的 Descriptor 与
-Binding Reference。可信事件到达 `SurfaceController` 后，Renderer Props 才会按单个 Node 解析。
+## 模型
 
-## 本地环境
+模型 ID 使用 Mastra 的 `provider/model` 格式。Tessera 可以从常见供应商的服务端环境变量读取
+API Key，也可以在只对服务端可见的配置中提供 `llm.apiKey`。`llm.baseUrl` 与 `llm.headers`
+用于兼容网关。
 
-确定性证明门槛不需要任何 Secret。`OPENROUTER_API_KEY` 只会启用可选的文档聊天 Route。
-数据库凭据与 Tessera Agent 产品集成属于其 Host 产品界面，并且在那里也必须只保留在服务端。
+`maxSteps` 限制完整的模型与 Tool 循环，`maxRetries` 控制供应商重试。呈现校验有独立且受限的
+Processor Retry，不会给 Agent 增加额外 Tool。
 
-未来如需公开配置 Facade，必须先完成实现和测试，再写入本文档。在此之前，示例只使用仓库中
-真实存在的 API 与 Fixture。
+## Studio 网络边界
+
+Studio 默认只监听 Loopback。使用非 Loopback Host 时必须同时满足：
+
+- `studio.allowRemote: true`
+- 保持 Authentication 开启
+- 至少配置一个明确的 `studio.allowedOrigins`
+
+这样可以避免本地数据库工作区被意外暴露到远程网络。

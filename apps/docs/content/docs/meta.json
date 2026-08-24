@@ -1,4 +1,5 @@
 {
   "title": "Tessera Agent",
+  "description": "Documentation for the governed Tessera data agent.",
   "pages": ["index", "agent", "components", "concepts", "integrations"]
 }

@@ -1,8 +1,8 @@
 import type { UIMessage, UIMessageChunk } from "ai";
-import type { SurfaceEventEnvelope } from "@open-generative/protocol";
+import type { OpenGenerativeSurfaceStream } from "@open-generative/protocol";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
-export type TesseraToolName = "list_database" | "list_catalog" | "execute_sql" | "run_analysis" | "list_rls_policies" | "list_extensions";
+export type TesseraToolName = "list_database" | "search_data_context" | "prepare_analysis" | "execute_sql";
 
 /**
  * These are intentionally summaries, rather than the model's raw tool args.
@@ -13,35 +13,40 @@ export type TesseraListDatabaseToolInput = Readonly<{
   action: "list_database";
 }>;
 
-export type TesseraListCatalogToolInput = Readonly<{
-  action: "list_catalog";
+export type TesseraSearchDataContextToolInput = Readonly<{
+  action: "search_data_context";
 }>;
 
 export type TesseraExecuteSqlToolInput = Readonly<{
   action: "execute_sql";
 }>;
 
-export type TesseraRunAnalysisToolInput = Readonly<{
-  action: "run_governed_analysis";
+export type TesseraPrepareAnalysisToolInput = Readonly<{
+  action: "prepare_analysis";
 }>;
 
 export type TesseraListDatabaseToolOutput = Readonly<{
   status: "completed" | "not_found" | "unavailable" | "blocked" | "failed";
-  operation?: "list_relations" | "describe_schema" | "describe_relation" | "current_relation" | "capabilities";
+  operation?: "list_relations" | "describe_schema" | "describe_relation" | "current_relation" | "capabilities" | "extensions" | "rls_policies";
   entityCount?: number;
   tableCount?: number;
   schemaCount?: number;
   relationCount?: number;
   columnCount?: number;
   foreignKeyCount?: number;
+  indexCount?: number;
+  catalogCoverage?: "complete" | "partial" | "unknown";
   dialect?: string;
   componentCount?: number;
+  extensionCount?: number;
+  installedCount?: number;
+  policyCount?: number;
   truncated?: boolean;
   reason?: string;
   message?: string;
 }>;
 
-export type TesseraListCatalogToolOutput = Readonly<{
+export type TesseraSearchDataContextToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
   mode?: "search" | "describe";
   entityCount?: number;
@@ -52,7 +57,7 @@ export type TesseraListCatalogToolOutput = Readonly<{
 
 export type TesseraExecuteSqlToolOutput = Readonly<{
   status: "completed" | "approval_required" | "blocked" | "failed";
-  mode?: "read" | "mutation";
+  mode?: "read" | "analysis" | "mutation";
   rowCount?: number;
   affectedRows?: number;
   truncated?: boolean;
@@ -63,36 +68,10 @@ export type TesseraExecuteSqlToolOutput = Readonly<{
   nextAction?: string;
 }>;
 
-export type TesseraRunAnalysisToolOutput = Readonly<{
+export type TesseraPrepareAnalysisToolOutput = Readonly<{
   status: "completed" | "blocked" | "failed";
-  rowCount?: number;
-  truncated?: boolean;
   reason?: string;
   message?: string;
-}>;
-
-export type TesseraListRlsPoliciesToolInput = Readonly<{
-  action: "list_rls_policies";
-}>;
-
-export type TesseraListRlsPoliciesToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
-  dialect?: string;
-  relationCount?: number;
-  policyCount?: number;
-  truncated?: boolean;
-}>;
-
-export type TesseraListExtensionsToolInput = Readonly<{
-  action: "list_extensions";
-}>;
-
-export type TesseraListExtensionsToolOutput = Readonly<{
-  status: "completed" | "blocked" | "failed";
-  dialect?: string;
-  extensionCount?: number;
-  installedCount?: number;
-  truncated?: boolean;
 }>;
 
 /** The native AI SDK tool parts expected by assistant-ui renderers. */
@@ -101,25 +80,17 @@ export type TesseraUITools = {
     input: TesseraListDatabaseToolInput;
     output: TesseraListDatabaseToolOutput;
   };
-  list_catalog: {
-    input: TesseraListCatalogToolInput;
-    output: TesseraListCatalogToolOutput;
+  search_data_context: {
+    input: TesseraSearchDataContextToolInput;
+    output: TesseraSearchDataContextToolOutput;
   };
   execute_sql: {
     input: TesseraExecuteSqlToolInput;
     output: TesseraExecuteSqlToolOutput;
   };
-  run_analysis: {
-    input: TesseraRunAnalysisToolInput;
-    output: TesseraRunAnalysisToolOutput;
-  };
-  list_rls_policies: {
-    input: TesseraListRlsPoliciesToolInput;
-    output: TesseraListRlsPoliciesToolOutput;
-  };
-  list_extensions: {
-    input: TesseraListExtensionsToolInput;
-    output: TesseraListExtensionsToolOutput;
+  prepare_analysis: {
+    input: TesseraPrepareAnalysisToolInput;
+    output: TesseraPrepareAnalysisToolOutput;
   };
 };
 
@@ -137,7 +108,7 @@ export type TesseraSuspendedToolPayload = Readonly<{
 }>;
 
 export type TesseraUIData = {
-  openGenerativeSurface: SurfaceEventEnvelope;
+  openGenerativeSurface: OpenGenerativeSurfaceStream;
   "tool-call-suspended": Readonly<{
     state: "data-tool-call-suspended";
     runId: string;

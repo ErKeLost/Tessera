@@ -1,7 +1,7 @@
 {
   "name": "@open-generative/ai-sdk",
   "version": "0.3.22",
-  "description": "Explicit server and client AI SDK transport adapters for Open Generative.",
+  "description": "AI SDK v7 processor and client transport for streaming Open Generative Language.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -17,7 +17,7 @@
     "test": "bun test src",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@open-generative/protocol": "workspace:*", "@open-generative/compiler": "workspace:*", "@open-generative/server": "workspace:*", "@open-generative/client": "workspace:*" },
-  "peerDependencies": { "ai": ">=7.0.77 <8" },
-  "devDependencies": { "@open-generative/host": "workspace:*", "@types/bun": "1.3.14", "ai": "7.0.77", "tsdown": "0.22.14", "typescript": "7.0.2" }
+  "dependencies": { "@open-generative/protocol": "workspace:*", "@open-generative/host": "workspace:*" },
+  "peerDependencies": { "ai": "^7.0.77" },
+  "devDependencies": { "@types/bun": "1.3.14", "ai": "7.0.77", "tsdown": "0.22.14", "typescript": "7.0.2" }
 }

@@ -96,4 +96,39 @@ describe("Tessera Open Generative resource projection", () => {
     expect(JSON.stringify(authority)).not.toContain(identity.subject);
     expect(JSON.stringify(authority)).not.toContain(identity.tenantId);
   });
+
+  test("publishes explicit read results without requiring a semantic analysis", () => {
+    const resources = createTesseraDataResources({
+      analyses: [],
+      queries: [{
+        title: "Average value by category",
+        result: {
+          queryId: "query-1",
+          columns: [{ name: "category" }, { name: "average_value" }],
+          rows: [
+            { category: "pricing", average_value: "80.8" },
+            { category: "credits", average_value: "16.4375" },
+          ],
+          rowCount: 2,
+          truncated: false,
+          durationMs: 3,
+        },
+      }],
+    });
+
+    expect(resources).toHaveLength(1);
+    expect(resources[0]).toMatchObject({
+      bindingId: "query-1",
+      dataset: {
+        columns: [
+          { columnId: "category", valueType: "string" },
+          { columnId: "average_value", valueType: "number" },
+        ],
+        rows: [
+          { category: "pricing", average_value: 80.8 },
+          { category: "credits", average_value: 16.4375 },
+        ],
+      },
+    });
+  });
 });

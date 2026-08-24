@@ -2,11 +2,9 @@ import {
   DEFAULT_PROTOCOL_LIMITS,
   HASH_DOMAINS,
   ProtocolError,
-  authoringSnapshotProposalSchema,
   canonicalStringify,
   decodeJson,
   hashCanonical,
-  proposalOperationEnvelopeSchema,
   proposalStreamEnvelopeSchema,
   verifyProposalStreamEnvelope,
   type AuthoringSnapshotProposal,
@@ -17,8 +15,7 @@ import {
   type TransactionId,
 } from "@open-generative/protocol";
 import { diagnostic, utf8Length } from "./internal";
-import { schemaIssueSummary, validateJsonSchema } from "./schema";
-import type { CompiledPresentUi, DecodedAuthoringProposal } from "./types";
+import type { DecodedAuthoringProposal } from "./types";
 
 export type ProposalStreamDecoderOptions = Readonly<{
   transactionId: TransactionId;
@@ -287,43 +284,6 @@ export async function computeProposalHash(
       : { kind: "operations", operations: input.operations },
     hashProvider,
   );
-}
-
-export async function decodePresentUiInput(
-  compiled: Pick<CompiledPresentUi, "canonicalInputSchema">,
-  input: unknown,
-  hashProvider?: HashProvider,
-): Promise<Exclude<DecodedAuthoringProposal, { kind: "abort" }>> {
-  const result = validateJsonSchema(compiled.canonicalInputSchema, input);
-  if (!result.success) {
-    throw new ProtocolError(diagnostic({
-      phase: "authoring",
-      code: "present-ui.input-invalid",
-      message: schemaIssueSummary(result),
-    }));
-  }
-  if (!input || typeof input !== "object") {
-    throw new ProtocolError(diagnostic({
-      phase: "authoring",
-      code: "present-ui.input-invalid",
-      message: "present_ui input must be an object.",
-    }));
-  }
-  const record = input as Record<string, unknown>;
-  if (record.kind === "snapshot") {
-    return { kind: "snapshot", proposal: authoringSnapshotProposalSchema.parse(input) };
-  }
-  const operations = (record.operations as unknown[]).map(async (candidate) => {
-    const operation = candidate as Record<string, unknown>;
-    return proposalOperationEnvelopeSchema.parse({
-      operationId: operation.operationId,
-      sequence: operation.sequence,
-      dependsOn: operation.dependsOn,
-      operation: operation.operation,
-      payloadHash: await hashCanonical(HASH_DOMAINS.operationPayload, operation.operation, hashProvider),
-    });
-  });
-  return { kind: "operations", operations: await Promise.all(operations) };
 }
 
 function parseFrame(input: string, maxFrameBytes: number): unknown {

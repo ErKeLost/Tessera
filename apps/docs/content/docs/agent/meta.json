@@ -1,5 +1,5 @@
 {
-  "title": "Agent",
+  "title": "Tessera Agent",
   "description": "Build and operate the governed Tessera data agent.",
   "pages": ["index", "getting-started", "configuration", "databases", "run-workflow", "tool-contract", "architecture"]
 }

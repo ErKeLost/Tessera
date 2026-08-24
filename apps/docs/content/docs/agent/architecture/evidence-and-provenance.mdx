@@ -1,6 +1,6 @@
 ---
 title: Evidence and Provenance
-description: Connect every analytical claim and artifact to validated source entities, activities, and transformations.
+description: Connect every analytical claim and analysis view to validated source entities, activities, and transformations.
 ---
 
 An analyst answer needs more than a footer that says “source: warehouse.” Keep
@@ -49,12 +49,12 @@ query, timestamp, duration, validations, and limitations. Cite the smallest
 useful evidence unit. A single source list for a multi-claim answer makes it
 unclear which result supports which statement.
 
-## Artifact provenance
+## Analysis-view provenance
 
-Each Tessera Agent artifact is derived from validated evidence and includes a
-protocol version and stable ID. The artifact publisher records its schema
-version, renderer kind, evidence IDs, and content hash. A later refresh creates
-a new derivation instead of rewriting history.
+Each generated view is derived from validated evidence and has a stable surface
+identity. Tessera records the view schema, resource binding, and committed
+payload hash. A cumulative update replaces the earlier UI snapshot while the
+underlying query evidence remains the authority.
 
 ## Privacy and retention
 

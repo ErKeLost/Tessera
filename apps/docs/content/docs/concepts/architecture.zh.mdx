@@ -1,70 +1,51 @@
 ---
-title: 架构
-description: Tessera Agent 正通过 Data Agent 工作流证明的终局 Generative UI 底座。
+title: 产品架构
+description: 让 Tessera Agent 数据库回答受治理、可持久化且可检查的运行时边界。
 ---
 
-Tessera Agent 把模型编写的声明与宿主掌控的数据、身份、校验、权限、状态、Effect、持久化、
-Commit 与渲染彻底分开。模型既不生成可执行 UI 代码，也不能直接生成可信 Runtime Object。
+Tessera Agent 把模型决策与数据库 Authority 分开。模型可以选择已注册 Tool 并提出受限 Input；
+Catalog、权限、执行、Evidence、持久化与最终浏览器 Projection 都由 Tessera 掌控。
 
-## 唯一 Canonical Path
+## Runtime Flow
 
 ```text
-用户问题 + 宿主授权的 Resource Offer
--> 冻结 CatalogSetSlice
--> 模型提议声明式 Node
--> Compiler Normalize、Validate、Authorize 与 Commit
--> HostServer 发布可信 SurfaceEventStream
--> SurfaceController Replay 事件并解析 Node Projection
--> GenerativeSurface 遍历 Canonical Graph
--> RendererRegistry 精确解析 Component Contract Renderer
--> @open-generative/ui 渲染 Tessera Agent 的 shadcn/Recharts 组件
+浏览器问题
+-> Nitro Chat Route
+-> Mastra Agent
+-> 受治理数据库 Tool
+-> Connector Execution
+-> Evidence 与 Resource Publication
+-> 文字或生成式分析视图
+-> AI SDK UI Message Stream
+-> Studio Transcript 与 Renderer
 ```
 
-这套架构没有 `ArtifactPart`、浏览器 Decoder、`ArtifactRenderer`、旧兼容 Facade 或第二条按
-Artifact 分叉的渲染路径。原始模型输出永远不会进入 React。
+Data Agent 只有两条明确查询路径。物理 Metadata 与 SQL 工作使用
+`list_database -> execute_sql`；语义分析使用
+`search_data_context -> prepare_analysis -> execute_sql(analysisRef)`。两条路径最终进入同一个业务
+数据执行 Tool，系统不会为了产生更多输出而随意混合它们。
 
-## Package Boundary
+## 所有权
 
-| 边界 | Package | 职责 |
-| --- | --- | --- |
-| Canonical Value 与 Wire Protocol | `@open-generative/protocol` | Document、Operation、Stream、ID、Hash、Limit 与 Diagnostic |
-| Contract Identity 与 Manifest | `@open-generative/catalog` | Immutable Component Contract、Catalog Slice、Placement 与 Renderer Capability Negotiation |
-| Proposal 验收 | `@open-generative/compiler` | 仅服务端 Decode、Normalize、Validate、Repair、Policy 与 Commit Gate |
-| 确定性状态 | `@open-generative/runtime` | Document、Preview、State、Replay、Revision DAG 与 Migration Reducer |
-| Host 编排 | `@open-generative/server` | Session、Transaction、Event Journal、Authority 与可信发布 |
-| 浏览器控制 | `@open-generative/client` | 可信事件 Replay、Resolved Node Projection、Resume 与 Host Command |
-| Resource Data | `@open-generative/resources` | 仅服务端 Schema、Grant、Projection、Window 与 Evidence |
-| Effect | `@open-generative/capabilities` | 仅服务端 Action Policy、Approval、Idempotency、Effect 与 Receipt |
-| React Binding | `@open-generative/react` | `GenerativeSurface`、精确 `RendererRegistry`、Placement 与 System Surface |
-| Data Agent Contract | `@open-generative/components` | 六个分析 Contract、严格 Chart Recipe Union、Resource Schema 与 Fixture |
-| Data Agent UI | `@open-generative/ui` | 官方 shadcn/Recharts 分析 Renderer 与 Registry Factory |
+| 层 | 职责 |
+| --- | --- |
+| Studio Client | 对话、Tool 生命周期、分析视图、Approval、Settings 与刷新恢复 |
+| Nitro Server | Authentication Boundary、Chat Transport、Transcript Projection、Settings 与 Runtime Lease |
+| Mastra Agent | Model Loop、Processor、Tool、逐 Step Memory 与 Durable Suspend/Resume |
+| Data Agent | Semantic Catalog Scope、Plan Validation、服务端 Compilation、Bounded Execution 与 Evidence |
+| Database Connector | Catalog Inspection、Dialect Behavior、Bounded Query 与 Typed Effect |
+| Local Store | Thread Memory、UI Transcript Metadata、Workflow Checkpoint 与 Action Receipt |
 
-Framework Adapter 可以转换 Transport 细节，但不能拥有或替换这些语义。Browser Code 不能引入
-Compiler、Server、Resource、Capability、Credential、Prompt Example 或签名材料。
+## 两份历史记录
 
-## 当前 Component Contract Slice
+Mastra Memory 在每个已完成 Step 后保存模型私有上下文。Studio 在每个 AI SDK `onStepEnd` 后
+保存另一份 Browser-safe Transcript。两者有意不同：模型历史保留 Continuation 所需 Tool Context，
+浏览器历史只包含 Allowlist Display Data。
 
-Tessera Agent 成功证明的 Catalog 包含六个 Component Contract：`analysis.report`、`layout.stack`、
-`layout.grid`、`data.metric`、`analysis.insight` 与 `data.chart`。Chart Contract 的 `spec.recipe`
-是由 17 种产品设计组成的严格 Discriminated Union。Steps、Funnel、Sankey、
-Scatter、Radial、Radar、Calendar、Area、Heatmap、Combo、Device 与 Ring 都是同一 Contract
-内部的 Recipe，不是额外 Component Type，也不是任意 React Props。
+## 生成式视图
 
-模型只负责选择 Recipe，并把已提供的 Column 映射到受限语义字段。模型不能提供 Row、原始颜色、
-CSS、Callback、SVG Markup、JSX 或 Renderer 名称。Host 解析 Resource Binding，已注册 Renderer
-再为具体 Recipe 选择经过审计的 DOM、SVG 或 Recharts 实现。
+生成式分析视图是 Tessera Agent 的一种回答格式。它只消费已经由成功数据库 Tool 发布的 Resource，
+不能再次执行查询。Client 使用 Studio 内置组件渲染唯一最新、已经 Commit 的 Data Part。
 
-## Commit 与 Preview
-
-完整的 `data.chart` Entity 可以进入经过校验的只读 Preview；Resource-backed Chart Node 必须
-原子 Commit。Preview Renderer 不会得到 Event Emitter，因此未完成内容不能触发 Host Command。
-Proposal 失败时继续保留 Last-good Committed Revision。
-
-Resource Payload 不进入 Canonical Document。`SurfaceController` 只在渲染前，根据可信且绑定 Grant
-的 Projection，为单个 Node Materialize 并校验 Resolved Props。
-
-规范细节见 [Generative UI 架构](/docs/agent/architecture/generative-ui)与
-[Data Agent 成功证明门槛](/docs/agent/architecture/generative-ui-proof)。
-[协议与 Compiler 参考](./artifact-ui-architecture)和
-[嵌入式业务 Artifact Runtime](./embedded-artifact-runtime)会作为历史前置设计完整保留，
-但它们不是当前 API。
+继续阅读 [Tool 契约](/docs/agent/tool-contract)、[运行循环](/docs/agent/architecture/run-loop)与
+[生成式分析视图](/docs/agent/architecture/generative-ui)。

@@ -1,5 +1,5 @@
 {
-  "title": "组件",
-  "description": "Tessera Agent 的 17 个 Data Chart Recipe。",
+  "title": "分析视图",
+  "description": "Tessera Agent 当前提供的分析结果视图。",
   "pages": ["index", "generative-ui-catalog"]
 }

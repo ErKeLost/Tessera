@@ -226,13 +226,13 @@ export class MongoDbConnector implements DatabaseConnector {
       database.listCollections({}, { nameOnly: false }).toArray(),
       signal,
     );
-    const maxTables = options.maxTables === undefined
-      ? collectionInfos.length
-      : clampInteger(options.maxTables, 1, 100_000);
-    const readable = collectionInfos
+    const allReadable = collectionInfos
       .filter(({ name }) => !name.startsWith("system."))
-      .sort((left, right) => left.name.localeCompare(right.name))
-      .slice(0, maxTables);
+      .sort((left, right) => left.name.localeCompare(right.name));
+    const maxTables = options.maxTables === undefined
+      ? undefined
+      : clampInteger(options.maxTables, 1, 100_000);
+    const readable = maxTables === undefined ? allReadable : allReadable.slice(0, maxTables);
     const tables: DatabaseTable[] = [];
     for (const info of readable) {
       throwIfAborted(signal);
@@ -244,6 +244,19 @@ export class MongoDbConnector implements DatabaseConnector {
         }).toArray(),
         signal,
       );
+      let indexes: NonNullable<DatabaseTable["indexes"]> | undefined;
+      let indexMetadata: "complete" | "partial" | "unavailable" = "unavailable";
+      try {
+        const indexRows = await waitForAbort(collection.listIndexes().toArray(), signal);
+        const inventory = mongoIndexInventory(indexRows);
+        indexes = inventory.indexes;
+        indexMetadata = inventory.metadata;
+      } catch (error) {
+        // Index listing is a separate MongoDB privilege. Keep readable
+        // collections usable when that privilege is absent, and publish no
+        // empty array because an empty array would falsely mean no indexes.
+        if (isAbort(error)) throw error;
+      }
       tables.push({
         schema: this.#options.database,
         name: info.name,
@@ -251,7 +264,11 @@ export class MongoDbConnector implements DatabaseConnector {
         columns: inferColumns(documents),
         primaryKey: documents.length === 0 || documents.some((document) => !("_id" in document)) ? [] : ["_id"],
         foreignKeys: [],
-        indexes: [],
+        // MongoDB collections do not expose native foreign-key constraints;
+        // an empty array here is a complete result for this connector model.
+        foreignKeyMetadata: "complete",
+        ...(indexes === undefined ? {} : { indexes }),
+        indexMetadata,
       });
     }
     const catalog = finalizeCatalog({
@@ -259,6 +276,12 @@ export class MongoDbConnector implements DatabaseConnector {
       dialect: "mongodb",
       databaseName: this.#options.database,
       scannedAt: new Date().toISOString(),
+      coverage: {
+        status: maxTables !== undefined && readable.length >= maxTables ? "partial" : "complete",
+        ...(maxTables !== undefined && readable.length >= maxTables ? { reason: "max_tables" as const, maxTables } : {}),
+        returnedTables: readable.length,
+        ...(maxTables !== undefined && readable.length >= maxTables ? {} : { omittedTables: 0 }),
+      },
       schemas: [{ name: this.#options.database, tables }],
     });
     this.#catalog = catalog;
@@ -325,6 +348,29 @@ export class MongoDbConnector implements DatabaseConnector {
     );
     return new Set(infos.map(({ name }) => name).filter((name) => !name.startsWith("system.")));
   }
+}
+
+function mongoIndexInventory(rows: readonly Document[]): Readonly<{
+  indexes: NonNullable<DatabaseTable["indexes"]>;
+  metadata: "complete" | "partial";
+}> {
+  let metadata: "complete" | "partial" = "complete";
+  const indexes = rows.flatMap((row) => {
+    const name = typeof row.name === "string" ? row.name.trim() : "";
+    const key = isRecord(row.key) ? row.key : undefined;
+    const columns = key === undefined ? [] : Object.keys(key);
+    if (!name || columns.length === 0) {
+      metadata = "partial";
+      return [];
+    }
+    return [{
+      name,
+      columns,
+      unique: row.unique === true || (name === "_id_" && columns.length === 1 && columns[0] === "_id"),
+      isConstraint: false,
+    }];
+  });
+  return { indexes, metadata };
 }
 
 export function validateMongoReadPipeline(

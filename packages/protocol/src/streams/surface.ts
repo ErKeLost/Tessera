@@ -134,12 +134,28 @@ export const surfaceEventEnvelopeSchema = z.object({
   payload: surfaceEventPayloadSchema,
 }).strict();
 
+export const openGenerativeSurfaceStreamSchema = z.object({
+  surfaceSessionId: surfaceSessionIdSchema,
+  events: z.array(surfaceEventEnvelopeSchema).max(2_000),
+}).strict().superRefine((stream, context) => {
+  for (const [index, event] of stream.events.entries()) {
+    if (event.surfaceSessionId !== stream.surfaceSessionId) {
+      context.addIssue({
+        code: "custom",
+        path: ["events", index, "surfaceSessionId"],
+        message: "Every event must belong to the declared Surface session.",
+      });
+    }
+  }
+});
+
 export type StreamPolicy = z.infer<typeof streamPolicySchema>;
 export type SurfaceSnapshot = z.infer<typeof surfaceSnapshotSchema>;
 export type SurfaceEventPayload = z.infer<typeof surfaceEventPayloadSchema>;
 type SurfaceEventEnvelopeBase = z.infer<typeof surfaceEventEnvelopeSchema>;
 export type SurfaceEventEnvelope<TPayload extends SurfaceEventPayload = SurfaceEventPayload> =
   Omit<SurfaceEventEnvelopeBase, "payload"> & { payload: TPayload };
+export type OpenGenerativeSurfaceStream = z.infer<typeof openGenerativeSurfaceStreamSchema>;
 
 export async function verifySurfaceEventEnvelope(
   input: SurfaceEventEnvelope,

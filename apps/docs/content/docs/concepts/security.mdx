@@ -1,32 +1,40 @@
 ---
 title: Security Model
-description: The trust boundaries enforced by Tessera Agent's final Generative UI architecture.
+description: The trust boundaries around Tessera Agent, connected databases, session memory, and generated views.
 ---
 
-Tessera Agent treats every model proposal as untrusted data. Declarative output
-is useful only after the server compiler and Host authority commit it.
+Tessera treats model output, user text, catalog content, and database values as
+untrusted input. Prompts improve behavior, but deterministic server checks own
+authorization and execution.
 
-- The model cannot generate HTML, JSX, JavaScript, CSS, SQL, formulas, URLs,
-  component names, tool names, credentials, or executable handlers.
-- Every node pins an exact immutable Component Contract from the frozen
-  `CatalogSetSlice`; unknown or substituted contracts fail closed.
-- Query rows stay in the grant-bound Resource Gateway. They do not enter model
-  context, proposals, canonical documents, revision history, or ordinary logs.
-- Browser code receives trusted Surface events and node-scoped resolved
-  projections, never database credentials or raw tool payloads.
-- Preview nodes are read-only. Only committed projections may emit a declared
-  event port.
-- `SurfaceController` checks session identity, audience binding, sequence,
-  revision, node scope, event schema, state preconditions, and resource versions.
-- The server owns authorization, approvals, idempotency, effects, receipts,
-  persistence, and resume cursors.
-- A renderer error is isolated to one node and cannot change the canonical
-  revision or execute an effect.
+## Database boundary
 
-Unknown contracts, invalid placement, unresolved props, malformed events,
-expired grants, stale revisions, replayed approvals, and stream identity
-mismatches are explicit failures. Last-good committed content remains available
-while the Host requests resynchronization or shows a trusted system surface.
+- Credentials and provider keys remain on the Studio server.
+- Every tool has a strict input and output schema.
+- Physical reads use validated, bounded SQL and connector-level timeouts,
+  cancellation, row limits, and serialization limits.
+- Semantic analysis accepts catalog IDs rather than model-authored SQL.
+- Metadata output guides planning but cannot prove a requested data fact.
+- Database mutations use typed actions, policy checks, durable approval, and
+  idempotent resume identifiers.
 
-Open-ended mini-apps belong in a separate sandbox or MCP App boundary. They are
-not a reason to weaken the trusted Tessera Agent catalog.
+## Model and presentation boundary
+
+Verified datasets are published only after a database tool succeeds. The
+presentation processor can reference those resources and the fixed Tessera
+catalog, but it cannot create credentials, URLs, SQL, tools, React components,
+HTML, scripts, CSS, callbacks, or executable formulas.
+
+Presentation output is parsed and validated before commit. Unknown recipes,
+invalid bindings, malformed values, stale sessions, and failed payload hashes
+are rejected. A rejected view cannot execute another query or effect.
+
+## Browser and memory boundary
+
+Mastra Memory stores private model context per completed step. Studio stores a
+separate allowlisted transcript for the browser. The browser receives safe UI
+message parts and committed, bounded view projections, never database
+credentials or unrestricted private tool payloads.
+
+Approval decisions are checked against the persisted workflow snapshot and
+request identity. Replayed, stale, or mismatched decisions fail closed.

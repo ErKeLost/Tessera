@@ -13,20 +13,18 @@ import {
   type PlacementContext,
 } from "@open-generative/catalog";
 import {
-  IncrementalPresentUiCompilerSession,
   InMemoryTransactionIdentityAllocator,
+  OpenGenerativeLanguageCompilerSession,
   ProposalCompilerTurn,
-  compilePresentUi,
+  compileOpenGenerativeLanguage,
   createCatalogRuntimeValidationPort,
   createCompilerCatalog,
-  type CompiledPresentUi,
+  type CompiledOpenGenerativeLanguage,
   type CompilerAuthority,
-  type CompilerTurnOutcome,
   type CompilerWriteScope,
-  type IncrementalPresentUiSession,
-  type IncrementalPresentUiSessionContext,
-  type PresentUiAuthoringInput,
-  type PresentUiPresentationPolicy,
+  type OpenGenerativeLanguageSession,
+  type OpenGenerativeLanguageSessionContext,
+  type OpenGenerativePresentationPolicy,
 } from "@open-generative/compiler";
 import {
   createOfficialCatalog,
@@ -87,6 +85,7 @@ import {
   HostServer,
   InMemoryDocumentStateWriter,
   InMemorySurfaceSessionJournal,
+  SurfaceTransactionPublisher,
   SurfaceSessionManager,
   createAuthorityContext,
   type AuthorityContext,
@@ -130,7 +129,7 @@ export type OpenGenerativeDatasetResource = Readonly<{
 export type PrepareOpenGenerativeTurnInput = Readonly<{
   authority: OpenGenerativeAuthority;
   resources: readonly OpenGenerativeDatasetResource[];
-  presentationPolicy?: PresentUiPresentationPolicy;
+  presentationPolicy?: OpenGenerativePresentationPolicy;
   providerSchemaProfile?: "canonical" | "openai-strict" | "anthropic-json-schema" | "google-json-schema";
   placement?: PlacementContext;
   generationLimits?: GenerationLimits;
@@ -140,13 +139,12 @@ export type PrepareOpenGenerativeTurnInput = Readonly<{
 }>;
 
 export type OpenGenerativeTurn = Readonly<{
-  compiled: CompiledPresentUi;
+  language: CompiledOpenGenerativeLanguage;
   catalogSlice: CatalogSetSlice;
-  /** True after the first valid proposal has committed and opened the Surface. */
-  isCommitted(): boolean;
+  surfaceSessionId: string;
   createSession(
-    context: IncrementalPresentUiSessionContext,
-  ): Promise<IncrementalPresentUiSession<CompilerTurnOutcome>>;
+    context?: OpenGenerativeLanguageSessionContext,
+  ): Promise<OpenGenerativeLanguageSession>;
   drainEvents(): readonly SurfaceEventEnvelope[];
 }>;
 
@@ -161,6 +159,7 @@ export type OpenGenerativeHost = Readonly<{
 }>;
 
 type PublishedTurnResource = Readonly<{
+  bindingId: ResourceBindingId;
   offer: ModelVisibleResourceOffer;
   declaration: ResourceBindingDeclaration;
   classification: "public" | "internal" | "confidential" | "restricted";
@@ -219,7 +218,6 @@ export async function createOpenGenerativeHost(): Promise<OpenGenerativeHost> {
   return Object.freeze({
     catalog,
     async prepareTurn(input) {
-      if (input.resources.length === 0) return undefined;
       return createTurn({
         input,
         catalog,
@@ -291,11 +289,16 @@ async function createTurn(input: Readonly<{
     components: selectedComponents,
     actions: [],
   });
-  const compiled = compilePresentUi({
+  const language = compileOpenGenerativeLanguage({
     catalog: compilerCatalog,
     presentationPolicy: input.input.presentationPolicy ?? "auto",
   });
-  const baseDocument = createBaseDocument(input.catalog, slice.contractSetHash, input.input.title);
+  const baseDocument = createBaseDocument(
+    input.catalog,
+    slice.contractSetHash,
+    input.input.title,
+    publishedResources,
+  );
   const baseEntityRevisions = await computeEntityRevisionIndex(baseDocument);
   const baseRevisionId = revisionIdSchema.parse(`revision:${randomUUID()}`);
   const documentId = documentIdSchema.parse(`document:${randomUUID()}`);
@@ -325,7 +328,7 @@ async function createTurn(input: Readonly<{
     }),
   );
   const compilerAuthority = createCompilerAuthority(publishedResources);
-  const runtime = new DocumentTransactionRuntime({
+  const documentRuntime = new DocumentTransactionRuntime({
     store,
     validation: createCatalogRuntimeValidationPort(compilerCatalog, compilerAuthority),
   });
@@ -337,66 +340,80 @@ async function createTurn(input: Readonly<{
     hashCanonical(HASH_DOMAINS.operationPayload, authority),
     hashCanonical(HASH_DOMAINS.operationPayload, writeScope),
   ]);
-  const events: SurfaceEventEnvelope[] = [];
-  let committedRevisionId: string | undefined;
-  let publishPromise: Promise<void> | undefined;
+  const resolvedResources = await resolveCommittedResources({
+    revision: baseRevision,
+    publishedResources,
+    resources: input.resources,
+    authority,
+    surfaceSessionId,
+    expiresAt,
+  });
+  const manager = new SurfaceSessionManager({
+    journal: input.journal,
+    surfaceSessionIdFactory: () => surfaceSessionId,
+    streamIdFactory: () => streamId,
+  });
+  const opened = await manager.open({
+    authority,
+    rendererCapabilityManifest: input.rendererManifest,
+    catalogs: [input.catalog.manifest],
+    rendererRequirements,
+    actionContracts: [],
+    resourceOffers: publishedResources.map((resource) => resource.offer),
+    evidenceOffers: [],
+    placement,
+    generationLimits,
+    providerSchemaProfile,
+    committedRevision: baseRevision,
+    resources: resolvedResources,
+    streamPolicy: DEFAULT_STREAM_POLICY,
+    expiresAt,
+    correlationId,
+  });
+  if (opened.status !== "created") throw new Error("Open Generative Surface session already exists.");
 
-  const publishCommittedSurface = async (outcome: CompilerTurnOutcome): Promise<void> => {
-    if (outcome.status !== "committed") return;
-    if (committedRevisionId !== undefined && committedRevisionId !== outcome.revisionId) {
-      throw new Error("An Open Generative turn can commit only one initial Surface revision.");
+  const events: SurfaceEventEnvelope[] = [];
+  const bufferedEvents: SurfaceEventEnvelope[] = [];
+  let surfaceExposed = false;
+  const captureEvents = (next: readonly SurfaceEventEnvelope[]) => {
+    if (surfaceExposed) {
+      events.push(...next);
+      return;
     }
-    committedRevisionId = outcome.revisionId;
-    publishPromise ??= (async () => {
-      const stored = await store.getRevision(documentId, outcome.revisionId);
-      if (!stored) throw new Error("The committed Open Generative revision is unavailable.");
-      const resolvedResources = await resolveCommittedResources({
-        revision: stored.revision,
-        publishedResources,
-        resources: input.resources,
-        authority,
-        surfaceSessionId,
-        expiresAt,
-      });
-      const manager = new SurfaceSessionManager({
-        journal: input.journal,
-        surfaceSessionIdFactory: () => surfaceSessionId,
-        streamIdFactory: () => streamId,
-      });
-      const opened = await manager.open({
-        authority,
-        rendererCapabilityManifest: input.rendererManifest,
-        catalogs: [input.catalog.manifest],
-        rendererRequirements,
-        actionContracts: [],
-        resourceOffers: publishedResources.map((resource) => resource.offer),
-        evidenceOffers: [],
-        placement,
-        generationLimits,
-        providerSchemaProfile,
-        committedRevision: stored.revision,
-        resources: resolvedResources,
-        streamPolicy: DEFAULT_STREAM_POLICY,
-        expiresAt,
-        correlationId,
-      });
-      if (opened.status !== "created") throw new Error("Open Generative Surface session already exists.");
-      events.push(opened.event);
-    })();
-    await publishPromise;
+    bufferedEvents.push(...next);
+    const becameRenderable = next.some((event) => (
+      event.payload.type === "preview-applied"
+      && event.payload.preview.operations.some((operation) => operation.op === "set-root")
+    ));
+    if (!becameRenderable) return;
+    surfaceExposed = true;
+    events.push(opened.event, ...bufferedEvents);
+    bufferedEvents.length = 0;
   };
+  const runtime = new SurfaceTransactionPublisher({
+    journal: input.journal,
+    runtime: documentRuntime,
+    surfaceSessionId,
+    correlationId,
+    onEvents: captureEvents,
+  });
+  let activeCompilerSession: symbol | undefined;
+  let turnCommitted = false;
 
   return Object.freeze({
-    compiled,
+    language,
     catalogSlice: slice,
-    isCommitted() {
-      return committedRevisionId !== undefined;
-    },
-    async createSession(context) {
-      if (committedRevisionId !== undefined) {
-        throw new Error("The Open Generative turn has already committed a Surface.");
+    surfaceSessionId,
+    async createSession(context = {}) {
+      if (turnCommitted) {
+        throw new Error("The Open Generative turn has already committed a Surface revision.");
+      }
+      if (activeCompilerSession) {
+        throw new Error("The Open Generative turn already has an active compiler session.");
       }
       context.abortSignal?.throwIfAborted();
+      const sessionToken = Symbol("open-generative-compiler-session");
+      activeCompilerSession = sessionToken;
       const transactionId = transactionIdSchema.parse(`transaction:${randomUUID()}`);
       const targetRevisionId = revisionIdSchema.parse(`revision:${randomUUID()}`);
       const turn = new ProposalCompilerTurn({
@@ -423,8 +440,58 @@ async function createTurn(input: Readonly<{
         writeScopeHash,
         correlationId,
       });
-      const session = new IncrementalPresentUiCompilerSession({ compiled, turn });
-      return wrapPublishingSession(session, publishCommittedSurface);
+      const session = new OpenGenerativeLanguageCompilerSession({
+        compiled: language,
+        catalog: compilerCatalog,
+        turn,
+        expectedRootId: baseDocument.rootNodeId,
+        supersededRootRevision: baseEntityRevisions.nodes[baseDocument.rootNodeId],
+        context,
+      });
+      const release = () => {
+        if (activeCompilerSession === sessionToken) activeCompilerSession = undefined;
+      };
+      return Object.freeze({
+        async start() {
+          try {
+            await session.start();
+          } catch (error) {
+            release();
+            throw error;
+          }
+        },
+        async pushTextDelta(delta: string) {
+          try {
+            const update = await session.pushTextDelta(delta);
+            if (update.outcome) {
+              if (update.outcome.status === "committed") turnCommitted = true;
+              release();
+            }
+            return update;
+          } catch (error) {
+            release();
+            throw error;
+          }
+        },
+        async finish() {
+          try {
+            const outcome = await session.finish();
+            if (outcome.status === "committed") turnCommitted = true;
+            return outcome;
+          } finally {
+            release();
+          }
+        },
+        async abort(reason?: "timeout" | "cancelled") {
+          try {
+            const outcome = await session.abort(reason);
+            if (outcome.status === "committed") turnCommitted = true;
+            return outcome;
+          } finally {
+            release();
+          }
+        },
+      });
     },
     drainEvents() {
       return Object.freeze(events.splice(0));
@@ -475,6 +542,7 @@ async function publishTurnResource(input: Readonly<{
     },
   });
   return Object.freeze({
+    bindingId,
     offer,
     declaration: publication.declaration,
     classification: input.resource.classification ?? "internal",
@@ -488,6 +556,7 @@ function createCompilerAuthority(resources: readonly PublishedTurnResource[]): C
       source: resource.offer.source,
       declaration: resource.declaration,
       classification: resource.classification,
+      existingBindingIds: [resource.bindingId],
     })),
     evidence: [],
     statePolicy: {
@@ -508,6 +577,7 @@ function createBaseDocument(
   catalog: OfficialCatalogBundle,
   contractSetHash: string,
   title: string | undefined,
+  resources: readonly PublishedTurnResource[],
 ) {
   const rootNodeId = nodeIdSchema.parse("node:root");
   return documentContentSchema.parse({
@@ -527,7 +597,10 @@ function createBaseDocument(
     },
     stateDefinitions: {},
     actions: {},
-    resourceBindings: {},
+    resourceBindings: Object.fromEntries(resources.map((resource) => [
+      resource.bindingId,
+      resource.declaration,
+    ])),
     evidenceBindings: {},
     claims: {},
     meta: { title: title?.trim() || "Generative analysis", tags: [] },
@@ -540,7 +613,14 @@ function createInitialWriteScope(
 ): CompilerWriteScope {
   return Object.freeze({
     creatable: ["node", "state", "action", "resource", "evidence", "claim"],
-    readable: { node: [], state: [], action: [], resource: [], evidence: [], claim: [] },
+    readable: {
+      node: [],
+      state: [],
+      action: [],
+      resource: Object.keys(document.resourceBindings).map((id) => resourceBindingIdSchema.parse(id)),
+      evidence: [],
+      claim: [],
+    },
     writable: {
       node: { [document.rootNodeId]: revisions.nodes[document.rootNodeId]! },
       state: {},
@@ -596,22 +676,6 @@ async function resolveCommittedResources(input: Readonly<{
     });
   }
   return resolved;
-}
-
-function wrapPublishingSession(
-  session: IncrementalPresentUiSession<CompilerTurnOutcome>,
-  publish: (outcome: CompilerTurnOutcome) => Promise<void>,
-): IncrementalPresentUiSession<CompilerTurnOutcome> {
-  const finish = async (outcome: CompilerTurnOutcome) => {
-    await publish(outcome);
-    return outcome;
-  };
-  return Object.freeze({
-    start: () => session.start(),
-    pushTextDelta: (delta: string) => session.pushTextDelta(delta),
-    complete: async (proposal: PresentUiAuthoringInput) => finish(await session.complete(proposal)),
-    abort: async (reason?: "timeout" | "cancelled") => finish(await session.abort(reason)),
-  });
 }
 
 function officialDatasetConstraint(catalog: OfficialCatalogBundle) {

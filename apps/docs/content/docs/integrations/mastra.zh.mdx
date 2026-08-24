@@ -1,75 +1,62 @@
 ---
-title: Mastra
-description: 使用一个 Processor 和一个 Renderer，把 Open Generative 接入最新 Mastra 1.61 Agent。
+title: Mastra Runtime
+description: Tessera Agent 如何使用 Mastra 原生 Agent、Processor、Tool、Workflow 与 Memory API。
 ---
 
-`@open-generative/mastra` 只面向当前 Mastra 1.61 Processor API。应用不需要编译组件
-Schema、维护 UI Prompt、为每个组件注册 Tool，也不管理 Proposal Transaction。
+Tessera Studio 当前使用 Mastra 运行 Data Agent。Mastra 是产品内部的 Runtime Dependency，
+不是要求用户在自己应用里另外接线的 Tessera Adapter。
 
-## 服务端
+## Agent Loop
 
-创建一个 Host，并向现有 Agent 添加一个 Processor。Domain Tool 尚未产生可渲染 Resource 时，
-`resolve` 返回 `undefined`；Resource 就绪后，Processor 自动生成并注入本轮唯一的
-`present_ui` Tool。
+Tessera 创建一个 Mastra `Agent`，集中注册数据库 Tool、Request Context Processor、呈现
+Processor 与本地 `Memory`。同一次 Turn 的所有模型 Step 都由这个 Agent 负责，包括 Tool
+Continuation，以及数据库写操作获批后的恢复执行。
 
 ```ts
-import { Agent } from "@mastra/core/agent";
-import { createOpenGenerativeHost } from "@open-generative/host";
-import {
-  MASTRA_PRESENT_UI_TRACING_OPTIONS,
-  createOpenGenerativeMastraProcessor,
-} from "@open-generative/mastra";
-
-const host = await createOpenGenerativeHost();
-const openGenerative = createOpenGenerativeMastraProcessor({
-  resolve: async () => host.prepareTurn({
-    authority,
-    resources: currentResources(),
-    presentationPolicy: "auto",
-  }),
-});
-
 const agent = new Agent({
-  id: "data-agent",
-  name: "Data Agent",
+  id: "tessera-data-copilot",
   model,
-  tools: domainTools,
-  inputProcessors: [openGenerative],
+  memory,
+  tools: databaseTools,
+  inputProcessors,
+  outputProcessors,
 });
 
-const stream = await agent.stream(messages, {
-  tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
+const output = await agent.stream(message, {
+  memory: {
+    thread: threadId,
+    resource: resourceId,
+    options: {
+      semanticRecall: false,
+      workingMemory: tesseraWorkingMemoryOptions,
+      observationalMemory: false,
+    },
+  },
+  savePerStep: true,
 });
 ```
 
-Agent Streaming 时，Processor 通过 Mastra 自带的 Processor Writer 写入已经 Commit 的
-`data-openGenerativeSurface` Part，并在 Commit 后移除 `present_ui`。应用不需要 Drain 或转换
-Surface Event。
+`savePerStep` 是 Mastra 原生的持久化选项。每个 Generation Step 完成后，Mastra 会把当前
+`MessageList` 中尚未保存的消息写入 Memory Store。Tessera 不再在整条 Stream 完成后手工重建
+一对 user/assistant 消息，因此 Tool Call、Tool Result 与后续回答不会重复保存。
 
-Processor 会把第一个可用 Host Turn 缓存在 Mastra 的 Request-scoped Processor State 中。
-`resolve` 可以直接调用 `host.prepareTurn()`；应用不需要维护 Per-step Turn Cache。
+Observational Memory 保持关闭，因为 Mastra 在启用它时会禁用 `savePerStep`；Semantic Recall 也关闭。
+Working Memory 使用 Zod Schema，并设置 `scope: "resource"`、`agentManaged: true` 与
+`useStateSignals: false`，因此同一 Resource Identity 的多个 Thread 会按字段 Deep Merge 稳定领域上下文。
 
-启用 Mastra Tracing 时必须使用上面的 Tracing Options。Mastra 会在 Display/Transcript
-Transform 前创建 Tool-call Span；这两个选项阻止 Proposal Payload 进入 Trace Input/Output。
+Mastra 内部的 `updateWorkingMemory` Tool 仍提供给 Agent，但会从 Tessera 对外 AI SDK Stream 与浏览器
+Transcript 过滤。它不是第五个业务 Tool，也不能携带授权或查询 Evidence。
 
-## 客户端
+## 两份不同用途的持久化记录
 
-使用 Package 自己的 Renderer 渲染 Data Part：
+Mastra Memory 是模型私有上下文。浏览器拿到的是另一份经过 Allowlist 与脱敏的 UI Transcript，
+其中只包含安全文本、Reasoning 摘要、Tool 生命周期摘要和已验证的 Tessera 分析视图。AI SDK
+负责装配 UI Message，Tessera 在每个已完成 Step 后做幂等 Checkpoint。
 
-```tsx
-import { OpenGenerativeRenderer } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
+这条边界既能在刷新后恢复已完成工作，也能防止原始 SQL、Credential、Provider Metadata 与
+Query Row 进入浏览器历史。
 
-<OpenGenerativeRenderer event={part.data} />
-```
+## 暂停的写操作
 
-Renderer 内部拥有已验证的 Contract Registry、`SurfaceController`、官方 Renderer Registry、
-Replay、Cleanup、Loading State 与 Command Bridge。只有 Surface 暴露交互时，Host 才需要传入
-`onCommand`。
-
-```text
-domain tool -> Resource -> Mastra Processor -> present_ui -> committed data part
--> OpenGenerativeRenderer
-```
-
-底层 Tool/Session Constructor 仍供自定义 Host 使用，但不属于普通应用接入路径。
+数据库写操作使用 Mastra Durable Workflow 的 Suspension 与 `resumeStream()`。持久化的 Workflow
+Snapshot 才是审批和恢复的权威状态；UI Transcript 只负责展示，不能授权任何 Effect。

@@ -1,4 +1,5 @@
 {
-  "title": "集成",
-  "pages": ["ai-sdk", "mastra", "ag-ui", "shadcn-registry"]
+  "title": "Agent Runtime",
+  "description": "Tessera Agent 当前如何使用运行时依赖。",
+  "pages": ["index", "mastra", "ai-sdk"]
 }

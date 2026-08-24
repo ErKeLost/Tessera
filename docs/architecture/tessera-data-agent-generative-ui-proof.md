@@ -119,7 +119,7 @@
 governed query tool
 -> pinned Query Resource + Evidence publication
 -> frozen Tessera Catalog slice
--> present_ui proposal
+-> final presentation-language output
 -> transaction/commit
 -> trusted SurfaceEventStream
 -> one SurfaceController

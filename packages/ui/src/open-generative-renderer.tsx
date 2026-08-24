@@ -19,14 +19,15 @@ import {
   type OfficialRendererRelease,
 } from "@open-generative/components";
 import {
-  surfaceEventEnvelopeSchema,
+  openGenerativeSurfaceStreamSchema,
   type HostCommandEnvelope,
   type JsonObject,
   type JsonValue,
+  type OpenGenerativeSurfaceStream,
   type SurfaceEventEnvelope,
 } from "@open-generative/protocol";
 import { GenerativeSurface, type RendererRegistry } from "@open-generative/react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { z } from "zod";
 import {
   createOfficialRendererRegistry,
@@ -46,11 +47,16 @@ type Foundation = Readonly<{
 
 type RendererState =
   | Readonly<{ status: "loading" }>
-  | Readonly<{ status: "ready"; controller: SurfaceController; registry: RendererRegistry }>
+  | Readonly<{
+    status: "ready";
+    surfaceSessionId: string;
+    controller: SurfaceController;
+    registry: RendererRegistry;
+  }>
   | Readonly<{ status: "error"; error: unknown }>;
 
 export type OpenGenerativeRendererProps = Readonly<{
-  event: SurfaceEventEnvelope;
+  stream: OpenGenerativeSurfaceStream;
   /** Optional command bridge for interactive and paginated surfaces. */
   onCommand?: (command: HostCommandEnvelope) => void | readonly SurfaceEventEnvelope[] | Promise<void | readonly SurfaceEventEnvelope[]>;
   /** Supply the published release when artifact-integrity verification is required. */
@@ -72,7 +78,7 @@ const verifiedFoundationPromises = new WeakMap<object, Promise<Foundation>>();
  * package-owned.
  */
 export function OpenGenerativeRenderer({
-  event: eventInput,
+  stream: streamInput,
   onCommand,
   rendererRelease,
   placement = DEFAULT_PLACEMENT,
@@ -83,6 +89,9 @@ export function OpenGenerativeRenderer({
   errorFallback = null,
 }: OpenGenerativeRendererProps) {
   const [state, setState] = useState<RendererState>({ status: "loading" });
+  const consumedSequence = useRef(0);
+  const consumeChain = useRef(Promise.resolve());
+  const surfaceSessionId = streamInput.surfaceSessionId;
 
   useEffect(() => {
     let active = true;
@@ -90,7 +99,11 @@ export function OpenGenerativeRenderer({
     setState({ status: "loading" });
     void (async () => {
       try {
-        const event = surfaceEventEnvelopeSchema.parse(eventInput);
+        const stream = openGenerativeSurfaceStreamSchema.parse(streamInput);
+        const event = stream.events[0];
+        if (!event || event.payload.type !== "snapshot-published") {
+          throw new Error("An Open Generative Surface stream must begin with a snapshot.");
+        }
         const foundation = await getFoundation(rendererRelease);
         controller = new SurfaceController({
           surfaceSessionId: event.surfaceSessionId,
@@ -100,21 +113,32 @@ export function OpenGenerativeRenderer({
             async send(command) {
               const events = await onCommand?.(command);
               if (!events) return;
-              for (const nextEvent of events) await controller?.consume(nextEvent);
+              for (const nextEvent of events) {
+                await controller?.consume(nextEvent);
+                consumedSequence.current = Math.max(consumedSequence.current, nextEvent.sequence);
+              }
             },
           },
           context: { locale, timezone },
           stateValidation: { validateSurfaceStateValue: () => [] },
         });
-        const consumed = await controller.consume(event);
-        if (consumed.status === "rejected" || consumed.status === "resync-required") {
-          throw new Error("The trusted Open Generative Surface event could not be applied.");
+        for (const nextEvent of stream.events) {
+          const consumed = await controller.consume(nextEvent);
+          if (consumed.status === "rejected" || consumed.status === "resync-required") {
+            throw new Error("The trusted Open Generative Surface event could not be applied.");
+          }
+          consumedSequence.current = nextEvent.sequence;
         }
         if (!active) {
           controller.dispose();
           return;
         }
-        setState({ status: "ready", controller, registry: foundation.renderers });
+        setState({
+          status: "ready",
+          surfaceSessionId: stream.surfaceSessionId,
+          controller,
+          registry: foundation.renderers,
+        });
       } catch (error) {
         controller?.dispose();
         if (active) setState({ status: "error", error });
@@ -122,9 +146,35 @@ export function OpenGenerativeRenderer({
     })();
     return () => {
       active = false;
+      consumedSequence.current = 0;
+      consumeChain.current = Promise.resolve();
       controller?.dispose();
     };
-  }, [eventInput, locale, onCommand, rendererRelease, timezone]);
+  }, [locale, onCommand, rendererRelease, surfaceSessionId, timezone]);
+
+  useEffect(() => {
+    if (state.status !== "ready") return;
+    let active = true;
+    consumeChain.current = consumeChain.current.then(async () => {
+      try {
+        const stream = openGenerativeSurfaceStreamSchema.parse(streamInput);
+        if (stream.surfaceSessionId !== state.surfaceSessionId) return;
+        for (const event of stream.events) {
+          if (event.sequence <= consumedSequence.current) continue;
+          const consumed = await state.controller.consume(event);
+          if (consumed.status === "rejected" || consumed.status === "resync-required") {
+            throw new Error("The trusted Open Generative Surface event could not be applied.");
+          }
+          consumedSequence.current = event.sequence;
+        }
+      } catch (error) {
+        if (active) setState({ status: "error", error });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [state, streamInput]);
 
   if (state.status === "loading") {
     return loadingFallback ?? <div aria-busy="true" className={className} data-og-renderer="loading" />;

@@ -1,80 +1,72 @@
 ---
-title: Mastra
-description: Add Open Generative to a current Mastra 1.61 agent with one Processor and one Renderer.
+title: Mastra runtime
+description: How Tessera Agent uses Mastra's native Agent, Processor, tool, workflow, and Memory APIs.
 ---
 
-`@open-generative/mastra` targets the current Mastra 1.61 Processor API only.
-Applications do not compile component schemas, maintain UI prompts, register one
-tool per component, or manage proposal transactions.
+Tessera Studio currently runs its data agent on Mastra. Mastra is an internal
+runtime dependency of the product, not a separate Tessera adapter that users
+must wire into their application.
 
-## Server
+## Agent loop
 
-Create one Host and add one Processor to the existing Agent. `resolve` returns
-`undefined` until a domain tool has produced renderable resources; the Processor
-then builds and injects the single turn-scoped `present_ui` tool automatically.
+Tessera constructs one Mastra `Agent` with the database tools, request-context
+processors, presentation processor, and local `Memory` instance. The same Agent
+owns every model step in a turn, including tool continuation and a resumed
+database mutation after approval.
 
 ```ts
-import { Agent } from "@mastra/core/agent";
-import { createOpenGenerativeHost } from "@open-generative/host";
-import {
-  MASTRA_PRESENT_UI_TRACING_OPTIONS,
-  createOpenGenerativeMastraProcessor,
-} from "@open-generative/mastra";
-
-const host = await createOpenGenerativeHost();
-const openGenerative = createOpenGenerativeMastraProcessor({
-  resolve: async () => host.prepareTurn({
-    authority,
-    resources: currentResources(),
-    presentationPolicy: "auto",
-  }),
-});
-
 const agent = new Agent({
-  id: "data-agent",
-  name: "Data Agent",
+  id: "tessera-data-copilot",
   model,
-  tools: domainTools,
-  inputProcessors: [openGenerative],
+  memory,
+  tools: databaseTools,
+  inputProcessors,
+  outputProcessors,
 });
 
-const stream = await agent.stream(messages, {
-  tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
+const output = await agent.stream(message, {
+  memory: {
+    thread: threadId,
+    resource: resourceId,
+    options: {
+      semanticRecall: false,
+      workingMemory: tesseraWorkingMemoryOptions,
+      observationalMemory: false,
+    },
+  },
+  savePerStep: true,
 });
 ```
 
-When the Agent streams, the Processor writes the committed
-`data-openGenerativeSurface` part through Mastra's own Processor writer. It
-removes `present_ui` after commit. The application does not drain or translate
-Surface events.
+`savePerStep` is Mastra's native persistence option. After every completed
+generation step, Mastra flushes the current unsaved `MessageList` into the
+configured Memory store. Tessera does not rebuild a user/assistant pair after
+the stream finishes, so tool calls, tool results, and later assistant output are
+not duplicated.
 
-The Processor caches the first available Host Turn in Mastra's request-scoped
-processor state. `resolve` may call `host.prepareTurn()` directly; applications
-do not keep a per-step Turn cache.
+Observational Memory remains disabled because Mastra disables `savePerStep`
+when observational memory is active. Semantic recall is disabled. Working
+Memory is enabled with a Zod schema, `scope: "resource"`, `agentManaged: true`,
+and `useStateSignals: false`, so stable domain context is deep-merged across
+threads that share the same resource identity.
 
-The tracing options are required whenever Mastra tracing is active because
-Mastra creates tool-call spans before display and transcript transforms run.
-They prevent proposal payloads from entering trace input or output.
+Mastra's internal `updateWorkingMemory` tool remains available to the Agent but
+is filtered from Tessera's public AI SDK stream and browser transcript. It is
+not a fifth business tool and cannot carry authorization or query evidence.
 
-## Client
+## Two persistence records
 
-Render the data part with the package-owned Renderer:
+Mastra Memory is private model context. The browser receives a separate,
+allowlisted UI transcript containing only safe text, reasoning summaries, tool
+lifecycle summaries, and validated Tessera analysis views. AI SDK assembles
+that UI message and Tessera checkpoints it after each completed step.
 
-```tsx
-import { OpenGenerativeRenderer } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
+This separation prevents raw SQL, credentials, provider metadata, and query
+rows from becoming browser history while still allowing a refresh to restore
+the completed work.
 
-<OpenGenerativeRenderer event={part.data} />
-```
+## Suspended mutations
 
-The Renderer owns the verified Contract Registry, `SurfaceController`, official
-Renderer Registry, replay, cleanup, loading state, and command bridge. A Host
-only supplies `onCommand` when the surface exposes interactions.
-
-```text
-domain tool -> Resource -> Mastra Processor -> present_ui -> committed data part
--> OpenGenerativeRenderer
-```
-
-Low-level tool/session constructors remain available for custom Hosts, but they
-are not part of the normal application integration.
+Database writes use Mastra's durable workflow suspension and `resumeStream()`.
+The persisted workflow snapshot remains the authority for approval and resume;
+the UI transcript is only a display projection and cannot authorize an effect.

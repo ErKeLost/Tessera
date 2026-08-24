@@ -254,10 +254,6 @@ function StudioConversation({
     name: "tool-call-suspended",
     render: SuspendedApprovalDataRenderer,
   });
-  useAssistantDataUI({
-    name: "openGenerativeSurface",
-    render: OpenGenerativeSurfaceDataRenderer,
-  });
   return (
     <section className="tessera-chat-surface" aria-label="Data analysis conversation">
       <ThreadPrimitive.Root className="tessera-thread-root">
@@ -402,6 +398,9 @@ function StudioAssistantMessage() {
                 case "tool-call":
                   return part.toolUI ?? <TesseraToolFallback {...part} />;
                 case "data":
+                  if (part.name === "openGenerativeSurface") {
+                    return <OpenGenerativeSurfaceDataRenderer data={part.data} />;
+                  }
                   return part.dataRendererUI ?? <></>;
                 case "indicator":
                   return hasAssistantOutput

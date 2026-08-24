@@ -1,0 +1,176 @@
+---
+title: Data Context, Permissions, and Domain Memory
+description: Tessera Data Agent's four-tool architecture, single data execution boundary, server permissions, and incremental cross-session learning.
+---
+
+Tessera is limited to data analysis and database operations. Bash, Python, file-system access, web search, and generic
+knowledge tools are outside the Data Agent. Generative UI is an output format applied after verification, not a model
+tool.
+
+## Final tool surface
+
+The model sees four Tessera business tools:
+
+| Tool | Owns | Never owns |
+| --- | --- | --- |
+| `list_database` | Live physical facts: relations, columns, keys, indexes, capabilities, extensions, and RLS metadata | Reading business rows or granting permission |
+| `search_data_context` | Business semantics, metrics, joins, lineage, field meaning, and reusable domain rules | Query execution or business data |
+| `prepare_analysis` | Semantic-draft validation, catalog-scope binding, server compilation, and a short-lived `analysisRef` | Row access, SQL disclosure, or evidence |
+| `execute_sql` | Explicit read SQL, a prepared `analysisRef`, or a typed database mutation | Model-selected permissions, approval, or database roles |
+
+Connector extension and RLS inspection remain available through `list_database(operation=extensions)` and
+`list_database(operation=rls_policies)` instead of adding parallel tools.
+
+## Two planning paths, one execution tool
+
+```text
+explicit SQL, physical relations, or row inspection
+  list_database -> execute_sql(sql)
+
+business metrics, trends, rankings, or semantic records
+  search_data_context -> prepare_analysis -> execute_sql(analysisRef)
+```
+
+These are not separate query executors. `prepare_analysis` performs catalog, semantic, binding, and compilation work
+without accessing business rows. Business-data access occurs only in `execute_sql`.
+
+### Prepared analysis
+
+A successful preparation exposes only an opaque reference and expected columns:
+
+```ts
+type PreparedAnalysis = Readonly<{
+  status: "prepared";
+  analysisRef: `analysis_${string}`;
+  title: string;
+  columns: readonly { outputId: string; label: string; type: string }[];
+}>;
+```
+
+Compiled SQL or Mongo pipelines, parameters, and source bindings stay inside the Data Agent. An `analysisRef` expires
+after five minutes, is consumed before execution, cannot be replayed, and is valid only in the issuing Data Agent
+authority. Missing, expired, changed, or repeated references are rejected.
+
+`runAnalysis()` remains a server convenience composition over the same prepare and execute methods. It is not a
+second model tool or connector path.
+
+## The three `execute_sql` branches
+
+```ts
+type ExecuteSqlInput =
+  | { sql: string; parameters?: readonly SqlValue[]; purpose: string }
+  | { analysisRef: string }
+  | { mutation: TypedDatabaseAction; purpose: string };
+```
+
+Exactly one branch is required. Explicit SQL must pass the connector's single-statement read policy. An
+`analysisRef` executes one immutable semantic plan. Mutations are catalog-bound insert, update, delete, or DDL
+actions; arbitrary raw write SQL is not accepted.
+
+Supporting raw DML or DDL later would require dialect parsing, write transactions, affected-row budgets, and policy
+binding equivalent to the typed action service. It must not reuse or bypass the read gate.
+
+## Permission model
+
+Authorization is server state. A model, browser, prompt, working-memory entry, or tool output cannot grant database
+access.
+
+Each request is bound to tenant, actor, roles, connection, database role, scoped policy and policy hash, live catalog
+fingerprint, action hash, row predicate, affected-row limit, and approval state. Metadata visibility controls what can
+be planned; it is not row or effect authorization.
+
+The server classifies operations rather than accepting `isWriteQuery`, risk, or approval fields from the model:
+
+| Input | Server class | Default behavior |
+| --- | --- | --- |
+| Explicit read SQL | `read` | Execute only when policy is `allow` |
+| Prepared analysis | `read` | Use the same read permission |
+| Insert or update | `write` | Typed action policy and approval |
+| Delete or DDL | `destructive` | Stricter policy and approval |
+| Anything unreliable | `unknown` | Deny |
+
+`deny` cannot be overridden by user text, session grants, or memory. An `ask` decision becomes executable only through
+a valid approval checkpoint. Studio currently requires approval for every mutation even when the base policy is
+`allow`.
+
+Approvals bind the actor, tenant, canonical action, action hash, catalog fingerprint, policy hash, checkpoint, and
+TTL. Policy, catalog, row predicates, and approval state are rechecked before execution. A changed binding invalidates
+the approval. Transactions, idempotency, and durable receipts close the effect path. The browser submits only an
+approve/reject decision; the database role, RLS, and constraints remain the final enforcement layer.
+
+## Context planes
+
+`list_database` returns live physical database facts. `search_data_context` returns semantic facts used to understand
+the business request. Both use progressive disclosure: start with a bounded inventory or search, then expand an exact
+relation or entity.
+
+`partial`, `unavailable`, and `not_exposed` never mean nonexistent. Only an exact lookup against complete catalog
+coverage can return meaningful `not_found` evidence.
+
+The Context Plane can grow to include the layers described by OpenAI's internal data agent: schema and query history,
+human annotations, code-derived semantics, institutional knowledge, memory, and runtime checks. Adding a context
+provider does not add an execution tool; the query still terminates at `execute_sql`.
+
+## Mastra Working Memory
+
+Cross-session domain learning uses Mastra's native schema Working Memory:
+
+```ts
+workingMemory: {
+  enabled: true,
+  scope: "resource",
+  schema: tesseraWorkingMemorySchema,
+  agentManaged: true,
+  useStateSignals: false,
+}
+```
+
+Threads sharing a `resourceId` share memory. Different tenant/actor identities use different resources, and Studio's
+`.tessera/memory.db` is local to the current project.
+
+The schema uses keyed object maps so Mastra can deep-merge incremental changes:
+
+- `preferences` for timezone, locale, currency, and date-range preferences;
+- `terminologyById` for scoped business terms;
+- `analysisRulesById` for filter, join, metric, source, freshness, null, and deduplication rules;
+- `sourcePreferencesById` for preferred sources by analytical intent.
+
+Every domain rule carries `scopeRef` and `provenance`, with verification or expiry timestamps when relevant. Arrays
+are avoided for growing collections because Mastra replaces arrays rather than merging their members.
+
+Stable preferences and explicit corrections are saved automatically. Reusable analytical rules may be saved after a
+completed query or authoritative schema, code, or curated context verifies them. This update does not require user
+approval.
+
+Raw rows, query results, SQL, schema snapshots, secrets, credentials, PII, permission and approval decisions,
+temporary plans, errors, tool payloads, conversation summaries, and unverified guesses must never enter Working
+Memory. Memory is planning context, not evidence, and cannot override runtime authorization.
+
+Mastra's injected `updateWorkingMemory` is an internal state tool, not one of Tessera's four business tools. The server
+filters non-business tool parts from the AI SDK stream, so memory calls are not rendered or persisted in the browser
+transcript.
+
+## Complete loop
+
+```text
+turn starts
+  -> server identity and permission context
+  -> resource-scoped Working Memory
+  -> list_database / search_data_context
+  -> prepare_analysis for semantic work
+  -> execute_sql as the only business-data execution tool
+  -> result validation and evidence
+  -> optional Open Generative output processor
+  -> incremental stable-domain learning when warranted
+  -> Mastra savePerStep persistence
+```
+
+The Open Generative processor consumes only verified resources. It cannot query a database, add a presentation tool,
+or change authorization. Model-private history and the sanitized UI transcript remain separate records.
+
+## References
+
+- [OpenAI: Inside our in-house data agent](https://openai.com/index/inside-our-in-house-data-agent/)
+- [Claude: Managed Agents Data Analyst](https://platform.claude.com/cookbook/managed-agents-data-analyst-agent)
+- [Mastra: Working Memory](https://mastra.ai/docs/memory/working-memory)
+- [Mastra: Human in the loop](https://mastra.ai/docs/agents/human-in-the-loop)

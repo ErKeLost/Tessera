@@ -67,26 +67,6 @@ export type ProviderSchemaLoweringProfile = Readonly<{
   lower(schema: JSONSchema): JSONSchema;
 }>;
 
-export type PresentUiTool = Readonly<{
-  name: "present_ui";
-  description: string;
-  strict: true;
-  inputSchema: JSONSchema;
-}>;
-
-export type PresentUiPresentationPolicy = "auto" | "required";
-
-export type CompiledPresentUi = Readonly<{
-  catalogSliceHash: Sha256Hash;
-  contractSetHash: Sha256Hash;
-  maxOperations: number;
-  providerSchemaProfile: string;
-  canonicalInputSchema: JSONSchema;
-  providerInputSchema: JSONSchema;
-  tool: PresentUiTool;
-  systemPrompt: string;
-}>;
-
 export type StatePolicyDecision =
   | {
     scope: "surface";
@@ -216,13 +196,6 @@ export type DecodedAuthoringProposal =
   | Readonly<{ kind: "snapshot"; proposal: AuthoringSnapshotProposal }>
   | Readonly<{ kind: "operations"; operations: readonly ProposalOperationEnvelope[] }>
   | Readonly<{ kind: "abort"; reason: "provider-abort" | "decoder-failure" | "timeout" | "cancelled" }>;
-
-export type PresentUiAuthoringInput =
-  | AuthoringSnapshotProposal
-  | Readonly<{
-    kind: "operations";
-    operations: readonly Readonly<Omit<ProposalOperationEnvelope, "payloadHash">>[];
-  }>;
 
 export type ProposalNormalizerInput = Readonly<{
   catalog: CompilerCatalogLike;

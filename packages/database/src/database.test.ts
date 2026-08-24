@@ -84,4 +84,78 @@ describe("database catalog", () => {
     } as never);
     expect(withoutIndex.fingerprint).not.toBe(catalog.fingerprint);
   });
+
+  test("distinguishes an unavailable index inventory from an empty one", () => {
+    const unavailable = finalizeCatalog({
+      ...catalog,
+      fingerprint: undefined,
+      schemas: [{
+        ...catalog.schemas[0]!,
+        tables: [{
+          ...catalog.schemas[0]!.tables[0]!,
+          indexes: undefined,
+          indexMetadata: "unavailable",
+        }],
+      }],
+    } as never);
+    const summary = JSON.parse(summarizeCatalog(unavailable));
+
+    expect(summary.tables[0]).toMatchObject({ indexMetadata: "unavailable" });
+    expect(summary.tables[0]).not.toHaveProperty("indexes");
+    expect(() => finalizeCatalog({
+      ...unavailable,
+      fingerprint: undefined,
+      schemas: [{
+        ...unavailable.schemas[0]!,
+        tables: [{
+          ...unavailable.schemas[0]!.tables[0]!,
+          indexes: [],
+          indexMetadata: "unavailable",
+        }],
+      }],
+    } as never)).toThrow("An unavailable index inventory must omit indexes");
+  });
+
+  test("preserves connector coverage in bounded summaries", () => {
+    const partial = finalizeCatalog({
+      ...catalog,
+      fingerprint: undefined,
+      coverage: {
+        status: "partial",
+        reason: "connector_limit",
+        returnedTables: 1,
+        omittedTables: 4,
+      },
+    } as never);
+    const summary = JSON.parse(summarizeCatalog(partial));
+
+    expect(summary.catalogCoverage).toEqual({
+      status: "partial",
+      reason: "connector_limit",
+      returnedTables: 1,
+      omittedTables: 4,
+    });
+    expect(summary.truncated).toBeTrue();
+  });
+
+  test("marks summaries truncated when columns are bounded", () => {
+    const wide = finalizeCatalog({
+      ...catalog,
+      fingerprint: undefined,
+      schemas: [{
+        ...catalog.schemas[0]!,
+        tables: [{
+          ...catalog.schemas[0]!.tables[0]!,
+          columns: [
+            ...catalog.schemas[0]!.tables[0]!.columns,
+            { name: "status", dataType: "text", nullable: true, ordinal: 2 },
+          ],
+        }],
+      }],
+    } as never);
+    const summary = JSON.parse(summarizeCatalog(wide, { maxColumnsPerTable: 1 }));
+
+    expect(summary.truncated).toBeTrue();
+    expect(summary.tables[0].columns).toHaveLength(1);
+  });
 });

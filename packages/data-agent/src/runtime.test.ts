@@ -322,6 +322,52 @@ describe("vNext data agent runtime", () => {
     expect(requests[0]?.sql).not.toContain("'paid'");
   });
 
+  test("prepares a semantic analysis without querying and executes its opaque reference once", async () => {
+    const { connector, requests } = harness();
+    const agent = createDataAgent({ connector, requestIdFactory: () => "run_prepared" });
+    const planning = await agent.inspectPlanningCatalog();
+
+    const prepared = await agent.prepareAnalysis({
+      capability: planning.capability,
+      draft: revenueDraft(),
+    });
+
+    expect(prepared.requestId).toBe("run_prepared");
+    expect(prepared.analysisRef).toMatch(/^analysis_[0-9a-f]{32}$/u);
+    expect(prepared.columns).toMatchObject([{ outputId: "out_revenue" }]);
+    expect("compiled" in prepared).toBe(false);
+    expect("sql" in prepared).toBe(false);
+    expect(requests).toHaveLength(0);
+
+    const execution = await agent.executePreparedAnalysis({ analysisRef: prepared.analysisRef });
+    expect(execution).toMatchObject({
+      requestId: "run_prepared",
+      execution: { result: { rowCount: 1 } },
+    });
+    expect(requests).toHaveLength(1);
+    await expect(agent.executePreparedAnalysis({ analysisRef: prepared.analysisRef })).rejects.toMatchObject({
+      code: "invalid_analysis_spec",
+    });
+    expect(requests).toHaveLength(1);
+  });
+
+  test("rejects an expired prepared analysis before querying", async () => {
+    const { connector, requests } = harness();
+    let currentTime = new Date("2026-08-16T00:00:00.000Z");
+    const agent = createDataAgent({ connector, now: () => currentTime });
+    const planning = await agent.inspectPlanningCatalog();
+    const prepared = await agent.prepareAnalysis({
+      capability: planning.capability,
+      draft: revenueDraft(),
+    });
+
+    currentTime = new Date(currentTime.getTime() + 5 * 60 * 1_000 + 1);
+    await expect(agent.executePreparedAnalysis({ analysisRef: prepared.analysisRef })).rejects.toMatchObject({
+      code: "invalid_analysis_spec",
+    });
+    expect(requests).toHaveLength(0);
+  });
+
   test("rejects a raw-SQL-shaped draft before invoking the connector", async () => {
     const { connector, requests } = harness();
     const agent = createDataAgent({ connector });

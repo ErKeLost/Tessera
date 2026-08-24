@@ -1,39 +1,45 @@
 ---
 title: 状态与操作
-description: Tessera Agent 如何保持本地交互快速，同时保留 Host Authority。
+description: Tessera 如何分离模型记忆、浏览器历史、本地视图状态与数据库 Effect。
 ---
 
-Tessera Agent 将 Canonical Surface State、浏览器本地 View State 与权威 Business State
-彻底分开。三者之间不存在隐式 Mutation Path。
+Tessera 不会让同一条 Message Record 成为所有状态的权威来源。每一种状态都有唯一 Owner 与持久化规则。
 
-| State Owner | 示例 | 更新路径 |
+| 状态 | Owner | 用途 |
 | --- | --- | --- |
-| Canonical Surface State | Filter Value、绑定 Committed Document 的 Selection | 带 Revision 前置条件的 State Command，或经过校验的 Local Transition |
-| Browser-local View State | Tab、Hover、Focus、临时 Chart Legend 可见性 | Renderer 自己拥有，不进入 Canonical Document |
-| Host Business State | Database Record、Approval、Export、外部 Effect | 经过 Server Policy 与 Receipt 的类型化 HostIntent |
+| 模型对话 | Mastra Memory | 为后续模型 Step 与 Turn 提供上下文 |
+| 领域 Working Memory | Mastra Resource-scoped Schema Memory | 跨 Thread 保存稳定偏好与经过验证的可复用分析规则 |
+| 浏览器 Transcript | Tessera Session Store | 安全文本、Tool Lifecycle 与已提交分析视图 |
+| 本地视图状态 | React Component | Hover、Focus、打开的控件与图表可见性 |
+| 审批状态 | Mastra Workflow Snapshot | 持久化 Mutation Suspension 与 Resume |
+| 数据库状态 | 已连接数据库 | 权威业务记录 |
 
-## Node-scoped Interaction
+## 逐 Step 持久化
 
-Renderer 只能得到 Resolved Props、声明过的 Slot、Node-scoped State 与 Resource Binding、
-Placement，以及一个可选的 `emit` 函数。只有 Committed Projection 才会得到这个函数；
-Read-only Preview 不能发出事件。
+Mastra 原生 `savePerStep` 会把已经完成的模型 Step，包括 Tool Call 与 Tool Result，写入私有 Memory。
+同时 AI SDK `onStepEnd` 提供已经装配好的 UI Message，Tessera 对它脱敏后保存，用于页面刷新恢复。
+重复 Checkpoint 会 Upsert 同一个稳定 Assistant Message ID，而不是不断追加副本。
 
-```ts
-type NodeScopedEventEmitter = (
-  port: EventPort,
-  payload: JsonValue,
-) => Promise<NodeEventDispatchResult>;
-```
+浏览器 Transcript 不会反过来成为数据库权限来源。原始 Credential、Provider Metadata、私有 Tool
+Payload 与不受限 Query Row 都不会保存到其中。
 
-Renderer 只能发出精确 Component Contract 声明过的 Port，不能选择 Action、Tool、URL 或
-Credential。`SurfaceController` 会校验 Event Payload、解析已提交的 Action Binding、检查 Node
-Scope 与 Revision 前置条件，然后执行确定性 Local Transition，或发送类型化 Host Command。
+## 分析视图状态
 
-## HostIntent
+图表 Hover、Focus 与临时可见性设置只由 Renderer 管理。已提交分析视图属于 Assistant Message；
+同一 Surface 的累积更新会覆盖之前 Snapshot。本地交互不能修改数据库，也不能虚构新的 Tool Call。
 
-当前 Catalog 只定义三个 HostIntent Contract：`data.export`、`surface.retry` 与
-`control.apply`。可用性来自 Host 冻结的 Authority 与 Resource Offer，不来自模型或 Renderer。
-Effect 始终留在服务端，并返回幂等 Receipt。
+## 数据库操作
 
-这条路径取代历史 `TesseraPreviewProvider`、`ArtifactRenderer` 与通用 `onAction` Callback。
-系统只有一条由 `SurfaceController` 拥有的 Event Bridge。
+读取通过受治理数据库 Tool 执行。写入是类型化操作，并且可以暂停 Mastra Workflow 等待明确审批。
+持久化 Workflow Snapshot、Request Identity、Policy Decision 与 Idempotency Key 共同拥有恢复路径；
+点击 Client 控件不能绕过这些边界。
+
+## 领域 Working Memory
+
+跨 Session 领域学习使用 Mastra 原生 Resource-scoped、Schema-based Working Memory，并启用
+`agentManaged: true`。稳定用户偏好、明确更正，以及由已完成 Evidence 验证的可复用分析规则，会直接
+按字段增量 Deep Merge，不增加独立审批流程。每条领域记录都必须有 Scope 与 Provenance。
+
+Raw Row、Query Result、SQL、Schema Snapshot、Secret、PII、权限结论、临时计划、Tool Payload 与猜测
+禁止进入 Working Memory。它只是规划上下文，不能授予权限，也不能代替新鲜 Evidence。完整 Schema
+与保存规则见[数据上下文与领域记忆](../agent/architecture/data-context-and-memory)。

@@ -1,30 +1,28 @@
 ---
 title: Tessera Agent
-description: The governed data-agent workflow used to prove Tessera Agent's final Generative UI architecture.
+description: Build a governed data agent that can explain every query and every decision.
 ---
 
 Tessera Agent converts a natural-language question into a semantic plan, a
-bounded read-only query, verified evidence, and a committed Generative UI
-Surface without exposing credentials, raw tool payloads, or query rows to the
-model.
+bounded query, and verified evidence without exposing credentials or an
+unrestricted database surface to the model.
 
 ![Tessera Agent Studio architecture](/diagrams/tessera-data-agent-studio.svg)
 
-The model proposes semantic analysis intent and, later, declarative UI nodes.
-Tessera owns catalog discovery, authorization scope, query compilation,
-execution limits, Resource and Evidence publication, UI validation, commit,
-trusted events, and rendering.
+The model proposes analysis intent. Tessera owns catalog discovery,
+authorization scope, query compilation, execution limits, diagnostic detail,
+Evidence publication, and the generated analysis view shown with the answer.
+Studio renders those presentation results as part of the same response.
 
 ```text
-governed analysis -> Resource/Evidence offers -> present_ui -> committed Revision
--> SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
+question -> catalog scope -> semantic plan -> bounded execution -> evidence -> answer
 ```
 
 <Cards>
-  <Card title="Getting started" description="Run the repository proof gates and inspect the current data-agent component catalog." href="/docs/agent/getting-started" />
-  <Card title="Proof configuration" description="Understand which package owns every protocol, authority, resource, and renderer decision." href="/docs/agent/configuration" />
+  <Card title="Getting started" description="Start Studio, connect a database, and run the first grounded analysis." href="/docs/agent/getting-started" />
+  <Card title="Configuration" description="Configure the provider, database, limits, permissions, and Studio network boundary." href="/docs/agent/configuration" />
   <Card title="Database connections" description="Connect PostgreSQL, MySQL, SQLite, or Turso with the right URL and credential shape." href="/docs/agent/databases" />
-  <Card title="Run workflow" description="Follow a question from catalog retrieval through a committed and rendered Surface." href="/docs/agent/run-workflow" />
-  <Card title="Tool contract" description="Review Data Agent tools, present_ui, trusted events, and node-scoped browser projections." href="/docs/agent/tool-contract" />
-  <Card title="Architecture" description="Study the production topology, evidence model, safety gates, and evaluations." href="/docs/agent/architecture" />
+  <Card title="Run workflow" description="Follow a question from catalog retrieval through evidence and the final response." href="/docs/agent/run-workflow" />
+  <Card title="Tool contract" description="Review inputs, outputs, diagnostics, and recovery signals at the model boundary." href="/docs/agent/tool-contract" />
+  <Card title="Architecture" description="Study production topology, evidence, safety gates, and evaluations." href="/docs/agent/architecture" />
 </Cards>

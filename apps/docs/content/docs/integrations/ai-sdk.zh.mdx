@@ -1,70 +1,40 @@
 ---
-title: AI SDK
-description: 使用一个动态 Adapter 和一个 Renderer，把 Open Generative 接入 AI SDK 7.0.77。
+title: AI SDK Transport
+description: Tessera Agent 如何使用 AI SDK v7 原生 UI Message Stream 与 Step Callback。
 ---
 
-`@open-generative/ai-sdk` 面向 AI SDK 7.0.77 及后续 v7 Patch，不提供 AI SDK v6 兼容路径。
+Tessera Studio 使用 AI SDK v7 的 UI Message Stream Protocol 连接 Nitro Server 与 React Client。
 
-## 服务端
+## 使用官方 Stream 装配
 
-高层 Adapter 直接返回 AI SDK v7 使用的 `tools + prepareStep`。`resolve` 返回 Host Turn，
-不是另一层 UI Adapter。Tool Schema、Prompt 生成、Incremental Input、Repair 与 Commit 全部由
-Package 内部负责。
+Mastra Stream 先通过 `@mastra/ai-sdk` 转换，再交给 AI SDK 官方的
+`createUIMessageStream`。Text、Reasoning、Tool、Data Part、`reset-step`，以及不同 Step
+重复使用 Part ID 的装配全部由 AI SDK 负责。
 
 ```ts
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  streamText,
-} from "ai";
-import { createOpenGenerativeHost } from "@open-generative/host";
-import { createOpenGenerativeAISdkAdapter } from "@open-generative/ai-sdk/server";
-
-const host = await createOpenGenerativeHost();
-
-const stream = createUIMessageStream({
-  async execute({ writer }) {
-    const openGenerative = createOpenGenerativeAISdkAdapter({
-      tools: domainTools,
-      writer,
-      resolve: async () => host.prepareTurn({
-        authority,
-        resources: currentResources(),
-        presentationPolicy: "auto",
-      }),
-    });
-
-    const result = streamText({ model, messages, ...openGenerative });
-    writer.merge(result.toUIMessageStream());
+const stream = createUIMessageStream<TesseraUIMessage>({
+  execute: ({ writer }) => writer.merge(agentStream),
+  onStepEnd: async ({ responseMessage }) => {
+    await checkpointUiMessage(responseMessage);
+  },
+  onEnd: async ({ responseMessage, isAborted, finishReason }) => {
+    if (!isAborted && finishReason === "stop") {
+      await checkpointUiMessage(responseMessage);
+    }
   },
 });
 
 return createUIMessageStreamResponse({ stream });
 ```
 
-Resource 尚未就绪时，只有 Domain Tool 处于 Active 状态。下一个 AI SDK Step 中，Adapter 自动
-启用 `present_ui` 并注入 Contract 生成的 Instructions。Commit 后，它写入已验证的 Surface
-Data Part 并移除该 Tool。
+AI SDK 对 `onStepEnd` 的正式定义就是在 Multi-step Agent Run 中持久化中间 UI Message。
+因此 Tessera 不维护第二套 Chunk Assembler，也不创建兼容协议。
 
-Adapter 会在本次 `streamText` 调用中缓存第一个可用 Host Turn，因此 `resolve` 可以直接调用
-`host.prepareTurn()`，应用不需要维护额外生命周期状态。
+## Tessera Data Part
 
-非 UI 服务端任务可以省略 `writer`，再调用 `openGenerative.drainEvents()`。
+普通 Text、Reasoning 与 Tool 都保持 AI SDK 原生 Part。生成式分析视图通过 Tessera Message
+Type 中唯一的 `data-openGenerativeSurface` Typed Data Part 传输，由 Studio 内置 Renderer 识别。
 
-## 客户端
-
-```tsx
-import { OpenGenerativeRenderer } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
-
-<OpenGenerativeRenderer event={part.data} />
-```
-
-混合处理 AI SDK Parts 时使用 `isOpenGenerativeSurfaceDataPart()` 分流。Canonical Render Path
-仍然只有一条：
-
-```text
-AI SDK v7 -> verified Surface data part -> OpenGenerativeRenderer
-```
-
-底层 Tool Constructor 仍供自定义 Host 使用；普通用户不需要编译或维护组件 Prompt。
+服务端只保存经过 Allowlist 的 Projection。同一个分析 Surface 的累积更新会覆盖旧 Snapshot，
+每个 Step Checkpoint 也只 Upsert 同一个 Assistant Message ID。刷新 Thread 后恢复的是一条消息
+和一个最新 Surface，而不是重复回放多份 Snapshot。

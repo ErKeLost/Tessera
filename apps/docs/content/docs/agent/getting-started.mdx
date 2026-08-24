@@ -1,64 +1,70 @@
 ---
 title: Getting Started
-description: Run the Tessera Agent Generative UI proof and inspect its component catalog locally.
+description: Start Tessera Studio, connect a database, and run your first governed analysis.
 ---
 
-This section documents the source-level Generative UI proof, not the separately
-published Tessera Studio product. There is currently no `tessera-agent` CLI or
-remote shadcn registry for this component system. The first successful workflow
-here is to verify the final Generative UI foundation and inspect the data-agent
-components that exercise it.
+Tessera Studio is the local workspace for Tessera Agent. It includes the chat
+interface, database connectors, governed tools, session history, approvals, and
+generated analysis views. There is no separate UI package to install.
 
-## Prerequisites
+## Requirements
 
-- Bun 1.3.14 or later
-- A browser supported by Next.js 16 when running the documentation site
+- Node.js 24 or later
+- Bun 1.3 or later when developing from this repository
+- PostgreSQL, MySQL, SQLite, or Turso
+- A model-provider API key
 
-A database and model key are not required for deterministic architecture,
-contract, renderer, and fixture tests.
+## Start with a database URL
 
-## Run the proof gates
-
-From the repository root:
+The fastest path is the published Studio executable:
 
 ```bash
-bun install
-bun run check:naming
-bun run check:boundaries
-bun run typecheck
-bun run test
-bun run build
+npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/warehouse
 ```
 
-These commands verify package boundaries, browser/server separation, canonical
-protocol behavior, Component Contracts, renderer coverage, and the single React
-render path.
-
-## Open the Tessera Agent documentation
+SQLite and Turso use their own connection forms:
 
 ```bash
-bun --cwd apps/docs dev
+npx @open-tessera/studio@latest file:/absolute/path/to/warehouse.db
+TURSO_AUTH_TOKEN=... npx @open-tessera/studio@latest libsql://warehouse-org.turso.io
 ```
 
-Open the local URL printed by Next.js, then start with the
-[Generative UI architecture](/docs/agent/architecture/generative-ui), the
-[data-agent proof gates](/docs/agent/architecture/generative-ui-proof), and the
-[current component catalog](/docs/components/generative-ui-catalog).
+Studio prints its local URL and binds to `127.0.0.1` by default. Keep database
+credentials and provider keys on the server; they are never sent to the browser.
 
-The optional documentation playground reads `OPENROUTER_API_KEY`. It currently
-streams text only and is not evidence that the trusted Generative UI pipeline is
-connected. The product proof must use the real chain:
+## Configure a project
 
-```text
-SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
+For a repeatable setup, add `tessera.config.ts` to the project and run the same
+command without a URL argument:
+
+```ts
+import { defineTesseraConfig } from "@open-tessera/studio";
+
+export default defineTesseraConfig({
+  database: {
+    url: process.env.DATABASE_URL!,
+    maxRows: 5_000,
+    statementTimeoutMs: 30_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+  },
+});
 ```
 
-## Definition of success
+Provider credentials are read from the matching server environment variable,
+such as `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.
 
-Success is not merely rendering valid component JSON. Tessera Agent must turn a
-governed query resource into useful metric, chart, table, filter, query-detail,
-and explanatory compositions while keeping query rows outside model proposals,
-canonical documents, transport history, and ordinary logs.
+## Ask a grounded question
 
-Do not start a separate Open Generative product from these instructions. That
-extraction begins only after the Tessera Agent proof gates pass.
+Try a question that needs connected data, for example:
+
+> Compare monthly revenue for the last six months and show the result as a chart.
+
+Tessera chooses one database path, executes a bounded query, verifies the
+result, and then returns the answer. When the result matches an available
+analysis recipe, the same response includes a generated view rendered by
+Studio. You do not request a UI tool or name an internal renderer.
+
+Continue with [configuration](./configuration), [database connections](./databases),
+and the [run workflow](./run-workflow).

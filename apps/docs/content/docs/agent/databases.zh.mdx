@@ -1,10 +1,10 @@
 ---
 title: 数据库连接
-description: 分别配置 PostgreSQL、MySQL、SQLite 和 Turso，不混用连接契约。
+description: 分别配置 PostgreSQL、MySQL、SQLite、Turso 和 MongoDB，不混用连接契约。
 ---
 
 Studio 会把每个受支持的引擎作为独立数据库选项。SQLite 和 Turso 共享 SQLite
-SQL 语义，但连接方式和凭据配置不同。
+SQL 语义，但连接方式和凭据配置不同。MongoDB 使用结构化 Collection Operation，而不是 SQL。
 
 | 引擎 | URL | 凭据 | Studio 访问模式 |
 | --- | --- | --- | --- |
@@ -12,6 +12,7 @@ SQL 语义，但连接方式和凭据配置不同。
 | MySQL | `mysql://` | URL 或服务端环境 | 默认只读，类型化写入受策略控制 |
 | SQLite | `file:` 或 `sqlite:` | 无 | 固定只读 |
 | Turso | `libsql:` 或 `turso:` | 独立 Auth Token | 固定只读 |
+| MongoDB | `mongodb:` 或 `mongodb+srv:` | URL 或服务端环境 | 固定只读 |
 
 ## SQLite
 
@@ -44,8 +45,13 @@ export default defineTesseraConfig({
 凭据、Query String 或 Fragment。也支持 HTTPS 和 WSS；未加密的 HTTP 与 WS
 只允许连接 Loopback 开发服务。
 
+## MongoDB
+
+MongoDB URL 会选择 MongoDB Connector。Studio 检查 Collection 并执行受限、结构化的读取操作，
+不会把模型文本翻译成 Mongo Shell JavaScript。MongoDB 在 Studio 中固定为只读。
+
 ## Catalog 范围与限制
 
 PostgreSQL 和 MySQL 可以通过 `database.schemas` 收窄发现范围。SQLite 和 Turso
-只暴露 `main`。所有 Connector 都会在结果进入 Agent 前应用 `maxRows`、
+只暴露 `main`；MongoDB 发现所选数据库中的 Collection。所有 Connector 都会在结果进入 Agent 前应用 `maxRows`、
 `statementTimeoutMs`、取消信号和受限序列化。

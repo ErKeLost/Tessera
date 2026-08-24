@@ -1,4 +1,5 @@
 {
   "title": "Tessera Agent",
+  "description": "受治理 Tessera Data Agent 的产品与工程文档。",
   "pages": ["index", "agent", "components", "concepts", "integrations"]
 }

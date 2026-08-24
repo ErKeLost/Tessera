@@ -14,6 +14,7 @@ import {
   type ResourceBindingId,
   type StateId,
   type StateValueSnapshot,
+  type SurfaceEventEnvelope,
   type SurfaceSessionId,
   type TransactionId,
   type TransactionIdentityMapDelta,
@@ -66,6 +67,7 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
   readonly #correlationId: CorrelationId;
   readonly #hashProvider?: HashProvider;
   readonly #now: () => Date;
+  readonly #onEvents?: (events: readonly SurfaceEventEnvelope[]) => void | Promise<void>;
 
   constructor(input: Readonly<{
     journal: SurfaceSessionJournal;
@@ -74,6 +76,7 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
     correlationId: CorrelationId;
     hashProvider?: HashProvider;
     now?: () => Date;
+    onEvents?: (events: readonly SurfaceEventEnvelope[]) => void | Promise<void>;
   }>) {
     this.#journal = input.journal;
     this.#runtime = input.runtime;
@@ -81,6 +84,7 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
     this.#correlationId = input.correlationId;
     this.#hashProvider = input.hashProvider;
     this.#now = input.now ?? (() => new Date());
+    this.#onEvents = input.onEvents;
   }
 
   async begin(
@@ -399,6 +403,7 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
         }],
       });
       if (committed.status === "conflict") continue;
+      if (committed.status === "committed") await this.#onEvents?.(committed.events);
       return committed.status === "committed";
     }
     return false;
@@ -467,6 +472,7 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
         }],
       });
       if (committed.status === "conflict") continue;
+      if (committed.status === "committed") await this.#onEvents?.(committed.events);
       return committed.status === "committed";
     }
     return false;
@@ -502,6 +508,9 @@ export class SurfaceTransactionPublisher implements RuntimeCommitPort {
           },
         }] : [],
       });
+      if (committed.status === "committed" && committed.events.length > 0) {
+        await this.#onEvents?.(committed.events);
+      }
       if (committed.status !== "conflict") return;
     }
   }

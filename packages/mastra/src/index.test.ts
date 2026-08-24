@@ -1,424 +1,397 @@
 import { describe, expect, test } from "bun:test";
+import { Agent } from "@mastra/core/agent";
 import type {
-  CompiledPresentUi,
-  CompilerTurnOutcome,
-  IncrementalPresentUiSession,
-  PresentUiAuthoringInput,
-} from "@open-generative/compiler";
-import type { ToolExecutionContext, ToolObserve } from "@mastra/core/tools";
+  ProcessInputStepArgs,
+  ProcessInputStepResult,
+  ProcessOutputStepArgs,
+  ProcessOutputStreamArgs,
+  ProcessorStreamWriter,
+} from "@mastra/core/processors";
+import type { ChunkType } from "@mastra/core/stream";
+import { createTool } from "@mastra/core/tools";
 import {
-  HASH_DOMAINS,
-  OPEN_GENERATIVE_PROTOCOL_REVISION,
-  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-  hashCanonical,
-  revisionIdSchema,
+  actorAuditRefSchema,
+  resourceDatasetPayloadSchema,
   sha256HashSchema,
-  surfaceEventEnvelopeSchema,
+  type OpenGenerativeSurfaceStream,
 } from "@open-generative/protocol";
-import { z } from "zod";
+import { createOpenGenerativeHost } from "@open-generative/host";
 import {
-  MASTRA_PRESENT_UI_TRACING_OPTIONS,
-  createMastraIncrementalPresentUi,
-  createMastraPresentUi,
-  createMastraPresentUiProcessor,
-  createOpenGenerativeMastraProcessor,
-  type MastraPresentUiIncrementalContext,
+  createOpenGenerativeProcessor,
+  type OpenGenerativeDatasetResource,
 } from "./index";
+import { z } from "zod";
 
-const compiled = {
-  catalogSliceHash: "0".repeat(64),
-  contractSetHash: "1".repeat(64),
-  providerSchemaProfile: "canonical",
-  canonicalInputSchema: {
-    type: "object",
-    properties: { kind: { const: "snapshot" } },
-    required: ["kind"],
-    additionalProperties: false,
-  },
-  providerInputSchema: {
-    type: "object",
-    properties: { kind: { const: "snapshot" } },
-    required: ["kind"],
-    additionalProperties: false,
-  },
-  tool: {
-    name: "present_ui",
-    description: "Present UI.",
-    strict: true,
-    inputSchema: {},
-  },
-  systemPrompt: "Use present_ui.",
-} as unknown as CompiledPresentUi;
-
-const proposal = { kind: "snapshot" } as PresentUiAuthoringInput;
-
-describe("Mastra 1.61 present_ui adapter", () => {
-  test("creates a real Mastra tool from the compiler schema", async () => {
-    const inputs: PresentUiAuthoringInput[] = [];
-    const adapter = createMastraPresentUi({
-      compiled,
-      execute(input) {
-        inputs.push(input);
-        return { accepted: true };
-      },
+describe("Open Generative Mastra Processor", () => {
+  test("keeps candidate tools available and compiles final text deltas into one cumulative Surface part", async () => {
+    const tools = { execute_sql: { description: "query" } };
+    const processor = createOpenGenerativeProcessor({
+      host: createOpenGenerativeHost(),
+      resources: async () => [{
+        bindingId: "analysis-result",
+        label: "Visitors by device",
+        dataset: resourceDatasetPayloadSchema.parse({
+          columns: [
+            { columnId: "device", label: "Device", valueType: "string" },
+            { columnId: "visitors", label: "Visitors", valueType: "number" },
+          ],
+          rows: [
+            { device: "Desktop", visitors: 610 },
+            { device: "Mobile", visitors: 390 },
+          ],
+          totalRows: 2,
+          hasMore: false,
+        }),
+      }],
+      authority: async () => authority(),
+      turn: { presentationPolicy: "required" },
     });
-    const presentUi = adapter.tools.present_ui;
+    const state: Record<string, unknown> = {};
+    const input = inputArgs(state, tools);
+    const prepared = await processor.processInputStep!(input);
+    const preparedResult = prepared as ProcessInputStepResult | undefined;
 
-    expect(presentUi.id).toBe("present_ui");
-    expect(presentUi.strict).toBe(true);
-    expect(adapter.system).toBe("Use present_ui.");
-    expect(adapter.tracingOptions).toBe(MASTRA_PRESENT_UI_TRACING_OPTIONS);
-    expect(adapter.tracingOptions).toEqual({ hideInput: true, hideOutput: true });
-    expect(z.safeParse(presentUi.inputSchema as z.ZodType, proposal).success).toBe(true);
-    expect(z.safeParse(presentUi.inputSchema as z.ZodType, { kind: "operations" }).success).toBe(false);
+    expect(prepared).toBeDefined();
+    expect(prepared).not.toHaveProperty("tools");
+    expect(prepared).not.toHaveProperty("activeTools");
+    expect(prepared).not.toHaveProperty("toolChoice");
+    expect(input.tools).toBe(tools);
+    expect(preparedResult?.systemMessages?.at(-1)?.content).toContain(
+      "Output only OGL assignment statements",
+    );
+    expect(JSON.stringify(prepared)).toContain("This is the final response format");
 
-    const output = await presentUi.execute?.(proposal, {} as never);
-    expect(output).toEqual({ accepted: true });
-    expect(inputs).toEqual([proposal]);
-  });
-
-  test("redacts model, display, transcript, memory, and observability boundaries", async () => {
-    const secret = "proposal-payload-must-never-leave";
-    const observations: unknown[] = [];
-    const spanUpdates: unknown[] = [];
-    let executorObservabilityChannels: unknown;
-    const observe: ToolObserve = {
-      async span(name, fn, attributes) {
-        observations.push({ kind: "span", name, attributes });
-        return fn();
-      },
-      log(level, message, data) {
-        observations.push({ kind: "log", level, message, data });
+    const writes: Array<{ type: string; id?: string; data?: OpenGenerativeSurfaceStream }> = [];
+    const writer: ProcessorStreamWriter = {
+      async custom(data) {
+        writes.push(structuredClone(data) as typeof writes[number]);
       },
     };
-    const adapter = createMastraPresentUi({
-      compiled,
-      async execute(_input, context) {
-        executorObservabilityChannels = {
-          tracing: context.tracing,
-          tracingContext: context.tracingContext,
-          loggerVNext: context.loggerVNext,
-          metrics: context.metrics,
-        };
-        context.observe.log("info", secret, { secret });
-        await context.observe.span(secret, async () => undefined, { secret });
-        return { accepted: true, secret };
-      },
-    });
-    const presentUi = adapter.tools.present_ui;
-    const context = {
-      observe,
-      tracing: {
-        currentSpan: {
-          update(value: unknown) {
-            spanUpdates.push(value);
-          },
-        },
-      },
-    } as unknown as ToolExecutionContext;
-    const executionOutput = await presentUi.execute?.(proposal, context as never);
-
-    const transformContexts = {
-      input: { input: { kind: "snapshot", secret } },
-      inputDelta: { inputTextDelta: JSON.stringify({ secret }) },
-      output: { output: executionOutput },
-      error: { error: new Error(secret) },
-      approval: { input: { kind: "snapshot", secret } },
-      suspend: { suspendPayload: { secret } },
-      resume: { resumeData: { secret } },
-    } as const;
-    const transformed: unknown[] = [];
-    for (const target of [presentUi.transform?.display, presentUi.transform?.transcript]) {
-      transformed.push(
-        await target?.input?.(transformContexts.input as never),
-        await target?.inputDelta?.(transformContexts.inputDelta as never),
-        await target?.output?.(transformContexts.output as never),
-        await target?.error?.(transformContexts.error as never),
-        await target?.approval?.(transformContexts.approval as never),
-        await target?.suspend?.(transformContexts.suspend as never),
-        await target?.resume?.(transformContexts.resume as never),
-      );
+    for (const delta of [
+      'root = Report("Device visitors", "Verified result", content)\n',
+      'content = Stack("md", [visitors])\n',
+      'visitors = Metric("Total visitors", @data1, "visitors", "number")\n',
+    ]) {
+      const part = chunk("text-delta", { id: "text-1", text: delta });
+      expect(await processor.processOutputStream!(outputArgs(state, writer, part))).toBeNull();
     }
-    const modelOutput = presentUi.toModelOutput?.({ secret } as never);
-    const incrementalAdapter = createMastraIncrementalPresentUi({
-      compiled,
-      createSession: () => idempotentSession([], committedOutcome()),
+    const stepFinish = chunk("step-finish", {
+      stepResult: { reason: "stop" },
+      output: { usage: {} },
+      metadata: {},
     });
-    const rejectedModelOutput = incrementalAdapter.tools.present_ui.toModelOutput?.({
-      status: "rejected",
-      commands: [],
-      diagnostics: [{
-        phase: "decode",
-        code: "present-ui.partial-tail",
-        severity: "error",
-        message: secret,
-        recoverable: false,
-        modelCorrectable: true,
-      }],
-    } satisfies CompilerTurnOutcome);
+    expect(await processor.processOutputStream!(outputArgs(state, writer, stepFinish))).toBe(stepFinish);
+    await processor.processOutputStep!(outputStepArgs(state, writer));
 
-    expect(JSON.stringify({
-      transformed,
-      modelOutput,
-      rejectedModelOutput,
-      observations,
-      spanUpdates,
-    })).not.toContain(secret);
-    expect(presentUi.transform?.transcript?.input?.({ input: { secret } } as never)).toEqual({
-      type: "open-generative-proposal",
-      redacted: true,
+    expect(writes.length).toBeGreaterThan(1);
+    expect(new Set(writes.map((write) => write.id)).size).toBe(1);
+    const stream = writes.at(-1)?.data;
+    expect(stream?.events[0]?.payload.type).toBe("snapshot-published");
+    expect(stream?.events.some((event) => event.payload.type === "preview-applied")).toBe(true);
+    expect(stream?.events.at(-1)?.payload.type).toBe("revision-committed");
+  }, { timeout: 30_000 });
+
+  test("stays transparent until resources exist", async () => {
+    const processor = createOpenGenerativeProcessor({
+      resources: async () => [],
+      authority: async () => authority(),
     });
-    expect(modelOutput).toEqual({
-      type: "text",
-      value: "The Open Generative host processed the interface proposal.",
-    });
-    expect(rejectedModelOutput).toEqual({
-      type: "text",
-      value: "The interface proposal was rejected. Correct these diagnostics: present-ui.partial-tail.",
-    });
-    expect(observations).toEqual([
-      {
-        kind: "log",
-        level: "info",
-        message: "Open Generative present_ui lifecycle event.",
-        data: { type: "open-generative-observability", redacted: true },
-      },
-      {
-        kind: "span",
-        name: "open-generative.present-ui",
-        attributes: { type: "open-generative-observability", redacted: true },
-      },
-    ]);
-    expect(spanUpdates).toEqual([{
-      input: { type: "open-generative-proposal", redacted: true },
-    }]);
-    expect(executorObservabilityChannels).toEqual({
-      tracing: undefined,
-      tracingContext: undefined,
-      loggerVNext: undefined,
-      metrics: undefined,
-    });
+    const state: Record<string, unknown> = {};
+    expect(await processor.processInputStep!(inputArgs(state, {}))).toBeUndefined();
+    const part = chunk("text-delta", { id: "text-1", text: "Normal answer" });
+    expect(await processor.processOutputStream!(outputArgs(state, undefined, part))).toBe(part);
   });
 
-  test("injects the turn-scoped tool and generated prompt only after resources are ready", async () => {
-    const adapter = createMastraPresentUi({ compiled, execute: async () => ({ accepted: true }) });
-    let ready = false;
-    const processor = createMastraPresentUiProcessor({
-      resolve: () => ready ? adapter : undefined,
+  test("preserves an upstream abort after rejecting a tool chunk", async () => {
+    const processor = createOpenGenerativeProcessor({
+      host: createOpenGenerativeHost(),
+      authority: async () => authority(),
     });
-    const args: any = {
-      stepNumber: 0,
-      messages: [],
-      messageList: {},
-      systemMessages: [{ role: "system", content: "Base instructions." }],
-      state: {},
-      steps: [],
-      model: "openai/test",
-      tools: { run_analysis: { id: "run_analysis" } },
-      activeTools: ["run_analysis"],
-      retryCount: 0,
-      abort: () => { throw new Error("aborted"); },
-    };
-
-    expect(await processor.processInputStep?.(args)).toBeUndefined();
-    ready = true;
-    const injected = await processor.processInputStep?.(args) as any;
-    expect(injected.tools.run_analysis.id).toBe("run_analysis");
-    expect(injected.tools.present_ui).toBe(adapter.tools.present_ui);
-    expect(injected.activeTools).toEqual(["run_analysis", "present_ui"]);
-    expect(injected.systemMessages).toHaveLength(2);
-    expect(injected.systemMessages[1].content).toContain("Use present_ui.");
-
-    const reinjected = await processor.processInputStep?.({
-      ...args,
-      systemMessages: injected.systemMessages,
-      tools: injected.tools,
-      activeTools: injected.activeTools,
-    } as never) as any;
-    expect(reinjected.systemMessages).toHaveLength(2);
-  });
-
-  test("exposes the low-intrusion Processor from a Host turn", async () => {
-    let ready = false;
-    let committed = false;
-    let resolveCalls = 0;
-    const surfacePayload = {
-      type: "rejected",
-      diagnostics: [{
-        phase: "validate",
-        code: "validate.test",
-        severity: "error",
-        recoverable: true,
-        modelCorrectable: true,
-        message: "Test event.",
-      }],
-    } as const;
-    const event = surfaceEventEnvelopeSchema.parse({
-      protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-      protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
-      surfaceSessionId: "surface-test",
-      streamId: "stream-test",
-      epoch: 1,
-      sequence: 1,
-      eventId: "event-test",
-      cursor: "cursor-opaque-test",
-      committedRevisionId: "revision-test",
-      audienceBindingHash: sha256HashSchema.parse(`sha256:${"2".repeat(64)}`),
-      contractSetHash: sha256HashSchema.parse(`sha256:${"3".repeat(64)}`),
-      correlationId: "correlation-test",
-      payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, surfacePayload),
-      payload: surfacePayload,
-    });
-    const chunks: unknown[] = [];
-    const turn = {
-      compiled,
-      createSession: () => idempotentSession([], committedOutcome()),
-      isCommitted: () => committed,
-      drainEvents: () => committed ? [event] : [],
-    };
-    const processor = createOpenGenerativeMastraProcessor({
-      resolve: () => {
-        resolveCalls += 1;
-        return ready ? turn : undefined;
-      },
-    });
-    const args: any = {
-      stepNumber: 0,
-      messages: [],
-      messageList: {},
-      systemMessages: [{ role: "system", content: "Base instructions." }],
-      state: {},
-      steps: [],
-      model: "openai/test",
-      tools: { run_analysis: { id: "run_analysis" } },
-      activeTools: ["run_analysis"],
-      retryCount: 0,
-      abort: () => { throw new Error("aborted"); },
-      writer: { custom: async (chunk: unknown) => { chunks.push(chunk); } },
-    };
-
-    expect(await processor.processInputStep?.(args)).toBeUndefined();
-    ready = true;
-    const injected = await processor.processInputStep?.(args) as any;
-    expect(injected.tools.present_ui.id).toBe("present_ui");
-    expect(injected.systemMessages[1].content).toContain("Use present_ui.");
-
-    committed = true;
-    expect(await processor.processInputStep?.({ ...args, stepNumber: 2 })).toBeUndefined();
-    expect(chunks).toEqual([{ type: "data-openGenerativeSurface", id: "event-test", data: event }]);
-    expect(resolveCalls).toBe(2);
-  });
-
-  test("routes Mastra input hooks and execute through one incremental compiler session", async () => {
-    const calls: string[] = [];
-    const contexts: MastraPresentUiIncrementalContext[] = [];
-    const result = committedOutcome();
-    const adapter = createMastraIncrementalPresentUi({
-      compiled,
-      maxAttempts: 2,
-      createSession(context) {
-        contexts.push(context);
-        return idempotentSession(calls, result);
-      },
-    });
-    const presentUi = adapter.tools.present_ui;
-    const abortController = new AbortController();
-    const hookContext = {
-      toolCallId: "tool-call-streamed",
-      messages: [],
-      abortSignal: abortController.signal,
-    };
-
-    await presentUi.onInputStart?.(hookContext);
-    await presentUi.onInputDelta?.({ ...hookContext, inputTextDelta: "{\"kind\":" });
-    await presentUi.onInputAvailable?.({ ...hookContext, input: proposal });
-    const output = await presentUi.execute?.(proposal, {
-      abortSignal: abortController.signal,
-      agent: { toolCallId: hookContext.toolCallId, messages: [] },
-    } as never);
-
-    expect(output).toBe(result);
-    expect(calls).toEqual(["start", "delta:{\"kind\":", "complete"]);
-    expect(contexts).toHaveLength(1);
-    expect(contexts[0]?.toolCallId).toBe("tool-call-streamed");
-    expect(contexts[0]?.abortSignal).toBe(abortController.signal);
-
-    await presentUi.onInputStart?.({ ...hookContext, toolCallId: "tool-call-repair" });
-    await expect(presentUi.onInputStart?.({ ...hookContext, toolCallId: "tool-call-over-budget" }))
-      .rejects.toMatchObject({ code: "present-ui.repair-budget-exhausted", maxAttempts: 2 });
-  });
-
-  test("binds abort signals and isolates the repair budget by Mastra request", async () => {
-    const abortController = new AbortController();
-    let resolveAbort!: () => void;
-    const aborted = new Promise<void>((resolve) => { resolveAbort = resolve; });
-    const adapter = createMastraIncrementalPresentUi({
-      compiled,
-      maxAttempts: 1,
-      createSession: () => ({
-        start: async () => undefined,
-        pushTextDelta: async () => undefined,
-        complete: async () => committedOutcome(),
-        abort: async () => {
-          resolveAbort();
-          return committedOutcome();
-        },
+    const state: Record<string, unknown> = {};
+    await processor.processInputStep!(inputArgs(state, { query_data: {} }));
+    await processor.processOutputStream!(outputArgs(
+      state,
+      undefined,
+      chunk("text-delta", {
+        id: "text-1",
+        text: 'root = Report("Result", "Verified", content)\ncontent = Stack("md", [])\n',
       }),
+    ));
+    expect(await processor.processOutputStream!(outputArgs(
+      state,
+      undefined,
+      chunk("tool-call", { toolCallId: "call-1", toolName: "query_data", args: {} }),
+    ))).toBeNull();
+
+    const abort = chunk("abort", { reason: "cancelled" });
+    expect(await processor.processOutputStream!(outputArgs(state, undefined, abort))).toBe(abort);
+  }, { timeout: 30_000 });
+
+  test("runs inside a real Mastra Agent after a business tool produces resources", async () => {
+    const resources: OpenGenerativeDatasetResource[] = [];
+    const processor = createOpenGenerativeProcessor({
+      host: createOpenGenerativeHost(),
+      resources: async () => resources,
+      authority: async () => authority(),
+      turn: { presentationPolicy: "required" },
     });
-    const hookContext = {
-      toolCallId: "tool-call-aborted",
-      messages: [],
-      abortSignal: abortController.signal,
-    };
+    let queryExecutions = 0;
+    const query = createTool({
+      id: "query_data",
+      description: "Returns verified device visitors.",
+      inputSchema: z.object({}),
+      outputSchema: z.object({ rowCount: z.number() }),
+      execute: async () => {
+        queryExecutions += 1;
+        resources.push(deviceResource());
+        return { rowCount: 2 };
+      },
+    });
+    let modelTurn = 0;
+    const prompts: string[] = [];
+    const availableTools: string[][] = [];
+    const model = {
+      specificationVersion: "v2",
+      provider: "open-generative-test",
+      modelId: "mastra-processor-e2e",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("This fixture exercises Agent.stream only.");
+      },
+      async doStream(options: { prompt?: unknown; tools?: Array<{ name: string }> }) {
+        prompts.push(JSON.stringify(options.prompt));
+        availableTools.push(options.tools?.map((tool) => tool.name) ?? []);
+        const turn = modelTurn++;
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (turn === 0) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "query-call-1",
+                  toolName: "query_data",
+                  input: "{}",
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else if (turn === 1) {
+                controller.enqueue({ type: "text-start", id: "interrupted-ogl" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "interrupted-ogl",
+                  delta: 'root = Report("Device visitors", "Verified result", content)\ncontent = Stack("md", [])\n',
+                });
+                controller.enqueue({ type: "text-end", id: "interrupted-ogl" });
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: "query-call-repeated",
+                  toolName: "query_data",
+                  input: "{}",
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                const deltas = [
+                  'root = Report("Device visitors", "Verified result", content)\n',
+                  'content = Stack("md", [chart])\n',
+                  'chart = Chart(@data1, {"recipe":"devices-bars","title":"Visitors by device","deviceColumn":"device","valueColumn":"visitors"})\n',
+                ];
+                controller.enqueue({ type: "text-start", id: "ogl-final" });
+                for (const delta of deltas) {
+                  controller.enqueue({ type: "text-delta", id: "ogl-final", delta });
+                }
+                controller.enqueue({ type: "text-end", id: "ogl-final" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const agent = new Agent({
+      id: "open-generative-mastra-e2e",
+      name: "Open Generative Mastra E2E",
+      model,
+      instructions: "Use the business tool, then answer with the verified result.",
+      tools: { query_data: query },
+      inputProcessors: [processor],
+      outputProcessors: [processor],
+      maxProcessorRetries: 1,
+    });
 
-    await adapter.tools.present_ui.onInputStart?.(hookContext);
-    abortController.abort();
-    await aborted;
-    await expect(adapter.tools.present_ui.onInputStart?.({
-      toolCallId: "tool-call-over-budget",
-      messages: [],
-      abortSignal: abortController.signal,
-    })).rejects.toMatchObject({ code: "present-ui.repair-budget-exhausted" });
+    const result = await agent.stream("Show visitors by device.", { maxSteps: 4 });
+    const chunks: unknown[] = [];
+    for await (const part of result.fullStream) chunks.push(part);
+    const serialized = JSON.stringify(chunks);
 
-    const nextRequestAbort = new AbortController();
-    await expect(adapter.tools.present_ui.onInputStart?.({
-      toolCallId: "tool-call-new-request",
-      messages: [],
-      abortSignal: nextRequestAbort.signal,
-    })).resolves.toBeUndefined();
-  });
+    expect(modelTurn).toBe(3);
+    expect(queryExecutions).toBe(1);
+    expect(availableTools[0]).toContain("query_data");
+    expect(availableTools[1]).toContain("query_data");
+    expect(availableTools[2]).toEqual([]);
+    expect(prompts[0]).not.toContain("open-generative-language");
+    expect(prompts[1]).toContain("Output only OGL assignment statements");
+    expect(prompts[2]).toContain("[Processor Feedback]");
+    expect(prompts[2]).toContain("This is the final response format");
+    expect(prompts[2]).toContain("query_data");
+    expect(prompts[2]).toContain('"rowCount":2');
+    expect(serialized).toContain("query_data");
+    expect(serialized).toContain("data-openGenerativeSurface");
+    expect(serialized).toContain("revision-committed");
+    expect(surfaceSessionIds(chunks)).toHaveLength(1);
+    expect(committedSurfaceSessionIds(chunks)).toHaveLength(1);
+    expect(serialized).not.toContain('root = Report("Device visitors"');
+    expect(serialized).not.toContain("query-call-repeated");
+  }, { timeout: 30_000 });
 });
 
-function idempotentSession<TResult>(
-  calls: string[],
-  result: TResult,
-): IncrementalPresentUiSession<TResult> {
-  let completion: Promise<TResult> | undefined;
+function deviceResource(): OpenGenerativeDatasetResource {
   return {
-    start: async () => {
-      calls.push("start");
-      return undefined;
-    },
-    pushTextDelta: async (delta) => {
-      calls.push(`delta:${delta}`);
-      return undefined;
-    },
-    complete: async () => {
-      completion ??= Promise.resolve().then(() => {
-        calls.push("complete");
-        return result;
-      });
-      return completion;
-    },
-    abort: async () => result,
+    bindingId: "analysis-result",
+    label: "Visitors by device",
+    dataset: resourceDatasetPayloadSchema.parse({
+      columns: [
+        { columnId: "device", label: "Device", valueType: "string" },
+        { columnId: "visitors", label: "Visitors", valueType: "number" },
+      ],
+      rows: [
+        { device: "Desktop", visitors: 610 },
+        { device: "Mobile", visitors: 390 },
+      ],
+      totalRows: 2,
+      hasMore: false,
+    }),
   };
 }
 
-function committedOutcome(): CompilerTurnOutcome {
+function inputArgs(
+  state: Record<string, unknown>,
+  tools: Record<string, unknown>,
+): ProcessInputStepArgs {
   return {
-    status: "committed",
-    revisionId: revisionIdSchema.parse("revision-mastra"),
-    contentHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
-    commands: [],
+    stepNumber: 1,
+    steps: [],
+    state,
+    systemMessages: [{ role: "system", content: "Base instructions" }],
+    tools,
+    activeTools: Object.keys(tools),
+    messages: [],
+    messageList: {} as never,
+    model: "openai/gpt-5" as never,
+    retryCount: 0,
+    abort(reason) {
+      throw new Error(reason ?? "aborted");
+    },
+  };
+}
+
+function outputArgs(
+  state: Record<string, unknown>,
+  writer: ProcessorStreamWriter | undefined,
+  part: ChunkType,
+): ProcessOutputStreamArgs {
+  return {
+    part,
+    streamParts: [part],
+    state,
+    retryCount: 0,
+    ...(writer === undefined ? {} : { writer }),
+    abort(reason) {
+      throw new Error(reason ?? "aborted");
+    },
+  };
+}
+
+function outputStepArgs(
+  state: Record<string, unknown>,
+  writer: ProcessorStreamWriter | undefined,
+): ProcessOutputStepArgs {
+  return {
+    state,
+    stepNumber: 1,
+    steps: [],
+    finishReason: "stop",
+    usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    systemMessages: [],
+    messages: [],
+    messageList: {} as never,
+    retryCount: 0,
+    ...(writer === undefined ? {} : { writer }),
+    abort(reason) {
+      throw new Error(reason ?? "aborted");
+    },
+  };
+}
+
+function chunk(type: string, payload: unknown): ChunkType {
+  return { type, payload, runId: "run-test", from: "AGENT" } as ChunkType;
+}
+
+function committedSurfaceSessionIds(value: unknown): string[] {
+  const sessionIds = new Set<string>();
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      for (const item of current) visit(item);
+      return;
+    }
+    if (typeof current !== "object" || current === null) return;
+    const record = current as Record<string, unknown>;
+    if (
+      typeof record.surfaceSessionId === "string"
+      && Array.isArray(record.events)
+      && record.events.some((event) => (
+        typeof event === "object"
+        && event !== null
+        && typeof (event as { payload?: unknown }).payload === "object"
+        && (event as { payload: { type?: unknown } }).payload.type === "revision-committed"
+      ))
+    ) {
+      sessionIds.add(record.surfaceSessionId);
+    }
+    for (const nested of Object.values(record)) visit(nested);
+  };
+  visit(value);
+  return [...sessionIds];
+}
+
+function surfaceSessionIds(value: unknown): string[] {
+  const sessionIds = new Set<string>();
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      for (const item of current) visit(item);
+      return;
+    }
+    if (typeof current !== "object" || current === null) return;
+    const record = current as Record<string, unknown>;
+    if (typeof record.surfaceSessionId === "string") sessionIds.add(record.surfaceSessionId);
+    for (const nested of Object.values(record)) visit(nested);
+  };
+  visit(value);
+  return [...sessionIds];
+}
+
+function authority() {
+  return {
+    actorAuditRef: actorAuditRefSchema.parse("actor:mastra-test"),
+    actorBindingHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
+    tenantBindingHash: sha256HashSchema.parse(`sha256:${"b".repeat(64)}`),
+    authorityPolicyRevision: "test:1",
   };
 }

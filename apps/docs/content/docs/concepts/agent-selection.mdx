@@ -1,37 +1,41 @@
 ---
-title: Agent Selection
-description: How Tessera Agent offers the smallest useful Component Contract slice to one model turn.
+title: Analysis Selection
+description: How Tessera chooses database tools and a useful final analysis view without adding a UI tool.
 ---
 
-The model does not choose UI by React component name or visual appearance. The
-Host freezes a task-scoped `CatalogSetSlice`, and the compiler derives the only
-allowed `present_ui` tool schema and prompt from that slice.
+Tessera makes two separate decisions during a data question: how to obtain
+verified data and how to present the completed result. Presentation never gains
+database authority and never changes the selected query path.
 
-## Selection flow
+## Database path selection
 
-1. Tessera Agent answers the analytical question through semantic planning and
-   a bounded server-owned query.
-2. The Host publishes grant-bound Resource and Evidence offers. Query rows stay
-   behind the Resource Gateway.
-3. The Host creates a frozen Catalog slice containing only useful Component and
-   Action Contracts, their dependencies, exact revisions, and limits.
-4. `compilePresentUi()` derives the provider schema and model guidance from the
-   verified slice.
-5. The model calls only `present_ui` and may reference only offered component,
-   resource, evidence, state, and action identities.
-6. `ProposalCompilerTurn` decodes, normalizes, validates, repairs within the
-   fixed budget, and commits through the shared server boundary.
-7. A trusted `SurfaceEventStream` publishes the resulting revision to the
-   browser.
+The Agent instructions and typed tool schemas steer the model toward one of two
+paths:
 
-## Current selection vocabulary
+| Analytical intent | Primary path |
+| --- | --- |
+| Physical schema, explicit SQL, exact rows | `list_database -> execute_sql` |
+| Semantic metrics, dimensions, rankings, trends | `search_data_context -> prepare_analysis -> execute_sql(analysisRef)` |
 
-The Tessera Agent proof Catalog offers six official Contracts:
-`analysis.report`, `layout.stack`, `layout.grid`, `data.metric`,
-`analysis.insight`, and `data.chart`. Analytical composition uses the first
-five; chart selection happens inside `data.chart`'s strict recipe union:
+Tool output contains bounded evidence and stable column metadata. Invalid tool
+arguments return a structured rejection; they are not interpreted as proof
+that data is missing.
 
-| Analytical need | Recipe examples |
+## View selection
+
+When a successful query has renderable rows, the internal presentation
+processor adds a constrained presentation language to the final model step. It
+offers only the current dataset bindings, approved layout contracts, and the
+17 chart recipes already implemented by Tessera.
+
+The final model output is parsed incrementally and validated before a view is
+committed. It cannot contain React names, JSX, CSS, arbitrary colors, callbacks,
+URLs, SQL, or new tools. A bounded processor retry may repair invalid
+presentation syntax; business tools are disabled during that repair step.
+
+## Available chart intents
+
+| Need | Recipe examples |
 | --- | --- |
 | Ordered progress | Steps bars, pipeline stage bars, sign-up funnel |
 | Trend and comparison | Revenue smooth area, visitors stacked area, sessions and conversion combo |
@@ -39,17 +43,5 @@ five; chart selection happens inside `data.chart`'s strict recipe union:
 | Cycles and intensity | Activity calendar, active users heatmap, contributions heatmap |
 | Compact status | Sleep score, visitors radial, visitors radar, devices bars, activity rings |
 
-These names are `spec.recipe` values, not Component Contract names. The Host
-may narrow the recipe enum and the offered column bindings for a turn without
-creating a second schema or renderer path.
-
-## Selection invariants
-
-The model cannot expand the slice, invent a binding, choose an arbitrary
-renderer, or request raw data by URL. Positive and negative Contract guidance,
-stable fields, strict schemas, and data-agent golden examples improve first-pass
-selection without putting the full catalog or query results in every prompt.
-
-Rendering and interaction remain downstream of selection. A committed node is
-always rendered through `SurfaceController`, `GenerativeSurface`, and the exact
-`RendererRegistry`; selection never creates a direct component invocation.
+The recipe is a validated presentation choice over an existing dataset and
+cannot perform another database operation.

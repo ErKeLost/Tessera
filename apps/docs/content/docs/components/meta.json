@@ -1,5 +1,5 @@
 {
-  "title": "Components",
-  "description": "Seventeen Data Chart recipes for Tessera Agent.",
+  "title": "Analysis Views",
+  "description": "The analytical views available in Tessera Agent.",
   "pages": ["index", "generative-ui-catalog"]
 }

@@ -95,6 +95,22 @@ type ForeignKeyRow = {
   referenced_column: string;
 };
 
+type IndexRow = {
+  schema_name: string;
+  table_name: string;
+  index_name: string;
+  column_name: string | null;
+  ordinal: number;
+  non_unique: boolean | number;
+  index_method: string | null;
+  is_constraint: boolean | number;
+};
+
+type IndexInventory = Readonly<{
+  indexes: NonNullable<DatabaseTable["indexes"]>;
+  metadata: "complete" | "partial";
+}>;
+
 const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_CONNECTIONS = 4;
@@ -377,22 +393,36 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
       signal,
       async (client) => {
         const tableRows = await queryTables(client, schemas, maxTables);
-        const [columnRows, primaryKeyRows, foreignKeyRows, databaseName] =
-          await Promise.all([
-            queryColumns(client, schemas, maxTables),
-            queryPrimaryKeys(client, schemas, maxTables),
-            queryForeignKeys(client, schemas, maxTables),
-            queryDatabaseName(client),
-          ]);
+        // Keep catalog reads serialized on one transaction connection. mysql2
+        // queues concurrent statements, but a rejected metadata statement can
+        // otherwise obscure which result failed and make partial catalog
+        // diagnostics nondeterministic across server versions.
+        const columnRows = await queryColumns(client, schemas, maxTables);
+        const primaryKeyRows = await queryPrimaryKeys(client, schemas, maxTables);
+        const indexRows = await queryIndexesSafely(client, schemas, maxTables);
+        const databaseName = await queryDatabaseName(client);
         return {
           tableRows,
           columnRows,
           primaryKeyRows,
-          foreignKeyRows,
+          indexRows,
           databaseName,
         };
       },
     );
+    let foreignKeyRows: ForeignKeyRow[] | undefined;
+    try {
+      foreignKeyRows = await this.#withReadOnlyTransaction(
+        signal,
+        (client) => queryForeignKeys(client, schemas, maxTables),
+      );
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      // Foreign-key visibility is independent from table/column visibility.
+      // Preserve the usable catalog and mark the relationship inventory
+      // unavailable instead of returning a misleading empty array.
+      foreignKeyRows = undefined;
+    }
     const databaseName = result.databaseName || schemas[0];
     if (!databaseName) throw new Error("MySQL did not select a database.");
 
@@ -401,11 +431,18 @@ export class MySqlConnector implements DatabaseConnector, DatabaseMutationExecut
       dialect: "mysql",
       databaseName,
       scannedAt: new Date().toISOString(),
+      coverage: {
+        status: maxTables !== undefined && result.tableRows.length >= maxTables ? "partial" : "complete",
+        ...(maxTables !== undefined && result.tableRows.length >= maxTables ? { reason: "max_tables" as const, maxTables } : {}),
+        returnedTables: result.tableRows.length,
+        ...(maxTables !== undefined && result.tableRows.length >= maxTables ? {} : { omittedTables: 0 }),
+      },
       schemas: assembleCatalog(
         result.tableRows,
         result.columnRows,
         result.primaryKeyRows,
-        result.foreignKeyRows,
+        foreignKeyRows,
+        result.indexRows,
         options.includeComments ?? false,
       ),
     });
@@ -795,6 +832,47 @@ async function queryForeignKeys(
   );
 }
 
+/**
+ * MySQL exposes ordinary and constraint-backed indexes through STATISTICS.
+ * A generated/expression index can have no column_name; those rows are left
+ * out later rather than publishing a misleading synthetic column name.
+ */
+async function queryIndexes(
+  client: PoolConnection,
+  schemas: readonly string[],
+  maxTables: number | undefined,
+): Promise<IndexRow[]> {
+  return queryRows<IndexRow>(
+    client,
+    `
+    SELECT
+      key_info.table_schema AS schema_name,
+      key_info.table_name,
+      key_info.index_name,
+      key_info.column_name,
+      key_info.seq_in_index AS ordinal,
+      key_info.non_unique,
+      key_info.index_type AS index_method,
+      (
+        key_info.index_name = 'PRIMARY'
+        OR constraint_info.constraint_name IS NOT NULL
+      ) AS is_constraint
+    FROM information_schema.statistics key_info
+    JOIN (${selectedRelationsSql(maxTables)}) selected
+      ON selected.table_schema = key_info.table_schema
+     AND selected.table_name = key_info.table_name
+    LEFT JOIN information_schema.table_constraints constraint_info
+      ON constraint_info.constraint_schema = key_info.table_schema
+     AND constraint_info.table_schema = key_info.table_schema
+     AND constraint_info.table_name = key_info.table_name
+     AND constraint_info.constraint_name = key_info.index_name
+     AND constraint_info.constraint_type IN ('PRIMARY KEY', 'UNIQUE')
+    ORDER BY key_info.table_schema, key_info.table_name, key_info.index_name, key_info.seq_in_index
+  `,
+    catalogQueryValues(schemas, maxTables),
+  );
+}
+
 async function queryDatabaseName(client: PoolConnection): Promise<string> {
   const rows = await queryRows<{ database_name: string | null }>(
     client,
@@ -818,12 +896,14 @@ function assembleCatalog(
   tableRows: readonly TableRow[],
   columnRows: readonly ColumnRow[],
   primaryKeyRows: readonly PrimaryKeyRow[],
-  foreignKeyRows: readonly ForeignKeyRow[],
+  foreignKeyRows: readonly ForeignKeyRow[] | undefined,
+  indexRows: readonly IndexRow[] | undefined,
   includeComments: boolean,
 ): DatabaseSchema[] {
   const columns = new Map<string, ColumnRow[]>();
   const primaryKeys = new Map<string, string[]>();
   const foreignKeys = new Map<string, ForeignKeyRow[]>();
+  const indexes = new Map<string, IndexRow[]>();
   for (const row of columnRows)
     append(columns, tableKey(row.schema_name, row.table_name), row);
   for (const row of primaryKeyRows)
@@ -832,8 +912,17 @@ function assembleCatalog(
       tableKey(row.schema_name, row.table_name),
       row.column_name,
     );
-  for (const row of foreignKeyRows)
+  for (const row of foreignKeyRows ?? [])
     append(foreignKeys, tableKey(row.schema_name, row.table_name), row);
+  for (const row of indexRows ?? [])
+    append(indexes, tableKey(row.schema_name, row.table_name), row);
+  const indexMetadata = new Map<string, IndexInventory["metadata"]>();
+  if (indexRows !== undefined) {
+    for (const [key, rows] of indexes) {
+      const inventory = assembleIndexes(rows);
+      indexMetadata.set(key, inventory.metadata);
+    }
+  }
 
   const schemas = new Map<string, DatabaseTable[]>();
   for (const row of tableRows) {
@@ -858,11 +947,60 @@ function assembleCatalog(
       })),
       primaryKey: primaryKeys.get(key) ?? [],
       foreignKeys: assembleForeignKeys(foreignKeys.get(key) ?? []),
-      indexes: [],
+      foreignKeyMetadata: foreignKeyRows === undefined ? "unavailable" as const : "complete" as const,
+      ...(indexRows === undefined
+        ? { indexMetadata: "unavailable" as const }
+        : {
+            indexes: assembleIndexes(indexes.get(key) ?? []).indexes,
+            indexMetadata: indexMetadata.get(key) ?? "complete" as const,
+          }),
     };
     append(schemas, row.schema_name, table);
   }
   return [...schemas.entries()].map(([name, tables]) => ({ name, tables }));
+}
+
+async function queryIndexesSafely(
+  client: PoolConnection,
+  schemas: readonly string[],
+  maxTables: number | undefined,
+): Promise<IndexRow[] | undefined> {
+  try {
+    return await queryIndexes(client, schemas, maxTables);
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    // Some MySQL credentials can read tables and columns but not
+    // information_schema.statistics. Keep the catalog usable and let the
+    // Studio projection mark index metadata as unavailable.
+    return undefined;
+  }
+}
+
+function assembleIndexes(rows: readonly IndexRow[]): IndexInventory {
+  const grouped = new Map<string, IndexRow[]>();
+  for (const row of rows) append(grouped, row.index_name, row);
+  let metadata: IndexInventory["metadata"] = "complete";
+  const indexes = [...grouped.entries()].flatMap(([name, parts]) => {
+    const ordered = [...parts].sort((left, right) => Number(left.ordinal) - Number(right.ordinal));
+    const columns = ordered.map((part) => part.column_name?.trim());
+    // MySQL reports expression indexes with a null column name on versions
+    // that support them. This cross-dialect catalog represents physical field
+    // names, so omit the whole index instead of claiming it indexes a field.
+    if (columns.some((column) => !column)) {
+      metadata = "partial";
+      return [];
+    }
+    const first = ordered[0];
+    if (!first) return [];
+    return [{
+      name,
+      columns: columns as string[],
+      unique: Number(first.non_unique) === 0,
+      ...(first.index_method?.trim() ? { method: first.index_method.trim() } : {}),
+      isConstraint: Boolean(first.is_constraint),
+    }];
+  });
+  return { indexes, metadata };
 }
 
 function assembleForeignKeys(

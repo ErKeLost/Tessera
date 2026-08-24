@@ -133,6 +133,9 @@ export const databaseForeignKeySchema = z.object({
   referencedColumns: z.array(z.string().min(1).max(256)).min(1).max(32),
 }).strict();
 
+/** Describes how trustworthy the connector's native foreign-key inventory is. */
+export const databaseForeignKeyMetadataSchema = z.enum(["complete", "partial", "unavailable"]);
+
 export const databaseIndexSchema = z.object({
   name: z.string().min(1).max(256),
   columns: z.array(z.string().min(1).max(4_000)).min(1).max(32),
@@ -141,6 +144,14 @@ export const databaseIndexSchema = z.object({
   definition: z.string().max(4_000).optional(),
   isConstraint: z.boolean().default(false),
 }).strict();
+
+/**
+ * Describes how trustworthy the connector's index inventory is. `complete`
+ * means the connector checked the full relation inventory; `partial` means
+ * some native indexes could not be represented (for example an expression
+ * index); `unavailable` means index inspection was not possible.
+ */
+export const databaseIndexMetadataSchema = z.enum(["complete", "partial", "unavailable"]);
 
 export const databaseTableSchema = z.object({
   schema: z.string().min(1).max(256),
@@ -151,13 +162,59 @@ export const databaseTableSchema = z.object({
   columns: z.array(databaseColumnSchema).max(2_000),
   primaryKey: z.array(z.string().min(1).max(256)).max(32).default([]),
   foreignKeys: z.array(databaseForeignKeySchema).max(256).default([]),
-  indexes: z.array(databaseIndexSchema).max(256).default([]),
-}).strict();
+  // An empty array is only evidence of no native foreign keys when metadata is
+  // complete. A connector may omit or partially inspect this inventory.
+  foreignKeyMetadata: databaseForeignKeyMetadataSchema.optional(),
+  // Undefined means the connector could not provide a reliable index
+  // inventory. An empty array means it did inspect indexes and found none.
+  indexes: z.array(databaseIndexSchema).max(256).optional(),
+  indexMetadata: databaseIndexMetadataSchema.optional(),
+}).strict().superRefine((table, context) => {
+  if ((table.indexMetadata === "complete" || table.indexMetadata === "partial") && table.indexes === undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["indexes"],
+      message: "A complete or partial index inventory must include indexes; use an empty array only when the checked inventory found none.",
+    });
+  }
+  if (table.indexMetadata === "unavailable" && table.indexes !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["indexes"],
+      message: "An unavailable index inventory must omit indexes rather than publishing an incomplete array.",
+    });
+  }
+});
 
 export const databaseSchemaSchema = z.object({
   name: z.string().min(1).max(256),
   tables: z.array(databaseTableSchema).max(100_000),
 }).strict();
+
+/**
+ * Describes whether a connector enumerated the complete readable relation
+ * scope or stopped at an explicit inventory boundary. This is catalog-level
+ * coverage, distinct from response-level truncation performed by Studio.
+ */
+export const databaseCatalogCoverageSchema = z.object({
+  status: z.enum(["complete", "partial", "unknown"]),
+  reason: z.enum(["max_tables", "connector_limit", "metadata_unavailable", "unknown"]).optional(),
+  maxTables: z.number().int().positive().max(100_000).optional(),
+  returnedTables: z.number().int().nonnegative().max(100_000),
+  omittedTables: z.number().int().nonnegative().optional(),
+}).strict().superRefine((coverage, context) => {
+  if (coverage.status === "complete" && coverage.omittedTables !== undefined && coverage.omittedTables > 0) {
+    context.addIssue({ code: "custom", path: ["omittedTables"], message: "Complete catalog coverage cannot omit tables." });
+  }
+  if (coverage.status === "partial" && coverage.reason === undefined) {
+    context.addIssue({ code: "custom", path: ["reason"], message: "Partial catalog coverage requires a reason." });
+  }
+  if (coverage.maxTables !== undefined && coverage.returnedTables > coverage.maxTables) {
+    context.addIssue({ code: "custom", path: ["returnedTables"], message: "returnedTables cannot exceed maxTables." });
+  }
+}).describe(
+  "Connector-owned relation inventory coverage. Partial means relations may have been omitted by the connector; absence from that catalog never proves a relation does not exist.",
+);
 
 export const databaseCatalogSchema = z.object({
   connectorId: z.string().min(1).max(256),
@@ -166,6 +223,7 @@ export const databaseCatalogSchema = z.object({
   scannedAt: z.iso.datetime(),
   fingerprint: z.string().regex(/^sha256:[a-f0-9]{64}$/),
   schemas: z.array(databaseSchemaSchema).max(1_000),
+  coverage: databaseCatalogCoverageSchema.optional(),
 }).strict();
 
 /** Runtime database capabilities. Components are advisory planning metadata,
@@ -284,6 +342,7 @@ export const databaseSqlQueryRequestSchema = z.object({
     z.string().max(8_192),
     z.number().finite(),
     z.boolean(),
+    z.null(),
   ])).max(256).optional(),
   purpose: z.string().min(1).max(1_000),
   maxRows: z.number().int().positive().max(20_000).optional(),
@@ -323,13 +382,16 @@ export const databaseQueryResultSchema = z.object({
 export type DatabaseDialect = z.infer<typeof databaseDialectSchema>;
 export type DatabaseColumn = z.infer<typeof databaseColumnSchema>;
 export type DatabaseForeignKey = z.infer<typeof databaseForeignKeySchema>;
+export type DatabaseForeignKeyMetadata = z.infer<typeof databaseForeignKeyMetadataSchema>;
 export type DatabaseIndex = z.infer<typeof databaseIndexSchema>;
+export type DatabaseIndexMetadata = z.infer<typeof databaseIndexMetadataSchema>;
+export type DatabaseCatalogCoverage = z.infer<typeof databaseCatalogCoverageSchema>;
 type ParsedDatabaseTable = z.infer<typeof databaseTableSchema>;
 type ParsedDatabaseSchema = z.infer<typeof databaseSchemaSchema>;
 type ParsedDatabaseCatalog = z.infer<typeof databaseCatalogSchema>;
-// Indexes were added after the original catalog contract. Keep the public
-// input type backwards-compatible while schema parsing still normalizes them
-// to an empty array at runtime.
+// Index metadata was added after the original catalog contract. Keep the
+// public input type backward-compatible: legacy connectors may omit both
+// fields, while new connectors state exactly how complete their inventory is.
 export type DatabaseTable = Omit<ParsedDatabaseTable, "indexes"> & { indexes?: DatabaseIndex[] };
 export type DatabaseSchema = Omit<ParsedDatabaseSchema, "tables"> & { tables: DatabaseTable[] };
 export type DatabaseCatalog = Omit<ParsedDatabaseCatalog, "schemas"> & { schemas: DatabaseSchema[] };
@@ -393,6 +455,7 @@ export function createCatalogFingerprint(input: Omit<DatabaseCatalog, "fingerpri
     connectorId: input.connectorId,
     dialect: input.dialect,
     databaseName: input.databaseName,
+    coverage: input.coverage,
     schemas: input.schemas.map((schema) => ({
       name: schema.name,
       tables: schema.tables.map((table) => ({
@@ -413,6 +476,7 @@ export function createCatalogFingerprint(input: Omit<DatabaseCatalog, "fingerpri
           referencedTable: foreignKey.referencedTable,
           referencedColumns: foreignKey.referencedColumns,
         })),
+        foreignKeyMetadata: table.foreignKeyMetadata,
         indexes: (table.indexes ?? []).map((index) => ({
           name: index.name,
           columns: index.columns,
@@ -420,6 +484,7 @@ export function createCatalogFingerprint(input: Omit<DatabaseCatalog, "fingerpri
           method: index.method,
           isConstraint: index.isConstraint,
         })),
+        indexMetadata: table.indexMetadata,
       })),
     })),
   };
@@ -436,12 +501,15 @@ export function summarizeCatalog(
 ): string {
   const maxTables = clampInteger(options.maxTables ?? 80, 1, 500);
   const maxColumns = clampInteger(options.maxColumnsPerTable ?? 80, 1, 500);
-  const tables = catalog.schemas.flatMap((schema) => schema.tables).slice(0, maxTables);
+  const allTables = catalog.schemas.flatMap((schema) => schema.tables);
+  const tables = allTables.slice(0, maxTables);
+  const columnsTruncated = tables.some((table) => table.columns.length > maxColumns);
   const summary = {
     dialect: catalog.dialect,
     database: catalog.databaseName,
     scannedAt: catalog.scannedAt,
-    truncated: catalog.schemas.reduce((count, schema) => count + schema.tables.length, 0) > tables.length,
+    ...(catalog.coverage === undefined ? {} : { catalogCoverage: catalog.coverage }),
+    truncated: catalog.coverage?.status === "partial" || allTables.length > tables.length || columnsTruncated,
     tables: tables.map((table) => ({
       schema: table.schema,
       name: table.name,
@@ -459,13 +527,17 @@ export function summarizeCatalog(
         columns: key.columns,
         references: `${key.referencedSchema}.${key.referencedTable}(${key.referencedColumns.join(", ")})`,
       })),
-      indexes: (table.indexes ?? []).map((index) => ({
-        name: index.name,
-        columns: index.columns,
-        unique: index.unique,
-        ...(index.method ? { method: index.method } : {}),
-        isConstraint: index.isConstraint,
-      })),
+      foreignKeyMetadata: table.foreignKeyMetadata ?? "complete",
+      indexMetadata: table.indexMetadata ?? (table.indexes === undefined ? "unavailable" : "complete"),
+      ...(table.indexes === undefined ? {} : {
+        indexes: table.indexes.map((index) => ({
+          name: index.name,
+          columns: index.columns,
+          unique: index.unique,
+          ...(index.method ? { method: index.method } : {}),
+          isConstraint: index.isConstraint,
+        })),
+      }),
     })),
   };
   return canonicalJson(summary);

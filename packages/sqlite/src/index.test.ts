@@ -25,7 +25,8 @@ describe("SqliteConnector", () => {
       "CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT NOT NULL);"
       + "CREATE TABLE orders ("
       + "id INTEGER PRIMARY KEY, customer_id INTEGER NOT NULL, total REAL,"
-      + "FOREIGN KEY (customer_id) REFERENCES customers(id));",
+      + "FOREIGN KEY (customer_id) REFERENCES customers(id));"
+      + "CREATE INDEX orders_customer_total_idx ON orders(customer_id, total);",
     );
     await setup.execute({
       sql: "INSERT INTO customers(id, name) VALUES (?, ?), (?, ?)",
@@ -55,6 +56,12 @@ describe("SqliteConnector", () => {
         referencedSchema: "main",
         referencedTable: "customers",
         referencedColumns: ["id"],
+      });
+      expect(orders?.indexes).toContainEqual({
+        name: "orders_customer_total_idx",
+        columns: ["customer_id", "total"],
+        unique: false,
+        isConstraint: false,
       });
 
       const extensions = await connector.inspectExtensions();

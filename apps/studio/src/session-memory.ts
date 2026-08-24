@@ -8,11 +8,12 @@
 import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
 import type { StorageThreadType } from "@mastra/core/memory";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { surfaceEventEnvelopeSchema } from "@open-generative/protocol";
+import { openGenerativeSurfaceStreamSchema } from "@open-generative/protocol";
+import { z } from "zod";
 import type { TesseraUIMessage } from "./protocol";
 import { sanitizeStudioErrorText } from "./studio-logger";
 
@@ -29,6 +30,69 @@ const MAX_USER_TEXT_LENGTH = 12_000;
 const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
 const MAX_REASONING_TEXT_LENGTH = 30_000;
 const HISTORY_TOOL_FAILURE = "This governed tool call did not complete.";
+
+const workingMemoryProvenanceSchema = z.enum([
+  "user-correction",
+  "verified-query",
+  "schema",
+  "code",
+  "curated",
+]);
+
+/**
+ * Cross-session domain learning for one project principal. Keyed object maps
+ * preserve Mastra's schema deep-merge semantics; unbounded arrays would be
+ * replaced wholesale on every incremental update.
+ */
+export const tesseraWorkingMemorySchema = z.object({
+  preferences: z.object({
+    timezone: z.string().min(1).max(128).optional(),
+    locale: z.string().min(1).max(64).optional(),
+    currency: z.string().min(1).max(32).optional(),
+    defaultDateRange: z.string().min(1).max(256).optional(),
+    weekStartsOn: z.enum(["monday", "saturday", "sunday"]).optional(),
+  }).strict().optional(),
+  terminologyById: z.record(
+    z.string().min(1).max(128),
+    z.object({
+      term: z.string().min(1).max(256),
+      definition: z.string().min(1).max(2_000),
+      scopeRef: z.string().min(1).max(512),
+      provenance: workingMemoryProvenanceSchema,
+      lastVerifiedAt: z.string().datetime().optional(),
+    }).strict(),
+  ).optional(),
+  analysisRulesById: z.record(
+    z.string().min(1).max(128),
+    z.object({
+      kind: z.enum(["filter", "join", "metric", "source", "freshness", "null", "dedupe"]),
+      rule: z.string().min(1).max(2_000),
+      scopeRef: z.string().min(1).max(512),
+      provenance: workingMemoryProvenanceSchema,
+      lastVerifiedAt: z.string().datetime().optional(),
+      expiresAt: z.string().datetime().optional(),
+    }).strict(),
+  ).optional(),
+  sourcePreferencesById: z.record(
+    z.string().min(1).max(128),
+    z.object({
+      intent: z.string().min(1).max(512),
+      preferredRef: z.string().min(1).max(512),
+      reason: z.string().min(1).max(1_000),
+      scopeRef: z.string().min(1).max(512),
+      provenance: workingMemoryProvenanceSchema,
+      lastVerifiedAt: z.string().datetime().optional(),
+    }).strict(),
+  ).optional(),
+}).strict();
+
+export const tesseraWorkingMemoryOptions = Object.freeze({
+  enabled: true,
+  scope: "resource" as const,
+  schema: tesseraWorkingMemorySchema,
+  agentManaged: true,
+  useStateSignals: false,
+});
 
 /** Stable principal for a loopback Studio without a host identity provider. */
 export const LOCAL_STUDIO_IDENTITY = Object.freeze({
@@ -58,6 +122,12 @@ export type TesseraSessionMemory = Readonly<{
     id: string;
     resourceId: string;
     messages: readonly unknown[];
+  }>): Promise<void>;
+  checkpointUiMessage(input: Readonly<{
+    id: string;
+    resourceId: string;
+    checkpointId: string;
+    message: unknown;
   }>): Promise<void>;
   readMessages(input: Readonly<{ id: string; resourceId: string }>): Promise<readonly TesseraSessionMessage[] | undefined>;
   close(): Promise<void>;
@@ -108,7 +178,7 @@ export function createTesseraSessionMemory(
     options: {
       lastMessages: boundedInteger(options.lastMessages ?? DEFAULT_HISTORY_MESSAGE_LIMIT, 1, 128),
       semanticRecall: false,
-      workingMemory: { enabled: false },
+      workingMemory: tesseraWorkingMemoryOptions,
       observationalMemory: false,
       generateTitle: false,
     },
@@ -213,6 +283,27 @@ export function createTesseraSessionMemory(
         });
       });
     },
+    async checkpointUiMessage(input) {
+      await queueTranscriptUpdate(input, async () => {
+        const thread = await memory.getThreadById({ threadId: input.id, resourceId: input.resourceId });
+        if (!thread) throw new TypeError("Tessera Studio session storage is unavailable.");
+
+        const existing = sanitizeStoredTranscript(thread.metadata?.[UI_TRANSCRIPT_METADATA_KEY]);
+        const checkpointMessageId = uiCheckpointMessageId(input.checkpointId);
+        const sanitized = sanitizeUiMessage(input.message, checkpointMessageId);
+        if (sanitized === undefined) return;
+
+        const messages = [...existing.messages];
+        const existingIndex = messages.findIndex((message) => message.id === checkpointMessageId);
+        if (existingIndex === -1) messages.push(sanitized);
+        else messages[existingIndex] = sanitized;
+
+        await memory.updateThread({
+          id: input.id,
+          metadata: { [UI_TRANSCRIPT_METADATA_KEY]: boundedTranscript(messages) },
+        });
+      });
+    },
     async readMessages(input) {
       await waitForTranscriptUpdate(input);
       const thread = await memory.getThreadById({ threadId: input.id, resourceId: input.resourceId });
@@ -264,21 +355,46 @@ function sanitizeStoredTranscript(input: unknown): StoredUiTranscript {
   return boundedTranscript(messages);
 }
 
-function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
+function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSessionMessage | undefined {
   const source = asRecord(input);
   if (!source || (source.role !== "user" && source.role !== "assistant") || !Array.isArray(source.parts)) {
     return undefined;
   }
-  const messageId = `tessera-ui-${randomUUID()}`;
+  const messageId = forcedMessageId
+    ?? (isStoredUiMessageId(source.id) ? source.id : `tessera-ui-${randomUUID()}`);
   const context: SanitizationContext = { messageId };
   const maximumText = source.role === "user" ? MAX_USER_TEXT_LENGTH : MAX_ASSISTANT_TEXT_LENGTH;
   let remainingText = maximumText;
   let remainingReasoning = MAX_REASONING_TEXT_LENGTH;
   const parts: TesseraUIMessage["parts"] = [];
+  const surfacePartIndexes = new Map<string, number>();
 
-  for (const sourcePart of source.parts.slice(0, MAX_UI_PARTS_PER_MESSAGE)) {
+  for (const sourcePart of source.parts) {
     const part = asRecord(sourcePart);
     if (!part || typeof part.type !== "string") continue;
+
+    if (source.role === "assistant" && part.type === "data-openGenerativeSurface") {
+      const stream = openGenerativeSurfaceStreamSchema.safeParse(part.data);
+      if (!stream.success || jsonByteLength(stream.data) > MAX_STORED_GENERATIVE_SURFACE_BYTES) continue;
+      const sanitizedPart = {
+        type: "data-openGenerativeSurface" as const,
+        id: typeof part.id === "string"
+          ? part.id
+          : `open-generative:${stream.data.surfaceSessionId}`,
+        data: stream.data,
+      };
+      const existingIndex = surfacePartIndexes.get(stream.data.surfaceSessionId);
+      if (existingIndex === undefined) {
+        if (parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
+        surfacePartIndexes.set(stream.data.surfaceSessionId, parts.length);
+        parts.push(sanitizedPart);
+      } else {
+        parts[existingIndex] = sanitizedPart;
+      }
+      continue;
+    }
+
+    if (parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
 
     if (part.type === "text" && typeof part.text === "string" && remainingText > 0) {
       const text = sanitizeDisplayText(part.text, remainingText);
@@ -289,17 +405,6 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
     }
 
     if (source.role !== "assistant") continue;
-    if (part.type === "data-openGenerativeSurface") {
-      const event = surfaceEventEnvelopeSchema.safeParse(part.data);
-      if (event.success && jsonByteLength(event.data) <= MAX_STORED_GENERATIVE_SURFACE_BYTES) {
-        parts.push({
-          type: "data-openGenerativeSurface",
-          id: event.data.eventId,
-          data: event.data,
-        });
-      }
-      continue;
-    }
     if (part.type === "reasoning" && typeof part.text === "string" && remainingReasoning > 0) {
       const text = sanitizeDisplayText(part.text, remainingReasoning);
       if (!text) continue;
@@ -316,15 +421,15 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
       parts.push(sanitizeListDatabaseToolPart(part, context, parts.length));
       continue;
     }
-    if (part.type === "tool-list_catalog") {
-      parts.push(sanitizeListCatalogToolPart(part, context, parts.length));
+    if (part.type === "tool-search_data_context") {
+      parts.push(sanitizeSearchDataContextToolPart(part, context, parts.length));
       continue;
     }
     if (part.type === "tool-execute_sql") {
       parts.push(sanitizeExecuteSqlToolPart(part, context, parts.length));
       continue;
     }
-    if (part.type === "tool-run_analysis") {
+    if (part.type === "tool-prepare_analysis") {
       parts.push(sanitizeAnalysisToolPart(part, context, parts.length));
       continue;
     }
@@ -332,6 +437,16 @@ function sanitizeUiMessage(input: unknown): TesseraSessionMessage | undefined {
 
   if (parts.length === 0) return undefined;
   return { id: messageId, role: source.role, parts };
+}
+
+function uiCheckpointMessageId(checkpointId: string): string {
+  const digest = createHash("sha256").update(checkpointId).digest("hex");
+  return `tessera-ui-${digest}`;
+}
+
+function isStoredUiMessageId(value: unknown): value is string {
+  return typeof value === "string"
+    && /^tessera-ui-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{64})$/iu.test(value);
 }
 
 function sanitizeListDatabaseToolPart(
@@ -366,6 +481,7 @@ function sanitizeListDatabaseToolPart(
   const tableCount = safeInteger(output?.tableCount, 0, 10_000);
   const columnCount = safeInteger(output?.columnCount, 0, 10_000);
   const foreignKeyCount = safeInteger(output?.foreignKeyCount, 0, 10_000);
+  const indexCount = safeInteger(output?.indexCount, 0, 10_000);
   const componentCount = safeInteger(output?.componentCount, 0, 10_000);
   const reason = sanitizeDisplayText(output?.reason, 128);
   const message = sanitizeDisplayText(output?.message, 500);
@@ -383,6 +499,10 @@ function sanitizeListDatabaseToolPart(
       ...(tableCount === undefined ? {} : { tableCount }),
       ...(columnCount === undefined ? {} : { columnCount }),
       ...(foreignKeyCount === undefined ? {} : { foreignKeyCount }),
+      ...(indexCount === undefined ? {} : { indexCount }),
+      ...(output?.catalogCoverage === "complete" || output?.catalogCoverage === "partial" || output?.catalogCoverage === "unknown"
+        ? { catalogCoverage: output.catalogCoverage }
+        : {}),
       ...(typeof output?.dialect === "string" ? { dialect: output.dialect.slice(0, 32) } : {}),
       ...(componentCount === undefined ? {} : { componentCount }),
       ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
@@ -394,17 +514,17 @@ function sanitizeListDatabaseToolPart(
   };
 }
 
-function sanitizeListCatalogToolPart(
+function sanitizeSearchDataContextToolPart(
   part: Record<string, unknown>,
   context: SanitizationContext,
   index: number,
 ): TesseraUIMessage["parts"][number] {
-  const input = { action: "list_catalog" as const };
+  const input = { action: "search_data_context" as const };
   const output = asRecord(part.output);
   const status = sanitizedToolStatus(output?.status);
   if (part.state !== "output-available") {
     return {
-      type: "tool-list_catalog",
+      type: "tool-search_data_context",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
@@ -418,7 +538,7 @@ function sanitizeListCatalogToolPart(
   const reason = sanitizeDisplayText(output?.reason, 128);
   const message = sanitizeDisplayText(output?.message, 500);
   return {
-    type: "tool-list_catalog",
+    type: "tool-search_data_context",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
     state: "output-available",
     input,
@@ -487,6 +607,7 @@ function sanitizeExecuteSqlToolPart(
 
 function sanitizedToolStatus(value: unknown): "completed" | "blocked" | "failed" {
   if (value === "completed" || value === "blocked" || value === "failed") return value;
+  if (value === "prepared") return "completed";
   return value === "unavailable" || value === "rejected" ? "blocked" : "failed";
 }
 
@@ -506,39 +627,36 @@ function sanitizeAnalysisToolPart(
   context: SanitizationContext,
   index: number,
 ): TesseraUIMessage["parts"][number] {
-  const input = { action: "run_governed_analysis" as const };
+  const input = { action: "prepare_analysis" as const };
   const output = asRecord(part.output);
   const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
     ? output.status
     : "failed";
   if (part.state !== "output-available") {
     return {
-      type: "tool-run_analysis",
+      type: "tool-prepare_analysis",
       toolCallId: `${context.messageId}-tool-${index + 1}`,
       state: "output-error",
       input,
       errorText: historyToolFailure(part),
       providerExecuted: true,
-      title: "Run governed analysis",
+      title: "Prepare analysis",
     };
   }
-  const rowCount = safeInteger(output?.rowCount, 0, 20_000);
   const reason = sanitizeDisplayText(output?.reason, 128);
   const message = sanitizeDisplayText(output?.message, 500);
   return {
-    type: "tool-run_analysis",
+    type: "tool-prepare_analysis",
     toolCallId: `${context.messageId}-tool-${index + 1}`,
     state: "output-available",
     input,
     output: {
       status,
-      ...(rowCount === undefined ? {} : { rowCount }),
-      ...(typeof output?.truncated === "boolean" ? { truncated: output.truncated } : {}),
       ...(reason === undefined ? {} : { reason }),
       ...(message === undefined ? {} : { message }),
     },
     providerExecuted: true,
-    title: "Run governed analysis",
+    title: "Prepare analysis",
   };
 }
 

@@ -1,28 +1,34 @@
 ---
-title: Agent 选择
-description: Tessera Agent 如何为单次模型调用提供最小但足够的 Component Contract Slice。
+title: 分析选择
+description: Tessera 如何选择数据库 Tool 与最终分析视图，同时不增加 UI Tool。
 ---
 
-模型不会通过 React Component Name 或视觉外观选择 UI。Host 会冻结当前任务专属的
-`CatalogSetSlice`，Compiler 再从这份 Slice 生成唯一允许使用的 `present_ui` Tool Schema 与 Prompt。
+处理数据问题时，Tessera 会分别决定如何取得可信数据，以及如何呈现已经完成的结果。呈现过程没有
+数据库权限，也不能改变之前选择的查询路径。
 
-## 选择流程
+## 数据库路径选择
 
-1. Tessera Agent 通过语义规划与服务端拥有的受限查询回答分析问题。
-2. Host 发布绑定 Grant 的 Resource 与 Evidence Offer；Query Row 继续留在 Resource Gateway 后面。
-3. Host 创建冻结 Catalog Slice，只包含有用的 Component 与 Action Contract、依赖、精确 Revision 与 Limit。
-4. `compilePresentUi()` 从经过校验的 Slice 生成 Provider Schema 与模型指导。
-5. 模型只能调用 `present_ui`，并且只能引用已提供的 Component、Resource、Evidence、State 与 Action Identity。
-6. `ProposalCompilerTurn` 在固定 Budget 内执行 Decode、Normalize、Validate、Repair，并通过共享 Server Boundary Commit。
-7. 可信 `SurfaceEventStream` 把生成的 Revision 发布到浏览器。
+Agent Instruction 与类型化 Tool Schema 会引导模型从两条路径中选择一条：
 
-## 当前选择词汇
+| 分析意图 | 主要路径 |
+| --- | --- |
+| 物理 Schema、明确 SQL、精确行数据 | `list_database -> execute_sql` |
+| 语义指标、维度、排行、趋势 | `search_data_context -> prepare_analysis -> execute_sql(analysisRef)` |
 
-Tessera Agent 成功证明的 Catalog 提供六个官方 Contract：`analysis.report`、`layout.stack`、
-`layout.grid`、`data.metric`、`analysis.insight` 与 `data.chart`。前五个负责分析内容组合；
-Chart 的具体选择发生在 `data.chart` 的严格 Recipe Union 内：
+Tool Output 提供受限证据与稳定列元数据。无效 Tool 参数会得到结构化拒绝，不能被解释为“数据不存在”。
 
-| 分析需求 | Recipe 示例 |
+## 视图选择
+
+当成功查询返回可渲染行数据时，内部 Presentation Processor 会在最终模型 Step 中加入一套受限
+呈现语言。模型只能使用当前 Dataset Binding、获准布局 Contract 与 Tessera 已实现的 17 个图表 Recipe。
+
+最终模型输出会被增量解析，并在提交视图前完成校验。它不能包含 React 名称、JSX、CSS、任意颜色、
+Callback、URL、SQL 或新 Tool。呈现语法无效时可以执行一次受限 Processor Retry；Repair Step 中
+Business Tool 会被关闭。
+
+## 当前图表意图
+
+| 需求 | Recipe 示例 |
 | --- | --- |
 | 有序进度 | Steps Bars、Pipeline Stage Bars、Sign-up Funnel |
 | 趋势与比较 | Revenue Smooth Area、Visitors Stacked Area、Sessions + Conversion Combo |
@@ -30,14 +36,4 @@ Chart 的具体选择发生在 `data.chart` 的严格 Recipe Union 内：
 | 周期与强度 | Activity Calendar、Active Users Heatmap、Contributions Heatmap |
 | 紧凑状态 | Sleep Score、Visitors Radial、Visitors Radar、Devices Bars、Activity Rings |
 
-这些名称是 `spec.recipe` 值，不是 Component Contract Name。Host 可以在单次 Turn 中进一步收窄
-允许的 Recipe Enum 与 Column Binding，而不创建第二份 Schema 或第二条 Renderer 路径。
-
-## 选择不变量
-
-模型不能扩大 Slice、虚构 Binding、选择任意 Renderer，也不能通过 URL 请求原始数据。正向与负向
-Contract 指导、稳定字段、严格 Schema 与 Data Agent Golden Example 会提高首轮选择准确率，
-同时无需把完整 Catalog 或 Query Result 放进每一个 Prompt。
-
-渲染与交互始终发生在选择之后。Committed Node 一律通过 `SurfaceController`、
-`GenerativeSurface` 与精确 `RendererRegistry` 渲染；选择过程不会直接调用组件。
+Recipe 只是对现有 Dataset 的受校验呈现选择，不是组件 Package API，也不能再次执行数据库操作。

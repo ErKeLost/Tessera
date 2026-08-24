@@ -1,6 +1,6 @@
 ---
 title: 证据与溯源
-description: 将每项分析论断和 Artifact 连接到经过验证的数据源实体、活动和转换过程。
+description: 将每项分析论断和分析视图连接到经过验证的数据源实体、活动和转换过程。
 ---
 
 分析回答不能只在页脚写一句“来源：数据仓库”。应在运行过程中维护证据账本，并在创建论断时附加引用。
@@ -44,10 +44,11 @@ UI 应允许用户检查来源名称、指标定义、筛选条件、查询、�
 引用应指向最小但仍有用的证据单元。对于包含多个论断的回答，只提供一份来源列表会让用户无法判断
 每项陈述究竟由哪个结果支持。
 
-## Artifact 溯源
+## 分析视图溯源
 
-每个 Tessera Agent Artifact 都派生自经过验证的证据，并包含协议版本和稳定 ID。Artifact 发布器
-记录其 Schema 版本、渲染器 kind、证据 ID 和内容 Hash。后续刷新会创建新的派生关系，而不是改写历史。
+每个生成视图都派生自经过验证的 Evidence，并具有稳定 Surface Identity。Tessera 记录 View Schema、
+Resource Binding 与已提交 Payload Hash。累积更新会覆盖之前的 UI Snapshot，但底层 Query Evidence
+始终保持为权威来源。
 
 ## 隐私与保留策略
 

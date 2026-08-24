@@ -1,52 +1,46 @@
 ---
-title: data-agent 成功证明
-description: 在抽取 Open Generative 之前，Tessera Agent 必须达到的确定性、质量、安全和渲染门槛。
+title: 分析视图质量门槛
+description: Tessera Agent 生成式分析视图的确定性、安全、渲染与产品验收标准。
 ---
 
-当前工作的唯一目标不是证明“模型能输出组件 JSON”，而是证明：Tessera Agent 能把受治理的真实查询结果生成成有用、可信、响应式、可交互的数据分析界面，并在失败、流式中断、权限变化和并发冲突中保住 last-good。
+目标不是证明模型能输出“像组件的文本”。Tessera 必须把受治理的 Query Result 转换成有用、
+可信、响应式的分析，并且在非法输出、Stream 中断、Authority 变化与 Conflict 中保住最后一次
+Committed Answer。
 
 ## 固定范围
 
-- 六个分析 Component Contract；其中唯一的 Chart Contract `data.chart` 见[当前 Generative UI Catalog](/docs/components/generative-ui-catalog)。
-- 17 个经过审计的 Recipe：Steps Bars、Pipeline Stage Bars、Sleep Score、Revenue per Account Scatter、Tracked Time Sankey、Visitors Radial、Visitors Radar、Activity Calendar、Revenue Smooth Area、Active Users Heatmap、Sign-up Funnel、Earned so Far Bars、Contributions Heatmap、Sessions + Conversion Combo、Devices Bars、Visitors Stacked Area 与 Activity Rings。
-- 至少 100 个固定 Golden Prompt，覆盖 Recipe 选择、Column Binding、流式创建、增量编辑、恢复、权限变化和冲突。
-- 同一 Query Resource 必须能产生不同但合理的 Recipe，证明系统不是隐藏的固定 Query Renderer。
+- 六个分析概念：Report、Stack、Grid、Metric、Insight 与 Data Chart。
+- 一份 Chart Contract，包含 17 个经过审计的 Recipe。
+- Golden Prompt 覆盖 Recipe 选择、Column Binding、Streaming、刷新、Authority 变化、Retry 与 Conflict。
+- 同一 Resource 可以得到多种合理视图，证明系统不是隐藏的固定 Query Renderer。
 
 ## 硬性安全门槛
 
-以下指标必须为 100%，不存在统计容忍：
+- Query Row 不进入 Presentation Prompt、声明、普通日志或浏览器 Tool 摘要。
+- 模型不能引用本轮未提供的 Resource、Column、Evidence、View Type 或 Action。
+- Stream Identity、Authority 或 Resource Binding 非法时 Fail Closed。
+- 浏览器渲染不能授予数据库访问权，也不能执行 Mutation。
+- Presentation Retry 不能再次调用 Domain Tool。
 
-- Query tool result、prompt、proposal、Document、Revision、history 与普通日志中没有 rows。
-- Resource window 只能通过 actor/tenant/Surface-bound grant 和 server cursor 获取。
-- 模型不能引用未提供的 Resource、column、evidence、Component 或 Action。
-- Preview 只读；浏览器不执行 document state 或 HostIntent；approval token 只能消费一次。
-- event hash、sequence、cursor、epoch、audience 或 Contract lock 任一错误都 fail closed。
-
-## 生成质量门槛
+## 质量指标
 
 | 指标 | 门槛 |
 | --- | --- |
-| Provider schema 接受率 | 100% |
-| 首次 proposal 结构有效率 | 不低于 95% |
-| 有界 repair 后 commit 成功率 | 不低于 99% |
-| 虚构引用或越过 Catalog slice | 0 |
-| 错误 chart encoding | 不高于 1%，并在 commit 前拒绝 |
-| 无意义重复组件或装饰 section | 不高于 2% |
-| snapshot 与等价 operations 的 canonical 差异 | 0 |
+| 首次 Proposal 结构有效率 | 不低于 95% |
+| 有界 Repair 后 Commit 成功率 | 不低于 99% |
+| 虚构引用 | 0 |
+| 被接受的错误 Chart Encoding | 0 |
+| 刷新后的重复 Assistant Checkpoint | 0 |
+| Live 与恢复后的最终视图差异 | 0 |
 
-成功 Commit 只是结构门槛。每个 Golden Case 还必须校验 Recipe 选择、Column Mapping、信息层级、
-来源一致性，以及 Equivalent View 是否表达相同 Resource 语义。
+每个成功 Case 还要检查 Recipe 选择、Column Mapping、信息层级、Source Fidelity，以及语义等价的
+Table 或 Text View。
 
 ## Renderer 门槛
 
-`data.chart` Contract 必须具有 Exact Renderer Registration、Authoring 与 Resolved Props Validator、
-Resource Fixture、Accessibility Coverage 和 Node Error Boundary。17 个 Recipe 全部必须具有稳定尺寸、
-Responsive Behavior、Reduced Motion、Accessible Name 与 Summary，以及同一份数据的 Table 或 Text
-Equivalent View。可信文档 Gallery 必须把官方 Fixture 经过 `SurfaceController`、`GenerativeSurface`
-与 Verified Registry 渲染出来；文档专用仿制图表不算通过。
+17 个 Recipe 都必须具备稳定的 Responsive Size、Reduced Motion、Accessible Name 与 Summary、
+Keyboard-safe Interaction、Theme Token Coverage，以及语义等价的非图表视图。文档 Gallery 使用
+Tessera Studio 相同的 Fixture 与 Renderer Code；文档专用仿制实现不算通过。
 
-## 可发布证明产物
-
-候选发布必须锁定 Catalog、Contract、renderer 和 chart manifests；100+ golden 结果；replay/resume/conflict/security fixtures；no-payload scan；desktop/mobile visual regression；accessibility report；以及 dependency integrity 和 build provenance。CI 必须能在没有生产 credential 时重放确定性部分。
-
-这些门槛全部通过后，才允许把 framework-neutral core 提炼到独立 Open Generative 项目。
+确定性测试不依赖生产 Credential。Provider Eval、Desktop/Mobile Visual Regression、
+Accessibility Report 与 Dependency Integrity 都是 Tessera Agent 的发布门槛。

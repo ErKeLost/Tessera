@@ -17,7 +17,7 @@ export function baseOptions(locale: string): BaseLayoutProps {
   const chinese = locale === "zh";
 
   return {
-    themeSwitch: { enabled: false },
+    themeSwitch: { enabled: true, mode: "light-dark-system" },
     nav: {
       title: (
         <span className="tessera-brand-lockup">
@@ -29,10 +29,10 @@ export function baseOptions(locale: string): BaseLayoutProps {
     },
     githubUrl: `https://github.com/${gitConfig.user}/${gitConfig.repo}`,
     links: [
-      { text: chinese ? "文档" : "Docs", url: localizedPath(locale, "/docs"), active: "none" },
-      { text: "Agent", url: localizedPath(locale, "/docs/agent"), active: "none" },
-      { text: chinese ? "组件" : "Components", url: localizedPath(locale, "/docs/components"), active: "none" },
-      { text: "Playground", url: "/background", active: "none" },
+      { text: chinese ? "Agent 文档" : "Agent docs", url: localizedPath(locale, "/docs/agent"), active: "none" },
+      { text: chinese ? "分析视图" : "Analysis views", url: localizedPath(locale, "/docs/components"), active: "none" },
+      { text: chinese ? "概念" : "Concepts", url: localizedPath(locale, "/docs/concepts"), active: "none" },
+      { text: chinese ? "运行时" : "Runtime", url: localizedPath(locale, "/docs/integrations"), active: "none" },
     ],
   };
 }

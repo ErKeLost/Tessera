@@ -1,50 +1,59 @@
 ---
 title: Run Workflow
-description: How one Tessera Agent question becomes verified evidence and a committed Generative UI surface.
+description: How one Tessera question becomes a grounded answer and an optional analysis view.
 ---
 
-The proof is complete only when governed analysis and Generative UI form one
-workflow:
+One Tessera turn has a single governed path from the question to the final UI:
 
 ```text
-question -> catalog -> semantic plan -> bounded read-only query
-         -> verification -> Resource/Evidence offers
-         -> present_ui proposal -> committed Revision
-         -> SurfaceEventStream -> SurfaceController
-         -> GenerativeSurface -> RendererRegistry
+question
+-> inspect the physical schema or semantic catalog
+-> execute one bounded database path
+-> validate and retain evidence
+-> compose the final answer
+-> optionally compile a generated analysis view
+-> stream one browser-safe AI SDK message
 ```
 
-| Step | User-visible result | Host responsibility |
-| --- | --- | --- |
-| Discover | Relevant entities, fields, metrics, and relationships | Load the live semantic catalog and return a bounded slice |
-| Clarify | Ambiguous terms become explicit choices | Describe inspected entities or run one bounded probe |
-| Plan | A reviewable read-only analysis intent | Accept semantic IDs, never model-generated SQL |
-| Execute | Progress and verified query status | Revalidate scope, compile SQL, execute, cancel, and enforce limits |
-| Offer | Evidence and renderable data become available | Publish grant-bound Resource descriptors, schemas, versions, and evidence |
-| Compose | A useful metric, chart, table, filter, or explanation layout | Freeze the Component Contract slice and accept only `present_ui` proposals |
-| Commit | Last-good content changes atomically or through allowed preview | Validate identity, bindings, placement, authority, and canonical revision |
-| Render | The answer becomes an inspectable, interactive surface | Publish trusted events and resolve exact node renderers |
+## 1. Choose one query path
 
-## Browser lifecycle
+Tessera does not run every database tool. It selects one primary path:
 
-Private Data Agent tool payloads remain on the server. The browser receives the
-redacted product-stage stream plus a trusted `SurfaceEventStream`. Query rows
-enter the browser only as bounded, node-scoped Resource projections requested
-under a committed binding; they never appear in model proposals, canonical
-documents, revision history, or ordinary logs.
+| Request | Tool path |
+| --- | --- |
+| Explicit SQL, physical tables or columns, row inspection | `list_database -> execute_sql` |
+| Business metric, ranking, trend, grouped analysis | `search_data_context -> prepare_analysis -> execute_sql(analysisRef)` |
+| Engine, extension, or row-security metadata | The matching `list_database` operation only |
 
-`SurfaceController` validates stream identity and sequence, replays commits,
-preserves last-good, requests resource windows, and exposes resolved node
-projections. `GenerativeSurface` renders those projections with the official
-registry; it never consumes raw model or tool output.
+Catalog and schema results are planning context. Only a successful query or
+analysis result is evidence for a data claim.
 
-## Retry, interruption, and conflict
+## 2. Execute within authority
 
-Every analysis is rebound to the current catalog and authority before
-execution. A stale capability, changed catalog, expired Resource grant, invalid
-proposal, interrupted stream, or revision conflict fails closed. The current
-committed Surface remains visible while the Host repairs, resumes, resynchronizes,
-or asks the user to resolve a conflict.
+The server classifies every execution as `read`, `write`, `destructive`, or
+`unknown`, then revalidates permissions, dialect, scope, row limits, timeout,
+and cancellation. Unknown operations are denied. Read operations run directly
+only when allowed. Mutations use typed inputs and a durable approval checkpoint;
+a chat message cannot grant its own permission.
 
-The golden suite must exercise this entire path, not isolated component JSON.
-See the [data-agent proof gates](./architecture/generative-ui-proof).
+## 3. Preserve completed steps
+
+Mastra Memory uses native `savePerStep`, so completed tool calls and results are
+available to later model steps and survive an interrupted turn. Studio stores a
+separate, sanitized UI transcript through AI SDK `onStepEnd` checkpoints. The
+two records serve different trust boundaries and are not manually reconstructed.
+
+## 4. Produce the response
+
+After a database tool publishes a verified dataset, Tessera's internal output
+processor can select from the available analysis recipes and compile a
+declarative view. This is response formatting, not another Agent tool and not a
+second query. If no suitable dataset exists, Tessera returns the normal text and
+tool transcript without fabricating a view.
+
+The browser receives native AI SDK text, reasoning, and tool parts plus at most
+the latest committed analysis-view snapshot for that response. Refreshing the
+thread restores the same message instead of replaying every intermediate copy.
+
+Continue with the [tool contract](./tool-contract) and [generated analysis view
+architecture](./architecture/generative-ui).

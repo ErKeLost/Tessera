@@ -28,8 +28,12 @@ import {
   formatRequestContext,
   formatDatabaseSchemaContext,
   formatDatabaseSchemaInventory,
+  filterTesseraPublicToolParts,
   inferTesseraTaskType,
   inspectDatabaseSchema,
+  executeSqlInputSchema,
+  executeSqlOutputSchema,
+  searchDataContextInputSchema,
   listDatabaseInputSchema,
   listDatabaseOutputSchema,
   modelEvidenceFromResult,
@@ -167,12 +171,45 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("keeps Mastra working-memory tool parts out of the public AI SDK stream", async () => {
+    const chunks = await readUiChunks(filterTesseraPublicToolParts(new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "tool-input-start", toolCallId: "memory-1", toolName: "updateWorkingMemory" });
+        controller.enqueue({ type: "tool-input-delta", toolCallId: "memory-1", inputTextDelta: "{}" });
+        controller.enqueue({
+          type: "tool-input-available",
+          toolCallId: "memory-1",
+          toolName: "updateWorkingMemory",
+          input: {},
+        });
+        controller.enqueue({ type: "tool-output-available", toolCallId: "memory-1", output: { success: true } });
+        controller.enqueue({ type: "tool-input-start", toolCallId: "database-1", toolName: "list_database" });
+        controller.enqueue({
+          type: "tool-input-available",
+          toolCallId: "database-1",
+          toolName: "list_database",
+          input: { operation: "list_relations" },
+        });
+        controller.enqueue({ type: "tool-output-available", toolCallId: "database-1", output: { status: "completed" } });
+        controller.close();
+      },
+    })));
+
+    expect(JSON.stringify(chunks)).not.toContain("updateWorkingMemory");
+    expect(chunks.map((chunk) => chunk.type)).toEqual([
+      "tool-input-start",
+      "tool-input-available",
+      "tool-output-available",
+    ]);
+  });
+
   test("uses the expanded schema discovery budgets", () => {
     expect(DATABASE_SCHEMA_CONTEXT_LIMITS).toEqual({
       maxSchemas: 64,
       maxTables: 240,
       maxColumnsPerTable: 96,
       maxForeignKeysPerTable: 32,
+      maxIndexesPerTable: 64,
       maxCharacters: 96_000,
     });
     expect(DATABASE_SCHEMA_INVENTORY_LIMITS).toEqual({
@@ -184,6 +221,7 @@ describe("Tessera Agent vNext public boundary", () => {
       maxTables: 192,
       maxColumnsPerTable: 128,
       maxForeignKeysPerTable: 64,
+      maxIndexesPerTable: 128,
       maxCharacters: 80_000,
     });
   });
@@ -223,6 +261,81 @@ describe("Tessera Agent vNext public boundary", () => {
       reason: "relation_not_exposed",
       message: "The relation is outside the current data exposure.",
       nextAction: "respond_without_existence_claim",
+    }).success).toBeTrue();
+    expect(listDatabaseOutputSchema.safeParse({
+      status: "completed",
+      operation: "extensions",
+      dialect: "postgres",
+      extensions: [{ name: "pgcrypto", installed: true, installedVersion: "1.3" }],
+      extensionCount: 1,
+      installedCount: 1,
+      truncated: false,
+    }).success).toBeTrue();
+    expect(listDatabaseOutputSchema.safeParse({
+      status: "completed",
+      operation: "rls_policies",
+      dialect: "postgres",
+      relations: [{ schema: "public", table: "orders", rlsEnabled: true, rlsForced: false, policies: [] }],
+      policyCount: 0,
+      relationCount: 1,
+      truncated: false,
+    }).success).toBeTrue();
+  });
+
+  test("rejects mixed tool modes and requires actionable SQL failures", () => {
+    const mutation = {
+      kind: "data.insert",
+      relation: { schema: "public", table: "orders" },
+      values: [{ id: "order-1" }],
+      maxAffectedRows: 1,
+    } as const;
+    expect(searchDataContextInputSchema.safeParse({ mode: "search", query: "orders", entityIds: ["ent_0123456789abcdef"] }).success).toBeFalse();
+    expect(searchDataContextInputSchema.safeParse({ mode: "describe", query: "orders", entityIds: ["ent_0123456789abcdef"] }).success).toBeFalse();
+    expect(executeSqlInputSchema.safeParse({
+      sql: "SELECT * FROM orders WHERE archived_at IS NOT DISTINCT FROM $1",
+      parameters: [null],
+      purpose: "Find unarchived orders",
+    }).success).toBeTrue();
+    expect(executeSqlInputSchema.safeParse({
+      sql: "SELECT * FROM orders",
+      mutation,
+      purpose: "Conflicting operation",
+    }).success).toBeFalse();
+    expect(executeSqlInputSchema.safeParse({ parameters: ["order-1"], purpose: "Missing SQL" }).success).toBeFalse();
+    expect(executeSqlInputSchema.safeParse({
+      mutation: { kind: "data.insert", relation: mutation.relation, maxAffectedRows: 1 },
+      purpose: "Missing insert values",
+    }).success).toBeFalse();
+    expect(executeSqlInputSchema.safeParse({
+      mutation: {
+        kind: "data.update",
+        relation: mutation.relation,
+        patch: { status: "archived" },
+        maxAffectedRows: 1,
+      },
+      purpose: "Unbounded update",
+    }).success).toBeFalse();
+    expect(executeSqlInputSchema.safeParse({
+      mutation: {
+        kind: "data.delete",
+        relation: mutation.relation,
+        where: { kind: "comparison", column: "id", op: "eq", value: "order-1" },
+        maxAffectedRows: 1,
+        patch: { status: "archived" },
+      },
+      purpose: "Mixed delete action",
+    }).success).toBeFalse();
+    expect(executeSqlOutputSchema.safeParse({
+      status: "failed",
+      mode: "read",
+      reason: "query_failed",
+    }).success).toBeFalse();
+    expect(executeSqlOutputSchema.safeParse({
+      status: "blocked",
+      mode: "read",
+      reason: "read_not_authorized",
+      message: "Read SQL is disabled by the current database safety configuration.",
+      nextAction: "respond",
     }).success).toBeTrue();
   });
 
@@ -388,6 +501,13 @@ describe("Tessera Agent vNext public boundary", () => {
             referencedTable: "customers",
             referencedColumns: ["id"],
           }],
+          indexes: [{
+            name: "orders_customer_id_idx",
+            columns: ["customer_id"],
+            unique: false,
+            method: "btree",
+            isConstraint: false,
+          }],
         }],
       }],
     } as DatabaseCatalog;
@@ -397,6 +517,14 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(summary.schemas[0]?.name).toBe("analytics");
     expect(summary.schemas[0]?.tables[0]?.name).toBe("orders");
     expect(summary.schemas[0]?.tables[0]?.columns.map((column) => column.name)).toEqual(["id", "created_at"]);
+    expect(summary.schemas[0]?.tables[0]?.indexes).toEqual([{
+      name: "orders_customer_id_idx",
+      columns: ["customer_id"],
+      unique: false,
+      method: "btree",
+      isConstraint: false,
+    }]);
+    expect(summary.schemas[0]?.tables[0]?.indexMetadata).toBe("complete");
     expect(serialized).not.toContain("orders_customer_id_fkey");
     expect(serialized).not.toContain("secret-connector");
     expect(serialized).not.toContain("secret-database");
@@ -719,6 +847,13 @@ describe("Tessera Agent vNext public boundary", () => {
             referencedTable: "customers",
             referencedColumns: ["id"],
           }],
+          indexes: [{
+            name: "orders_customer_id_idx",
+            columns: ["customer_id"],
+            unique: false,
+            method: "btree",
+            isConstraint: false,
+          }],
         }],
       }, {
         name: "crm",
@@ -749,20 +884,31 @@ describe("Tessera Agent vNext public boundary", () => {
           columns: [{ name: "id", dataType: "uuid", nullable: false }, { name: "customer_id", dataType: "uuid", nullable: false }],
           primaryKey: ["id"],
           foreignKeys: [{
+            name: "orders_customer_id_fkey",
             columns: ["customer_id"],
             referencedSchema: "crm",
             referencedTable: "customers",
             referencedColumns: ["id"],
           }],
+          indexes: [{
+            name: "orders_customer_id_idx",
+            columns: ["customer_id"],
+            unique: false,
+            method: "btree",
+            isConstraint: false,
+          }],
+          indexMetadata: "complete",
         }],
       },
       tableCount: 1,
       columnCount: 2,
       foreignKeyCount: 1,
+      indexCount: 1,
       truncated: false,
     });
     const expandedJson = JSON.stringify(expanded);
-    expect(expandedJson).not.toContain("orders_customer_id_fkey");
+    expect(expandedJson).toContain("orders_customer_id_fkey");
+    expect(expandedJson).toContain("orders_customer_id_idx");
     expect(expandedJson).not.toContain("secret_default");
     expect(expandedJson).not.toContain("private comment");
 
@@ -779,6 +925,25 @@ describe("Tessera Agent vNext public boundary", () => {
       recovery: { tool: "list_database", input: { operation: "describe_schema", schema: "analytics" } },
     });
 
+    const partialCatalog = {
+      ...catalog,
+      coverage: {
+        status: "partial" as const,
+        reason: "max_tables" as const,
+        maxTables: 1,
+        returnedTables: 1,
+      },
+    };
+    const partialInventory = buildDatabaseSchemaInventory(partialCatalog);
+    expect(partialInventory.truncated).toBeTrue();
+    expect(partialInventory.catalogCoverage?.status).toBe("partial");
+    expect(inspectDatabaseSchema(partialCatalog, { schema: "analytics", relation: "missing" })).toEqual({
+      status: "unavailable",
+      reason: "catalog_incomplete",
+      message: "The connector catalog is bounded and did not include this exact relation. Refresh with a broader catalog scope before making an existence claim.",
+      nextAction: "respond_without_existence_claim",
+    });
+
     const truncatedInventory = {
       kind: "database-schema-inventory",
       dialect: "postgres",
@@ -788,7 +953,7 @@ describe("Tessera Agent vNext public boundary", () => {
     } as NonNullable<Parameters<typeof inspectDatabaseSchema>[2]>;
     expect(inspectDatabaseSchema(catalog, { schema: "analytics", relation: "orders" }, truncatedInventory)).toMatchObject({
       status: "completed",
-      schema: { tables: [{ name: "orders" }] },
+      schema: { tables: [{ name: "orders", foreignKeys: [{ name: "orders_customer_id_fkey" }] }] },
       tableCount: 1,
     });
 
@@ -837,6 +1002,17 @@ describe("Tessera Agent vNext public boundary", () => {
             referencedSchema: "analytics",
             referencedTable: "customers",
             referencedColumns: ["secret_id"],
+          }],
+          indexes: [{
+            name: "orders_customer_idx",
+            columns: ["customer_id"],
+            unique: false,
+            isConstraint: false,
+          }, {
+            name: "orders_secret_idx",
+            columns: ["secret_token"],
+            unique: false,
+            isConstraint: false,
           }],
         }, {
           schema: "analytics",
@@ -909,6 +1085,13 @@ describe("Tessera Agent vNext public boundary", () => {
           ],
           primaryKey: ["id"],
           foreignKeys: [],
+          indexes: [{
+            name: "orders_customer_idx",
+            columns: ["customer_id"],
+            unique: false,
+            isConstraint: false,
+          }],
+          indexMetadata: "partial",
         }],
       },
     });
@@ -923,6 +1106,49 @@ describe("Tessera Agent vNext public boundary", () => {
     });
   });
 
+  test("preserves unavailable relationship and index metadata as partial evidence", () => {
+    const catalog = {
+      dialect: "postgres",
+      schemas: [{
+        name: "analytics",
+        tables: [{
+          schema: "analytics",
+          name: "orders",
+          kind: "table",
+          columns: [{ name: "id", dataType: "integer", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+          foreignKeyMetadata: "unavailable",
+          indexes: undefined,
+          indexMetadata: "unavailable",
+        }],
+      }],
+    } as unknown as DatabaseCatalog;
+
+    const expanded = inspectDatabaseSchema(catalog, { schema: "analytics", relation: "orders" });
+    expect(expanded).toMatchObject({
+      status: "completed",
+      truncated: true,
+      schema: {
+        tables: [{
+          name: "orders",
+          foreignKeys: [],
+          foreignKeyMetadata: "unavailable",
+          indexMetadata: "unavailable",
+        }],
+      },
+    });
+    expect(expanded.status === "completed" ? expanded.schema.tables[0] : undefined).not.toHaveProperty("indexes");
+
+    const context = buildDatabaseSchemaContext(catalog);
+    expect(context.truncated).toBeTrue();
+    expect(context.schemas[0]?.tables[0]).toMatchObject({
+      foreignKeyMetadata: "unavailable",
+      indexMetadata: "unavailable",
+    });
+    expect(context.schemas[0]?.tables[0]).not.toHaveProperty("indexes");
+  });
+
   test("uses a structured prompt with an explicit trust boundary", () => {
     const instructions = buildDataCopilotInstructions();
 
@@ -935,15 +1161,15 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).not.toContain("<system-reminder>");
     expect(instructions).toContain("runtime authorization");
     expect(instructions).toContain("<list_database>");
-    expect(instructions).toContain("<list_catalog>");
+    expect(instructions).toContain("<search_data_context>");
     expect(instructions).toContain("<execute_sql>");
-    expect(instructions).toContain("<run_analysis>");
+    expect(instructions).toContain("<prepare_analysis>");
     expect(instructions).toContain("Before a significant tool call, briefly state its purpose");
     expect(instructions).toContain("After each tool result, validate the result in one or two concise lines");
     expect(instructions).toContain("Call routine, low-impact context-gathering tools directly without narration");
     expect(instructions).toContain("invoke it immediately without waiting for the user");
     expect(instructions).toContain("Do not emit HTML, script tags, ECharts configuration");
-    expect(instructions).toContain("trusted renderer");
+    expect(instructions).toContain("Open Generative rendering is an output format, not a tool");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
     expect(instructions).toContain("system/catalog relations");
@@ -1209,6 +1435,7 @@ describe("Tessera Agent vNext public boundary", () => {
       },
     } as unknown as DataAgent;
     let modelTurn = 0;
+    let memoryBeforeFinalStep = "";
     const model = {
       specificationVersion: "v2",
       provider: "tessera-test",
@@ -1222,6 +1449,13 @@ describe("Tessera Agent vNext public boundary", () => {
         prompts.push(JSON.stringify(options.prompt));
         modelTools ??= options.tools;
         const inspect = modelTurn++ === 0;
+        if (!inspect) {
+          const checkpoint = await session.memory.getContext({
+            threadId: "thread-schema-loop",
+            resourceId: "local-studio",
+          });
+          memoryBeforeFinalStep = JSON.stringify(checkpoint.messages);
+        }
         return {
           stream: new ReadableStream({
             start(controller) {
@@ -1284,6 +1518,9 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(prompts[0]).toContain("orders");
       expect(prompts[1]).toContain("created_at");
       expect(prompts[1]).not.toContain("<database_schema_inventory>");
+      expect(memoryBeforeFinalStep).toContain("Describe the orders schema.");
+      expect(memoryBeforeFinalStep).toContain("list_database");
+      expect(memoryBeforeFinalStep).toContain("created_at");
 
       const tools = modelTools as Array<Record<string, unknown>>;
       const listDatabaseTool = tools.find((tool) => tool.name === "list_database");
@@ -1301,6 +1538,8 @@ describe("Tessera Agent vNext public boundary", () => {
         "describe_relation",
         "current_relation",
         "capabilities",
+        "extensions",
+        "rls_policies",
       ]);
       expect(inputSchema.properties?.operation?.default).toBe("list_relations");
       expect(inputSchema.additionalProperties).toBeFalse();
@@ -1332,7 +1571,7 @@ describe("Tessera Agent vNext public boundary", () => {
     } as unknown as DataAgent;
     const toolTurns = [
       { toolName: "list_database", input: { operation: "current_relation" } },
-      { toolName: "list_catalog", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
+      { toolName: "search_data_context", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
     ] as const;
     let modelTurn = 0;
     const model = {
@@ -1478,8 +1717,8 @@ describe("Tessera Agent vNext public boundary", () => {
 
     let modelTurn = 0;
     const toolTurns = [
-      { toolName: "list_catalog", input: { mode: "search", query: "new users" } },
-      { toolName: "list_catalog", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
+      { toolName: "search_data_context", input: { mode: "search", query: "new users" } },
+      { toolName: "search_data_context", input: { mode: "describe", entityIds: ["ent_0123456789abcdef"] } },
     ];
     const model = {
       specificationVersion: "v2",
@@ -1550,6 +1789,184 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(calls.inspect).toBe(1);
       expect(calls.describe).toEqual([initial.capability.token]);
       expect(modelTurn).toBe(3);
+    } finally {
+      await session.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("prepares semantic analysis without data access and executes it only through execute_sql", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-prepared-analysis-"));
+    const session = createTesseraSessionMemory({ rootDirectory });
+    const scope = planningScope({ tokenPart: "p", entities: [userEntity] });
+    const analysisRef = `analysis_${"a".repeat(32)}`;
+    const calls: string[] = [];
+    const diagnostics: unknown[] = [];
+    const catalogRef = {
+      connectorId: "test",
+      catalogFingerprint: semanticFingerprint,
+      capturedAt: "2026-08-24T00:00:00.000Z",
+    };
+    const resultColumns = [{ outputId: "out_measure_1", label: "Users", type: "number" as const }];
+    const dataAgent = {
+      connectorId: "test",
+      dialect: "postgres",
+      async inspectPlanningCatalog() {
+        calls.push("search");
+        return {
+          ref: catalogRef,
+          capability: scope.capability,
+          semanticCatalog: scope.catalog,
+          cacheStatus: "loaded" as const,
+          entityCount: 1,
+          truncated: false,
+          omitted: { entities: 0, fields: 0, metrics: 0, relationships: 0 },
+        };
+      },
+      async prepareAnalysis() {
+        calls.push("prepare");
+        return {
+          analysisRef,
+          requestId: "run-prepared-analysis",
+          catalog: catalogRef,
+          semanticCatalog: scope.catalog.ref,
+          columns: resultColumns,
+          queryFingerprint: "query_prepared",
+          events: [],
+        };
+      },
+      async executePreparedAnalysis(input: { analysisRef: string }) {
+        calls.push(`execute:${input.analysisRef}`);
+        return {
+          requestId: "run-prepared-analysis",
+          catalog: catalogRef,
+          semanticCatalog: scope.catalog.ref,
+          columns: resultColumns,
+          execution: {
+            queryFingerprint: "query_prepared",
+            resultScope: "complete-result" as const,
+            result: {
+              queryId: "query-private",
+              columns: [{ name: "out_measure_1" }],
+              rows: [{ out_measure_1: 42 }],
+              rowCount: 1,
+              truncated: false,
+              durationMs: 1,
+            },
+          },
+          events: [],
+        };
+      },
+    } as unknown as DataAgent;
+    const toolTurns = [{
+      toolName: "search_data_context",
+      input: { mode: "search", query: "newest user" },
+    }, {
+      toolName: "prepare_analysis",
+      input: {
+        title: "Total users",
+        mode: "aggregate",
+        primaryEntityId: userEntity.id,
+        relationshipIds: [],
+        measures: [{ kind: "aggregate", aggregate: "count" }],
+        dimensions: [],
+        output: "scalar",
+        limit: 1,
+      },
+    }, {
+      toolName: "execute_sql",
+      input: { analysisRef },
+    }];
+    let modelTurn = 0;
+    const model = {
+      specificationVersion: "v2",
+      provider: "tessera-test",
+      modelId: "prepared-analysis-test",
+      supportedUrls: {},
+      async doGenerate() {
+        throw new Error("Tessera must use Agent.stream for every model turn.");
+      },
+      async doStream() {
+        const tool = toolTurns[modelTurn++];
+        return {
+          stream: new ReadableStream({
+            start(controller) {
+              controller.enqueue({ type: "stream-start", warnings: [] });
+              if (tool) {
+                controller.enqueue({
+                  type: "tool-call",
+                  toolCallId: `call-${modelTurn}`,
+                  toolName: tool.toolName,
+                  input: JSON.stringify(tool.input),
+                  providerExecuted: false,
+                });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else {
+                controller.enqueue({ type: "text-start", id: "text-1" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text-1",
+                  delta: [
+                    'root = Report("Total users", "Verified result", content)\n',
+                    'content = Stack("md", [metric])\n',
+                    'metric = Metric("Total users", @data1, "out_measure_1", "number")\n',
+                  ].join(""),
+                });
+                controller.enqueue({ type: "text-end", id: "text-1" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              }
+              controller.close();
+            },
+          }),
+          warnings: [],
+          request: {},
+          response: {},
+        };
+      },
+    } as never;
+    const llm: TesseraLlmConfig = {
+      model: model as unknown as string,
+      headers: {},
+      temperature: 0,
+      maxOutputTokens: 256,
+      maxSteps: 8,
+      maxRetries: 0,
+    };
+
+    try {
+      await session.createThread({ id: "thread-prepared-analysis", resourceId: "local-studio" });
+      const agent = createTesseraStudioAgent({
+        dataAgent,
+        memory: session.memory,
+        llm,
+        permissionContext: {
+          accessMode: "read-only",
+          databaseActionsAvailable: false,
+          sqlStatements: { read: "allow", write: "deny", destructive: "deny", unknown: "deny" },
+        },
+      });
+      const run = await agent.run({
+        runId: "run-prepared-analysis",
+        threadId: "thread-prepared-analysis",
+        message: "How many users are there?",
+        signal: new AbortController().signal,
+        reportDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+      }).catch((error) => {
+        throw new Error(`Prepared analysis loop failed: ${JSON.stringify({ calls, diagnostics, modelTurn })}`, { cause: error });
+      });
+
+      expect(calls).toEqual(["search", "prepare", `execute:${analysisRef}`]);
+      expect(run.message).toBe("Analysis complete.");
+      expect(run.evidence).toHaveLength(1);
+      expect(modelTurn).toBe(4);
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1650,7 +2067,14 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The read completed and the change is waiting for approval." });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "text-1",
+                  delta: 'root = Report("Database operations", "The read completed and the change is waiting for approval.", content)\n',
+                });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'content = Stack("md", [metric, insight])\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'metric = Metric("Query value", @data1, "value", "number")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'insight = Insight("Approval", "The database change is waiting for approval.", "warning")\n' });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1701,7 +2125,7 @@ describe("Tessera Agent vNext public boundary", () => {
         identity,
       });
 
-      expect(run.message).toContain("waiting for approval");
+      expect(run.message).toBe("Analysis complete.");
       expect(reads).toEqual([{
         sql: "SELECT 1 AS value",
         parameters: [],
@@ -1961,8 +2385,72 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(jsonSchema).toHaveProperty("properties.recordOrderBy");
     expect(jsonSchema).toHaveProperty("properties.aggregateOrderBy");
 
-    const invalid = modelAnalysisToolInputSchema["~standard"].validate({ action: "run_governed_analysis" });
+    const invalid = modelAnalysisToolInputSchema["~standard"].validate({ action: "prepare_analysis" });
     expect("issues" in invalid).toBeTrue();
+  });
+
+  test("rejects semantically invalid filter and measure shapes at the model tool boundary", () => {
+    const base = {
+      mode: "aggregate" as const,
+      primaryEntityId: "ent_0123456789abcdef",
+      relationshipIds: [],
+      limit: 1,
+    };
+    const parse = (value: Record<string, unknown>) => modelAnalysisToolInputSchema.safeParse({
+      ...base,
+      ...value,
+    }).success;
+
+    expect(parse({
+      filter: { conditions: [{ fieldId: "fld_0123456789abcdef", op: "eq" }] },
+    })).toBeFalse();
+    expect(parse({
+      filter: { conditions: [{ fieldId: "fld_0123456789abcdef", op: "is_null", value: "unexpected" }] },
+    })).toBeFalse();
+    expect(parse({
+      filter: { conditions: [{ fieldId: "fld_0123456789abcdef", op: "in", value: "one" }] },
+    })).toBeFalse();
+    expect(parse({
+      filter: { conditions: [{ fieldId: "fld_0123456789abcdef", op: "between", value: [1] }] },
+    })).toBeFalse();
+    expect(parse({
+      filter: { conditions: [{ fieldId: "fld_0123456789abcdef", op: "in", value: ["one", "two"] }] },
+    })).toBeTrue();
+
+    expect(parse({ measures: [{ kind: "metric" }] })).toBeFalse();
+    expect(parse({ measures: [{ kind: "aggregate", aggregate: "sum" }] })).toBeFalse();
+    expect(parse({ measures: [{ kind: "aggregate", aggregate: "count", fieldId: "fld_0123456789abcdef" }] })).toBeFalse();
+    expect(parse({ measures: [{ kind: "metric", metricId: "met_0123456789abcdef", fieldId: "fld_0123456789abcdef" }] })).toBeFalse();
+    expect(parse({ measures: [{ kind: "aggregate", aggregate: "sum", fieldId: "fld_0123456789abcdef" }] })).toBeTrue();
+  });
+
+  test("carries connector catalog coverage into the bounded physical context", () => {
+    const partialCatalog = {
+      dialect: "postgres",
+      coverage: {
+        status: "partial" as const,
+        reason: "connector_limit" as const,
+        returnedTables: 1,
+        omittedTables: 3,
+      },
+      schemas: [{
+        name: "public",
+        tables: [{
+          schema: "public",
+          name: "orders",
+          kind: "table" as const,
+          columns: [{ name: "id", dataType: "integer", nullable: false, ordinal: 1 }],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    } satisfies Pick<DatabaseCatalog, "dialect" | "schemas" | "coverage">;
+
+    const context = buildDatabaseSchemaContext(partialCatalog);
+    expect(context.catalogCoverage).toEqual(partialCatalog.coverage);
+    expect(context.truncated).toBeTrue();
+    expect(context.omitted.tables).toBe(3);
+    expect(formatDatabaseSchemaContext(context)).toContain("\"catalogCoverage\"");
   });
 
   test("leaves mode-specific plan errors for the governed tool to correct", () => {
@@ -2035,30 +2523,35 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(selectPlanningCapabilityScopes([users], unseenFieldDraft)).toBeUndefined();
   });
 
-  test("turns governed failures into actionable but detail-free model feedback", () => {
+  test("turns governed failures into actionable sanitized model feedback", () => {
     expect(analysisToolRejection(new DataAgentError("catalog_stale"))).toEqual({
       status: "rejected",
       reason: "catalog_changed",
-      nextAction: "list_catalog",
+      message: "The database catalog changed while this analysis was being planned. Refresh the catalog and retry with the new identifiers.",
+      nextAction: "search_data_context",
     });
     expect(analysisToolRejection(new DataAgentError("invalid_analysis_spec"))).toEqual({
       status: "rejected",
       reason: "invalid_plan",
+      message: "The analysis plan was rejected by server-side validation. Check the identifiers, required ordering, filters, and limits, then revise the plan.",
       nextAction: "revise_plan",
     });
     expect(analysisToolRejection({ name: "DataAgentError", code: "invalid_analysis_spec" })).toEqual({
       status: "rejected",
       reason: "invalid_plan",
+      message: "The analysis plan was rejected by server-side validation. Check the identifiers, required ordering, filters, and limits, then revise the plan.",
       nextAction: "revise_plan",
     });
     expect(analysisToolRejection({ name: "DataAgentError", code: "made_up_code" })).toEqual({
       status: "rejected",
       reason: "data_unavailable",
+      message: "The database did not return a usable result for this analysis. Check the connection and the reported database diagnostic before retrying.",
       nextAction: "respond",
     });
     expect(analysisToolRejection(new Error("postgresql://private-host/warehouse"))).toEqual({
       status: "rejected",
       reason: "data_unavailable",
+      message: "[REDACTED]",
       nextAction: "respond",
     });
   });
@@ -2104,9 +2597,9 @@ describe("Tessera Agent vNext public boundary", () => {
   });
 
   test("emits only allowlisted public tool summaries", () => {
-    expect(publicToolOutput("list_catalog", "completed", {
+    expect(publicToolOutput("search_data_context", "completed", {
       mode: "search",
-      tableCount: 3,
+      entityCount: 3,
       truncated: true,
       catalog: { entities: [{ label: "private_orders" }] },
       connectionString: "postgres://user:password@private-host/warehouse",
@@ -2117,7 +2610,7 @@ describe("Tessera Agent vNext public boundary", () => {
       tableCount: 2,
       columnCount: 8,
       schema: { tables: [{ name: "private_orders" }] },
-    })).toEqual({ status: "completed", operation: "describe_schema", tableCount: 2, columnCount: 8, foreignKeyCount: 0 });
+    })).toEqual({ status: "completed", operation: "describe_schema", tableCount: 2, columnCount: 8, foreignKeyCount: 0, indexCount: 0 });
 
     expect(publicToolOutput("execute_sql", "completed", {
       status: "approval_required",
@@ -2147,27 +2640,29 @@ describe("Tessera Agent vNext public boundary", () => {
       nextAction: "list_database",
     });
 
-    expect(publicToolOutput("run_analysis", "completed", {
-      rowCount: 2,
+    expect(publicToolOutput("prepare_analysis", "completed", {
+      status: "prepared",
       evidence: { sampleRows: [{ email: "customer@example.test" }] },
       rawCommand: "select raw_sql_marker from private.orders",
-    })).toEqual({ status: "completed", rowCount: 2 });
+    })).toEqual({ status: "completed" });
 
-    expect(publicToolOutput("list_rls_policies", "completed", {
+    expect(publicToolOutput("list_database", "completed", {
+      operation: "rls_policies",
       dialect: "postgres",
       relations: [{ schema: "public", table: "orders", policies: [{ name: "tenant", usingExpression: "secret" }] }],
       policyCount: 1,
       connectionString: "postgres://user:password@private-host/warehouse",
-    })).toEqual({ status: "completed", dialect: "postgres", relationCount: 1, policyCount: 1 });
+    })).toEqual({ status: "completed", operation: "rls_policies", dialect: "postgres", relationCount: 1, policyCount: 1 });
 
-    expect(publicToolOutput("list_extensions", "completed", {
+    expect(publicToolOutput("list_database", "completed", {
+      operation: "extensions",
       dialect: "postgres",
       extensions: [
         { name: "pgcrypto", installed: true },
         { name: "postgis", installed: false },
       ],
       connectionString: "postgres://user:password@private-host/warehouse",
-    })).toEqual({ status: "completed", dialect: "postgres", extensionCount: 2, installedCount: 1 });
+    })).toEqual({ status: "completed", operation: "extensions", dialect: "postgres", extensionCount: 2, installedCount: 1 });
   });
 
 });

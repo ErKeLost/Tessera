@@ -4,8 +4,8 @@ description: Seventeen focused chart recipes for analytical interfaces.
 full: true
 ---
 
-The Catalog has six public Component Contracts. This page focuses on its one
-chart Contract, `data.chart`; `analysis.report`, `layout.stack`, `layout.grid`,
+Tessera's internal view catalog has six analytical contracts. This page focuses
+on its one chart contract, `data.chart`; `analysis.report`, `layout.stack`, `layout.grid`,
 `data.metric`, and `analysis.insight` compose charts into complete analytical
 answers. `data.chart`'s `spec.recipe` discriminant selects one of 17 designs:
 
@@ -32,15 +32,13 @@ specs contain a typed Resource Binding; rows are resolved by the Host and
 validated only in the node-scoped render projection. A recipe cannot contain
 raw colors, CSS, callbacks, React props, or SVG markup.
 
-The Host owns visual theming through `--og-*` CSS properties on `.og-ui`.
+Tessera owns visual theming through its internal `--og-*` CSS properties on `.og-ui`.
 Color roles, chart accents, shadows, and the complete radius scale can be
 overridden without changing ChartSpec. `--og-radius-base` adjusts the entire
 radius system; semantic tokens such as `--og-radius-panel` and
 `--og-radius-card` can be overridden independently.
 
-Every preview below starts from the official authoring fixture, publishes its
-dataset through the Resource Gateway, and is resolved through the real
-`SurfaceController`, `GenerativeSurface`, and verified renderer registry. The
-gallery does not use documentation-only replicas.
+Every preview below uses the same fixture, resource projection, and renderer
+code as Tessera Studio. The gallery does not use documentation-only replicas.
 
 <DataChartGallery />

@@ -1,43 +1,39 @@
 ---
-title: Introduction
-description: Tessera Agent's final Generative UI architecture, proven first through governed data-agent workflows.
+title: Tessera Agent documentation
+description: The operating manual for a governed data agent that turns questions into verified answers.
 ---
 
-Tessera Agent is the product documented in this site. The current repository is
-its complete Generative UI architecture and proof ground: the protocol,
-compiler, runtime, authority boundary, client controller, React surface, data
-components, fixtures, and evaluation gates all live here until the data-agent
-experience is proven end to end.
+Tessera Agent is a database-aware assistant for teams that need answers they can
+inspect, reproduce, and act on. It discovers the connected catalog, plans against
+the available relations, executes bounded reads, and returns evidence with every
+result.
 
-The framework-neutral packages use the `@open-generative/*` namespace because
-that is the future extraction boundary. It is not a second product in this
-repository and it does not change the current acceptance target. A standalone
-Open Generative project is created only after Tessera Agent passes every proof
-gate.
+This site documents the **Agent product**: how to connect a database, shape the
+tool contract, understand the run loop, operate the approval boundary for
+mutations, and use the generated analysis views built into Studio.
 
-## One render chain
-
-```text
-trusted SurfaceEventStream
--> SurfaceController
--> GenerativeSurface
--> exact RendererRegistry
-```
-
-The model proposes declarative nodes. It never emits JSX, HTML, CSS, SQL, tool
-names, credentials, or executable formulas. The Host owns data, identity,
-validation, authority, state, effects, persistence, commit, and rendering.
-
-## Current scope
-
-The public UI catalog is intentionally focused: five analytical composition
-Contracts plus one governed `data.chart` Contract with 17 named recipes. Each
-recipe has its own information structure and visual treatment while sharing the
-same trusted resource, validation, and rendering chain.
+## Start with the job you need to do
 
 <Cards>
-  <Card title="Generative UI architecture" description="Read the single protocol, authority, commit, and rendering design." href="/docs/agent/architecture/generative-ui" />
-  <Card title="Data-agent proof gates" description="See the deterministic, security, rendering, and product-quality gates Tessera Agent must pass." href="/docs/agent/architecture/generative-ui-proof" />
-  <Card title="Data charts" description="Inspect all 17 chart recipes through the live verified renderer." href="/docs/components/generative-ui-catalog" />
-  <Card title="Agent architecture" description="Connect the Generative UI system to governed analysis, evidence, and production operation." href="/docs/agent/architecture" />
+  <Card title="Run your first query" description="Connect a database and trace one question from catalog discovery to verified rows." href="/docs/agent/getting-started" />
+  <Card title="Configure the agent" description="Set provider, database, limits, and permissions without guessing which layer owns them." href="/docs/agent/configuration" />
+  <Card title="Understand the workflow" description="Follow planning, tool execution, evidence publication, and the final response." href="/docs/agent/run-workflow" />
+  <Card title="Review the tool contract" description="See the exact inputs, outputs, failure states, and recovery signals exposed to the model." href="/docs/agent/tool-contract" />
+  <Card title="Operate safely" description="Learn how catalog boundaries, read limits, approvals, and receipts protect production data." href="/docs/concepts/security" />
+  <Card title="Deploy with confidence" description="Read the runtime topology, observability expectations, and production gates." href="/docs/agent/architecture" />
 </Cards>
+
+## The request lifecycle
+
+```text
+question
+  -> catalog scope
+  -> semantic plan
+  -> bounded read
+  -> evidence + diagnostics
+  -> answer or approved mutation
+```
+
+The model never receives connection secrets or an unrestricted database
+surface. Tessera owns the catalog snapshot, authorization decision, connector
+execution, error details, and the terminal result that is shown to the user.

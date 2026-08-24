@@ -1,11 +1,29 @@
 import { expect, test } from "bun:test";
 import {
   actorAuditRefSchema,
-  authoringSnapshotProposalSchema,
   resourceDatasetPayloadSchema,
   sha256HashSchema,
 } from "@open-generative/protocol";
+import { chartRecipes } from "@open-generative/components";
 import { createOpenGenerativeHost } from "./index";
+
+test("prepares a static UI turn without domain resources", async () => {
+  const host = await createOpenGenerativeHost();
+  const turn = await host.prepareTurn({
+    authority: {
+      actorAuditRef: actorAuditRefSchema.parse("actor:static-test"),
+      actorBindingHash: sha256HashSchema.parse(`sha256:${"c".repeat(64)}`),
+      tenantBindingHash: sha256HashSchema.parse(`sha256:${"d".repeat(64)}`),
+      authorityPolicyRevision: "test:1",
+    },
+    resources: [],
+  });
+
+  expect(turn).toBeDefined();
+  expect(turn?.catalogSlice.resources).toEqual([]);
+  expect(turn?.language.id).toBe("open-generative-language/1");
+  expect(turn?.language.systemPrompt).toContain("Output only OGL assignment statements");
+});
 
 test("compiles a governed data turn and publishes the model-composed Surface", async () => {
   const host = await createOpenGenerativeHost();
@@ -36,56 +54,35 @@ test("compiles a governed data turn and publishes the model-composed Surface", a
   });
   expect(turn).toBeDefined();
   const requiredTurn = turn!;
-  const componentId = (type: string) => requiredTurn.catalogSlice.components
-    .find((entry) => entry.contract.componentType === type)?.sliceComponentId;
-  const resourceId = requiredTurn.catalogSlice.resources[0]?.sliceResourceId;
-  expect(componentId("analysis.report")).toBeDefined();
-  expect(componentId("layout.stack")).toBeDefined();
-  expect(componentId("data.metric")).toBeDefined();
-  expect(resourceId).toBeDefined();
-  expect(requiredTurn.compiled.systemPrompt).toContain("must be presented");
+  expect(requiredTurn.language.resources[0]?.alias).toBe("data1");
+  expect(requiredTurn.language.systemPrompt).toContain("must contain at least one Metric or Chart");
+  const recipeBlock = requiredTurn.language.systemPrompt
+    .split("Chart recipe catalog (each line is one exact recipe ID and its model-supplied required props):")[1]
+    ?.split("Catalog components:")[0];
+  expect(recipeBlock).toBeDefined();
+  expect(recipeBlock?.match(/\"recipe\":/g)).toHaveLength(17);
+  for (const recipe of chartRecipes) {
+    expect(recipeBlock).toContain(`\"recipe\":\"${recipe}\"`);
+  }
+  expect(recipeBlock).not.toContain('\"recipe\":\"bars\"');
+  expect(requiredTurn.language.systemPrompt).toContain("exact closed enum");
 
-  const session = await requiredTurn.createSession({ toolCallId: "tool:test" });
-  const outcome = await session.complete(authoringSnapshotProposalSchema.parse({
-    kind: "snapshot",
-    root: {
-      localId: "report",
-      component: componentId("analysis.report")!,
-      props: { title: "Device visitors" },
-      slots: {
-        body: [{
-          localId: "stack",
-          component: componentId("layout.stack")!,
-          props: { gap: "md" },
-          slots: {
-            body: [{
-              localId: "visitors",
-              component: componentId("data.metric")!,
-              props: {
-                label: "Total visitors",
-                data: {
-                  ref: "resource",
-                  target: { kind: "resource", localId: "analysis-data" },
-                },
-                valueColumn: "visitors",
-                format: "number",
-              },
-            }],
-          },
-        }],
-      },
-    },
-    resourceBindings: [{
-      localId: "analysis-data",
-      value: { source: resourceId! },
-    }],
-    meta: { title: "Device visitors", tags: [] },
-  }));
+  const session = await requiredTurn.createSession();
+  await session.pushTextDelta('root = Report("Device visitors", "Verified result", content)\n');
+  expect(requiredTurn.drainEvents()).toEqual([]);
+  await session.pushTextDelta('content = Stack("md", [visitors])\n');
+  const initialEvents = requiredTurn.drainEvents();
+  expect(initialEvents[0]?.payload.type).toBe("snapshot-published");
+  expect(initialEvents.some((event) => event.payload.type === "preview-applied")).toBe(true);
+  await session.pushTextDelta('visitors = Metric("Total visitors", @data1, "visitors", "number")\n');
+  const outcome = await session.finish();
 
   expect(outcome.status).toBe("committed");
-  const events = requiredTurn.drainEvents();
-  expect(events).toHaveLength(1);
-  expect(events[0]?.payload.type).toBe("snapshot-published");
+  const events = [...initialEvents, ...requiredTurn.drainEvents()];
+  expect(events.at(-1)?.payload.type).toBe("revision-committed");
+  await expect(requiredTurn.createSession()).rejects.toThrow(
+    "already committed a Surface revision",
+  );
   if (events[0]?.payload.type !== "snapshot-published") throw new Error("Expected a Surface snapshot.");
   expect(Object.keys(events[0].payload.snapshot.resources)).toHaveLength(1);
 }, { timeout: 30_000 });

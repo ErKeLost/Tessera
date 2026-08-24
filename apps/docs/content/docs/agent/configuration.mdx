@@ -1,50 +1,67 @@
 ---
-title: Proof Configuration
-description: Keep Tessera Agent's Generative UI proof reproducible without inventing a public Studio config API.
+title: Configuration
+description: Configure Tessera Studio, its database boundary, and model runtime.
 ---
 
-This Generative UI proof does not depend on the separately published
-`@open-tessera/studio` configuration facade, and there is no `tessera-agent`
-component CLI. Its configuration is owned by explicit package contracts and
-test fixtures rather than a second top-level product API.
+Tessera reads one server-only `tessera.config.ts`. The configuration owns the
+database connection, semantic definitions, model settings, and Studio network
+boundary. Generated analysis views are built into Studio and have no separate
+installation or public configuration block.
 
-## Ownership
+```ts
+import { defineTesseraConfig } from "@open-tessera/studio";
 
-| Concern | Current source of truth |
-| --- | --- |
-| Protocol limits and wire schemas | `packages/protocol` |
-| Component identity, schemas, and Catalog slices | `packages/catalog` and `packages/components` |
-| Proposal normalization, validation, and commit | `packages/compiler` |
-| Query resources, grants, and projections | `packages/resources` |
-| Host authority, sessions, and trusted events | `packages/server` |
-| Browser replay, resolved props, and commands | `packages/client` |
-| React surface and exact renderer lookup | `packages/react` |
-| Tessera data-agent renderers and recipes | `packages/ui` |
-| Deterministic and model-evaluation acceptance | the proof specification and fixtures |
+export default defineTesseraConfig({
+  database: {
+    url: process.env.DATABASE_URL!,
+    schemas: ["analytics"],
+    maxRows: 5_000,
+    statementTimeoutMs: 30_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+    reasoningEffort: "low",
+    temperature: 0.1,
+    maxOutputTokens: 12_800,
+    maxSteps: 50,
+    maxRetries: 0,
+  },
+  studio: {
+    host: "127.0.0.1",
+    port: 4317,
+    catalogCacheTtlMs: 60_000,
+  },
+});
+```
 
-The Host must freeze the Component Contract slice, authority, resource grants,
-limits, locale, timezone, and renderer capability manifest for each Surface
-session. A model cannot configure or expand any of them.
+## Database
 
-## Data-agent profile
+`database.url` is required. The URL determines the dialect unless an explicit
+matching `database.dialect` is provided. `schemas` narrows discovery for
+PostgreSQL and MySQL. `maxRows`, `statementTimeoutMs`, and `permissions` bound
+what the Agent can execute.
 
-The current product profile is deliberately fixed to six analytical Component
-Contracts. Its one chart Contract, `data.chart`, contains 17 audited recipes.
-The recipes form a strict discriminated union over the same Contract; they are
-not extra protocol component types and cannot inject arbitrary presentation
-values.
+Turso credentials use `database.authToken` or `TURSO_AUTH_TOKEN`; keep the token
+separate from the database URL.
 
-Query rows stay in the Resource Gateway. The model receives only bounded,
-policy-approved descriptors and binding references. Renderer props are resolved
-for one node after trusted events reach `SurfaceController`.
+## Model
 
-## Local environment
+Model IDs use Mastra's `provider/model` form. Tessera can read common provider
+keys from server environment variables, or accept `llm.apiKey` directly in the
+server-only config. `llm.baseUrl` and `llm.headers` support compatible gateways.
 
-No secret is needed for deterministic proof gates. `OPENROUTER_API_KEY` enables
-only the optional documentation chat route. Database credentials and the
-Tessera Agent product integration belongs to its Host surface and must remain
-server-only there.
+`maxSteps` bounds the complete model/tool loop, while `maxRetries` controls
+provider retries. Presentation validation has its own bounded processor retry
+and does not add a tool to the Agent.
 
-Any future public config facade must be implemented and tested before it is
-documented here. Until then, examples use concrete repository APIs and fixtures
-only.
+## Studio network boundary
+
+Studio binds to loopback by default. A non-loopback host requires all of the
+following:
+
+- `studio.allowRemote: true`
+- authentication enabled
+- at least one explicit `studio.allowedOrigins` entry
+
+This prevents a local database workspace from becoming remotely reachable by
+accident.

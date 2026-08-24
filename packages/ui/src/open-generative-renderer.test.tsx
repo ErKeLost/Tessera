@@ -7,7 +7,7 @@ describe("OpenGenerativeRenderer", () => {
     const html = renderToStaticMarkup(
       <OpenGenerativeRenderer
         className="host-surface"
-        event={{} as never}
+        stream={{ surfaceSessionId: "surface-loading", events: [] } as never}
       />,
     );
 

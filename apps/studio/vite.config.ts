@@ -48,6 +48,9 @@ export default defineConfig({
       { find: "@", replacement: clientRoot },
     ],
   },
+  ssr: {
+    noExternal: [/^@open-generative\//],
+  },
   server: {
     host: "127.0.0.1",
     port: 4317,

@@ -1,49 +1,68 @@
 ---
-title: Tool Contract and Boundaries
-description: Keep Data Agent tools semantic and connect UI authoring through one trusted commit path.
+title: Tool contract
+description: The exact database tools Tessera Agent exposes to the model and the boundaries each one enforces.
 ---
+
+Tessera Agent exposes database work through a small, explicit Mastra tool set.
+The generated analysis view is **not** another tool. It is produced after
+verified data exists by the Agent's output processor.
 
 ## Model-facing tools
 
+| Tool | Purpose | Important boundary |
+| --- | --- | --- |
+| `list_database` | List relations, describe an exact schema or relation, inspect the current Studio relation, or read engine capabilities | Metadata is planning context, never proof of a requested business fact |
+| `search_data_context` | Search or describe the governed semantic catalog | Returns bounded semantic identifiers; it does not execute a query |
+| `prepare_analysis` | Validate, bind, and compile a semantic draft into a short-lived `analysisRef` | It never reads business rows or returns compiled SQL |
+| `execute_sql` | Run explicit read SQL, consume an `analysisRef`, or submit a typed mutation | It is the only business-data execution boundary |
+
+Extension and RLS inspection are operations of `list_database`, using
+`operation=extensions` and `operation=rls_policies`. They are not standalone
+model tools.
+
+The model uses one primary query path for a request:
+
 ```text
-inspect_current_context  -> server-bound current data context
-inspect_catalog          -> semantic catalog slice for one question
-describe_data            -> bounded detail for inspected entities
-probe_data               -> fixed, bounded discovery probe
-run_analysis             -> read-only analysis from a semantic draft
-present_ui               -> declarative composition from the frozen UI slice
+physical or explicit SQL work
+  list_database -> execute_sql
+
+semantic business analysis
+  search_data_context -> prepare_analysis -> execute_sql(analysisRef)
 ```
 
-Data tools accept only semantic identifiers returned by the current catalog.
-They do not accept SQL, connection strings, credentials, physical relation
-names, compiler output IDs, or arbitrary limits. `present_ui` receives only the
-Component, Action, Resource, Evidence, and State identities offered for that
-turn. It cannot carry raw query rows or executable code.
+Catalog and schema results help the model plan, but only a successful execution
+result can support a data claim. `not_found`, `unavailable`, `blocked`, and
+`failed` are distinct states; an incomplete catalog is never rewritten as
+proof that a relation does not exist.
 
-## Trust boundaries
+## Tool result contract
 
-| Boundary | Allowed | Never allowed |
+Every public tool result is bounded and actionable. It includes a status, safe
+counts or metadata, an optional reason, and a next action when recovery is
+possible. Browser tool parts contain an allowlisted summary rather than raw
+arguments, SQL, credentials, catalog internals, or query rows.
+
+The mutation branch of `execute_sql` never treats model intent as
+authorization. The server compiles the typed action, evaluates the current
+policy, creates an approval checkpoint, and resumes the same Mastra run only
+after a valid decision. Raw write SQL is not accepted.
+
+## Generated analysis views
+
+Once `execute_sql` has published verified resources, the
+output processor may convert the final response into a Tessera analysis view.
+That processor receives only the current resource descriptors and component
+vocabulary. It does not add a presentation tool, one tool per chart, or another
+query path, and it cannot execute database work.
+
+The browser receives the result as a typed AI SDK data part. Tessera validates,
+sanitizes, checkpoints, and renders it through the Studio's built-in renderer.
+
+## Trust boundary
+
+| Layer | Owns | Cannot do |
 | --- | --- | --- |
-| Model | Semantic slices, opaque offered IDs, bounded descriptors, `present_ui` | SQL, credentials, rows, arbitrary component or tool names |
-| Compiler | Untrusted proposal plus one frozen `CatalogSetSlice` | Authority expansion or direct renderer output |
-| HostServer | Validated revisions, authority, transactions, trusted Surface events | Publishing raw model chunks as committed state |
-| Browser controller | Trusted events, node-scoped projections, revision-bound commands | Connector access, policy decisions, or effect execution |
-| Renderer | Resolved props, declared slots, placement, declared event ports | Fetching data, choosing actions, mutating canonical state directly |
-| Resource Gateway | Grant-bound schema, version, projection, window, evidence | Unbounded row dumps or model-selected credentials |
-| Capability broker | Typed HostIntent, approval, idempotency, receipt | Implicit effects from display events |
-
-## Implementation map
-
-| Concern | Implementation |
-| --- | --- |
-| Data catalog, planning, compiler, and execution | `packages/data-agent` and database connector packages |
-| Canonical Generative UI protocol | `packages/protocol`, `packages/catalog`, `packages/runtime` |
-| Proposal compilation | `packages/compiler` |
-| Resource and capability boundaries | `packages/resources`, `packages/capabilities` |
-| Trusted server publication | `packages/server` |
-| Browser control and rendering | `packages/client`, `packages/react`, `packages/ui` |
-| Current Component Contracts and recipes | `packages/components` |
-
-Framework adapters are transport glue only. AI SDK and Mastra integrations are
-not considered available until their real adapters pass the same end-to-end
-Tessera data-agent fixtures.
+| Model | Select a valid tool and propose bounded input | Grant access, read credentials, or bypass policy |
+| Mastra Agent | Step loop, processors, tool lifecycle, Memory, suspend/resume | Replace Tessera's database authorization |
+| Tessera server | Catalog scope, SQL safety, connector execution, approval, evidence, transcript projection | Trust raw model output as committed state |
+| Browser | Render native AI SDK parts and submit explicit user decisions | Connect to the database or execute effects |

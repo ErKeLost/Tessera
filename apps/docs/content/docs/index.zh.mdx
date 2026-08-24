@@ -1,37 +1,35 @@
 ---
-title: 简介
-description: Tessera Agent 的终局 Generative UI 架构，首先通过受治理的 data-agent workflow 完成成功证明。
+title: Tessera Agent 文档
+description: 受治理 Data Agent 的使用与工程文档：把问题变成可核验的答案。
 ---
 
-本站只描述一个产品：**Tessera Agent**。当前仓库是它完整的 Generative UI 架构与成功证明场地：
-Protocol、Compiler、Runtime、权限边界、Client Controller、React Surface、数据组件、Fixture 与
-Evaluation Gate 都先在这里完整实现，直到 data-agent 体验通过端到端验证。
+Tessera Agent 面向需要检查、复现和继续行动的数据库团队。它先发现已连接的
+Catalog，再基于可见 Relation 规划，执行有上限的读取，并为结果保留 Evidence。
 
-framework-neutral Package 使用 `@open-generative/*` namespace，是为了提前固定未来的抽取边界。
-它在当前仓库中不是第二个产品，也不会改变当前验收对象。只有 Tessera Agent 通过全部 proof gate 后，
-才会创建独立的 Open Generative 项目。
+本站只描述 **Agent 产品**：如何连接数据库、定义 Tool 契约、理解运行流程、处理写操作的
+审批边界，以及使用 Studio 内置的生成式分析视图。
 
-## 唯一渲染链路
-
-```text
-trusted SurfaceEventStream
--> SurfaceController
--> GenerativeSurface
--> exact RendererRegistry
-```
-
-模型只提出声明式 Node，不生成 JSX、HTML、CSS、SQL、Tool 名称、Credential 或可执行公式。
-数据、身份、校验、权限、状态、Effect、持久化、Commit 与渲染全部由 Host 掌控。
-
-## 当前范围
-
-公共 UI Catalog 只聚焦分析场景：五个分析组合 Contract，加上一个受治理的 `data.chart`
-Contract 与 17 个具名 Recipe。每个 Recipe 都有独立的信息结构与视觉表达，同时复用同一条
-可信 Resource、校验和渲染链路。
+## 从你要完成的事情开始
 
 <Cards>
-  <Card title="Generative UI 终局架构" description="阅读唯一协议、权限边界、Commit 与渲染设计。" href="/docs/agent/architecture/generative-ui" />
-  <Card title="data-agent 成功证明" description="查看 Tessera Agent 必须通过的确定性、安全、渲染与产品质量门槛。" href="/docs/agent/architecture/generative-ui-proof" />
-  <Card title="Data Chart" description="通过真实且经过验证的 Renderer 查看全部 17 个图表 Recipe。" href="/docs/components/generative-ui-catalog" />
-  <Card title="Agent 架构" description="把 Generative UI 与受治理分析、证据和生产运行连接起来。" href="/docs/agent/architecture" />
+  <Card title="运行第一个查询" description="连接数据库，跟踪一个问题如何从 Catalog 发现走到可核验的结果。" href="/docs/agent/getting-started" />
+  <Card title="配置 Agent" description="配置 Provider、数据库、执行上限和权限，明确每一层负责什么。" href="/docs/agent/configuration" />
+  <Card title="理解运行流程" description="查看规划、Tool 执行、Evidence 发布和最终回答的完整链路。" href="/docs/agent/run-workflow" />
+  <Card title="查看 Tool 契约" description="了解模型可见的输入、输出、失败状态和恢复信号。" href="/docs/agent/tool-contract" />
+  <Card title="安全运行" description="理解 Catalog 边界、读取上限、审批和 Receipt 如何保护生产数据。" href="/docs/concepts/security" />
+  <Card title="准备上线" description="查看运行拓扑、可观测性要求和生产门槛。" href="/docs/agent/architecture" />
 </Cards>
+
+## 一次请求的生命周期
+
+```text
+问题
+  -> Catalog 范围
+  -> 语义计划
+  -> 有上限的读取
+  -> Evidence + Diagnostic
+  -> 回答或审批后的写操作
+```
+
+模型不会拿到连接密钥，也不会获得无限制的数据库表面。Catalog 快照、权限决策、
+Connector 执行、具体错误和最终结果都由 Tessera 掌控。

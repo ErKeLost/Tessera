@@ -1,2 +1,2 @@
-export const appName = "Tessera Agent";
+export const appName = "Tessera";
 export const gitConfig = { user: "ErKeLost", repo: "Tessera", branch: "main" };

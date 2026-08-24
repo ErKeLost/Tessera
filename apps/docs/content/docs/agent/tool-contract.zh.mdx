@@ -1,46 +1,60 @@
 ---
-title: Tool 契约与边界
-description: 保持 Data Agent Tool 语义化，并让 UI Authoring 只通过一条可信 Commit Path。
+title: Tool 契约
+description: Tessera Agent 实际暴露给模型的数据库 Tool，以及每个 Tool 强制执行的边界。
 ---
+
+Tessera Agent 通过一组少量、明确的 Mastra Tool 执行数据库工作。生成式分析视图**不是**额外
+Tool；它在可信数据已经产生后，由 Agent 的 Output Processor 生成。
 
 ## 面向模型的 Tool
 
+| Tool | 用途 | 关键边界 |
+| --- | --- | --- |
+| `list_database` | 列出 Relation、描述精确 Schema 或 Relation、检查 Studio 当前 Relation、读取引擎能力 | Metadata 只能帮助规划，不能证明用户询问的业务事实 |
+| `search_data_context` | 搜索或描述受治理的 Semantic Catalog | 返回受限 Semantic ID，不执行查询 |
+| `prepare_analysis` | 校验、绑定并编译 Semantic Draft，签发短时 `analysisRef` | 不读取业务 Row，也不返回编译后的 SQL |
+| `execute_sql` | 执行显式只读 SQL、消费 `analysisRef`，或提交类型化 Mutation | 唯一的业务数据执行边界 |
+
+Extension 与 RLS 检查属于 `list_database` 的 `operation=extensions` 和
+`operation=rls_policies`，不是独立的模型 Tool。
+
+一次请求只选择一条主要查询路径：
+
 ```text
-inspect_current_context  -> 服务端绑定的当前数据上下文
-inspect_catalog          -> 针对一个问题的 Semantic Catalog Slice
-describe_data            -> 已检查实体的受限详细信息
-probe_data               -> 固定且受限的发现 Probe
-run_analysis             -> 根据 Semantic Draft 执行只读分析
-present_ui               -> 根据冻结 UI Slice 生成声明式 Composition
+物理结构或显式 SQL 工作
+  list_database -> execute_sql
+
+语义业务分析
+  search_data_context -> prepare_analysis -> execute_sql(analysisRef)
 ```
 
-Data Tool 只接受当前 Catalog 返回的 Semantic ID，不接受 SQL、连接字符串、Credential、物理关系名、
-Compiler Output ID 或任意 Limit。`present_ui` 只能接收当前 Turn 已提供的 Component、Action、
-Resource、Evidence 与 State Identity，不能携带原始 Query Row 或可执行代码。
+Catalog 与 Schema Result 只用于规划，只有成功的执行结果才能支持数据结论。`not_found`、
+`unavailable`、`blocked` 与 `failed` 是不同状态；不完整 Catalog 绝不能被改写成“Relation 不存在”。
+
+## Tool Result 契约
+
+每个公开 Tool Result 都有明确上限，并且包含可行动信息：Status、安全的 Count 或 Metadata、
+可选 Reason，以及能够恢复时的 Next Action。浏览器 Tool Part 只保存 Allowlist 摘要，不保存
+原始参数、SQL、Credential、Catalog 内部信息或 Query Row。
+
+`execute_sql` 的 Mutation 分支不会把模型意图当成授权。服务端负责编译 Typed Action、评估当前
+Policy、创建 Approval Checkpoint，并且只在收到有效决定后恢复同一个 Mastra Run。Raw Write SQL
+不被接受。
+
+## 生成式分析视图
+
+`execute_sql` 发布可信 Resource 后，Output Processor 可以把最终回答转换成
+Tessera 分析视图。这个 Processor 只能看到当前 Resource Descriptor 与组件词汇；它不会增加
+呈现 Tool、不会为每个图表增加一个 Tool，也不会创建第二条查询路径，更不能执行数据库工作。
+
+浏览器最终收到一个 Typed AI SDK Data Part。Tessera 负责校验、脱敏、逐 Step Checkpoint，
+并通过 Studio 内置 Renderer 输出。
 
 ## Trust Boundary
 
-| 边界 | 允许 | 永远不允许 |
+| 层 | 负责 | 不能做 |
 | --- | --- | --- |
-| Model | Semantic Slice、Opaque Offered ID、受限 Descriptor、`present_ui` | SQL、Credential、Row、任意 Component 或 Tool Name |
-| Compiler | 不可信 Proposal 与一份冻结 `CatalogSetSlice` | 扩大 Authority 或直接输出 Renderer Value |
-| HostServer | 经过校验的 Revision、Authority、Transaction、可信 Surface Event | 把原始 Model Chunk 当作 Committed State 发布 |
-| Browser Controller | 可信事件、Node-scoped Projection、绑定 Revision 的 Command | Connector Access、Policy Decision 或 Effect Execution |
-| Renderer | Resolved Props、声明 Slot、Placement、声明 Event Port | 获取数据、选择 Action、直接修改 Canonical State |
-| Resource Gateway | 绑定 Grant 的 Schema、Version、Projection、Window 与 Evidence | 不受限 Row Dump 或模型选择 Credential |
-| Capability Broker | 类型化 HostIntent、Approval、Idempotency 与 Receipt | 从 Display Event 隐式执行 Effect |
-
-## 实现对应关系
-
-| 关注点 | 实现 |
-| --- | --- |
-| Data Catalog、Planning、Compiler 与执行 | `packages/data-agent` 与 Database Connector Package |
-| Canonical Generative UI Protocol | `packages/protocol`、`packages/catalog`、`packages/runtime` |
-| Proposal Compilation | `packages/compiler` |
-| Resource 与 Capability Boundary | `packages/resources`、`packages/capabilities` |
-| 可信 Server Publication | `packages/server` |
-| Browser Control 与渲染 | `packages/client`、`packages/react`、`packages/ui` |
-| 当前 Component Contract 与 Recipe | `packages/components` |
-
-Framework Adapter 只能负责 Transport 接线。AI SDK 与 Mastra 的真实 Adapter 通过同一套 Tessera
-data-agent 端到端 Fixture 之前，不能算可用集成。
+| Model | 选择有效 Tool，并提出受限 Input | 授权自己、读取 Credential 或绕过 Policy |
+| Mastra Agent | Step Loop、Processor、Tool 生命周期、Memory、Suspend/Resume | 取代 Tessera 的数据库授权 |
+| Tessera Server | Catalog Scope、SQL Safety、Connector 执行、Approval、Evidence、Transcript Projection | 把原始模型输出直接当作可信状态 |
+| Browser | 渲染原生 AI SDK Part，并提交明确的用户决定 | 连接数据库或执行 Effect |

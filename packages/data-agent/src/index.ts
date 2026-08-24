@@ -42,6 +42,7 @@ import {
   type DataAgentCatalogSnapshot,
   type DataAgentErrorCode,
   type DataAgentExecution,
+  type DataAgentExecutePreparedInput,
   type DataAgentOptions,
   type DataAgentPlanningCatalogDescription,
   type DataAgentPlanningCatalogDescriptionInput,
@@ -50,6 +51,7 @@ import {
   type DataAgentPlanningCatalogSnapshot,
   type DataAgentPlanningProbeInput,
   type DataAgentPlanningProbeResult,
+  type DataAgentPreparedAnalysis,
   type DataAgentReadSqlInput,
   type DataAgentRelationPlanningCatalogInput,
   type DataAgentRelationPlanningCatalogSnapshot,
@@ -71,6 +73,8 @@ import {
 const PLANNING_CAPABILITY_TTL_MS = 5 * 60 * 1_000;
 const COMPOSED_PLANNING_CAPABILITY_TTL_MS = 60 * 1_000;
 const MAX_PLANNING_CAPABILITIES = 256;
+const PREPARED_ANALYSIS_TTL_MS = 5 * 60 * 1_000;
+const MAX_PREPARED_ANALYSES = 256;
 
 type PlanningCapabilityRecord = Readonly<{
   connectorId: string;
@@ -80,6 +84,12 @@ type PlanningCapabilityRecord = Readonly<{
   fieldIds: ReadonlySet<string>;
   metricIds: ReadonlySet<string>;
   relationshipIds: ReadonlySet<string>;
+  expiresAt: number;
+}>;
+
+type PreparedAnalysisRecord = Readonly<{
+  prepared: DataAgentPreparedAnalysis;
+  compiled: CompiledQuery;
   expiresAt: number;
 }>;
 
@@ -130,6 +140,7 @@ export type {
   DataAgentCatalogSnapshot,
   DataAgentErrorCode,
   DataAgentExecution,
+  DataAgentExecutePreparedInput,
   DataAgentOptions,
   DataAgentPlanningCatalogDescription,
   DataAgentPlanningCatalogDescriptionInput,
@@ -138,6 +149,7 @@ export type {
   DataAgentPlanningCatalogSnapshot,
   DataAgentPlanningProbeInput,
   DataAgentPlanningProbeResult,
+  DataAgentPreparedAnalysis,
   DataAgentReadSqlInput,
   DataAgentRelationPlanningCatalogInput,
   DataAgentRelationPlanningCatalogSnapshot,
@@ -193,6 +205,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
   let load: Promise<RuntimeCatalogSnapshot> | undefined;
   const capabilitySecret = randomBytes(32);
   const planningCapabilities = new Map<string, PlanningCapabilityRecord>();
+  const preparedAnalyses = new Map<string, PreparedAnalysisRecord>();
   let cachedCapabilities: { value: DataAgentCapabilitiesSnapshot; expiresAt: number } | undefined;
   let capabilityLoad: Promise<DataAgentCapabilitiesSnapshot> | undefined;
 
@@ -202,9 +215,13 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     if (cachedValue && cachedValue.expiresAt > now().getTime()) {
       return { capabilities: cachedValue.value.capabilities, cacheStatus: "hit" };
     }
+    // Capability probes are shared across callers. Use a probe-owned signal so
+    // one cancelled request cannot abort the shared load for every other caller;
+    // each caller still gets prompt cancellation through waitForAbort below.
     const task = capabilityLoad ?? (capabilityLoad = Promise.resolve().then(async () => {
+      const probeController = new AbortController();
       if (options.connector.inspectCapabilities) {
-        const capabilities = await options.connector.inspectCapabilities();
+        const capabilities = await options.connector.inspectCapabilities(probeController.signal);
         return { capabilities: databaseCapabilitiesSchema.parse(capabilities), cacheStatus: "loaded" as const };
       }
       return {
@@ -723,7 +740,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
 
   async function runConnectorQuery(
     compiled:
-      | Readonly<{ sql: string; parameters: readonly (string | number | boolean)[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>
+      | Readonly<{ sql: string; parameters: readonly (string | number | boolean | null)[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>
       | Readonly<{ kind: "mongodb"; database: string; collection: string; pipeline: readonly Record<string, unknown>[]; resultColumns?: readonly CompiledQuery["resultColumns"][number][] }>,
     purpose: string,
     signal?: AbortSignal,
@@ -776,7 +793,7 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     }
   }
 
-  async function runAnalysis(input: DataAgentRunInput): Promise<DataAgentRunResult> {
+  async function prepareAnalysis(input: DataAgentRunInput): Promise<DataAgentPreparedAnalysis> {
     const requestId = input.requestId ?? requestIdFactory();
     const events: DataAgentStageEvent[] = [];
     const stage = async <T>(name: DataAgentStage, work: () => Promise<T>): Promise<T> => {
@@ -823,16 +840,68 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
         throw toDataAgentError(error);
       }
     });
-    const execution = await stage("executing", () => executeCompiled(compiled, input.signal));
-    await stage("verifying", async () => verifyExecution(execution));
-    return {
+    const prepared: DataAgentPreparedAnalysis = Object.freeze({
+      analysisRef: defaultAnalysisRef(),
       requestId,
       catalog: snapshot.ref,
       semanticCatalog: snapshot.semanticCatalog.ref,
       columns: compiled.resultColumns,
+      queryFingerprint: queryFingerprint(compiled),
+      events: Object.freeze([...events]),
+    });
+    prunePreparedAnalyses(preparedAnalyses, now().getTime());
+    preparedAnalyses.set(prepared.analysisRef, {
+      prepared,
+      compiled,
+      expiresAt: now().getTime() + PREPARED_ANALYSIS_TTL_MS,
+    });
+    return prepared;
+  }
+
+  async function executePreparedAnalysis(input: DataAgentExecutePreparedInput): Promise<DataAgentRunResult> {
+    throwIfAborted(input.signal);
+    const currentTime = now().getTime();
+    prunePreparedAnalyses(preparedAnalyses, currentTime);
+    const record = preparedAnalyses.get(input.analysisRef);
+    if (record === undefined || record.expiresAt <= currentTime) {
+      preparedAnalyses.delete(input.analysisRef);
+      throw new DataAgentError("invalid_analysis_spec", "The prepared analysis is unavailable or expired. Prepare it again before execution.");
+    }
+    // A prepared analysis is single-use. Consuming before execution prevents
+    // transport retries or model loops from replaying the same query.
+    preparedAnalyses.delete(input.analysisRef);
+    const events = [...record.prepared.events];
+    const stage = async <T>(name: DataAgentStage, work: () => Promise<T>): Promise<T> => {
+      await emitStage(input, events, record.prepared.requestId, name, "started", now());
+      const started = now().getTime();
+      try {
+        const value = await work();
+        await emitStage(input, events, record.prepared.requestId, name, "completed", now(), now().getTime() - started);
+        return value;
+      } catch (error) {
+        await emitStage(input, events, record.prepared.requestId, name, "failed", now(), now().getTime() - started);
+        throw error;
+      }
+    };
+    const execution = await stage("executing", () => executeCompiled(record.compiled, input.signal));
+    await stage("verifying", async () => verifyExecution(execution));
+    return {
+      requestId: record.prepared.requestId,
+      catalog: record.prepared.catalog,
+      semanticCatalog: record.prepared.semanticCatalog,
+      columns: record.prepared.columns,
       execution,
       events,
     };
+  }
+
+  async function runAnalysis(input: DataAgentRunInput): Promise<DataAgentRunResult> {
+    const prepared = await prepareAnalysis(input);
+    return executePreparedAnalysis({
+      analysisRef: prepared.analysisRef,
+      signal: input.signal,
+      onEvent: input.onEvent,
+    });
   }
 
   return Object.freeze({
@@ -849,6 +918,8 @@ export function createDataAgent(options: DataAgentOptions): DataAgent {
     composePlanningCapabilities,
     previewRelation,
     executeReadSql,
+    prepareAnalysis,
+    executePreparedAnalysis,
     runAnalysis,
   });
 }
@@ -901,7 +972,7 @@ function unionPlanningScope(
 }
 
 async function emitStage(
-  input: DataAgentRunInput,
+  input: Pick<DataAgentRunInput, "onEvent">,
   events: DataAgentStageEvent[],
   requestId: string,
   stage: DataAgentStage,
@@ -932,6 +1003,24 @@ function verifyExecution(execution: DataAgentExecution): DataAgentExecution {
 
 function defaultRequestId(): string {
   return `run_${crypto.randomUUID().replaceAll("-", "")}`;
+}
+
+function defaultAnalysisRef(): string {
+  return `analysis_${randomBytes(16).toString("hex")}`;
+}
+
+function prunePreparedAnalyses(
+  records: Map<string, PreparedAnalysisRecord>,
+  currentTime: number,
+): void {
+  for (const [analysisRef, record] of records) {
+    if (record.expiresAt <= currentTime) records.delete(analysisRef);
+  }
+  while (records.size >= MAX_PREPARED_ANALYSES) {
+    const oldest = records.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    records.delete(oldest);
+  }
 }
 
 function boundedInteger(value: number | undefined, fallback: number, minimum: number, maximum: number): number {

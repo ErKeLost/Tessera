@@ -133,10 +133,7 @@ export class ProposalNormalizer {
     const create = localCreateTarget(proposalEnvelope.operation);
     if (create) {
       const key = `${create.kind}:${create.localId}`;
-      if (this.#createdLocalEntities.has(key)) {
-        throw compilerError("normalize", "proposal-entity.duplicate-create", "A proposal-local entity can be created only once.", "/operation/target");
-      }
-      if (!this.#input.writeScope.creatable.includes(create.kind)) {
+      if (!this.#createdLocalEntities.has(key) && !this.#input.writeScope.creatable.includes(create.kind)) {
         throw compilerError("policy", "write-scope.create-denied", `Creating ${create.kind} entities is outside the frozen WriteScope.`, "/operation/target");
       }
     }
@@ -662,7 +659,11 @@ export class ProposalNormalizer {
     if ("localId" in target) {
       const resolved = map[toProposalEntityKey(kind, target.localId)];
       if (!resolved || resolved.kind !== kind) throw compilerError("normalize", "identity-map.target-missing", "Create target has no kind-safe identity mapping.");
-      return { id: resolved.id };
+      const expectedEntityRevision = this.#currentEntityRevision(kind, resolved.id);
+      return {
+        id: resolved.id,
+        ...(expectedEntityRevision === undefined ? {} : { expectedEntityRevision }),
+      };
     }
     return this.#updateTarget(kind, target.canonicalId, target.expectedEntityRevision);
   }
@@ -682,6 +683,17 @@ export class ProposalNormalizer {
   #isReadable(kind: ProposalEntityKind, id: string): boolean {
     return this.#input.writeScope.readable[kind].includes(id as never)
       || this.#input.writeScope.writable[kind][id] !== undefined;
+  }
+
+  #currentEntityRevision(kind: ProposalEntityKind, id: string): EntityRevisionId | undefined {
+    switch (kind) {
+      case "node": return this.#entityRevisions.nodes[id];
+      case "state": return this.#entityRevisions.states[id];
+      case "action": return this.#entityRevisions.actions[id];
+      case "resource": return this.#entityRevisions.resources[id];
+      case "evidence": return this.#entityRevisions.evidence[id];
+      case "claim": return this.#entityRevisions.claims[id];
+    }
   }
 
   #enforceGenerationLimits(): void {

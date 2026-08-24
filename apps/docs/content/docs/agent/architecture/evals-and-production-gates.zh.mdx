@@ -16,7 +16,7 @@ description: 在发布前后评估分析正确性、安全性、证据、工具�
 | 验证 | 对空结果、过期结果、不一致结果或未核对结果的检测 |
 | 回答 | 事实性、完整性、校准语言和有用限制 |
 | 证据 | 引用完整性、蕴涵关系、来源质量和溯源连续性 |
-| Artifact | 渲染器选择、Schema 有效性、无障碍能力和响应式布局 |
+| 分析视图 | Recipe 选择、Schema 有效性、无障碍能力和响应式布局 |
 | 结果 | 任务完成度、分析师修正率、决策价值和节省时间 |
 
 尽可能使用确定性检查；细致的分析质量由人工审查；模型评分器只有在根据专家标签完成校准后才能使用。
@@ -37,15 +37,15 @@ description: 在发布前后评估分析正确性、安全性、证据、工具�
 
 ## 发布门槛
 
-出现租户隔离失败、不安全 SQL、绕过审批、可执行 Artifact 内容或严重证据故障时，应阻止发布。
+出现租户隔离失败、不安全 SQL、绕过审批、可执行视图内容或严重证据故障时，应阻止发布。
 为任务成功率、SQL 语义正确性、引用蕴涵、延迟和成本设置明确阈值。每次变更都与固定基线比较，
 并检查分片回归，而不是只依赖一个平均值。
 
 ## 当前仓库状态
 
-`Tessera proof harness` 已实现版本化 Evaluation Manifest、固定 Sample Plan、双侧 95% Wilson Lower Bound、
-逐 Provider/Profile Gate、不可变 Conformance Fixture，以及 Security/Compatibility/Distribution 硬失败。
-本地 Protocol、Package、Registry 与 Fresh-install Fixture 会进入 CI。
+仓库已经包含 Tool Schema、数据库边界、逐 Step 持久化、Stream 恢复、生成视图编译、全部 17 个
+Chart Fixture 与 Renderer Registration 的确定性测试。这些测试不需要生产 Credential，
+并构成本地发布基线。
 
 本仓库尚未执行 Production Canary 或真实 Provider/Model Matrix。Repaired-validity Gate 要求每个受控
 Provider/Profile Aggregate 至少拥有 4,000 个 Eligible Zero-failure Sample；样本更少或缺失时必须报告

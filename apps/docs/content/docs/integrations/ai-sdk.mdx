@@ -1,74 +1,44 @@
 ---
-title: AI SDK
-description: Add Open Generative to AI SDK 7.0.77 with one dynamic adapter and one Renderer.
+title: AI SDK transport
+description: How Tessera Agent uses AI SDK v7's native UI message stream and step callbacks.
 ---
 
-`@open-generative/ai-sdk` targets AI SDK 7.0.77 and later v7 patches. It does
-not include an AI SDK v6 compatibility path.
+Tessera Studio uses the AI SDK v7 UI Message Stream protocol between its Nitro
+server and React client.
 
-## Server
+## Native stream assembly
 
-The high-level adapter returns the existing `tools + prepareStep` pair expected
-by AI SDK v7. `resolve` returns a Host Turn, not another UI adapter. Tool schema,
-prompt generation, incremental input, repair, and commit remain package-owned.
+Mastra's stream is converted through `@mastra/ai-sdk`, then passed to AI SDK's
+official `createUIMessageStream`. AI SDK owns text, reasoning, tool, data-part,
+`reset-step`, and repeated part-ID assembly.
 
 ```ts
-import {
-  createUIMessageStream,
-  createUIMessageStreamResponse,
-  streamText,
-} from "ai";
-import { createOpenGenerativeHost } from "@open-generative/host";
-import { createOpenGenerativeAISdkAdapter } from "@open-generative/ai-sdk/server";
-
-const host = await createOpenGenerativeHost();
-
-const stream = createUIMessageStream({
-  async execute({ writer }) {
-    const openGenerative = createOpenGenerativeAISdkAdapter({
-      tools: domainTools,
-      writer,
-      resolve: async () => host.prepareTurn({
-        authority,
-        resources: currentResources(),
-        presentationPolicy: "auto",
-      }),
-    });
-
-    const result = streamText({ model, messages, ...openGenerative });
-    writer.merge(result.toUIMessageStream());
+const stream = createUIMessageStream<TesseraUIMessage>({
+  execute: ({ writer }) => writer.merge(agentStream),
+  onStepEnd: async ({ responseMessage }) => {
+    await checkpointUiMessage(responseMessage);
+  },
+  onEnd: async ({ responseMessage, isAborted, finishReason }) => {
+    if (!isAborted && finishReason === "stop") {
+      await checkpointUiMessage(responseMessage);
+    }
   },
 });
 
 return createUIMessageStreamResponse({ stream });
 ```
 
-Before resources exist, only the domain tools are active. On the next AI SDK
-step, the adapter activates `present_ui` and injects the Contract-generated
-instructions. After commit it writes the verified Surface data part and removes
-the tool.
+AI SDK documents `onStepEnd` specifically for persisting intermediate UI
+messages in multi-step agent runs. Tessera therefore does not maintain a second
+chunk assembler or compatibility protocol.
 
-The adapter caches the first available Host Turn for that `streamText` call, so
-`resolve` may call `host.prepareTurn()` directly without application lifecycle
-state.
+## Tessera data parts
 
-For non-UI server work, omit `writer` and call `openGenerative.drainEvents()`.
+Normal text, reasoning, and tools remain native AI SDK parts. A generated
+analysis view is delivered as one typed `data-openGenerativeSurface` part
+inside the Tessera message type. The Studio renderer recognizes that data part.
 
-## Client
-
-```tsx
-import { OpenGenerativeRenderer } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
-
-<OpenGenerativeRenderer event={part.data} />
-```
-
-Use `isOpenGenerativeSurfaceDataPart()` when routing mixed AI SDK parts. The
-canonical render path remains one chain:
-
-```text
-AI SDK v7 -> verified Surface data part -> OpenGenerativeRenderer
-```
-
-Low-level tool constructors remain available for custom Hosts; ordinary users
-do not compile or maintain a component prompt.
+The server stores only an allowlisted projection. Cumulative updates for one
+analysis surface replace the earlier snapshot, and every step checkpoint
+upserts the same assistant message ID. Refreshing a thread therefore restores
+one message and one latest surface rather than replaying duplicate snapshots.

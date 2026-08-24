@@ -21,7 +21,7 @@
 本文只定义一套最终架构，不定义简化架构或临时协议：
 
 - 底层从一开始就支持完整的 Component Contract、资源绑定、状态、动作、事务流、增量编辑、持久化、回放、迁移、安全与多 framework binding 边界；每个 Surface 仍只协商一个 `RendererRegistry` 并走一条渲染链。
-- 当前只减少模型可使用的组件数量，不删减底层能力。组件数量可以从 6 扩展到 100+，但每次 turn 只把任务相关的 Contract Slice 编译进 `present_ui`。
+- 当前只减少模型可使用的组件数量，不删减底层能力。组件数量可以从 6 扩展到 100+，但每次 turn 只把任务相关的 Contract Slice 编译进最终输出使用的 OGL Prompt。
 - 新组件只能扩展 Catalog，不能要求更换文档协议、重写 Runtime 或绕过 Host 权限边界。
 - 实施可以按依赖顺序推进，但每一步都必须落在最终协议上，禁止临时 JSON、过渡 API 或第二套渲染链路。
 
@@ -109,7 +109,7 @@ flowchart LR
   HC["Host context and grants"] --> TC
   CC["Component Contracts"] --> CS["Task-scoped Catalog Slice"]
   CS --> TC
-  TC --> LLM["LLM: present_ui proposal"]
+  TC --> LLM["LLM: streamed OGL assignments"]
   LLM --> PD["Proposal Decoder"]
   PD --> DT["Draft Transaction"]
   DT --> VA["Validate + Authorize"]
@@ -294,8 +294,8 @@ Slice 由 Host 权限、用户任务、placement、Renderer Capability Manifest�
 
 Prompt Compiler 必须遵守：
 
-- 默认使用一个 `present_ui` 工具，而不是每个组件一个 tool；
-- 保留每个 component 的独立严格 schema，不能合并 props bag；
+- 使用模型最终文本中的 OGL Assignment 通道，不增加 UI Tool，也不为每个组件创建一个 Tool；
+- 保留每个 Component 的独立 Contract 与 OGL signature，不能合并为无约束 props bag；
 - 顶层 provider 限制由 schema-profile adapter 处理，不能降低 canonical validation；
 - 只放入本 turn 有价值的组件、动作、资源与证据摘要；
 - prompt、schema、examples 和 contract-set hash 来自同一冻结 Slice；
@@ -1251,8 +1251,10 @@ User
 -> tool returns QueryResourcePublicationResult without rows
 -> Mastra processInputStep sees the new Host resource offer
 -> Open Generative turn compiler + frozen CatalogSetSlice
--> processInputStep injects generated prompt + the single present_ui tool
--> model present_ui proposal referencing offered bindingId + offerHash
+-> processInputStep injects the generated OGL final-output prompt
+-> model streams OGL assignments referencing offered resource aliases
+-> processOutputStream compiles statements and suppresses OGL source text
+-> processOutputStep validates the complete program and requests a bounded retry when invalid
 -> server transaction + validation + commit
 -> trusted SurfaceEventStream
 -> SurfaceController
@@ -1278,18 +1280,27 @@ type QueryResourcePublicationResult = {
 
 ### 18.1 Mastra Processor 边界
 
-Mastra 集成不是“一个 Processor 替代全部架构”，而是一个很薄的 step adapter。Mastra 1.61 的 `processInput` 每次请求只运行一次，此时 Tessera 往往还没有执行 `run_analysis`，因此不能用它静态安装 UI schema。`@open-generative/mastra` 使用 `processInputStep`，因为它会在每次 agent loop 和 tool continuation 前运行，并允许同时更新本 step 的 `tools`、`activeTools` 与 `systemMessages`。
+Mastra 集成不是“一个 Processor 替代全部架构”，而是一个很薄的双向 adapter。Mastra 1.61 的 `processInput` 每次请求只运行一次，此时 Tessera 往往还没有通过 `execute_sql` 产生可信 Resource，因此不能用它静态安装 OGL Contract Slice。`@open-generative/mastra` 使用 `processInputStep` 在每次 agent loop 和 tool continuation 前检测资源并注入 OGL Prompt；同一个 Processor 的 `processOutputStream` 编译并隐藏 OGL 源文本，`processOutputStep` 负责最终 Commit 或发起有界修正重试。
 
 ```text
-step 0: no analysis resource -> no present_ui tool
-step 1: model calls run_analysis
-step 2: Host has resource offers -> processor resolves frozen Slice
-        -> Contract Compiler generates prompt + strict tool schema
-        -> processor injects one present_ui tool
-step 3: model calls present_ui -> compiler/Host validates and commits
+step 0: no analysis resource -> processor remains transparent
+step 1: model uses search_data_context -> prepare_analysis -> execute_sql(analysisRef)
+        (or list_database -> execute_sql(sql) for explicit SQL)
+step 2: execute_sql publishes verified resource offers
+        -> processor internally resolves frozen Slice
+        -> Contract Compiler generates OGL prompt + component signatures
+        -> processor injects the final-output contract
+        -> a pure business-tool continuation remains available if the task is not finished
+step 3: model streams OGL -> compiler/Host validates and commits
+        -> after the first accepted OGL statement, the step is in presentation phase
+        -> a tool call after OGL starts is rejected before execution
+        -> the bounded retry uses activeTools: [] and toolChoice: "none"
+        -> retry reuses the same resources and Surface session; business tools never rerun
 ```
 
-应用开发者不为 100 个组件维护 100 个 tool，也不手写一份永远漂移的“组件说明 prompt”。唯一 prompt 由同一批 Component Contracts、slots、bindings、resource descriptors 和 generation limits 确定性生成。Processor 只负责在正确的 Mastra step 暴露这份编译结果；权限、数据、proposal validation、transaction、Surface stream 和渲染仍分别属于 Host、Compiler、Runtime 与 Renderer。
+应用开发者不为 100 个组件维护 100 个 Tool，也不手写一份永远漂移的“组件说明 Prompt”。唯一 OGL Prompt 由同一批 Component Contracts、slots、bindings、resource descriptors 和 generation limits 确定性生成。Chart recipe catalog 必须从 `data.chart` Authoring Schema 的判别联合解包生成，并逐项暴露精确 recipe ID 与模型必须提供的 props；当前 Catalog 必须恰好产生 17 条，`bars`、`area` 等 family 名不能作为 recipe ID。Processor 在正确的 Mastra step 暴露这份编译结果；权限、proposal validation、transaction 与 Surface stream 仍由其内部的 Host、Compiler 和 Runtime 分层实现，但这些层不进入产品接入 API。
+
+Processor 不删除或替换应用的工具定义。资源未就绪时，Tessera 的数据库工具按原 Agent 配置工作；第一个受治理资源出现后，Processor 注入 OGL Contract，但不能仅凭“已有资源”假设业务工具链已经完成。若该 step 只产生 Tool Call 而没有任何已接受的 OGL Statement，它仍是合法的 business continuation，工具照常执行。模型一旦输出首条有效 OGL Statement，该 step 才进入 presentation phase；此后同一步中的 Tool Call 会在执行前被拒绝，bounded retry 再通过 Mastra 原生的 `activeTools: []` 与 `toolChoice: "none"` 锁定为纯 OGL。重试不得再次执行 SQL、重新发布 Resource 或创建新的 Surface Session；达到 retry budget 后必须终止并返回 Compiler diagnostic。
 
 ### 18.2 低侵入 Public Integration Contract
 
@@ -1297,7 +1308,10 @@ Open Generative 的产品接入面固定为“一个服务端适配器 + 一个�
 
 ```ts
 // Mastra 1.61 server
-inputProcessors: [createOpenGenerativeMastraProcessor({ resolve })]
+const openGenerative = createOpenGenerativeProcessor({ resources, authority, turn })
+inputProcessors: [openGenerative]
+outputProcessors: [openGenerative]
+maxProcessorRetries: 1
 
 // AI SDK 7.0.77 server
 const integration = createOpenGenerativeAISdkAdapter({ tools, resolve, writer })
@@ -1306,9 +1320,9 @@ const integration = createOpenGenerativeAISdkAdapter({ tools, resolve, writer })
 <OpenGenerativeRenderer event={surfaceEvent} />
 ```
 
-Mastra 高层 Processor 通过当前 Processor writer 自动发布已提交的 `data-openGenerativeSurface` part。AI SDK 高层 Adapter 直接接受 Host Turn，通过 `tools + prepareStep` 动态激活 `present_ui`，并在提供 UI writer 时自动发布相同 data part。两者都不要求应用创建 Component tools、调用 `compilePresentUi`、管理 Incremental Session、维护 UI prompt、选择 recipe、拼 transaction 或翻译 Surface Event。
+Mastra 高层 Processor 在内部创建并管理 Host，通过当前 Processor writer 自动发布累积的 `data-openGenerativeSurface` Part。它不增加 UI Tool：模型最终文本直接使用 OGL，Processor 将其编译为 Surface Event。AI SDK 高层 Adapter 应复用相同的 OGL Compiler 与 Surface publication 语义。两者都不要求应用创建 Host、创建 Component Tools、管理 Incremental Session、维护 UI Prompt、选择 recipe、拼 transaction 或翻译 Surface Event。
 
-两个 Adapter 都拥有 Turn 生命周期：Mastra 使用 Request-scoped Processor State 缓存本次请求第一个可用 Turn；AI SDK Adapter 在单次 `streamText` 生命周期内缓存第一个可用 Turn。应用的 `resolve` 可以直接调用 `host.prepareTurn()`，不会因每个模型 step 创建新 Turn 而丢失 Commit Event。
+两个 Adapter 都拥有 Turn 生命周期：Mastra 使用 Request-scoped Processor State 缓存本次请求第一个可用 Turn；AI SDK Adapter 在单次 `streamText` 生命周期内缓存第一个可用 Turn。应用只提供资源与 authority，不调用 `host.prepareTurn()`，也不会因每个模型 step 创建新 Turn 而丢失 Commit Event。
 
 `OpenGenerativeRenderer` 内部拥有官方 Browser Contract Registry、`SurfaceController`、Renderer Registry、event validation、replay、cleanup 与 system state。应用只在 Surface 存在交互时提供 `onCommand`。Tessera 唯一保留的产品专属桥接是 `DataAgentRunResult -> OpenGenerativeDatasetResource[]`；它只投影业务数据和 authority，不选择 Component 或 recipe。
 
@@ -1332,7 +1346,7 @@ Mastra 高层 Processor 通过当前 Processor writer 自动发布已提交的 `
 | `src/mastra/tools/data-tools.ts` | 定义 planner/query tools、RequestContext guard，并以包含 rows 的统一 schema 返回查询结果 | 保留 tool IDs、业务 input schemas、admin 检查、SQL attempt guard 与只读 metadata；query tools 调 Resource publisher，只返回 `QueryResourcePublicationResult`。Catalog/schema inspect 继续作为 bounded planner tools | 保留，重写输出边界 |
 | `src/mastra/tools/query-artifact-output.ts` | 手写 tool output schema，并从完整结果抽样给模型 | 整体退役；Resource publication validator 和 model descriptor 必须由 Open Generative integration contract 生成，禁止再维护平行 schema | 删除，由 resource-publication adapter 取代 |
 | `lib/data-agent/query.ts` | 验证并执行 SQL、序列化 rows、推断 columns/chart、组装固定结果 | 保留 query validation/execution、Postgres value normalization、column inference、truncation、timing 与 provenance；删除 `inferChart` 和 presentation 参数，把 payload + schema + evidence 写入 pinned Resource | 保留执行核心，替换返回契约 |
-| `src/mastra/agents/data-analyst.ts` | 配置 Memory/processors、权限 prompt 与 query tools | 保留业务分析和权限指令；通过 `@open-generative/mastra` 加入由冻结 Slice 生成的唯一 `present_ui` tool。只允许 offered `bindingId + offerHash` 和 `sliceComponentId`；Memory 使用 ref-only serializer | 保留并扩展 |
+| `src/mastra/agents/data-analyst.ts` | 配置 Memory/processors、权限 prompt 与 query tools | 保留业务分析和权限指令；把同一个 `@open-generative/mastra` Processor 注册到 input/output 两侧，并设置有界 `maxProcessorRetries`。OGL 只允许冻结 Slice 中的 Resource Alias 与 Component signature；Memory 使用 ref-only serializer | 保留并扩展 |
 | `app/api/chat/route.ts` | 校验文本与 owner/thread 后，将 Mastra stream 直接桥接为 UI message stream | 保留预算、owner/thread/access-mode 检查；建立 `HostServer`、`AuthorityContext`、Surface session、capability negotiation、CatalogSetSlice 与 Resource grants，经 adapter 输出可信 `SurfaceEventStream`。请求和响应都不得携带 rows | 保留端点，重写主体 |
 | `components/data-agent/workbench.tsx` | 扫描 tool part、维护 Artifact/panel state，并固定渲染 Query view | 保留聊天、thread/access-mode 和 placement 外壳；删除 tool-output 扫描与 Artifact state，创建一个稳定 `SurfaceController`，桌面 panel 与移动 placement 都只 mount `GenerativeSurface` 并共用同一 registry | 保留外壳，替换 generated UI 链 |
 | `lib/data-agent/query-artifact-adapter.ts` | 兼容转换旧 query result | Greenfield 目标不保留 legacy adapter；所有 Document/Resource/Event 必须由正式 validator 进入 | 删除 |
@@ -1354,7 +1368,7 @@ Mastra 高层 Processor 通过当前 Processor writer 自动发布已提交的 `
 | query adapter/tool output tests | 替换为 Resource publication、validator、grant 和 no-payload tests |
 | Memory/history tests | 必须断言 rows 不进入 tool result、Memory、history、stream 与 observability |
 | query policy/domain tests | 保留 SQL 安全与业务结果测试，适配 publication return |
-| eval cases | 增加 `present_ui`、binding 引用、Component recipe、invalid proposal 与 repair evals |
+| eval cases | 增加 OGL Resource Alias、Component recipe、invalid/empty output 与 processor retry/repair evals |
 | lockfile | package 边界迁移完成后机械更新；不与当前架构文档任务混做 |
 
 必须删除的旧耦合：
@@ -1475,7 +1489,7 @@ protocol identity and terminology
 
 | 维度 | Tessera Agent 当前 | assistant-ui Generative UI | OpenUI | 当前仓库原型 | 本架构决策 |
 | --- | --- | --- | --- | --- | --- |
-| 生成单位 | 固定 Query tool output | 一个 `present` JSON tree | 行式 assignment DSL | nested authoring tree | 单一 `present_ui` proposal 通道 |
+| 生成单位 | 固定 Query tool output | 一个 `present` JSON tree | 行式 assignment DSL | nested authoring tree | 最终文本中的行式 OGL Assignment 通道 |
 | Component schema | Query schema 手写多份 | 所有 props 合并为可选大 bag | Library 生成 signature/schema | `NodeContract` 生成 provider schema | 每 Component 独立严格 Contract，按 provider profile 降级但服务端完整校验 |
 | Node identity | 每次查询随机 result ID | `$key` 主要是 React key | statement 有 ID，inline node 无稳定 ID | stable node ID | proposal-local ID + Host-minted canonical node ID |
 | Streaming | 等 tool output 完成 | partial JSON，可选 `streamProperties` | statement 级、forward ref、增量 merge | 有 transaction/draft 事件 | entity-op 流、forward ref、validated draft projection、last-good |

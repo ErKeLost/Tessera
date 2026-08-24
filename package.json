@@ -1,8 +1,8 @@
 {
-  "name": "open-generative",
+  "name": "open-tessera",
   "version": "0.3.22",
   "private": true,
-  "description": "Host-governed generative UI protocol, runtime, and official component catalog.",
+  "description": "Database agent runtime, adapters, tools, and Tessera Studio.",
   "type": "module",
   "packageManager": "bun@1.3.14",
   "workspaces": [

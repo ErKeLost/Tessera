@@ -412,7 +412,7 @@ export const compiledResultColumnSchema = z.object({
 /** Server-only SQL compiler output. Never pass this type to a model or browser. */
 export const compiledSqlQuerySchema = z.object({
   sql: z.string().min(1).max(100_000),
-  parameters: z.array(z.union([z.string(), z.number().finite(), z.boolean()])).max(256),
+  parameters: z.array(z.union([z.string(), z.number().finite(), z.boolean(), z.null()])).max(256),
   sourceRelationIds: z.array(z.string().min(1).max(256)).min(1).max(32),
   resultColumns: z.array(compiledResultColumnSchema).min(1).max(32),
 }).strict();
@@ -669,7 +669,7 @@ export type DataAgentExecution = Readonly<{
  */
 export type DataAgentReadSqlInput = Readonly<{
   sql: string;
-  parameters?: readonly (string | number | boolean)[];
+  parameters?: readonly (string | number | boolean | null)[];
   purpose?: string;
 }>;
 
@@ -685,6 +685,26 @@ export type DataAgentRunInput = Readonly<{
   requestId?: string;
   capability: PlanningCapability;
   draft: unknown;
+  signal?: AbortSignal;
+  onEvent?: (event: DataAgentStageEvent) => void | Promise<void>;
+}>;
+
+/**
+ * Server-only handle for a validated and compiled semantic analysis. Compiler
+ * output stays inside the Data Agent and is never returned to a model or UI.
+ */
+export type DataAgentPreparedAnalysis = Readonly<{
+  analysisRef: string;
+  requestId: string;
+  catalog: CatalogSnapshotRef;
+  semanticCatalog: SemanticCatalogRef;
+  columns: readonly CompiledResultColumn[];
+  queryFingerprint: string;
+  events: readonly DataAgentStageEvent[];
+}>;
+
+export type DataAgentExecutePreparedInput = Readonly<{
+  analysisRef: string;
   signal?: AbortSignal;
   onEvent?: (event: DataAgentStageEvent) => void | Promise<void>;
 }>;
@@ -727,6 +747,9 @@ export type DataAgent = Readonly<{
   composePlanningCapabilities(input: DataAgentPlanningCapabilityCompositionInput, signal?: AbortSignal): Promise<PlanningCapability>;
   previewRelation(input: RelationPreviewRequest, signal?: AbortSignal): Promise<DataAgentRelationPreview>;
   executeReadSql(input: DataAgentReadSqlInput, signal?: AbortSignal): Promise<DatabaseQueryResult>;
+  prepareAnalysis(input: DataAgentRunInput): Promise<DataAgentPreparedAnalysis>;
+  executePreparedAnalysis(input: DataAgentExecutePreparedInput): Promise<DataAgentRunResult>;
+  /** Convenience composition over the same prepare and execute path. */
   runAnalysis(input: DataAgentRunInput): Promise<DataAgentRunResult>;
 }>;
 

@@ -1,68 +1,15 @@
 ---
-title: AG-UI
-description: Carry trusted Tessera Agent Surface events through the implemented AG-UI custom-event adapter.
+title: AG-UI Status
+description: AG-UI is not part of the current Tessera Agent runtime or public integration surface.
 ---
 
-`@open-generative/ag-ui` maps the canonical Tessera Agent Surface stream to an
-AG-UI custom event. It is a transport adapter, not a second event protocol or a
-second renderer path.
+Tessera Agent does not currently expose an AG-UI integration. Studio uses
+Mastra for the Agent runtime and AI SDK UI Message Stream for its Nitro-to-React
+transport.
 
-The package root exports the wire constant and type. Server and browser code
-use the explicit `./server` and `./client` entry points.
+This page is retained so older links do not point to an installation guide that
+no longer represents the product. There is no supported AG-UI package, custom
+event contract, or setup step for Tessera users.
 
-## Wire shape
-
-Every Open Generative event uses one stable AG-UI envelope:
-
-```ts
-{
-  type: "CUSTOM",
-  name: "open-generative.surface.event",
-  value: surfaceEventEnvelope,
-}
-```
-
-The `value` is the canonical `SurfaceEventEnvelope`; the adapter does not
-translate it into an alternative patch, state, or component format.
-
-## Server adapter
-
-`surfaceEventToAgUiEvent()` parses and verifies one event before wrapping it.
-`surfaceEventsToAgUiEvents()` maps a synchronous or asynchronous event stream.
-
-```ts
-import { surfaceEventsToAgUiEvents } from "@open-generative/ag-ui/server";
-
-for await (const event of surfaceEventsToAgUiEvents(surfaceEvents)) {
-  await publishAgUiEvent(event);
-}
-```
-
-Only Host-committed events belong in `surfaceEvents`. Raw model output and
-uncommitted proposals cannot cross this boundary.
-
-## Browser adapter
-
-The client recognizes the named custom event, verifies the canonical payload
-hash, and consumes it through the existing controller.
-
-```ts
-import { consumeOpenGenerativeAgUiEvent } from "@open-generative/ag-ui/client";
-
-await consumeOpenGenerativeAgUiEvent(surfaceController, agUiEvent);
-```
-
-For routing without consumption, use `isOpenGenerativeAgUiEvent()` and
-`decodeOpenGenerativeAgUiEvent()`.
-
-```text
-AG-UI CUSTOM event
--> verified SurfaceEventEnvelope
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
-```
-
-Actions still return through host-owned commands and authority checks. The
-adapter does not grant capabilities, resolve resources, commit revisions, or
-run renderer code.
+See [Mastra runtime](./mastra) and [AI SDK transport](./ai-sdk) for the runtime
+that is implemented and tested today.

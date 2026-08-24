@@ -11,6 +11,7 @@ import {
   documentContentSchema,
   hashCanonical,
   hashDocumentContent,
+  nodeIdSchema,
   proposalOperationEnvelopeSchema,
   proposalStreamEnvelopeSchema,
   sha256HashSchema,
@@ -44,10 +45,9 @@ import {
   officialGoldenPromptCases,
 } from "@open-generative/components";
 import { createCompilerCatalog } from "./catalog";
-import { ProposalStreamDecoder, computeProposalHash, decodePresentUiInput } from "./decoder";
+import { ProposalStreamDecoder, computeProposalHash } from "./decoder";
 import { InMemoryTransactionIdentityAllocator } from "./identity";
 import { ProposalNormalizer, createAuthoringOperationEnvelope } from "./normalize";
-import { compilePresentUi } from "./prompt";
 import { createCatalogRuntimeValidationPort } from "./runtime-validation";
 import { ProposalCompilerTurn } from "./turn";
 import type {
@@ -130,6 +130,52 @@ describe("proposal normalization", () => {
     }
   }, 20_000);
 
+  test("treats a repeated proposal-local put as a revision-checked update", async () => {
+    const fixture = await createFixture();
+    const normalizer = createNormalizer(fixture, "transaction-local-update");
+    const componentId = fixture.catalog.slice.components[0]!.sliceComponentId;
+    const first = await createAuthoringOperationEnvelope({
+      operationId: "operation-local-create" as never,
+      sequence: 1,
+      operation: {
+        op: "put-node",
+        target: { kind: "node", localId: "streamed-card" as never },
+        value: {
+          component: componentId,
+          props: { title: "Initial" },
+          slots: {},
+          events: {},
+          evidence: [],
+        },
+      },
+    });
+    const second = await createAuthoringOperationEnvelope({
+      operationId: "operation-local-update" as never,
+      sequence: 2,
+      dependsOn: [first.operationId],
+      operation: {
+        op: "put-node",
+        target: { kind: "node", localId: "streamed-card" as never },
+        value: {
+          component: componentId,
+          props: { title: "Updated" },
+          slots: {},
+          events: {},
+          evidence: [],
+        },
+      },
+    });
+
+    const created = await normalizer.normalizeOperation(first);
+    const updated = await normalizer.normalizeOperation(second);
+    expect(created.envelope.operation).not.toHaveProperty("expectedEntityRevision");
+    expect(updated.envelope.operation).toHaveProperty("expectedEntityRevision");
+    expect(normalizer.document.nodes[nodeIdSchema.parse("node-streamed-card")]?.props.title).toEqual({
+      kind: "literal",
+      value: "Updated",
+    });
+  });
+
   test("rejects unknown Slice IDs and an authority offerHash mismatch", async () => {
     const fixture = await createFixture();
     const unknownComponent = await createAuthoringOperationEnvelope({
@@ -199,30 +245,7 @@ describe("proposal normalization", () => {
   });
 });
 
-describe("present_ui and runtime bridge", () => {
-  test("keeps provider lowering separate from strict canonical validation", async () => {
-    const fixture = await createFixture();
-    const compiled = compilePresentUi({ catalog: fixture.catalog });
-    expect(compiled.tool.name).toBe("present_ui");
-    expect(compiled.tool.strict).toBe(true);
-    const input = {
-      kind: "snapshot",
-      root: {
-        localId: "provider-root",
-        component: fixture.catalog.slice.components[0]!.sliceComponentId,
-        props: { title: "Revenue" },
-      },
-      meta: { tags: [] },
-    };
-    const decoded = await decodePresentUiInput(compiled, input);
-    expect(decoded).toMatchObject({ kind: "snapshot" });
-    await expect(decodePresentUiInput(compiled, {
-      ...input,
-      root: { ...input.root, component: "component-999999" },
-    })).rejects.toThrow("Invalid input");
-    await expect(decodePresentUiInput(compiled, { ...input, legacyTree: {} })).rejects.toThrow("Invalid input");
-  });
-
+describe("proposal compiler and runtime bridge", () => {
   test("drives the DocumentTransactionRuntime begin/apply/finalize path", async () => {
     const fixture = await createFixture();
     const revision = committedRevisionSchema.parse({
@@ -444,9 +467,6 @@ describe("Catalog-backed Runtime validation", () => {
       meta: { title: "Official chart compiler proof", tags: ["chart", "compiler"] },
     });
 
-    const compiled = compilePresentUi({ catalog: fixture.catalog });
-    await expect(decodePresentUiInput(compiled, proposal)).resolves.toMatchObject({ kind: "snapshot" });
-
     const normalized = await createNormalizer(
       fixture,
       "transaction-official-chart",
@@ -542,8 +562,6 @@ describe("Catalog-backed Runtime validation", () => {
       meta: { title: "Identity-reference proof", tags: ["resource"] },
     });
 
-    const compiled = compilePresentUi({ catalog: fixture.catalog });
-    await expect(decodePresentUiInput(compiled, proposal)).resolves.toMatchObject({ kind: "snapshot" });
     const normalized = await createNormalizer(
       fixture,
       "transaction-identity-inputs",

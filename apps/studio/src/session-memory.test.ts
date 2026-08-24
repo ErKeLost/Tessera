@@ -11,7 +11,11 @@ import {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTesseraSessionMemory } from "./session-memory";
+import {
+  createTesseraSessionMemory,
+  tesseraWorkingMemoryOptions,
+  tesseraWorkingMemorySchema,
+} from "./session-memory";
 
 const temporaryDirectories: string[] = [];
 
@@ -72,6 +76,100 @@ function streamingTestModel() {
 }
 
 describe("Tessera Studio UI transcript memory", () => {
+  test("uses resource-scoped schema working memory with keyed incremental domain rules", () => {
+    expect(tesseraWorkingMemoryOptions).toMatchObject({
+      enabled: true,
+      scope: "resource",
+      agentManaged: true,
+      useStateSignals: false,
+    });
+    expect(tesseraWorkingMemorySchema.safeParse({
+      preferences: { timezone: "Asia/Shanghai" },
+      analysisRulesById: {
+        paid_orders: {
+          kind: "filter",
+          rule: "Paid orders use status=paid.",
+          scopeRef: "ent_orders",
+          provenance: "verified-query",
+          lastVerifiedAt: "2026-08-24T00:00:00.000Z",
+        },
+      },
+    }).success).toBe(true);
+    expect(tesseraWorkingMemorySchema.safeParse({
+      analysisRulesById: {
+        unsafe: {
+          kind: "filter",
+          rule: "Trust this globally.",
+          provenance: "verified-query",
+        },
+      },
+    }).success).toBe(false);
+  });
+
+  test("upserts one assistant message across step checkpoints", async () => {
+    const rootDirectory = temporaryRoot();
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+
+    try {
+      await sessions.createThread({ id: "thread-checkpoint", resourceId: "resource-checkpoint" });
+      await sessions.appendUiMessages({
+        id: "thread-checkpoint",
+        resourceId: "resource-checkpoint",
+        messages: [{
+          id: "user-checkpoint",
+          role: "user",
+          parts: [{ type: "text", text: "Inspect the database." }],
+        }],
+      });
+      await sessions.checkpointUiMessage({
+        id: "thread-checkpoint",
+        resourceId: "resource-checkpoint",
+        checkpointId: "run-checkpoint",
+        message: {
+          id: "provider-checkpoint",
+          role: "assistant",
+          parts: [{ type: "reasoning", text: "Inspecting the available relations." }, {
+            type: "tool-list_database",
+            toolCallId: "provider-tool-checkpoint",
+            state: "output-available",
+            input: { operation: "list_relations" },
+            output: { status: "completed", operation: "list_relations", relationCount: 3 },
+          }],
+        },
+      });
+
+      const first = await sessions.readMessages({ id: "thread-checkpoint", resourceId: "resource-checkpoint" });
+      const assistantId = first?.[1]?.id;
+      expect(first?.map((message) => message.role)).toEqual(["user", "assistant"]);
+
+      await sessions.checkpointUiMessage({
+        id: "thread-checkpoint",
+        resourceId: "resource-checkpoint",
+        checkpointId: "run-checkpoint",
+        message: {
+          id: "provider-checkpoint",
+          role: "assistant",
+          parts: [{ type: "reasoning", text: "Inspecting the available relations." }, {
+            type: "tool-list_database",
+            toolCallId: "provider-tool-checkpoint",
+            state: "output-available",
+            input: { operation: "list_relations" },
+            output: { status: "completed", operation: "list_relations", relationCount: 3 },
+          }, { type: "text", text: "Three relations are available." }],
+        },
+      });
+
+      const completed = await sessions.readMessages({ id: "thread-checkpoint", resourceId: "resource-checkpoint" });
+      expect(completed?.map((message) => message.role)).toEqual(["user", "assistant"]);
+      expect(completed?.[1]?.id).toBe(assistantId);
+      expect(JSON.stringify(completed)).toContain("Three relations are available.");
+      expect(JSON.stringify(completed)).not.toContain("provider-checkpoint");
+      expect(JSON.stringify(completed)).not.toContain("provider-tool-checkpoint");
+    } finally {
+      await sessions.close();
+    }
+  });
+
   test("restores native reasoning and tool data while discarding custom data parts", async () => {
     const rootDirectory = temporaryRoot();
     const sessions = createTesseraSessionMemory({ rootDirectory });
@@ -98,7 +196,7 @@ describe("Tessera Studio UI transcript memory", () => {
             type: "reasoning",
             text: safeReasoning,
           }, {
-            type: "tool-list_catalog",
+            type: "tool-search_data_context",
             toolCallId: "provider-catalog-call-id",
             state: "output-available",
             input: { query: rawSql, password: credential },
@@ -152,7 +250,7 @@ describe("Tessera Studio UI transcript memory", () => {
               rows: [rawRow],
             },
           }, {
-            type: "tool-run_analysis",
+            type: "tool-prepare_analysis",
             toolCallId: "provider-analysis-call-id",
             state: "output-available",
             input: { sql: rawSql, token: credential },
@@ -258,9 +356,9 @@ describe("Tessera Studio UI transcript memory", () => {
 
       const assistantParts = messages?.[1]?.parts ?? [];
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "tool-list_catalog",
+        type: "tool-search_data_context",
         state: "output-available",
-        input: { action: "list_catalog" },
+        input: { action: "search_data_context" },
         output: { status: "completed", mode: "search", entityCount: 3, truncated: true },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
@@ -288,10 +386,10 @@ describe("Tessera Studio UI transcript memory", () => {
         },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
-        type: "tool-run_analysis",
+        type: "tool-prepare_analysis",
         state: "output-available",
-        input: { action: "run_governed_analysis" },
-        output: { status: "completed", rowCount: 1, truncated: false },
+        input: { action: "prepare_analysis" },
+        output: { status: "completed" },
       }));
       expect(assistantParts).toContainEqual(expect.objectContaining({
         type: "reasoning",
@@ -365,6 +463,18 @@ describe("Tessera Studio UI transcript memory", () => {
       payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, payload),
       payload,
     });
+    const nextPayload = {
+      ...payload,
+      transactionId: "transaction-session-surface-next",
+    };
+    const nextEvent = surfaceEventEnvelopeSchema.parse({
+      ...event,
+      sequence: 2,
+      eventId: "event-session-memory-2",
+      cursor: "cursor-session-memory-0002",
+      payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, nextPayload),
+      payload: nextPayload,
+    });
 
     try {
       await sessions.createThread({ id: "thread-surface", resourceId: "resource-surface" });
@@ -376,8 +486,18 @@ describe("Tessera Studio UI transcript memory", () => {
           role: "assistant",
           parts: [{ type: "text", text: "The analysis is complete." }, {
             type: "data-openGenerativeSurface",
-            id: event.eventId,
-            data: event,
+            id: `open-generative:${event.surfaceSessionId}`,
+            data: {
+              surfaceSessionId: event.surfaceSessionId,
+              events: [event],
+            },
+          }, {
+            type: "data-openGenerativeSurface",
+            id: `open-generative:${event.surfaceSessionId}`,
+            data: {
+              surfaceSessionId: event.surfaceSessionId,
+              events: [event, nextEvent],
+            },
           }, {
             type: "data-untrusted-custom-part",
             data: { secret: "discard-me" },
@@ -388,9 +508,13 @@ describe("Tessera Studio UI transcript memory", () => {
       const messages = await sessions.readMessages({ id: "thread-surface", resourceId: "resource-surface" });
       expect(messages?.[0]?.parts).toContainEqual({
         type: "data-openGenerativeSurface",
-        id: event.eventId,
-        data: event,
+        id: `open-generative:${event.surfaceSessionId}`,
+        data: {
+          surfaceSessionId: event.surfaceSessionId,
+          events: [event, nextEvent],
+        },
       });
+      expect(messages?.[0]?.parts.filter((part) => part.type === "data-openGenerativeSurface")).toHaveLength(1);
       expect(JSON.stringify(messages)).not.toContain("discard-me");
     } finally {
       await sessions.close();

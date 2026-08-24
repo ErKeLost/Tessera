@@ -1,27 +1,34 @@
 ---
 title: 安全模型
-description: Tessera Agent 终局 Generative UI 架构强制执行的 Trust Boundary。
+description: Tessera Agent、数据库连接、会话记忆与生成视图之间的 Trust Boundary。
 ---
 
-Tessera Agent 把所有模型 Proposal 都视为不可信数据。声明式输出只有经过 Server Compiler 与
-Host Authority Commit 后才有意义。
+Tessera 把模型输出、用户文本、Catalog 内容与数据库值都视为不可信输入。Prompt 可以改善行为，
+但 Authorization 与 Execution 最终由确定性的服务端检查负责。
 
-- 模型不能生成 HTML、JSX、JavaScript、CSS、SQL、Formula、URL、Component Name、Tool Name、
-  Credential 或可执行 Handler。
-- 每个 Node 都绑定冻结 `CatalogSetSlice` 中精确且不可变的 Component Contract；未知或被替换的
-  Contract 必须 Fail Closed。
-- Query Row 始终留在绑定 Grant 的 Resource Gateway，不进入模型 Context、Proposal、Canonical
-  Document、Revision History 或普通日志。
-- Browser Code 只接收可信 Surface Event 与 Node-scoped Resolved Projection，不接收数据库凭据或
-  原始 Tool Payload。
-- Preview Node 固定只读；只有 Committed Projection 才能发出已声明 Event Port。
-- `SurfaceController` 检查 Session Identity、Audience Binding、Sequence、Revision、Node Scope、
-  Event Schema、State 前置条件与 Resource Version。
-- Server 拥有 Authorization、Approval、Idempotency、Effect、Receipt、Persistence 与 Resume Cursor。
-- Renderer Error 只隔离到一个 Node，不能改变 Canonical Revision，也不能执行 Effect。
+## 数据库边界
 
-未知 Contract、无效 Placement、未解析 Props、畸形 Event、过期 Grant、陈旧 Revision、重复 Approval
-与 Stream Identity 不匹配都是显式失败。Host 请求 Resync 或显示可信 System Surface 时，
-Last-good Committed Content 继续可用。
+- 数据库 Credential 与模型供应商 Key 只留在 Studio Server。
+- 每个 Tool 都有严格 Input 与 Output Schema。
+- 物理读取使用经过校验且受限的 SQL，并由 Connector 强制执行超时、取消、行数与序列化限制。
+- 语义分析接收 Catalog ID，而不是模型编写的 SQL。
+- Metadata Output 只用于规划，不能证明用户请求的数据事实。
+- 数据库 Mutation 使用类型化 Action、Policy Check、持久审批与幂等恢复标识。
 
-开放式 Mini App 应进入独立 Sandbox 或 MCP App Boundary，而不是削弱 Tessera Agent 的可信 Catalog。
+## 模型与呈现边界
+
+只有数据库 Tool 成功后，经过验证的 Dataset 才会被发布。Presentation Processor 可以引用这些
+Resource 与固定 Tessera Catalog，但不能创建 Credential、URL、SQL、Tool、React Component、HTML、
+Script、CSS、Callback 或可执行 Formula。
+
+呈现输出必须经过 Parse 与 Validate 才能 Commit。未知 Recipe、无效 Binding、畸形值、陈旧 Session
+与 Payload Hash 校验失败都会被拒绝。被拒绝的视图不能执行另一条查询或 Effect。
+
+## 浏览器与 Memory 边界
+
+Mastra Memory 按已完成 Step 保存私有模型上下文。Studio 为浏览器保存另一份经过 Allowlist 的
+Transcript。浏览器只接收安全 UI Message Part 与已提交、受限的 View Projection，不会接收数据库
+Credential 或不受限的私有 Tool Payload。
+
+审批决定必须匹配持久化 Workflow Snapshot 与 Request Identity。重放、陈旧或 Identity 不匹配的
+决定都会 Fail Closed。

@@ -1,32 +1,54 @@
 ---
-title: Data-agent proof gates
-description: Deterministic, product-quality, security, and rendering gates Tessera Agent must pass before Open Generative extraction.
+title: Analysis-view quality gates
+description: The deterministic, security, rendering, and product gates for Tessera Agent's generated views.
 ---
 
-The current goal is not to prove that a model can emit component JSON. It is to prove that Tessera Agent can turn governed query results into useful, trustworthy, responsive, interactive analysis while preserving last-good through malformed output, interrupted streams, authority changes, and conflicts.
+The goal is not to prove that a model can emit component-shaped text. Tessera
+must turn governed query results into useful, trustworthy, responsive analysis
+while preserving the last committed answer through malformed output,
+interrupted streams, authority changes, and conflicts.
 
-The fixed UI scope is six analytical Component Contracts. Its sole chart
-Contract, `data.chart`, contains 17 audited recipes: steps bars, pipeline stage bars, sleep score, revenue per account
-scatter, tracked time Sankey, visitors radial, visitors radar, activity
-calendar, revenue smooth area, active users heatmap, sign-up funnel, earned so
-far bars, contributions heatmap, sessions and conversion combo, devices bars,
-visitors stacked area, and activity rings. The proof corpus contains at least
-100 golden prompts spanning selection, binding, streaming, edits, resume,
-authority changes, and conflicts.
+## Fixed scope
 
-No query rows may appear in model context, proposals, Documents, Revisions, history, or ordinary logs. Resource access remains grant-bound and cursor-based. Fabricated offers, out-of-slice contracts, interactive previews, browser-side HostIntent execution, approval replay, or invalid stream identity are hard failures.
+- Six analytical concepts: report, stack, grid, metric, insight, and data chart.
+- One chart contract with 17 audited recipes.
+- Golden prompts covering selection, column binding, streaming, refresh,
+  authority changes, retry, and conflict behavior.
+- Multiple valid views for the same resource, proving the system is not a
+  hidden fixed query renderer.
 
-First-proposal structural validity must reach 95%, bounded-repair commit success
-99%, fabricated references zero, and snapshot/operation canonical divergence
-zero. Every successful golden case also checks recipe choice, column mapping,
-information hierarchy, source fidelity, and an equivalent semantic view.
+## Hard safety gates
 
-The Contract requires an exact renderer, authoring and resolved-props
-validation, resource fixtures, accessibility coverage, and a node error
-boundary. Every recipe requires stable responsive sizing, reduced-motion
-behavior, an accessible name and summary, and an equivalent table or text view.
-The trusted documentation gallery must render the official fixture through
-`SurfaceController`, `GenerativeSurface`, and the verified registry; a
-documentation-only chart replica does not count.
+- Query rows do not enter presentation prompts, declarations, ordinary logs,
+  or browser tool summaries.
+- The model cannot reference a resource, column, evidence item, view type, or
+  action that Tessera did not offer for the current turn.
+- Invalid stream identity, authority, or resource binding fails closed.
+- Browser rendering cannot grant database access or execute a mutation.
+- A presentation retry cannot call domain tools again.
 
-Only after all deterministic and model-evaluation gates pass may the framework-neutral core be extracted into a separate Open Generative project.
+## Quality targets
+
+| Metric | Gate |
+| --- | --- |
+| Structurally valid first proposal | at least 95% |
+| Successful commit after bounded repair | at least 99% |
+| Fabricated references | 0 |
+| Incorrect chart encoding accepted | 0 |
+| Duplicate assistant checkpoints after refresh | 0 |
+| Difference between live and restored final view | 0 |
+
+Every successful case also checks recipe choice, column mapping, information
+hierarchy, source fidelity, and an equivalent table or text view.
+
+## Renderer gates
+
+All 17 recipes require stable responsive sizing, reduced-motion behavior, an
+accessible name and summary, keyboard-safe interaction, theme-token coverage,
+and a semantically equivalent non-chart view. The documentation gallery renders
+the same fixtures and renderer code used by Tessera Studio; documentation-only
+replicas do not count.
+
+Run deterministic tests without production credentials. Provider evaluation,
+desktop/mobile visual regression, accessibility reports, and dependency
+integrity checks are release gates for the Agent product.

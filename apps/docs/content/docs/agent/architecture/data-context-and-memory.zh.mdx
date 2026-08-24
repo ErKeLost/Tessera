@@ -1,0 +1,200 @@
+---
+title: 数据上下文、权限与领域记忆
+description: Tessera Data Agent 的四工具架构、唯一数据执行入口、服务端权限和跨 Session 增量学习。
+---
+
+Tessera 只做数据分析和数据库操作。Bash、Python、文件系统、Web Search 和通用知识检索不属于
+Data Agent。生成式 UI 是验证结果之后的输出格式，也不是模型 Tool。
+
+## 最终 Tool Surface
+
+模型只看到四个 Tessera 业务 Tool：
+
+| Tool | 负责 | 不负责 |
+| --- | --- | --- |
+| `list_database` | 实时物理数据库事实：Relation、Column、Key、Index、Capability、Extension 和 RLS Metadata | 读取业务 Row、授予权限 |
+| `search_data_context` | 搜索和展开业务语义、Metric、Join、Lineage、字段含义与可复用领域规则 | 执行查询、返回业务数据 |
+| `prepare_analysis` | 校验 Semantic Draft、绑定 Catalog Scope、编译服务端计划并签发短时 `analysisRef` | 访问业务 Row、返回 SQL 或 Evidence |
+| `execute_sql` | 执行显式只读 SQL、已准备的 `analysisRef`，或提交类型化数据库 Mutation | 让模型决定权限分类、审批或数据库角色 |
+
+Extension 与 RLS 仍由 Connector 检查，但通过 `list_database(operation=extensions)` 和
+`list_database(operation=rls_policies)` 暴露，不再增加平行 Tool。
+
+## 两条规划路径，一个执行入口
+
+```text
+明确 SQL、物理表或行检查
+  list_database -> execute_sql(sql)
+
+业务指标、趋势、排名或语义记录
+  search_data_context -> prepare_analysis -> execute_sql(analysisRef)
+```
+
+这不是两个执行器。`prepare_analysis` 只做 Catalog、Semantic、Binding 和 Compilation；真正访问业务
+数据的动作始终发生在 `execute_sql`。
+
+### Prepared Analysis
+
+成功准备后，模型只能看到：
+
+```ts
+type PreparedAnalysis = Readonly<{
+  status: "prepared";
+  analysisRef: `analysis_${string}`;
+  title: string;
+  columns: readonly {
+    outputId: string;
+    label: string;
+    type: string;
+  }[];
+}>;
+```
+
+编译后的 SQL、Mongo Pipeline、Parameters 和 Source Binding 留在 Data Agent 内部。`analysisRef`：
+
+- 最长存活五分钟；
+- 只能使用一次；
+- 执行前即被消费，失败或网络重试也不能重放；
+- 不能跨 Data Agent 实例、Turn 或 Catalog Authority 使用；
+- 缺失、过期、篡改和重复引用都以 `invalid_analysis_spec` 拒绝。
+
+`runAnalysis()` 只作为服务端 convenience composition 保留，并复用同一套 prepare/execute 实现，
+不是第二条查询路径。
+
+## `execute_sql` 的三个输入分支
+
+```ts
+type ExecuteSqlInput =
+  | { sql: string; parameters?: readonly SqlValue[]; purpose: string }
+  | { analysisRef: string }
+  | { mutation: TypedDatabaseAction; purpose: string };
+```
+
+必须且只能提供一个分支。
+
+- `sql` 只接受 Connector 能证明为单条只读 Statement 的查询。
+- `analysisRef` 执行已经绑定和编译的不可变 Semantic Plan。
+- `mutation` 接受 Catalog-bound 的 Insert、Update、Delete 或 DDL Action，不接受 Raw Write SQL。
+
+Raw DML/DDL 不能复用只读 SQL Gate。若未来支持，必须先增加方言 Parser、Write Transaction、影响行数
+预算和同等强度的 Policy Binding，不能绕过现有 Typed Action Service。
+
+## 权限模型
+
+权限是服务端事实。模型、浏览器、Prompt、Working Memory 和 Tool Output 都不能授权数据库操作。
+
+### 权威输入
+
+服务端在每个请求绑定：
+
+- Tenant、Actor、Role 与 Resource Identity；
+- 当前 Connection 与数据库 Role；
+- Scoped Policy 及其 Hash；
+- 实时 Catalog Fingerprint；
+- Statement Class 和 Action Hash；
+- Row Predicate、影响行数上限与 Approval State。
+
+Metadata Visibility 只决定模型能看到哪些结构，绝不等于对 Row 或 Effect 的授权。
+
+### 服务端分类
+
+模型不传 `isWriteQuery`、风险等级或 `requiresApproval`：
+
+| 输入 | 服务端 Class | 默认行为 |
+| --- | --- | --- |
+| 显式只读 SQL | `read` | Policy 为 `allow` 时执行 |
+| Prepared Analysis | `read` | 与显式读取使用相同的 Read Permission |
+| Insert、Update | `write` | 进入 Typed Action Policy 和审批 |
+| Delete、DDL | `destructive` | 进入更严格的 Policy 和审批 |
+| 无法可靠分类 | `unknown` | 拒绝 |
+
+`deny` 永远不能被用户消息、Session Grant 或 Memory 覆盖。`ask` 只有在审批服务签发有效 Checkpoint
+后才能继续。Studio 当前对所有 Mutation 都要求审批，即使基础 Policy 为 `allow`。
+
+### 审批绑定
+
+Approval 绑定 Actor、Tenant、Canonical Action、Action Hash、Catalog Fingerprint、Policy Hash、Checkpoint
+和 TTL。恢复执行前重新检查 Policy、Catalog、Row Predicate 和审批状态；任一变化都会使旧批准失效。
+执行通过 Transaction、Idempotency 和 Durable Receipt 收口。浏览器只提交 approve/reject 决定，不能
+构造授权载荷。数据库自身的 Role、RLS 和 Constraint 是最后一道防线。
+
+## 数据上下文分层
+
+`list_database` 返回当前 Connector 的物理事实；`search_data_context` 返回用于理解业务问题的语义事实。
+二者都使用 Progressive Disclosure：先返回受限 Inventory/Search，再按精确 Relation 或 Entity 展开。
+
+`partial`、`unavailable` 和 `not_exposed` 都不能推导为“不存在”。只有在完整 Catalog 中完成精确查找后，
+`not_found` 才能证明该精确名称未找到。
+
+Tessera 的 Context Plane 可以继续接入 OpenAI 内部数据 Agent 所强调的六类上下文：Schema 与历史查询、
+人工注释、代码语义、机构知识、领域记忆和运行时检查。新增 Context Provider 不增加执行 Tool，最终查询
+仍必须进入 `execute_sql`。
+
+## Mastra Working Memory
+
+长期自进化直接使用 Mastra 原生 Schema Working Memory：
+
+```ts
+workingMemory: {
+  enabled: true,
+  scope: "resource",
+  schema: tesseraWorkingMemorySchema,
+  agentManaged: true,
+  useStateSignals: false,
+}
+```
+
+同一 `resourceId` 的多个 Thread 共享记忆，因此可以跨 Session 学习；不同 Tenant/Actor 生成不同
+Resource。Studio 的数据库文件位于当前项目 `.tessera/memory.db`，项目目录也形成一层隔离。
+
+Schema 使用 Keyed Object Map，而不是增长型数组：
+
+- `preferences`：Timezone、Locale、Currency、默认时间范围；
+- `terminologyById`：业务术语与定义；
+- `analysisRulesById`：Filter、Join、Metric、Source、Freshness、Null、Dedupe 规则；
+- `sourcePreferencesById`：某类分析优先使用的数据源。
+
+Mastra 对 Object 做 Deep Merge；Agent 只提交变化字段，未提交字段保留。数组会整体替换，因此领域规则
+使用 Map。每条领域规则必须有 `scopeRef` 和 `provenance`，需要时附 `lastVerifiedAt` 或 `expiresAt`。
+
+### 自动保存边界
+
+以下内容满足条件时自动增量保存，不要求用户批准：
+
+- 用户明确给出的稳定偏好或更正；
+- 经完成查询验证的稳定 Filter、Join、Metric、Source、Freshness、Null 或 Dedupe 规则；
+- 已有 Schema、Code 或 Curated Context 明确支持的可复用解释。
+
+以下内容禁止保存：原始业务 Row、查询结果、Raw SQL、Schema 快照、Credential、Secret、PII、权限和审批
+结论、临时计划、错误、Tool Payload、普通对话摘要和未经验证的推测。
+
+Working Memory 是规划上下文，不是 Evidence。使用记忆中的规则时仍要对照当前 Catalog 和执行结果重新
+验证。Memory 不能改变 Runtime Authorization。
+
+Mastra 注入的 `updateWorkingMemory` 是框架内部状态 Tool，不属于四个 Tessera 业务 Tool。AI SDK Stream
+在服务端过滤非业务 Tool Part，因此浏览器不会展示或持久化 Memory 调用。
+
+## 完整闭环
+
+```text
+Turn 开始
+  -> Server Identity + Permission Context
+  -> Resource-scoped Working Memory
+  -> list_database / search_data_context
+  -> prepare_analysis（语义问题）
+  -> execute_sql（唯一业务数据执行 Tool）
+  -> Result Validation + Evidence
+  -> Open Generative Output Processor（可选）
+  -> 自动增量更新稳定领域规则（满足条件时）
+  -> savePerStep 持久化模型历史
+```
+
+Open Generative Processor 只能使用已经验证的 Resource；它不调用数据库、不增加呈现 Tool，也不改变
+权限。浏览器接收的是脱敏后的 Tool 摘要和 Typed Surface，模型私有历史与 UI Transcript 分开保存。
+
+## 参考
+
+- [OpenAI：深入了解内部数据智能体](https://openai.com/zh-Hans-CN/index/inside-our-in-house-data-agent/)
+- [Claude：Managed Agents Data Analyst](https://platform.claude.com/cookbook/managed-agents-data-analyst-agent)
+- [Mastra：Working Memory](https://mastra.ai/docs/memory/working-memory)
+- [Mastra：Human in the loop](https://mastra.ai/docs/agents/human-in-the-loop)

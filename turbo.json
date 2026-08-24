@@ -7,6 +7,7 @@
     },
     "@open-tessera/docs#build": {
       "dependsOn": ["^build"],
+      "env": ["NEXT_PRIVATE_STANDALONE"],
       "outputs": [".next/**", "!.next/cache/**"]
     },
     "lint": {

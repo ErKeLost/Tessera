@@ -1,11 +1,12 @@
 ---
 title: Database Connections
-description: Configure PostgreSQL, MySQL, SQLite, and Turso without mixing their connection contracts.
+description: Configure PostgreSQL, MySQL, SQLite, Turso, and MongoDB without mixing their connection contracts.
 ---
 
 Studio presents each supported engine as a separate database option. SQLite and
 Turso share SQLite SQL semantics, but they use different connection and
-credential contracts.
+credential contracts. MongoDB uses structured collection operations rather
+than SQL.
 
 | Engine | URL | Credentials | Studio access |
 | --- | --- | --- | --- |
@@ -13,6 +14,7 @@ credential contracts.
 | MySQL | `mysql://` | URL or server environment | Read-only by default; typed writes are policy gated |
 | SQLite | `file:` or `sqlite:` | None | Always read-only |
 | Turso | `libsql:` or `turso:` | Separate auth token | Always read-only |
+| MongoDB | `mongodb:` or `mongodb+srv:` | URL or server environment | Always read-only |
 
 ## SQLite
 
@@ -47,9 +49,16 @@ When `database.authToken` is omitted, Studio reads `TURSO_AUTH_TOKEN`. URL
 credentials, query strings, and fragments are rejected. HTTPS and WSS are also
 accepted; unencrypted HTTP and WS are limited to loopback development servers.
 
+## MongoDB
+
+MongoDB URLs select the MongoDB connector. Studio inspects collections and
+executes bounded, structured read operations; it does not translate model text
+into Mongo shell JavaScript. MongoDB connections remain read-only in Studio.
+
 ## Catalog scope and limits
 
 PostgreSQL and MySQL can narrow discovery with `database.schemas`. SQLite and
-Turso expose only `main`. All connectors apply `maxRows`,
+Turso expose only `main`; MongoDB discovers collections in the selected
+database. All connectors apply `maxRows`,
 `statementTimeoutMs`, cancellation, and bounded serialization before results
 reach the Agent.

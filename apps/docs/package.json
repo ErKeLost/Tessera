@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "4.0.80",
+    "@fontsource-variable/dm-sans": "5.3.0",
+    "@fontsource/dm-mono": "5.3.0",
     "@fumadocs/language": "0.2.2",
     "@gsap/react": "2.1.2",
     "@iconify-icons/simple-icons": "1.2.74",

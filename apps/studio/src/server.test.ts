@@ -935,10 +935,10 @@ describe("Tessera Studio Nitro app", () => {
           return { status: "needs_input", message: "Fallback response." };
         },
         async stream(_input, emit) {
-          await emit({ type: "tool", tool: "list_catalog", state: "started" });
+          await emit({ type: "tool", tool: "search_data_context", state: "started" });
           await emit({ type: "text-delta", text: "I found the relevant table. " });
-          await emit({ type: "tool", tool: "list_catalog", state: "completed" });
-          await emit({ type: "tool", tool: "run_analysis", state: "completed" });
+          await emit({ type: "tool", tool: "search_data_context", state: "completed" });
+          await emit({ type: "tool", tool: "prepare_analysis", state: "completed" });
           return {
             status: "needs_input",
             message: "Orders are stable.",
@@ -970,7 +970,7 @@ describe("Tessera Studio Nitro app", () => {
     expect(body).toContain('"type":"tool-input-start"');
     expect(body).toContain('"type":"tool-input-available"');
     expect(body).toContain('"type":"tool-output-available"');
-    expect(body).toContain('"toolName":"run_analysis"');
+    expect(body).toContain('"toolName":"prepare_analysis"');
     expect(body).toContain('"type":"finish"');
     expect(body).not.toContain('"type":"data-tessera-');
     expect(body).not.toContain("select secret from orders");
@@ -979,9 +979,9 @@ describe("Tessera Studio Nitro app", () => {
     expect(toolIds).toHaveLength(6);
     expect(new Set(toolIds).size).toBe(2);
     expect(info).toEqual(expect.arrayContaining([
-      expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "started" }),
-      expect.objectContaining({ event: "stream", stage: "tool", tool: "list_catalog", toolState: "completed" }),
-      expect.objectContaining({ event: "stream", stage: "tool", tool: "run_analysis", toolState: "completed" }),
+      expect.objectContaining({ event: "stream", stage: "tool", tool: "search_data_context", toolState: "started" }),
+      expect.objectContaining({ event: "stream", stage: "tool", tool: "search_data_context", toolState: "completed" }),
+      expect.objectContaining({ event: "stream", stage: "tool", tool: "prepare_analysis", toolState: "completed" }),
       expect.objectContaining({ event: "stream", stage: "completed", outcome: "completed" }),
     ]));
     expect(errors).toEqual([]);
@@ -1127,8 +1127,8 @@ describe("Tessera Studio Nitro app", () => {
           return new ReadableStream<TesseraUIMessageChunk>({
             start(controller) {
               controller.enqueue({ type: "start", messageId: "provider-message" });
-              controller.enqueue({ type: "tool-input-start", toolCallId: "provider-tool", toolName: "run_analysis" });
-              controller.enqueue({ type: "tool-input-available", toolCallId: "provider-tool", toolName: "run_analysis", input: {} });
+              controller.enqueue({ type: "tool-input-start", toolCallId: "provider-tool", toolName: "prepare_analysis" });
+              controller.enqueue({ type: "tool-input-available", toolCallId: "provider-tool", toolName: "prepare_analysis", input: {} });
               controller.enqueue({
                 type: "tool-output-available",
                 toolCallId: "provider-tool",
@@ -1170,8 +1170,8 @@ describe("Tessera Studio Nitro app", () => {
           return new ReadableStream<TesseraUIMessageChunk>({
             start(controller) {
               controller.enqueue({ type: "start", messageId: "provider-message" });
-              controller.enqueue({ type: "tool-input-start", toolCallId: "provider-tool", toolName: "run_analysis" });
-              controller.enqueue({ type: "tool-input-available", toolCallId: "provider-tool", toolName: "run_analysis", input: {} });
+              controller.enqueue({ type: "tool-input-start", toolCallId: "provider-tool", toolName: "prepare_analysis" });
+              controller.enqueue({ type: "tool-input-available", toolCallId: "provider-tool", toolName: "prepare_analysis", input: {} });
               controller.enqueue({
                 type: "tool-output-available",
                 toolCallId: "provider-tool",
@@ -1352,12 +1352,12 @@ describe("Tessera Studio Nitro app", () => {
               controller.enqueue({
                 type: "tool-input-start",
                 toolCallId: "source-tool-id-do-not-log",
-                toolName: "run_analysis",
+                toolName: "prepare_analysis",
               });
               controller.enqueue({
                 type: "tool-input-available",
                 toolCallId: "source-tool-id-do-not-log",
-                toolName: "run_analysis",
+                toolName: "prepare_analysis",
                 input: { rawSql: "source-sql-do-not-log" },
               } as unknown as TesseraUIMessageChunk);
               controller.enqueue({
@@ -1388,13 +1388,13 @@ describe("Tessera Studio Nitro app", () => {
       expect.objectContaining({
         event: "stream",
         stage: "tool",
-        tool: "run_analysis",
+        tool: "prepare_analysis",
         toolState: "started",
       }),
       expect.objectContaining({
         event: "stream",
         stage: "tool",
-        tool: "run_analysis",
+        tool: "prepare_analysis",
         toolState: "completed",
       }),
     ]));

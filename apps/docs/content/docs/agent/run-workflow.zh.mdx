@@ -1,45 +1,51 @@
 ---
 title: 运行流程
-description: 一个 Tessera Agent 问题如何变成可信证据与已提交 Generative UI Surface。
+description: 一个 Tessera 问题如何变成有依据的回答与可选分析视图。
 ---
 
-只有受治理分析与 Generative UI 形成一条完整工作流，成功证明才算完成：
+一次 Tessera Turn 从问题到最终 UI 只有一条受治理链路：
 
 ```text
-问题 -> Catalog -> 语义计划 -> 受限只读查询
-    -> 验证 -> Resource/Evidence Offer
-    -> present_ui Proposal -> Committed Revision
-    -> SurfaceEventStream -> SurfaceController
-    -> GenerativeSurface -> RendererRegistry
+问题
+-> 检查物理 Schema 或语义 Catalog
+-> 执行一条受限数据库路径
+-> 校验并保留证据
+-> 组织最终回答
+-> 按需编译生成式分析视图
+-> 传输一条对浏览器安全的 AI SDK Message
 ```
 
-| 步骤 | 用户看到的结果 | Host 职责 |
-| --- | --- | --- |
-| Discover | 相关实体、字段、指标与关系 | 加载实时 Semantic Catalog 并返回受限 Slice |
-| Clarify | 歧义变成明确选项 | 描述已检查实体或执行一次受限 Probe |
-| Plan | 可审查的只读分析意图 | 只接收 Semantic ID，绝不接收模型生成 SQL |
-| Execute | 进度与经过验证的 Query 状态 | 重新校验 Scope、编译 SQL、执行、取消并应用限制 |
-| Offer | Evidence 与可渲染数据可用 | 发布绑定 Grant 的 Resource Descriptor、Schema、Version 与 Evidence |
-| Compose | 有用的 Metric、Chart、Table、Filter 或解释布局 | 冻结 Component Contract Slice，只接收 `present_ui` Proposal |
-| Commit | Last-good 内容原子变化，或只经过允许的 Preview | 校验 Identity、Binding、Placement、Authority 与 Canonical Revision |
-| Render | 答案成为可检查、可交互 Surface | 发布可信事件并精确解析 Node Renderer |
+## 1. 选择一条查询路径
 
-## Browser Lifecycle
+Tessera 不会把所有数据库 Tool 都运行一遍，而是选择一条主要路径：
 
-Data Agent 私有 Tool Payload 始终留在服务端。浏览器接收脱敏 Product Stage Stream 与可信
-`SurfaceEventStream`。Query Row 只有在 Committed Binding 下被请求为受限、Node-scoped Resource
-Projection 时才能进入浏览器；它们永远不会进入模型 Proposal、Canonical Document、Revision History
-或普通日志。
+| 请求 | Tool 路径 |
+| --- | --- |
+| 明确 SQL、物理表或列、行数据检查 | `list_database -> execute_sql` |
+| 业务指标、排行、趋势、分组分析 | `search_data_context -> prepare_analysis -> execute_sql(analysisRef)` |
+| 引擎、Extension 或行安全元数据 | 只调用对应的 `list_database` Operation |
 
-`SurfaceController` 校验 Stream Identity 与 Sequence、Replay Commit、保留 Last-good、请求 Resource
-Window，并暴露 Resolved Node Projection。`GenerativeSurface` 使用官方 Registry 渲染这些 Projection，
-永远不消费原始模型或 Tool Output。
+Catalog 与 Schema 结果只是规划上下文。只有成功执行的 Query 或 Analysis Result 才能支撑数据论断。
 
-## Retry、Interruption 与 Conflict
+## 2. 在权限边界内执行
 
-每次分析都会在执行前重新绑定当前 Catalog 与 Authority。陈旧 Capability、变化的 Catalog、过期
-Resource Grant、无效 Proposal、中断 Stream 或 Revision Conflict 都必须 Fail Closed。Host Repair、
-Resume、Resync 或请求用户解决 Conflict 时，当前 Committed Surface 继续可见。
+服务端先把每次执行分类为 `read`、`write`、`destructive` 或 `unknown`，再重新校验权限、方言、范围、
+行数上限、超时与取消信号。无法可靠分类的操作直接拒绝；读取仅在允许时执行。Mutation 使用类型化
+Input 与持久审批 Checkpoint，聊天消息不能自行授予权限。
 
-Golden Suite 必须测试这条完整路径，而不是孤立组件 JSON。详见
-[Data Agent 成功证明门槛](./architecture/generative-ui-proof)。
+## 3. 保存每个已完成 Step
+
+Mastra Memory 使用原生 `savePerStep`，因此已完成的 Tool Call 与 Result 会提供给后续模型 Step，
+Turn 中断后也不会丢失。Studio 通过 AI SDK `onStepEnd` 保存另一份经过脱敏的 UI Transcript。
+两份记录服务于不同 Trust Boundary，不再由 Tessera 手工重建。
+
+## 4. 生成回答
+
+数据库 Tool 发布经过验证的 Dataset 后，Tessera 内部 Output Processor 可以从现有分析 Recipe 中
+选择并编译声明式视图。这属于回答格式，不是另一个 Agent Tool，也不会再次查询数据库。如果没有
+合适 Dataset，Tessera 只返回正常正文与 Tool Transcript，不会虚构视图。
+
+浏览器接收 AI SDK 原生 Text、Reasoning、Tool Part，以及该回答最新的一份 Committed Analysis View
+Snapshot。刷新 Thread 后恢复同一条消息，不会重放每个中间副本。
+
+继续阅读 [Tool 契约](./tool-contract)与[生成式分析视图架构](./architecture/generative-ui)。

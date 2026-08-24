@@ -1,59 +1,18 @@
 ---
-title: shadcn/ui Components
-description: How Tessera Agent owns and validates its current Generative UI renderer source.
+title: Analysis View Source
+description: How Tessera owns its shadcn/ui-based analysis views without publishing a component registry.
 ---
 
-Tessera Agent's official React renderers are built from shadcn/ui primitives and
-Recharts, but there is currently no public `tessera-agent` CLI and no remote
-`tessera-agent.dev` registry. The renderer source remains in this repository
-until the data-agent proof succeeds.
+Tessera Studio's analysis views are built from local shadcn/ui primitives and
+the chart implementation in this repository. They ship as part of Studio.
 
-## Current source
+There is no public component package, shadcn registry URL, component CLI, or
+copy-paste installation path. Users install Tessera Studio and receive the
+renderer used by the Agent automatically.
 
-`@open-generative/ui` is the local React implementation package. Its name marks
-the future extraction boundary; the components and their documentation are
-currently part of the Tessera Agent proof.
+The source remains contract-driven so Tessera can validate every generated
+view before rendering it. The current gallery covers all 17 supported chart
+recipes and uses the same renderer as Studio; it is product documentation, not
+a distribution registry.
 
-The package exports the exact `data.chart` node renderer, official registry
-factories, shared UI primitives, and a stylesheet:
-
-```tsx
-import { GenerativeSurface } from "@open-generative/react";
-import { createOfficialRendererRegistry } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
-```
-
-The complete application mount also needs a `SurfaceController`. The only
-supported rendering chain is:
-
-```text
-SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
-```
-
-There is no `ArtifactRenderer` compatibility facade and no per-artifact render
-path.
-
-## Local verification
-
-From the repository root:
-
-```bash
-bun install
-bun --cwd packages/components test
-bun --cwd packages/ui typecheck
-bun --cwd packages/ui test
-bun --cwd packages/ui build
-```
-
-Contract definitions come from `@open-generative/components`; React renderer
-registrations come from `@open-generative/ui`. Tests must prove exact Contract
-identity, resolved-props validation, browser safety, accessibility, and all 17
-chart recipe fixtures.
-
-## Future source distribution
-
-A shadcn registry may later distribute editable renderer source. It cannot be
-documented as available until the registry URL, generated manifests, dependency
-closure, clean-host installation tests, version pinning, and integrity checks
-all exist. A future registry changes distribution only; it cannot fork the
-Component Contracts or create a second renderer architecture.
+See the [analysis view catalog](/docs/components/generative-ui-catalog).

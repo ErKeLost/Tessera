@@ -395,15 +395,7 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
     type: "backend" as const,
     render: NativeTesseraTool,
   },
-  list_extensions: {
-    type: "backend" as const,
-    render: NativeTesseraTool,
-  },
-  list_rls_policies: {
-    type: "backend" as const,
-    render: NativeTesseraTool,
-  },
-  list_catalog: {
+  search_data_context: {
     type: "backend" as const,
     render: NativeTesseraTool,
   },
@@ -411,11 +403,7 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
     type: "backend" as const,
     render: NativeTesseraTool,
   },
-  run_analysis: {
-    type: "backend" as const,
-    render: NativeTesseraTool,
-  },
-  present_ui: {
+  prepare_analysis: {
     type: "backend" as const,
     render: NativeTesseraTool,
   },

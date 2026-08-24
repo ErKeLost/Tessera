@@ -1,69 +1,54 @@
-# Tessera Agent Generative UI
+# Tessera Agent
 
-This repository is the complete Generative UI reference implementation and
-validation ground for the Tessera Agent. Models propose declarative UI;
-the host owns contracts, data, identity, validation, state, authority, effects,
-persistence, and commits.
+Tessera Agent is a local-first database analysis agent. It connects natural
+language questions to governed database tools, verified evidence, durable
+session memory, and generated analysis views inside Tessera Studio.
 
-The implementation uses the final Open Generative architecture from the start,
-not an MVP or a temporary Data Agent protocol. Its currently enabled component
-catalog, recipes, fixtures, and product acceptance criteria are intentionally
-limited to Tessera data-analysis workflows. After this reference proves the
-architecture, the framework-neutral core will be extracted into a separate
-Open Generative project.
+The repository contains the Agent runtime, Studio application, database
+connectors, semantic analysis compiler, permission boundary, tests, and public
+documentation for the Tessera product.
 
-Existing Agent, Studio, and Workbench sources are outside this Generative UI
-workstream. This implementation does not modify them; Tessera Agent integration
-is handled as a separate task after the reference contracts are proven here.
+## Quick start
 
-## Invariants
+Run the published Studio executable with a database URL:
 
-- Models never generate executable JSX, JavaScript, HTML, CSS, SQL, URLs, or
-  tool names.
-- Every component is defined by one immutable, revisioned contract.
-- Resource payloads never enter model proposals or canonical documents.
-- Every external effect is a typed host intent with authorization and receipts.
-- React is the first official binding; it is not the protocol.
-- A surface has one rendering chain:
-  `SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry`.
+```bash
+npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/warehouse
+```
 
-## Current Proof
+Studio also supports MySQL, SQLite, Turso/libSQL, and MongoDB. It binds to
+`127.0.0.1` by default and keeps database credentials, provider keys, and
+private model memory on the server.
 
-The repository is successful only when one governed query execution can publish
-a typed, provenance-linked pinned dataset and render any of the 17 locked
-Tessera chart recipes through the single `data.chart` Contract without copying
-rows into model proposals, canonical documents, or transport history. Recipe
-selection changes presentation, never the protocol or rendering chain.
+For a repeatable project setup, create a server-only `tessera.config.ts`:
 
-The measurable proof plan is documented in
-[`docs/architecture/tessera-data-agent-generative-ui-proof.md`](docs/architecture/tessera-data-agent-generative-ui-proof.md).
+```ts
+import { defineTesseraConfig } from "@open-tessera/studio";
 
-## Future Extraction Boundaries
+export default defineTesseraConfig({
+  database: {
+    url: process.env.DATABASE_URL!,
+    maxRows: 5_000,
+    statementTimeoutMs: 30_000,
+  },
+  llm: {
+    model: "openrouter/qwen/qwen3.8-27b",
+  },
+});
+```
 
-The `@open-generative/*` names below describe the package boundaries implemented
-by this reference and reserved for extraction into the future Open Generative
-project. They do not name a second current product: the current product proof and
-acceptance profile remain Tessera Agent.
+## Product boundaries
 
-| Package | Responsibility |
-| --- | --- |
-| `@open-generative/protocol` | Canonical schemas, wire protocols, hashes, IDs, diagnostics |
-| `@open-generative/catalog` | Component contracts, manifests, slices, generated contract views |
-| `@open-generative/compiler` | Proposal decode, normalize, validate, and commit gates |
-| `@open-generative/runtime` | Deterministic document, preview, state, migration, and replay reducers |
-| `@open-generative/server` | HostServer, sessions, transactions, authority orchestration |
-| `@open-generative/client` | SurfaceController, trusted stream reduction, command transport |
-| `@open-generative/resources` | Resource publication, grants, projection, windows, evidence |
-| `@open-generative/capabilities` | Action policy, approval, idempotency, effects, receipts |
-| `@open-generative/react` | GenerativeSurface and React RendererRegistry |
-| `@open-generative/components` | Official framework-neutral component contracts and ChartSpec |
-| `@open-generative/ui` | Official React UI components and node renderers |
-| `@open-generative/ai-sdk` | AI SDK server/client transport adapter |
-| `@open-generative/mastra` | Server-only Mastra adapter |
-| `@open-generative/ag-ui` | AG-UI server/client event adapter |
+- The model sees typed database tools, never connection credentials.
+- Physical reads and semantic analysis use separate, bounded tool paths.
+- Database mutations use typed actions, policy checks, and durable approval.
+- Mastra persists private conversation context after every completed model step.
+- AI SDK assembles a separate, sanitized browser transcript for refresh.
+- Generated analysis views consume only verified query resources and cannot run
+  another database operation.
+- Studio includes the renderer and all 17 current chart recipes.
 
-The complete target architecture and the future extraction boundary are documented in
-[`docs/architecture/open-generative-architecture.md`](docs/architecture/open-generative-architecture.md).
+## Development
 
 ```bash
 bun install
@@ -71,3 +56,14 @@ bun run typecheck
 bun run test
 bun run build
 ```
+
+Run Studio and the documentation site locally:
+
+```bash
+bun --cwd apps/studio dev
+bun --cwd apps/docs dev
+```
+
+Public documentation lives in [`apps/docs`](apps/docs). Architecture notes in
+[`docs/architecture`](docs/architecture) are repository design records rather
+than additional products or installable SDKs.

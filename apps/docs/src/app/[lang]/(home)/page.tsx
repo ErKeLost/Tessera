@@ -20,15 +20,6 @@ import { localizedPath } from "@/lib/i18n";
 
 const protocolIcons = [GitBranchIcon, FileJson2Icon, BlocksIcon, DatabaseIcon] as const;
 
-const packageNames = [
-  "@open-generative/protocol",
-  "@open-generative/catalog",
-  "@open-generative/react",
-  "@open-generative/ai-sdk",
-  "@open-generative/mastra",
-  "@open-generative/ag-ui",
-] as const;
-
 function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
   return (
     <div className={styles.sectionBackdrop}>
@@ -39,86 +30,100 @@ function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
 
 const copy = {
   en: {
-    eyebrow: "Generative UI for governed data agents",
-    lead: "Tessera Agent is proving a final, host-governed Generative UI architecture through real data-analysis workflows.",
-    getStarted: "Read the proof",
-    browse: "Browse the catalog",
+    eyebrow: "Governed database analysis agent",
+    lead: "Tessera Agent turns database questions into bounded queries, verified evidence, and analysis views your team can inspect.",
+    getStarted: "Get started",
+    browse: "Explore analysis views",
     interactivePreview: "Tessera Agent workspace",
     workspace: "Working interface",
     workspaceTitle: "See the interface after a model responds.",
     workspaceDetail: "A real, editable preview for structured answers, evidence, and follow-up work. It lives below the Canvas, where it can be inspected without competing with the first view.",
     heroMeta: ["Schema-first", "Application-owned", "shadcn-compatible"],
-    manifesto: "The Data Agent proof comes before the standalone framework.",
-    manifestoDetail: "The complete architecture, data.chart Contract, 17 official recipes, fixtures, and proof gates stay in Tessera Agent until the data-agent experience succeeds end to end.",
-    install: "Repository proof",
-    installTitle: "Run the architecture and component gates from source.",
-    installDetail: "The packages and remote registry are not presented as published products. Today, this repository is the executable source of truth.",
-    chooseEntry: "Current verification path",
-    everything: "Install workspace",
-    oneArtifact: "Check contracts",
-    directRegistry: "Run all gates",
-    installationGuide: "Read the proof workflow",
-    catalog: "Component catalog",
-    catalogTitle: "Seventeen Data Charts, one governed Contract.",
-    catalogDetail: "Explore every official recipe through the same trusted Resource, Surface, and Renderer chain.",
+    manifesto: "One product owns the complete path from question to evidence.",
+    manifestoDetail: "Tessera scopes the catalog, executes governed tools, verifies results, persists every completed step, and renders the final answer without handing database authority to the model or browser.",
+    install: "Install",
+    installTitle: "Start Tessera Agent with the database you already use.",
+    installDetail: "The Studio executable includes the Agent runtime, database tools, session memory, and analysis-view renderer.",
+    chooseEntry: "Choose a connection",
+    everything: "PostgreSQL",
+    oneArtifact: "MySQL",
+    directRegistry: "SQLite",
+    installationGuide: "Read the installation guide",
+    catalog: "Analysis views",
+    catalogTitle: "Seventeen focused Data Chart designs.",
+    catalogDetail: "Explore the result views Tessera can choose after a verified database query.",
     trustBoundary: "Trust boundary",
     trustTitle: "Agents propose. Your runtime decides.",
-    trustDetail: "Models propose declarative nodes. The host validates, commits, resolves data and authority, then registered code renders them.",
+    trustDetail: "The model chooses bounded tools and presentation intent. Tessera validates access, executes the database work, records evidence, and renders trusted output.",
     securityModel: "Read the security model",
-    runtime: "Composable runtime",
-    runtimeTitle: "One protocol and one renderer chain, proven in Tessera Agent.",
+    runtime: "Runtime guarantees",
+    runtimeTitle: "The boundaries Tessera enforces on every analysis.",
     openSource: "Open source",
-    openSourceTitle: "Inspect the complete Tessera Agent Generative UI proof.",
+    openSourceTitle: "Inspect the complete Tessera Agent implementation.",
     github: "View on GitHub",
     architecture: "Architecture",
     protocol: [
-      ["Propose", "The model uses only the frozen, task-scoped Component Contract slice."],
-      ["Commit", "The server normalizes, validates, authorizes, and commits the declaration."],
-      ["Control", "SurfaceController consumes trusted events and resolves node-scoped values."],
-      ["Render", "GenerativeSurface resolves an exact renderer from RendererRegistry."],
+      ["Discover", "Tessera exposes only the current, bounded catalog scope."],
+      ["Execute", "A registered database tool runs within permission and resource limits."],
+      ["Verify", "The Agent distinguishes evidence, partial results, and actionable failures."],
+      ["Present", "The Studio renders text, tool state, and an optional generated analysis view."],
     ],
-    packages: ["Canonical protocol", "Contracts and trusted runtime", "React surface and UI renderers", "AI SDK transport boundary", "Mastra integration boundary", "AG-UI event boundary"],
+    capabilities: [
+      ["Catalog-scoped planning", "Only inspected schemas and relations enter the planning context"],
+      ["Bounded database execution", "Reads and mutations pass separate safety and approval gates"],
+      ["Per-step session memory", "Mastra saves private context after every completed model step"],
+      ["Evidence-backed answers", "Claims stay connected to verified tool output"],
+      ["Generated analysis views", "Views bind only to resources Tessera already verified"],
+      ["Durable approval workflow", "Suspended mutations resume from durable server state"],
+    ],
   },
   zh: {
-    eyebrow: "面向受治理 Data Agent 的 Generative UI",
-    lead: "Tessera Agent 正通过真实数据分析工作流，验证一套终局的、由宿主治理的 Generative UI 架构。",
-    getStarted: "查看成功证明",
-    browse: "浏览组件目录",
+    eyebrow: "受治理的数据库分析 Agent",
+    lead: "Tessera Agent 把数据库问题转换成有上限的查询、可核验的 Evidence 与团队可以检查的分析视图。",
+    getStarted: "开始使用",
+    browse: "浏览分析视图",
     interactivePreview: "Tessera Agent 工作台",
     workspace: "工作界面",
     workspaceTitle: "查看模型回答后的真实工作界面。",
     workspaceDetail: "这是一个可编辑的真实预览，用于呈现结构化回答、证据与后续工作。它放在 Canvas 首屏之后，不与第一视图争夺注意力。",
     heroMeta: ["Schema 优先", "应用掌控", "兼容 shadcn"],
-    manifesto: "先证明 Data Agent，再拆分通用框架。",
-    manifestoDetail: "在 Data Agent 体验端到端成功之前，完整架构、data.chart Contract、17 个官方 Recipe、Fixture 与证明门槛都继续留在 Tessera Agent。",
-    install: "仓库验证",
-    installTitle: "直接从源码运行架构与组件门槛。",
-    installDetail: "当前不会把 Package 与远程 Registry 写成已经发布的产品；这个仓库才是唯一可执行的 source of truth。",
-    chooseEntry: "当前验证路径",
-    everything: "安装 Workspace",
-    oneArtifact: "检查 Contract",
-    directRegistry: "运行全部门槛",
-    installationGuide: "查看证明流程",
-    catalog: "组件目录",
-    catalogTitle: "17 个 Data Chart，一份受治理 Contract。",
-    catalogDetail: "通过同一条可信 Resource、Surface 与 Renderer 链路查看全部官方 Recipe。",
+    manifesto: "一个产品负责从问题到 Evidence 的完整链路。",
+    manifestoDetail: "Tessera 负责限制 Catalog、执行受治理 Tool、核验结果、逐 Step 持久化，并渲染最终回答，不把数据库 Authority 交给模型或浏览器。",
+    install: "安装",
+    installTitle: "使用现有数据库直接启动 Tessera Agent。",
+    installDetail: "Studio 可执行程序已经包含 Agent Runtime、数据库 Tool、Session Memory 与分析视图 Renderer。",
+    chooseEntry: "选择数据库连接",
+    everything: "PostgreSQL",
+    oneArtifact: "MySQL",
+    directRegistry: "SQLite",
+    installationGuide: "查看安装指南",
+    catalog: "分析视图",
+    catalogTitle: "17 个专注的数据图表设计。",
+    catalogDetail: "查看 Tessera 在可信数据库查询完成后可以选择的结果视图。",
     trustBoundary: "信任边界",
     trustTitle: "Agent 提议，运行时决定。",
-    trustDetail: "模型只提议声明式节点；宿主完成校验、提交、数据与权限解析，再由注册代码渲染。",
+    trustDetail: "模型只选择受限 Tool 与呈现意图；Tessera 校验访问、执行数据库工作、记录 Evidence，再渲染可信结果。",
     securityModel: "阅读安全模型",
-    runtime: "可组合运行时",
-    runtimeTitle: "一套协议、一条渲染链，先在 Tessera Agent 中完成证明。",
+    runtime: "Runtime 保证",
+    runtimeTitle: "Tessera 对每次分析强制执行的边界。",
     openSource: "开放源代码",
-    openSourceTitle: "检查完整的 Tessera Agent Generative UI 成功证明。",
+    openSourceTitle: "检查完整的 Tessera Agent 实现。",
     github: "在 GitHub 上查看",
     architecture: "架构",
     protocol: [
-      ["提议", "模型只能使用本轮冻结、按任务裁剪的 Component Contract Slice。"],
-      ["提交", "服务端负责 Normalize、Validate、Authorize 与 Commit。"],
-      ["控制", "SurfaceController 消费可信事件并解析 Node-scoped Value。"],
-      ["渲染", "GenerativeSurface 从 RendererRegistry 精确解析 Renderer。"],
+      ["发现", "Tessera 只暴露当前有上限的 Catalog Scope。"],
+      ["执行", "已注册数据库 Tool 在权限与资源限制内运行。"],
+      ["核验", "Agent 明确区分 Evidence、Partial Result 与可行动失败。"],
+      ["呈现", "Studio 渲染文字、Tool 状态与可选的生成式分析视图。"],
     ],
-    packages: ["Canonical Protocol", "Contract 与可信 Runtime", "React Surface 与 UI Renderer", "AI SDK 传输边界", "Mastra 集成边界", "AG-UI Event 边界"],
+    capabilities: [
+      ["限定范围的 Catalog 规划", "只有已检查的 Schema 与 Relation 进入规划上下文"],
+      ["有上限的数据库执行", "Read 与 Mutation 分别经过安全与审批门槛"],
+      ["逐 Step Session Memory", "Mastra 在每个已完成模型 Step 后保存私有上下文"],
+      ["Evidence 支撑的回答", "结论始终连接到可信 Tool Output"],
+      ["生成式分析视图", "视图只绑定 Tessera 已核验的 Resource"],
+      ["Durable Approval Workflow", "暂停的 Mutation 从服务端 Durable State 恢复"],
+    ],
   },
 } as const;
 
@@ -205,20 +210,26 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
               </div>
               <div className={styles.commandRow}>
                 <span>{text.everything}</span>
-                <InstallCopy command="bun install" tone="console" />
+                <InstallCopy
+                  command="npx @open-tessera/studio@latest postgresql://user:password@127.0.0.1:5432/warehouse"
+                  tone="console"
+                />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.oneArtifact}</span>
-                <InstallCopy command="bun run check:naming && bun run check:boundaries" tone="console" />
+                <InstallCopy
+                  command="npx @open-tessera/studio@latest mysql://user:password@127.0.0.1:3306/warehouse"
+                  tone="console"
+                />
               </div>
               <div className={styles.commandRow}>
                 <span>{text.directRegistry}</span>
                 <InstallCopy
-                  command="bun run typecheck && bun run test && bun run build"
+                  command="npx @open-tessera/studio@latest file:/absolute/path/to/warehouse.db"
                   tone="console"
                 />
               </div>
-              <Link className={styles.textLink} href={path("/docs/agent/architecture/generative-ui-proof")}>
+              <Link className={styles.textLink} href={path("/docs/agent/getting-started")}>
                 {text.installationGuide}
                 <ArrowRightIcon aria-hidden="true" />
               </Link>
@@ -273,10 +284,10 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
             <h2>{text.runtimeTitle}</h2>
           </header>
           <div className={styles.packageList}>
-            {packageNames.map((name, index) => (
+            {text.capabilities.map(([name, detail]) => (
               <div className={styles.packageRow} key={name}>
                 <code>{name}</code>
-                <span>{text.packages[index]}</span>
+                <span>{detail}</span>
                 <CheckIcon aria-hidden="true" />
               </div>
             ))}

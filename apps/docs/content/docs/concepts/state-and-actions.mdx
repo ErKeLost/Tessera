@@ -1,43 +1,56 @@
 ---
 title: State and Actions
-description: How Tessera Agent keeps interaction local while preserving host authority.
+description: How Tessera separates model memory, browser history, local view state, and database effects.
 ---
 
-Tessera Agent separates canonical Surface state, browser-local view state, and
-authoritative business state. They never share an implicit mutation path.
+Tessera does not use one message record as the authority for every concern.
+Each kind of state has one owner and one persistence rule.
 
-| State owner | Examples | Update path |
+| State | Owner | Purpose |
 | --- | --- | --- |
-| Canonical Surface state | Filter values, selection bound to a committed document | Revision-checked state command or validated local transition |
-| Browser-local view state | Open tabs, hover, focus, temporary chart legend visibility | Renderer-owned; never enters the canonical document |
-| Host business state | Database records, approvals, exports, external effects | Typed HostIntent through server policy and receipts |
+| Model conversation | Mastra Memory | Context for later model steps and turns |
+| Domain Working Memory | Mastra resource-scoped schema memory | Stable preferences and verified reusable analysis rules across threads |
+| Browser transcript | Tessera session store | Safe text, tool lifecycle, and committed analysis views |
+| Local view state | React components | Hover, focus, open controls, and chart visibility |
+| Approval state | Mastra workflow snapshot | Durable mutation suspension and resume |
+| Database state | Connected database | Authoritative business records |
 
-## Node-scoped interaction
+## Step persistence
 
-A renderer receives only the resolved props, declared slots, node-scoped state
-and resource bindings, placement, and an optional `emit` function. The function
-exists only for a committed projection. Read-only previews cannot emit events.
+Mastra's native `savePerStep` writes completed model steps, including tool calls
+and tool results, into private Memory. In parallel, AI SDK `onStepEnd` provides
+the assembled UI message that Tessera sanitizes and checkpoints for refresh.
+Repeated checkpoints upsert a stable assistant message ID instead of appending
+copies.
 
-```ts
-type NodeScopedEventEmitter = (
-  port: EventPort,
-  payload: JsonValue,
-) => Promise<NodeEventDispatchResult>;
-```
+The browser transcript is not fed back as database authority. Raw credentials,
+provider metadata, private tool payloads, and unrestricted query rows are not
+stored in it.
 
-The renderer emits a port declared by its exact Component Contract. It cannot
-choose an action, tool, URL, or credential. `SurfaceController` validates the
-event payload, resolves the committed action binding, checks node scope and
-revision preconditions, then either applies a deterministic local transition or
-sends a typed Host command.
+## Analysis-view state
 
-## HostIntent
+Chart hover, focus, and temporary visibility settings remain inside the
+renderer. A committed analysis view is part of the assistant message, and a
+cumulative update replaces the previous snapshot for the same surface. Local
+interaction cannot change the database or invent another tool call.
 
-The current catalog defines only three HostIntent contracts:
-`data.export`, `surface.retry`, and `control.apply`. Availability comes from the
-Host's frozen authority and resource offers, not from the model or renderer.
-Effects remain server-side and return idempotent receipts.
+## Database actions
 
-This path replaces the historical `TesseraPreviewProvider`,
-`ArtifactRenderer`, and generic `onAction` callback. There is one event bridge,
-owned by `SurfaceController`.
+Reads execute through the governed database tools. Writes are typed operations
+that may suspend a Mastra workflow for explicit approval. The persisted
+workflow snapshot, request identity, policy decision, and idempotency key own
+the resume path; clicking a client control cannot bypass them.
+
+## Domain Working Memory
+
+Cross-session domain learning uses Mastra's native resource-scoped, schema-based
+Working Memory with `agentManaged: true`. Stable user preferences, explicit
+corrections, and reusable analytical rules verified by completed evidence are
+deep-merged incrementally without a separate approval flow. Every domain entry
+is scoped and carries provenance.
+
+Rows, query results, SQL, schema snapshots, secrets, PII, permission decisions,
+temporary plans, tool payloads, and guesses are forbidden. Working Memory is
+planning context and cannot grant authority or replace fresh evidence. See
+[Data Context and Domain Memory](../agent/architecture/data-context-and-memory)
+for the complete schema and save rules.

@@ -1,64 +1,12 @@
 ---
-title: AG-UI
-description: 通过已经实现的 AG-UI Custom Event Adapter 传输 Tessera Agent 可信 Surface Event。
+title: AG-UI 状态
+description: AG-UI 不属于 Tessera Agent 当前 Runtime 或公开接入面。
 ---
 
-`@open-generative/ag-ui` 把 Canonical Tessera Agent Surface Stream 映射成 AG-UI Custom Event。
-它只是 Transport Adapter，不是第二套 Event Protocol，也不会产生第二条 Renderer Path。
+Tessera Agent 当前没有对外提供 AG-UI 集成。Studio 使用 Mastra 运行 Agent，并使用 AI SDK UI
+Message Stream 连接 Nitro Server 与 React Client。
 
-Package Root 导出 Wire Constant 与 Type；服务端和浏览器分别使用显式的 `./server` 与 `./client`
-Entry。
+保留本页是为了让旧链接不再指向已经不符合产品现状的安装说明。Tessera 用户目前没有可安装的
+AG-UI Package、Custom Event Contract 或额外配置步骤。
 
-## Wire 结构
-
-每个 Open Generative Event 都使用同一个稳定 AG-UI Envelope：
-
-```ts
-{
-  type: "CUSTOM",
-  name: "open-generative.surface.event",
-  value: surfaceEventEnvelope,
-}
-```
-
-`value` 就是 Canonical `SurfaceEventEnvelope`。Adapter 不会把它翻译成另一套 Patch、State 或
-Component Format。
-
-## 服务端 Adapter
-
-`surfaceEventToAgUiEvent()` 在包装前 Parse 并验证单个 Event；
-`surfaceEventsToAgUiEvents()` 可以映射同步或异步 Event Stream。
-
-```ts
-import { surfaceEventsToAgUiEvents } from "@open-generative/ag-ui/server";
-
-for await (const event of surfaceEventsToAgUiEvents(surfaceEvents)) {
-  await publishAgUiEvent(event);
-}
-```
-
-`surfaceEvents` 中只能放 Host 已提交 Event。原始模型输出和未提交 Proposal 不能跨过这个边界。
-
-## 浏览器 Adapter
-
-Client 会识别命名 Custom Event、验证 Canonical Payload Hash，再交给现有 Controller 消费。
-
-```ts
-import { consumeOpenGenerativeAgUiEvent } from "@open-generative/ag-ui/client";
-
-await consumeOpenGenerativeAgUiEvent(surfaceController, agUiEvent);
-```
-
-只需要分流或解码时，使用 `isOpenGenerativeAgUiEvent()` 与
-`decodeOpenGenerativeAgUiEvent()`。
-
-```text
-AG-UI CUSTOM event
--> verified SurfaceEventEnvelope
--> SurfaceController
--> GenerativeSurface
--> RendererRegistry
-```
-
-Action 仍然通过 Host-owned Command 与权限检查返回。Adapter 不签发 Capability、不解析 Resource、
-不 Commit Revision，也不运行 Renderer Code。
+当前已经实现并测试的运行时请查看 [Mastra Runtime](./mastra)与 [AI SDK Transport](./ai-sdk)。

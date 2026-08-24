@@ -4,7 +4,7 @@ description: 为分析界面设计的 17 个图表 Recipe。
 full: true
 ---
 
-Catalog 有六个公开 Component Contract。本页聚焦其中唯一的 Chart Contract：`data.chart`；
+Tessera 内部 View Catalog 有六个分析 Contract。本页聚焦其中唯一的 Chart Contract：`data.chart`；
 `analysis.report`、`layout.stack`、`layout.grid`、`data.metric` 与 `analysis.insight` 负责把图表
 组合成完整分析答案。`data.chart` 通过 `spec.recipe` Discriminant 选择 17 种设计之一：
 
@@ -30,12 +30,11 @@ Recipe 定义的是信息结构，不是任意视觉参数。Authoring Spec 只�
 Row 由 Host 解析，并且只在 Node-scoped Render Projection 中校验。Recipe 不能包含原始颜色、
 CSS、Callback、React Props 或 SVG Markup。
 
-视觉主题由 Host 通过 `.og-ui` 上的 `--og-*` CSS 属性控制。颜色角色、图表强调色、阴影和完整
+视觉主题由 Tessera 通过 `.og-ui` 上的内部 `--og-*` CSS 属性控制。颜色角色、图表强调色、阴影和完整
 圆角体系都能在不修改 ChartSpec 的情况下覆盖。`--og-radius-base` 会调整整套圆角比例，
 `--og-radius-panel`、`--og-radius-card` 等语义 Token 也可以单独覆盖。
 
-下面每个预览都从官方 Authoring Fixture 开始，通过 Resource Gateway 发布数据集，再经过真实的
-`SurfaceController`、`GenerativeSurface` 与 Verified Renderer Registry 解析。组件目录不使用
-仅为文档制作的仿制实现。
+下面每个预览都使用与 Tessera Studio 相同的 Fixture、Resource Projection 与 Renderer Code，
+不使用仅为文档制作的仿制实现。
 
 <DataChartGallery />

@@ -88,6 +88,20 @@ type ForeignKeyRow = {
   to: string;
 };
 
+type IndexListRow = {
+  seq: number | bigint;
+  name: string;
+  unique: number | bigint;
+  origin?: string;
+  partial?: number | bigint;
+};
+
+type IndexInfoRow = {
+  seqno: number | bigint;
+  cid: number | bigint;
+  name: string | null;
+};
+
 const DEFAULT_MAX_ROWS = 1_000;
 const DEFAULT_STATEMENT_TIMEOUT_MS = 15_000;
 const SQLITE_SCHEMA = "main";
@@ -321,9 +335,66 @@ export class LibSqlConnector implements DatabaseConnector {
         const columnResult = await transaction.execute(
           "PRAGMA main.table_xinfo(" + quotedName + ")",
         );
-        const foreignKeyResult = await transaction.execute(
-          "PRAGMA main.foreign_key_list(" + quotedName + ")",
-        );
+        let foreignKeyRows: ForeignKeyRow[] | undefined;
+        let foreignKeyMetadata: "complete" | "partial" | "unavailable" = "complete";
+        try {
+          const foreignKeyResult = await transaction.execute(
+            "PRAGMA main.foreign_key_list(" + quotedName + ")",
+          );
+          foreignKeyRows = resultRows<ForeignKeyRow>(foreignKeyResult);
+        } catch (error) {
+          if (isAbort(error)) throw error;
+          // Foreign-key PRAGMA support can vary across SQLite-compatible
+          // runtimes. Keep columns and indexes usable while making the missing
+          // relationship inventory explicit.
+          foreignKeyRows = undefined;
+          foreignKeyMetadata = "unavailable";
+        }
+        let indexes: NonNullable<DatabaseTable["indexes"]> | undefined;
+        let indexMetadata: "complete" | "partial" | "unavailable" = "unavailable";
+        try {
+          const indexListResult = await transaction.execute(
+            "PRAGMA main.index_list(" + quotedName + ")",
+          );
+          const indexRows = resultRows<IndexListRow>(indexListResult);
+          indexes = [];
+          indexMetadata = "complete";
+          for (const index of indexRows) {
+            try {
+              const infoResult = await transaction.execute(
+                "PRAGMA main.index_info(" + quoteIdentifier(index.name) + ")",
+              );
+              const info = resultRows<IndexInfoRow>(infoResult)
+                .sort((left, right) => Number(left.seqno) - Number(right.seqno));
+              const columns = info.map((column) => column.name);
+              if (columns.length === 0 || columns.some((column) => typeof column !== "string" || column.length === 0)) {
+                // SQLite can expose expression indexes without a physical
+                // column name. Preserve the relation but mark inventory
+                // partial instead of inventing a field name.
+                indexMetadata = "partial";
+                continue;
+              }
+              indexes.push({
+                name: index.name,
+                columns: columns as string[],
+                unique: Number(index.unique) === 1,
+                isConstraint: index.origin === "pk" || index.origin === "u",
+              });
+            } catch (error) {
+              if (isAbort(error)) throw error;
+              // A single index can be unreadable or unsupported (for example
+              // an expression index). Keep other index rows and mark the
+              // inventory partial rather than failing the whole relation.
+              indexMetadata = "partial";
+            }
+          }
+        } catch (error) {
+          if (isAbort(error)) throw error;
+          // Index PRAGMAs are optional physical metadata. A failure here must
+          // not discard columns, keys, or the relation itself.
+          indexes = undefined;
+          indexMetadata = "unavailable";
+        }
         const columns = resultRows<ColumnRow>(columnResult)
           .filter((column) => Number(column.hidden ?? 0) !== 1)
           .sort((left, right) => Number(left.cid) - Number(right.cid));
@@ -347,9 +418,11 @@ export class LibSqlConnector implements DatabaseConnector {
           primaryKey,
           foreignKeys: assembleForeignKeys(
             table.name,
-            resultRows<ForeignKeyRow>(foreignKeyResult),
+            foreignKeyRows ?? [],
           ),
-          indexes: [],
+          foreignKeyMetadata,
+          ...(indexes === undefined ? {} : { indexes }),
+          indexMetadata,
         });
       }
       return discovered;
@@ -360,6 +433,12 @@ export class LibSqlConnector implements DatabaseConnector {
       dialect: this.dialect,
       databaseName: this.#options.databaseName,
       scannedAt: new Date().toISOString(),
+      coverage: {
+        status: maxTables !== undefined && tables.length >= maxTables ? "partial" : "complete",
+        ...(maxTables !== undefined && tables.length >= maxTables ? { reason: "max_tables" as const, maxTables } : {}),
+        returnedTables: tables.length,
+        ...(maxTables !== undefined && tables.length >= maxTables ? {} : { omittedTables: 0 }),
+      },
       schemas: [{ name: SQLITE_SCHEMA, tables }],
     });
     this.#catalog = catalog;
@@ -578,7 +657,7 @@ function uniqueColumnNames(
   });
 }
 
-function toLibSqlParameter(value: string | number | boolean): InValue {
+function toLibSqlParameter(value: string | number | boolean | null): InValue {
   return value;
 }
 

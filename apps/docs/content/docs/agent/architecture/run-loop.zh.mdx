@@ -1,6 +1,6 @@
 ---
 title: 运行循环
-description: 从澄清请求到发布 Artifact 的显式、可中断分析循环。
+description: 从澄清请求到发布回答的显式、可中断分析循环。
 ---
 
 运行控制器负责一个用户可见的状态机：
@@ -37,6 +37,12 @@ description: 从澄清请求到发布 Artifact 的显式、可中断分析循环
 生成结构化工具参数，使其通过策略和权限检查，然后以稳定的幂等标识符和 Trace 标识符执行。
 在审批或长时间任务前持久化检查点。
 
+查询执行只有一个数据边界。语义工作使用
+`search_data_context -> prepare_analysis -> execute_sql(analysisRef)`；显式 SQL 使用
+`list_database -> execute_sql(sql)`。Semantic Catalog 与准备阶段都不访问 Row。Insert、Update、
+Delete 与 DDL 进入 `execute_sql` 的类型化 Mutation 分支，由服务端完成风险分类与审批。完整契约见
+[数据上下文与领域记忆](./data-context-and-memory)。
+
 ## 5. 验证
 
 语法层面的查询成功是必要条件，但并不充分。验证 Schema、行数限制、总计、空值、时间边界、单位、
@@ -49,8 +55,8 @@ description: 从澄清请求到发布 Artifact 的显式、可中断分析循环
 
 ## 7. 发布
 
-在同一回答中发布正文、一个或多个带版本的 Tessera Agent Artifact、论断引用、来源元数据、
-运行时长和安全的后续操作。Artifact 渲染器保持声明式，不能执行模型编写的代码。
+在同一回答中发布正文、Tool 状态、Evidence 引用与可选生成式分析视图。视图保持声明式，
+不能执行模型编写的代码，也不能再次查询数据库。
 
 ## 失败与中断
 

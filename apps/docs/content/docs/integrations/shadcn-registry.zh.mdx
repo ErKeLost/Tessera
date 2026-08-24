@@ -1,51 +1,14 @@
 ---
-title: shadcn/ui 组件
-description: Tessera Agent 当前如何拥有并验证 Generative UI Renderer 源码。
+title: 分析视图源码
+description: Tessera 如何拥有基于 shadcn/ui 的分析视图，同时不发布组件 Registry。
 ---
 
-Tessera Agent 的官方 React Renderer 基于 shadcn/ui Primitive 与 Recharts 构建，
-但当前没有公开的 `tessera-agent` CLI，也没有远程 `tessera-agent.dev` Registry。
-在 Data Agent 成功证明完成之前，Renderer 源码继续留在本仓库。
+Tessera Studio 的分析视图由本仓库中的本地 shadcn/ui Primitive 与图表实现组成，并随 Studio 一起提供。
 
-## 当前源码
+当前没有公开组件 Package、shadcn Registry URL、组件 CLI 或复制安装路径。用户安装 Tessera Studio
+后，会直接获得 Agent 使用的 Renderer。
 
-`@open-generative/ui` 是本地 React 实现 Package。这个名字标记未来抽离边界；
-当前组件和组件文档仍然属于 Tessera Agent 成功证明。
+源码仍然采用 Contract 驱动，因此 Tessera 可以在渲染前校验每一个生成视图。当前 Gallery 覆盖
+全部 17 个图表 Recipe，并使用与 Studio 相同的 Renderer；它是产品文档，不是分发 Registry。
 
-Package 导出精确的 `data.chart` Node Renderer、官方 Registry Factory、共享 UI Primitive 与样式表：
-
-```tsx
-import { GenerativeSurface } from "@open-generative/react";
-import { createOfficialRendererRegistry } from "@open-generative/ui";
-import "@open-generative/ui/styles.css";
-```
-
-完整应用挂载还需要 `SurfaceController`。唯一支持的渲染链是：
-
-```text
-SurfaceEventStream -> SurfaceController -> GenerativeSurface -> RendererRegistry
-```
-
-这里没有 `ArtifactRenderer` 兼容 Facade，也没有按 Artifact 分叉的渲染路径。
-
-## 本地验证
-
-在仓库根目录执行：
-
-```bash
-bun install
-bun --cwd packages/components test
-bun --cwd packages/ui typecheck
-bun --cwd packages/ui test
-bun --cwd packages/ui build
-```
-
-Contract 定义来自 `@open-generative/components`，React Renderer Registration 来自
-`@open-generative/ui`。测试必须证明精确 Contract Identity、Resolved Props Validation、
-Browser Safety、Accessibility 与全部 17 个 Chart Recipe Fixture。
-
-## 未来源码分发
-
-后续可以通过 shadcn Registry 分发可编辑 Renderer 源码，但只有 Registry URL、生成 Manifest、
-依赖闭包、Clean-host 安装测试、版本固定与 Integrity Check 全部存在后，文档才能把它写成可用能力。
-未来 Registry 只改变分发方式，不能分叉 Component Contract，也不能创建第二套 Renderer 架构。
+请查看[分析视图目录](/docs/components/generative-ui-catalog)。

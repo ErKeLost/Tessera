@@ -1183,6 +1183,21 @@ body { color: var(--foreground); }
   min-height: 320px;
   background: color-mix(in oklab, var(--muted) 32%, transparent);
 }
+.tessera-generative-surface-error {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  margin: 14px 0 2px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--destructive) 30%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--destructive) 6%, var(--card));
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.tessera-generative-surface-error strong { font-size: 13px; font-weight: 600; }
+.tessera-generative-surface-error span { color: var(--muted-foreground); }
 
 @media (max-width: 640px) {
   .studio-model-picker-trigger { width: min(10rem, 42vw); flex-basis: min(10rem, 42vw); }

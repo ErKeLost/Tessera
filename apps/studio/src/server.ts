@@ -16,8 +16,6 @@ import {
   type PlanningCapability,
   type SemanticCatalog,
 } from "@open-tessera/data-agent";
-import { createOpenGenerativeHost, type OpenGenerativeHost } from "@open-generative/host";
-import { hostCommandEnvelopeSchema } from "@open-generative/protocol";
 import { createMongoDbConnector } from "@open-tessera/mongodb";
 import { createMySqlConnector } from "@open-tessera/mysql";
 import { createPostgresConnector } from "@open-tessera/postgres";
@@ -95,18 +93,15 @@ import {
   type StudioStreamOutcome,
 } from "./studio-logger";
 import { StudioHttpApp, type StudioHttpContext } from "./studio-http";
-import { createTesseraPresentationAuthority } from "./generative/presentation";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
 const MAX_CHAT_MESSAGE_PARTS = 8;
 const TESSERA_PUBLIC_TOOL_NAMES = new Set<TesseraToolName>([
   "list_database",
-  "list_catalog",
+  "search_data_context",
   "execute_sql",
-  "run_analysis",
-  "list_rls_policies",
-  "list_extensions",
+  "prepare_analysis",
 ]);
 /** A table browser is intentionally narrower than governed Agent analysis. */
 const TABLE_PREVIEW_MAX_ROWS = 100;
@@ -181,7 +176,7 @@ const studioAgentEventSchema = z.discriminatedUnion("type", [
   }).strict(),
   z.object({
     type: z.literal("tool"),
-    tool: z.enum(["list_database", "list_catalog", "execute_sql", "run_analysis", "list_rls_policies", "list_extensions"]),
+    tool: z.enum(["list_database", "search_data_context", "prepare_analysis", "execute_sql"]),
     state: z.enum(["started", "completed", "blocked", "failed"]),
   }).strict(),
 ]);
@@ -391,8 +386,6 @@ export type StudioAppDependencies = Readonly<{
   sessionMemory?: TesseraSessionMemory;
   /** Typed, approval-gated database mutations. Read actions remain Data Agent-owned. */
   databaseActions?: TesseraDatabaseActionService;
-  /** A high-level Open Generative facade, kept server-only with the active runtime. */
-  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
   /** Enables local-only Settings endpoints backed by a lease-safe runtime manager. */
   settingsRuntime?: TesseraStudioRuntimeManager;
   /** Public model metadata used to validate and render the OpenRouter picker. */
@@ -421,7 +414,6 @@ type StudioRouteRuntime = Readonly<{
   agent?: StudioAgent;
   sessionMemory?: TesseraSessionMemory;
   databaseActions?: TesseraDatabaseActionService;
-  generativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost | undefined>;
 }>;
 
 type StudioRouteRuntimeLease = Readonly<{
@@ -480,7 +472,6 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     ...(dependencies.agent === undefined ? {} : { agent: dependencies.agent }),
     ...(dependencies.sessionMemory === undefined ? {} : { sessionMemory: dependencies.sessionMemory }),
     ...(dependencies.databaseActions === undefined ? {} : { databaseActions: dependencies.databaseActions }),
-    ...(dependencies.generativeHost === undefined ? {} : { generativeHost: dependencies.generativeHost }),
   });
   const allowedOrigins = new Set(
     (dependencies.allowedOrigins ?? [])
@@ -771,25 +762,6 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     } catch (error) {
       throw databaseActionHttpError(error);
     }
-  }));
-
-  /** Browser commands are verified and executed by the same high-level host that created the surface. */
-  app.post("/api/generative/command", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-    const host = await runtime.generativeHost;
-    if (!host) {
-      throw new StudioHttpError(503, "generative_unavailable", "Open Generative is not available for this Studio runtime.");
-    }
-    const parsed = hostCommandEnvelopeSchema.safeParse(await readJsonBody(context.req.raw));
-    if (!parsed.success) {
-      throw new StudioHttpError(400, "invalid_generative_command", "The generative command is invalid.");
-    }
-    const identity = context.get("identity") ?? LOCAL_STUDIO_IDENTITY;
-    const result = await host.handleCommand(
-      parsed.data,
-      createTesseraPresentationAuthority(identity),
-      { operationScope: "tessera-studio", locale: "en-US", timezone: "Asia/Shanghai" },
-    );
-    return context.json(result);
   }));
 
   /**
@@ -1234,25 +1206,37 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
 
       const source = runtime.agent.streamUI?.(agentInput)
         ?? streamLegacyAgentToUI(runtime.agent, agentInput);
-      const durableSource = observeStudioAssistantMessage(source, async (outcome) => {
-        // A suspension is a valid terminal state owned by Mastra. In
-        // particular, do not reparse its custom data chunk: Mastra has already
-        // persisted the exact run snapshot that Agent#resumeStream will load.
-        if (outcome.suspended) return;
-        if (outcome.aborted || outcome.finishReason !== "stop" || !hasVisibleAssistantText(outcome.message)) {
-          chatRetries.mark({
+      const durableSource = createUIMessageStream<TesseraUIMessage>({
+        execute: ({ writer }) => writer.merge(source),
+        onError: () => "The Tessera Agent stream could not be processed.",
+        onStepEnd: async ({ responseMessage }) => {
+          await checkpointStudioUiMessage(runtime.sessionMemory, {
+            id: threadId,
             resourceId: sessionResourceId,
-            threadId,
-            messageId: outcome.message.id,
-            message,
+            checkpointId: runId,
+            message: responseMessage,
           });
-          return;
-        }
-        await appendStudioUiMessages(runtime.sessionMemory, {
-          id: threadId,
-          resourceId: sessionResourceId,
-          messages: [outcome.message],
-        });
+        },
+        onEnd: async ({ responseMessage, isAborted, finishReason }) => {
+          // Mastra owns the durable run snapshot for suspended tools. The UI
+          // transcript is only a browser-safe projection of completed steps.
+          if (hasSuspendedToolCall(responseMessage)) return;
+          if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) {
+            chatRetries.mark({
+              resourceId: sessionResourceId,
+              threadId,
+              messageId: responseMessage.id,
+              message,
+            });
+            return;
+          }
+          await checkpointStudioUiMessage(runtime.sessionMemory, {
+            id: threadId,
+            resourceId: sessionResourceId,
+            checkpointId: runId,
+            message: responseMessage,
+          });
+        },
       });
       const streamStartedAt = performance.now();
       logAgentEvent(logger, "info", context.get("apiRequest"), runId, {
@@ -1326,14 +1310,27 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         reportDiagnostic: streamDiagnostics.capture,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       });
-      const durableSource = observeStudioAssistantMessage(source, async (outcome) => {
-        if (outcome.suspended || outcome.aborted || outcome.finishReason !== "stop"
-          || !hasVisibleAssistantText(outcome.message)) return;
-        await appendStudioUiMessages(runtime.sessionMemory, {
-          id: parsed.data.threadId,
-          resourceId: resourceIdForContext(context),
-          messages: [outcome.message],
-        });
+      const durableSource = createUIMessageStream<TesseraUIMessage>({
+        execute: ({ writer }) => writer.merge(source),
+        onError: () => "The Tessera Agent stream could not be processed.",
+        onStepEnd: async ({ responseMessage }) => {
+          await checkpointStudioUiMessage(runtime.sessionMemory, {
+            id: parsed.data.threadId,
+            resourceId: resourceIdForContext(context),
+            checkpointId: parsed.data.runId,
+            message: responseMessage,
+          });
+        },
+        onEnd: async ({ responseMessage, isAborted, finishReason }) => {
+          if (hasSuspendedToolCall(responseMessage) || isAborted || finishReason !== "stop"
+            || !hasVisibleAssistantText(responseMessage)) return;
+          await checkpointStudioUiMessage(runtime.sessionMemory, {
+            id: parsed.data.threadId,
+            resourceId: resourceIdForContext(context),
+            checkpointId: parsed.data.runId,
+            message: responseMessage,
+          });
+        },
       });
       const streamStartedAt = performance.now();
       const stream = monitorStudioChatStream(durableSource, {
@@ -1437,7 +1434,6 @@ function acquireStudioRouteRuntime(
       ...(lease.runtime.accessMode !== "read-write" || lease.runtime.databaseActions === undefined
         ? {}
         : { databaseActions: lease.runtime.databaseActions }),
-      ...(lease.runtime.generativeHost === undefined ? {} : { generativeHost: lease.runtime.generativeHost }),
     }),
     release: lease.release,
   });
@@ -1626,7 +1622,6 @@ export function createTesseraStudioRuntime(
         catalogProvider: createDataAgentCatalogProvider(runtime.dataAgent),
         ...(runtime.agent === undefined ? {} : { agent: runtime.agent }),
         ...(runtime.sessionMemory === undefined ? {} : { sessionMemory: runtime.sessionMemory }),
-        ...(runtime.generativeHost === undefined ? {} : { generativeHost: runtime.generativeHost }),
         ...(runtime.accessMode !== "read-write" || runtime.databaseActions === undefined
           ? {}
           : { databaseActions: runtime.databaseActions }),
@@ -1679,8 +1674,6 @@ export function createTesseraStudioRuntime(
   });
   const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const sessionMemory = createTesseraSessionMemory();
-  const generativeHost = options.generativeHost
-    ?? createOpenGenerativeHost().catch(() => undefined);
   const accessMode = options.accessMode ?? "read-only";
   const databaseActions = accessMode !== "read-write"
     || config.database.dialect === "mongodb"
@@ -1701,7 +1694,6 @@ export function createTesseraStudioRuntime(
       databaseDialect: config.database.dialect,
       memory: sessionMemory.memory,
       llm: resolveTesseraLlmConfig(config),
-      generativeHost,
       ...(databaseActions === undefined ? {} : { databaseActions }),
       permissionContext: {
         accessMode,
@@ -1716,7 +1708,6 @@ export function createTesseraStudioRuntime(
     catalogProvider,
     agent,
     sessionMemory,
-    generativeHost,
     ...(databaseActions === undefined ? {} : { databaseActions }),
     allowedOrigins: config.studio.allowedOrigins,
     authenticate: options.authenticate,
@@ -2051,7 +2042,6 @@ function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/catalog") return "catalog";
   if (path === "/api/chat") return "chat";
   if (path === "/api/connection") return "connection";
-  if (path === "/api/generative/command") return "generative";
   if (path === "/api/meta") return "meta";
   if (path === "/api/runs") return "runs";
   if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
@@ -2114,6 +2104,19 @@ async function appendStudioUiMessages(
   }
 }
 
+async function checkpointStudioUiMessage(
+  memory: TesseraSessionMemory | undefined,
+  input: Parameters<TesseraSessionMemory["checkpointUiMessage"]>[0],
+): Promise<void> {
+  if (!memory) return;
+  try {
+    await memory.checkpointUiMessage(input);
+  } catch {
+    // A transcript checkpoint must not interrupt a valid Agent stream.
+    // Mastra's private model memory is persisted independently per step.
+  }
+}
+
 function hasVisibleAssistantText(value: unknown): boolean {
   const message = asRecord(value);
   if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
@@ -2123,132 +2126,8 @@ function hasVisibleAssistantText(value: unknown): boolean {
   });
 }
 
-type StudioAssistantStreamOutcome = Readonly<{
-  message: TesseraUIMessage;
-  aborted: boolean;
-  suspended: boolean;
-  finishReason?: FinishReason;
-}>;
-
-/**
- * Observes a native Mastra UI stream without feeding it back through
- * `createUIMessageStream`. The latter is a UI-message assembler, and parsing
- * a `data-tool-call-suspended` event as a second tool stream loses Mastra's
- * persisted suspension state before a later `resumeStream()` can read it.
- */
-function observeStudioAssistantMessage(
-  source: ReadableStream<TesseraUIMessageChunk>,
-  onEnd: (outcome: StudioAssistantStreamOutcome) => void | Promise<void>,
-): ReadableStream<TesseraUIMessageChunk> {
-  let messageId: string | undefined;
-  let aborted = false;
-  let suspended = false;
-  let finishReason: FinishReason | undefined;
-  const parts: Record<string, unknown>[] = [];
-  const textParts = new Map<string, Record<string, unknown>>();
-  const reasoningParts = new Map<string, Record<string, unknown>>();
-  const toolParts = new Map<string, Record<string, unknown>>();
-  const toolNames = new Map<string, TesseraToolName>();
-
-  const addTextPart = (id: string) => {
-    const existing = textParts.get(id);
-    if (existing) return existing;
-    const part = { type: "text", text: "" };
-    parts.push(part);
-    textParts.set(id, part);
-    return part;
-  };
-  const addReasoningPart = (id: string) => {
-    const existing = reasoningParts.get(id);
-    if (existing) return existing;
-    const part = { type: "reasoning", text: "" };
-    parts.push(part);
-    reasoningParts.set(id, part);
-    return part;
-  };
-  const toolPart = (toolCallId: string, toolName: TesseraToolName, input: unknown) => {
-    toolNames.set(toolCallId, toolName);
-    const existing = toolParts.get(toolCallId);
-    if (existing) return existing;
-    const part: Record<string, unknown> = {
-      type: `tool-${toolName}`,
-      toolCallId,
-      state: "input-available",
-      input,
-      providerExecuted: true,
-    };
-    parts.push(part);
-    toolParts.set(toolCallId, part);
-    return part;
-  };
-  const message = (): TesseraUIMessage => ({
-    id: messageId ?? `assistant-message-${randomUUID()}`,
-    role: "assistant",
-    parts: parts as TesseraUIMessage["parts"],
-  });
-
-  return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
-    transform(chunk, controller) {
-      if (chunk.type === "start") {
-        messageId = chunk.messageId;
-      } else if (chunk.type === "text-start") {
-        addTextPart(chunk.id);
-      } else if (chunk.type === "text-delta") {
-        const part = addTextPart(chunk.id);
-        part.text = `${part.text as string}${chunk.delta}`;
-      } else if (chunk.type === "reasoning-start") {
-        addReasoningPart(chunk.id);
-      } else if (chunk.type === "reasoning-delta") {
-        const part = addReasoningPart(chunk.id);
-        part.text = `${part.text as string}${chunk.delta}`;
-      } else if (chunk.type === "tool-input-start") {
-        const toolName = asTesseraToolName(chunk.toolName);
-        if (toolName !== undefined) toolNames.set(chunk.toolCallId, toolName);
-      } else if (chunk.type === "tool-input-available") {
-        const toolName = asTesseraToolName(chunk.toolName);
-        if (toolName !== undefined) toolPart(chunk.toolCallId, toolName, chunk.input);
-      } else if (chunk.type === "tool-output-available") {
-        const existing = toolParts.get(chunk.toolCallId);
-        if (existing) {
-          existing.state = "output-available";
-          existing.output = chunk.output;
-        }
-      } else if (chunk.type === "tool-input-error" || chunk.type === "tool-output-error") {
-        const toolName = chunk.type === "tool-input-error"
-          ? asTesseraToolName(chunk.toolName)
-          : toolNames.get(chunk.toolCallId);
-        if (toolName !== undefined) {
-          const existing = toolPart(chunk.toolCallId, toolName, {});
-          existing.state = "output-error";
-          existing.errorText = chunk.errorText;
-        }
-      } else if (chunk.type === "tool-output-denied") {
-        const toolName = toolNames.get(chunk.toolCallId);
-        if (toolName !== undefined) {
-          const existing = toolPart(chunk.toolCallId, toolName, {});
-          existing.state = "output-error";
-          existing.errorText = "The tool call was denied.";
-        }
-      } else if (chunk.type === "data-tool-call-suspended") {
-        suspended = true;
-      } else if (chunk.type === "abort") {
-        aborted = true;
-      } else if (chunk.type === "finish") {
-        finishReason = chunk.finishReason;
-      } else if (chunk.type === "data-openGenerativeSurface") {
-        parts.push({ type: chunk.type, id: chunk.id, data: chunk.data });
-      }
-      controller.enqueue(chunk);
-    },
-    async flush() {
-      await onEnd({
-        message: message(),
-        aborted,
-        suspended,
-        ...(finishReason === undefined ? {} : { finishReason }),
-      });
-    },
-  }));
+function hasSuspendedToolCall(message: TesseraUIMessage): boolean {
+  return message.parts.some((part) => part.type === "data-tool-call-suspended");
 }
 
 function elapsedMilliseconds(startedAt: number): number {
@@ -3637,11 +3516,9 @@ function publicAgentRun(runId: string, threadId: string, run: StudioAgentRun): R
 
 function publicToolInput(tool: TesseraToolName): Record<string, string> {
   if (tool === "list_database") return { action: "list_database" };
-  if (tool === "list_catalog") return { action: "list_catalog" };
+  if (tool === "search_data_context") return { action: "search_data_context" };
   if (tool === "execute_sql") return { action: "execute_sql" };
-  if (tool === "run_analysis") return { action: "run_governed_analysis" };
-  if (tool === "list_rls_policies") return { action: "list_rls_policies" };
-  return { action: "list_extensions" };
+  return { action: "prepare_analysis" };
 }
 
 function publicToolLogState(value: unknown): "completed" | "blocked" | "failed" {
@@ -3727,11 +3604,9 @@ function studioFinishReason(value: FinishReason | undefined): StudioLogEvent["fi
 
 function publicToolTitle(tool: TesseraToolName): string {
   if (tool === "list_database") return "List database context";
-  if (tool === "list_catalog") return "List data catalog";
+  if (tool === "search_data_context") return "Search data context";
   if (tool === "execute_sql") return "Execute SQL";
-  if (tool === "run_analysis") return "Run governed analysis";
-  if (tool === "list_rls_policies") return "List RLS policies";
-  return "List database extensions";
+  return "Prepare analysis";
 }
 
 function asTesseraToolName(value: unknown): TesseraToolName | undefined {

@@ -1,4 +1,4 @@
 {
   "title": "核心概念",
-  "pages": ["architecture", "agent-selection", "state-and-actions", "security", "---历史前置设计---", "embedded-artifact-runtime", "artifact-ui-architecture"]
+  "pages": ["index", "architecture", "agent-selection", "state-and-actions", "security"]
 }

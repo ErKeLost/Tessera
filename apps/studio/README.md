@@ -1,7 +1,7 @@
 # Tessera Studio
 
 Tessera Studio is the local web workspace for exploring and analyzing a
-PostgreSQL, MySQL, SQLite, or Turso database. Start it with the executable
+PostgreSQL, MySQL, SQLite, Turso, or MongoDB database. Start it with the executable
 published by `@open-tessera/studio`:
 
 ```bash
@@ -10,16 +10,16 @@ npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/wa
 
 ## What Studio does
 
-- Chat with a database assistant using regular Markdown responses.
+- Chat with a database assistant using text and generated analysis views.
 - Inspect the available catalog and run governed, read-only analysis.
 - Show compact execution progress and query evidence alongside the response.
+- Render the latest committed analysis view from verified query resources.
 - Accept image attachments in a chat message, including pasted images.
 - Keep local chat sessions in the Studio SQLite store.
 
-Studio deliberately does not generate or render structured result cards. A
-completed analysis is presented as Markdown plus its execution progress and
-evidence, which keeps the conversation layout stable for long answers and
-database results.
+Generated views are part of the Studio response pipeline. They are produced
+after a successful database tool step and cannot perform another query or
+execute model-authored code.
 
 The Studio server and its local session store run on Node.js 24 or later and
 Bun 1.3 or later. A project can keep the connection string and model-provider settings in a server-only

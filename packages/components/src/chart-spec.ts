@@ -45,31 +45,31 @@ export const chartAggregateSchema = z.enum([
 ]);
 
 export const chartMetricSchema = z.object({
-  column: columnIdValueSchema,
-  aggregate: chartAggregateSchema,
-  label: z.string().trim().min(1).max(128).optional(),
-  format: formatTokenSchema.optional(),
-}).strict();
+  column: columnIdValueSchema.describe("Dataset column used by this metric."),
+  aggregate: chartAggregateSchema.describe("Aggregation applied to the selected numeric column."),
+  label: z.string().trim().min(1).max(128).optional().describe("Human-readable metric label."),
+  format: formatTokenSchema.optional().describe("Display format token; omit when the default is appropriate."),
+}).strict().describe("A metric definition referencing a column in the bound resource.");
 
 export const chartSeriesColumnSchema = z.object({
-  column: columnIdValueSchema,
-  label: z.string().trim().min(1).max(128).optional(),
-  format: formatTokenSchema.optional(),
-}).strict();
+  column: columnIdValueSchema.describe("Dataset column used for this series."),
+  label: z.string().trim().min(1).max(128).optional().describe("Human-readable series label."),
+  format: formatTokenSchema.optional().describe("Display format token; omit when the default is appropriate."),
+}).strict().describe("A series definition referencing one column in the bound resource.");
 
 export const chartAccessibilitySchema = z.object({
-  label: z.string().trim().min(1).max(512),
-  description: z.string().trim().min(1).max(2_048).optional(),
-}).strict();
+  label: z.string().trim().min(1).max(512).describe("Accessible name for the chart."),
+  description: z.string().trim().min(1).max(2_048).optional().describe("Optional accessible summary of the chart."),
+}).strict().describe("Required accessibility metadata for the chart.");
 
 const titleSchema = z.string().trim().min(1).max(256);
 
 function createChartSpecSchema<TDataSchema extends z.ZodType>(dataSchema: TDataSchema) {
   const common = {
-    data: dataSchema,
-    title: titleSchema,
-    subtitle: z.string().trim().min(1).max(512).optional(),
-    equivalentView: z.literal("table"),
+    data: dataSchema.describe("Resource-backed dataset expression. Reference the offered resource; never inline rows."),
+    title: titleSchema.describe("Chart title."),
+    subtitle: z.string().trim().min(1).max(512).optional().describe("Optional chart subtitle."),
+    equivalentView: z.literal("table").describe("The required accessible table equivalent."),
     accessibility: chartAccessibilitySchema,
   } as const;
 

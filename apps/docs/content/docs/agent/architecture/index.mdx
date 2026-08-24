@@ -21,9 +21,9 @@ The architecture has four operational planes:
 
 | Plane | Responsibility |
 | --- | --- |
-| Experience | Complete chat, assumptions, run timeline, artifacts, sources, and follow-up composer |
+| Experience | Complete chat, assumptions, tool timeline, analysis views, sources, and follow-up composer |
 | Runtime | Run controller, context service, durable state, policy and budget engine |
-| Execution | Tool gateway, SQL safety gate, result validator, artifact publisher |
+| Execution | Tool gateway, SQL safety gate, result validator, and view publisher |
 | Context and data | Semantic definitions, warehouse metadata, scoped memory, approved data systems |
 
 An evidence ledger and trace store span every plane. They connect claims to
@@ -32,14 +32,14 @@ reasoning.
 
 ## Non-negotiable contracts
 
-- Data access and rendering are separate tools. A render call never silently
-  queries a database.
+- Data access and presentation are separate stages. Presentation never silently
+  queries a database or adds another Agent tool.
 - Permissions pass through from the user and workspace. The model cannot grant
   itself access.
 - SQL execution is read-only by default, scoped, bounded, and observable.
 - The final answer cites claim-level evidence, not only a list of sources.
-- Every artifact is versioned, declarative data validated against a strict
-  schema. It contains no JSX, HTML, scripts, or executable formulas.
+- Every generated view is declarative data validated against a strict schema.
+  It contains no JSX, HTML, scripts, or executable formulas.
 - Runs persist state before risky or long operations so they can pause, resume,
   retry, and accept human approval.
 
@@ -53,8 +53,10 @@ documented loop similarly gathers context, takes action, and verifies work.
 W3C PROV supplies a durable vocabulary for entities, activities, agents, and
 their relationships.
 
-Continue with the [run loop](./run-loop), then add the safety, provenance, and
-evaluation boundaries before exposing production data.
+Start with [data context and domain memory](./data-context-and-memory) for the
+single SQL path, approved learning, and cross-session Working Memory projection.
+Then continue with the [run loop](./run-loop) and add safety and provenance
+boundaries before exposing production data.
 
 ## Primary references
 

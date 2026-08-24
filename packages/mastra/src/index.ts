@@ -1,535 +1,320 @@
-import {
-  createTool,
-  noopObserve,
-  type Tool,
-  type ToolExecutionContext,
-  type ToolObserve,
-  type ToolPayloadTransform,
-} from "@mastra/core/tools";
 import type {
   InputProcessor,
+  OutputProcessor,
   ProcessInputStepArgs,
   ProcessInputStepResult,
+  ProcessOutputStepArgs,
+  ProcessOutputStreamArgs,
 } from "@mastra/core/processors";
+import type { ChunkType } from "@mastra/core/stream";
 import {
-  IncrementalPresentUiSessionCoordinator,
-  schemaIssueSummary,
-  validatePresentUiInput,
-  type CompiledPresentUi,
-  type CompilerTurnOutcome,
-  type IncrementalPresentUiSessionFactory,
-  type PresentUiAuthoringInput,
-} from "@open-generative/compiler";
-import {
+  openGenerativeSurfaceStreamSchema,
   surfaceEventEnvelopeSchema,
   verifySurfaceEventEnvelope,
+  type OpenGenerativeSurfaceStream,
   type SurfaceEventEnvelope,
 } from "@open-generative/protocol";
-import { z } from "zod";
+import {
+  createOpenGenerativeHost,
+  type OpenGenerativeAuthority,
+  type OpenGenerativeDatasetResource,
+  type OpenGenerativeHost,
+  type OpenGenerativeTurn,
+  type PrepareOpenGenerativeTurnInput,
+} from "@open-generative/host";
+import type { OpenGenerativeLanguageSession } from "@open-generative/compiler";
 
-const SAFE_INPUT = Object.freeze({ type: "open-generative-proposal", redacted: true });
-const SAFE_OUTPUT = Object.freeze({ type: "open-generative-surface", available: true });
-const SAFE_ERROR = Object.freeze({ message: "Open Generative proposal processing failed." });
-const SAFE_APPROVAL = Object.freeze({ type: "open-generative-approval", redacted: true });
-const SAFE_SUSPEND = Object.freeze({ type: "open-generative-suspension", redacted: true });
-const SAFE_RESUME = Object.freeze({ type: "open-generative-resume", redacted: true });
-const SAFE_OBSERVABILITY = Object.freeze({
-  type: "open-generative-observability",
-  redacted: true,
-});
-const SAFE_MODEL_OUTPUT = Object.freeze({
-  type: "text" as const,
-  value: "The Open Generative host processed the interface proposal.",
-});
+export type {
+  OpenGenerativeAuthority,
+  OpenGenerativeDatasetResource,
+} from "@open-generative/host";
+export type { OpenGenerativeSurfaceStream } from "@open-generative/protocol";
 
-/**
- * Mastra records tool arguments and results on tool-call spans before per-tool
- * display/transcript transforms run. Hosts must pass these options to the
- * Agent invocation that owns a present_ui tool.
- */
-export const MASTRA_PRESENT_UI_TRACING_OPTIONS = Object.freeze({
-  hideInput: true,
-  hideOutput: true,
-});
-
-export type MastraPresentUiExecutor<TResult> = (
-  input: PresentUiAuthoringInput,
-  context: ToolExecutionContext,
-) => TResult | PromiseLike<TResult>;
-
-export type MastraPresentUiTool<TResult> = Tool<PresentUiAuthoringInput, TResult>;
-
-export type CreateMastraPresentUiToolOptions<TResult> = Readonly<{
-  compiled: CompiledPresentUi;
-  execute: MastraPresentUiExecutor<TResult>;
-}>;
-
-export type MastraPresentUiIncrementalContext = Readonly<{
-  toolCallId: string;
-  abortSignal?: AbortSignal;
-}>;
-
-export type CreateMastraIncrementalPresentUiToolOptions = Readonly<{
-  compiled: CompiledPresentUi;
-  createSession: IncrementalPresentUiSessionFactory<
-    CompilerTurnOutcome,
-    MastraPresentUiIncrementalContext
-  >;
-  /** Maximum repair attempts per Mastra request scope. */
-  maxAttempts?: number;
-}>;
-
-export function createMastraPresentUiTool<TResult>(
-  options: CreateMastraPresentUiToolOptions<TResult>,
-): MastraPresentUiTool<TResult> {
-  return createMastraTool({
-    compiled: options.compiled,
-    async execute(input, context) {
-      return options.execute(validateInput(options.compiled, input), redactObservability(context));
-    },
-  });
-}
-
-export function createMastraIncrementalPresentUiTool(
-  options: CreateMastraIncrementalPresentUiToolOptions,
-): MastraPresentUiTool<CompilerTurnOutcome> {
-  type Coordinator = IncrementalPresentUiSessionCoordinator<
-    CompilerTurnOutcome,
-    MastraPresentUiIncrementalContext
-  >;
-  const createCoordinator = (): Coordinator => new IncrementalPresentUiSessionCoordinator({
-    createSession: options.createSession,
-    ...(options.maxAttempts === undefined ? {} : { maxAttempts: options.maxAttempts }),
-  });
-  const fallbackCoordinator = createCoordinator();
-  const requestCoordinators = new WeakMap<object, Coordinator>();
-  const toolCallCoordinators = new Map<string, Coordinator>();
-
-  const coordinatorForHook = (
-    context: Parameters<NonNullable<MastraPresentUiTool<unknown>["onInputStart"]>>[0],
-  ): Coordinator => {
-    const requestKey = mastraRequestKey(context);
-    let coordinator = requestKey ? requestCoordinators.get(requestKey) : undefined;
-    if (!requestKey && !coordinator) {
-      coordinator = toolCallCoordinators.get(context.toolCallId);
-    }
-    if (!coordinator) {
-      coordinator = requestKey ? createCoordinator() : fallbackCoordinator;
-      if (requestKey) requestCoordinators.set(requestKey, coordinator);
-    }
-    if (toolCallCoordinators.get(context.toolCallId) !== coordinator) {
-      toolCallCoordinators.set(context.toolCallId, coordinator);
-      context.abortSignal?.addEventListener(
-        "abort",
-        () => {
-          if (toolCallCoordinators.get(context.toolCallId) === coordinator) {
-            toolCallCoordinators.delete(context.toolCallId);
-          }
-        },
-        { once: true },
-      );
-    }
-    return coordinator;
-  };
-
-  return createMastraTool({
-    compiled: options.compiled,
-    toModelOutput: compilerOutcomeModelOutput,
-    onInputStart: async (context) => {
-      await coordinatorForHook(context).start(hookContextToIncrementalContext(context));
-    },
-    onInputDelta: async (context) => {
-      await coordinatorForHook(context).pushTextDelta(
-        hookContextToIncrementalContext(context),
-        context.inputTextDelta,
-      );
-    },
-    onInputAvailable: async (context) => {
-      await coordinatorForHook(context).complete(
-        hookContextToIncrementalContext(context),
-        validateInput(options.compiled, context.input),
-      );
-    },
-    async execute(input, context) {
-      redactObservability(context);
-      const incrementalContext = executionContextToToolCallOptions(context);
-      const requestKey = context.abortSignal;
-      const coordinator = (requestKey ? requestCoordinators.get(requestKey) : undefined)
-        ?? toolCallCoordinators.get(incrementalContext.toolCallId)
-        ?? fallbackCoordinator;
-      try {
-        return await coordinator.execute(
-          incrementalContext,
-          validateInput(options.compiled, input),
-        );
-      } finally {
-        if (toolCallCoordinators.get(incrementalContext.toolCallId) === coordinator) {
-          toolCallCoordinators.delete(incrementalContext.toolCallId);
-        }
-      }
-    },
-  });
-}
-
-export type CreateMastraPresentUiOptions<TResult> = CreateMastraPresentUiToolOptions<TResult>;
-
-export type MastraPresentUiAdapter<TResult = unknown> = Readonly<{
-  system: string;
-  compiled: CompiledPresentUi;
-  tools: Readonly<{ present_ui: MastraPresentUiTool<TResult> }>;
-  tracingOptions: typeof MASTRA_PRESENT_UI_TRACING_OPTIONS;
-}>;
-
-export type MastraPresentUiStepContext = Readonly<{
+export type OpenGenerativeMastraStepContext = Readonly<{
   stepNumber: number;
+  steps: ProcessInputStepArgs["steps"];
   requestContext: ProcessInputStepArgs["requestContext"];
   abortSignal: ProcessInputStepArgs["abortSignal"];
 }>;
 
-export type CreateMastraPresentUiProcessorOptions = Readonly<{
-  /** Resolve the frozen turn adapter. Return undefined until resources are available. */
-  resolve(context: MastraPresentUiStepContext):
-    | MastraPresentUiAdapter<any>
-    | undefined
-    | Promise<MastraPresentUiAdapter<any> | undefined>;
+export type CreateOpenGenerativeProcessorOptions = Readonly<{
+  resources?(context: OpenGenerativeMastraStepContext):
+    | readonly OpenGenerativeDatasetResource[]
+    | Promise<readonly OpenGenerativeDatasetResource[]>;
+  authority(context: OpenGenerativeMastraStepContext):
+    | OpenGenerativeAuthority
+    | Promise<OpenGenerativeAuthority>;
+  turn?: Omit<PrepareOpenGenerativeTurnInput, "resources" | "authority">;
+  host?: OpenGenerativeHost | Promise<OpenGenerativeHost>;
+  maxRetries?: number;
 }>;
 
-export type MastraOpenGenerativeTurn = Readonly<{
-  compiled: CompiledPresentUi;
-  isCommitted?(): boolean;
-  drainEvents?(): readonly SurfaceEventEnvelope[];
-  createSession: IncrementalPresentUiSessionFactory<
-    CompilerTurnOutcome,
-    MastraPresentUiIncrementalContext
-  >;
-}>;
+export type OpenGenerativeMastraProcessor = InputProcessor & OutputProcessor;
 
-export type CreateOpenGenerativeMastraProcessorOptions = Readonly<{
-  /** Return undefined until the application has published renderable resources. */
-  resolve(context: MastraPresentUiStepContext):
-    | MastraOpenGenerativeTurn
-    | undefined
-    | Promise<MastraOpenGenerativeTurn | undefined>;
-  maxAttempts?: number;
-}>;
+type PresentationPhase = "candidate" | "repair" | "invalid" | "committed" | "aborted";
 
-const PRESENT_UI_SYSTEM_MARKER = "<open-generative-present-ui>";
+type PresentationRequest = {
+  phase: PresentationPhase;
+  oglStarted: boolean;
+  turn: OpenGenerativeTurn;
+  session?: OpenGenerativeLanguageSession;
+  events: SurfaceEventEnvelope[];
+};
+
+const PROCESSOR_ID = "open-generative-language";
+const STATE_KEY = "openGenerativeLanguage";
+const SYSTEM_MARKER = "<open-generative-language-instructions>";
+const SYSTEM_END_MARKER = "</open-generative-language-instructions>";
+
+let defaultHost: Promise<OpenGenerativeHost> | undefined;
 
 /**
- * Adds one turn-scoped present_ui tool at the exact agent step where the Host
- * has resources to offer. Contracts compile both its schema and prompt; an
- * application never maintains per-component tools or handwritten UI prompts.
+ * Creates one Mastra Processor that owns both sides of the integration:
+ * input injects the frozen OGL prompt, output compiles the final text stream.
+ * Business tool definitions remain untouched. A repair step temporarily
+ * disables them through Mastra's per-step controls.
  */
-export function createMastraPresentUiProcessor(
-  options: CreateMastraPresentUiProcessorOptions,
-): InputProcessor {
-  return {
-    id: "open-generative-present-ui" as const,
-    name: "Open Generative present_ui",
-    description: "Injects a frozen present_ui Contract Slice into eligible Mastra agent steps.",
-    async processInputStep(args: ProcessInputStepArgs): Promise<ProcessInputStepResult | undefined> {
-      const adapter = await options.resolve({
-        stepNumber: args.stepNumber,
-        requestContext: args.requestContext,
-        abortSignal: args.abortSignal,
-      });
-      if (!adapter) return undefined;
-      return injectMastraPresentUi(args, adapter);
-    },
-  };
-}
-
-/**
- * Consumer entry point for Mastra. Applications resolve a Host turn; this
- * adapter owns the present_ui tool, generated prompt, streaming hooks, and
- * repair budget for that turn.
- */
-export function createOpenGenerativeMastraProcessor(
-  options: CreateOpenGenerativeMastraProcessorOptions,
-): InputProcessor {
-  const adapters = new WeakMap<object, MastraPresentUiAdapter<CompilerTurnOutcome>>();
-  const requestTurns = new WeakMap<object, MastraOpenGenerativeTurn>();
-  return {
-    id: "open-generative-present-ui" as const,
-    name: "Open Generative",
-    description: "Publishes committed Surfaces and injects present_ui only when governed resources are ready.",
-    async processInputStep(args: ProcessInputStepArgs): Promise<ProcessInputStepResult | undefined> {
-      let turn = requestTurns.get(args.state);
-      if (!turn) {
-        turn = await options.resolve({
-          stepNumber: args.stepNumber,
-          requestContext: args.requestContext,
-          abortSignal: args.abortSignal,
-        });
-        if (turn) requestTurns.set(args.state, turn);
-      }
-      if (!turn) return undefined;
-      await publishCommittedMastraEvents(args, turn);
-      if (turn.isCommitted?.() === true) return undefined;
-      const existing = adapters.get(turn);
-      if (existing) return injectMastraPresentUi(args, existing);
-      const created = createMastraIncrementalPresentUi({
-          compiled: turn.compiled,
-          createSession: turn.createSession,
-          ...(options.maxAttempts === undefined ? {} : { maxAttempts: options.maxAttempts }),
-        });
-      adapters.set(turn, created);
-      return injectMastraPresentUi(args, created);
-    },
-  };
-}
-
-function injectMastraPresentUi(
-  args: ProcessInputStepArgs,
-  adapter: MastraPresentUiAdapter<any>,
-): ProcessInputStepResult {
-  const existing = args.tools?.present_ui;
-  if (existing !== undefined && existing !== adapter.tools.present_ui) {
-    throw new TypeError("Mastra already exposes a different present_ui tool for this step.");
+export function createOpenGenerativeProcessor(
+  options: CreateOpenGenerativeProcessorOptions,
+): OpenGenerativeMastraProcessor {
+  const maxRetries = options.maxRetries ?? 1;
+  if (!Number.isInteger(maxRetries) || maxRetries < 0 || maxRetries > 8) {
+    throw new TypeError("Open Generative maxRetries must be an integer between 0 and 8.");
   }
-  const systemMessages = args.systemMessages.filter((message) => !isPresentUiSystemMessage(message));
-  systemMessages.push({
-    role: "system",
-    content: `${PRESENT_UI_SYSTEM_MARKER}\n${adapter.system}\n</open-generative-present-ui>`,
-  });
-  return {
-    tools: { ...args.tools, present_ui: adapter.tools.present_ui },
-    activeTools: args.activeTools === undefined
-      ? undefined
-      : [...new Set([...args.activeTools, "present_ui"])],
-    systemMessages,
-  };
+  const processor = {
+    id: PROCESSOR_ID,
+    name: "Open Generative Language",
+    description: "Compiles final model text into governed streaming UI without adding agent tools.",
+
+    async processInputStep(args: ProcessInputStepArgs): Promise<ProcessInputStepResult | undefined> {
+      let request = requestState(args.state);
+      if (!request) {
+        const context = stepContext(args);
+        const resources = await options.resources?.(context) ?? [];
+        if (options.resources && resources.length === 0) return undefined;
+        const [host, authority] = await Promise.all([
+          options.host ?? resolveDefaultHost(),
+          options.authority(context),
+        ]);
+        const turn = await host.prepareTurn({
+          ...options.turn,
+          authority,
+          resources,
+        });
+        if (!turn) return undefined;
+        // Keep completed tool evidence outside the response message that an OGL retry may discard.
+        args.rotateResponseMessageId?.();
+        request = {
+          phase: "candidate",
+          oglStarted: false,
+          turn,
+          events: [],
+        };
+        args.state[STATE_KEY] = request;
+      }
+      if (!isGenerating(request)) return undefined;
+      return {
+        ...(request.phase === "repair" ? { activeTools: [], toolChoice: "none" as const } : {}),
+        systemMessages: [
+          ...args.systemMessages.filter((message) => !isOwnedSystemMessage(message.content)),
+          {
+            role: "system",
+            content: `${SYSTEM_MARKER}\n${request.turn.language.systemPrompt}\n${SYSTEM_END_MARKER}`,
+          },
+        ],
+      };
+    },
+
+    async processOutputStream(args: ProcessOutputStreamArgs): Promise<ChunkType | null | undefined> {
+      const request = requestState(args.state);
+      if (!request || isTerminal(request)) return args.part;
+      const part = args.part;
+
+      if (part.type === "error" || part.type === "abort") {
+        request.phase = "aborted";
+        await abortSession(request, args.writer);
+        return part;
+      }
+      if (request.phase === "invalid") return null;
+      if (part.type === "text-start" || part.type === "text-end") return null;
+      if (part.type === "text-delta") {
+        const session = await openSession(request, args.abortSignal);
+        const update = await session.pushTextDelta(part.payload.text);
+        if (update.acceptedStatements > 0) request.oglStarted = true;
+        await publishEvents(request, args.writer);
+        return null;
+      }
+      if (part.type.startsWith("tool-")) {
+        if (!shouldRejectToolCall(request)) return part;
+        request.phase = "invalid";
+        await abortSession(request, args.writer);
+        return null;
+      }
+      return part;
+    },
+
+    async processOutputStep(args: ProcessOutputStepArgs) {
+      const request = requestState(args.state);
+      if (!request || isTerminal(request)) return args.messageList;
+
+      if (request.phase === "invalid") {
+        rejectRequest(
+          request,
+          args,
+          maxRetries,
+          "A business tool call was emitted during the final OGL presentation step.",
+        );
+      }
+
+      if ((args.toolCalls?.length ?? 0) > 0) {
+        await abortSession(request, args.writer);
+        if (!shouldRejectToolCall(request)) {
+          delete args.state[STATE_KEY];
+          return args.messageList;
+        }
+        rejectRequest(
+          request,
+          args,
+          maxRetries,
+          "A business tool call was emitted during the final OGL presentation step.",
+        );
+      }
+
+      let rejection: string | undefined;
+      try {
+        rejection = await finishRequest(request, args.writer, args.abortSignal);
+      } catch (error) {
+        rejection = error instanceof Error
+          ? error.message
+          : "Open Generative Language output could not be finalized.";
+      }
+      if (!rejection) return args.messageList;
+
+      rejectRequest(request, args, maxRetries, rejection);
+    },
+  } satisfies OpenGenerativeMastraProcessor;
+  return processor;
 }
 
-async function publishCommittedMastraEvents(
-  args: ProcessInputStepArgs,
-  turn: MastraOpenGenerativeTurn,
+function rejectRequest(
+  request: PresentationRequest,
+  args: ProcessOutputStepArgs,
+  maxRetries: number,
+  rejection: string,
+): never {
+  const retry = args.retryCount < maxRetries;
+  request.phase = retry ? "repair" : "aborted";
+  request.oglStarted = false;
+  request.session = undefined;
+  const feedback = [
+    `Open Generative Language output was rejected: ${rejection}`,
+    "Return a non-empty final answer containing only valid OGL assignment statements.",
+    "Do not call tools or describe renderer availability. Open Generative rendering is produced directly from OGL text.",
+  ].join(" ");
+  return args.abort(feedback, { retry });
+}
+
+async function finishRequest(
+  request: PresentationRequest,
+  writer: ProcessOutputStepArgs["writer"],
+  abortSignal: AbortSignal | undefined,
+): Promise<string | undefined> {
+  const session = await openSession(request, abortSignal);
+  const outcome = await session.finish();
+  request.session = undefined;
+  await publishEvents(request, writer);
+  if (outcome.status !== "committed") {
+    return outcome.diagnostics.map((diagnostic) => diagnostic.message).join("; ")
+      || "Open Generative Language output was rejected.";
+  }
+  request.phase = "committed";
+  return undefined;
+}
+
+async function publishEvents(
+  request: PresentationRequest,
+  writer: ProcessOutputStreamArgs["writer"],
 ): Promise<void> {
-  if (!args.writer || !turn.drainEvents) return;
-  for (const input of turn.drainEvents()) {
+  const drained = request.turn.drainEvents();
+  if (drained.length === 0) return;
+  for (const input of drained) {
     const event = surfaceEventEnvelopeSchema.parse(input);
     if (!await verifySurfaceEventEnvelope(event)) {
-      throw new TypeError("Open Generative Surface event hash verification failed.");
+      throw new TypeError("An Open Generative Surface event failed payload hash verification.");
     }
-    await args.writer.custom({
-      type: "data-openGenerativeSurface",
-      id: event.eventId,
-      data: event,
-    });
+    request.events.push(event);
   }
-}
-
-function isPresentUiSystemMessage(message: ProcessInputStepArgs["systemMessages"][number]): boolean {
-  return typeof message.content === "string" && message.content.startsWith(PRESENT_UI_SYSTEM_MARKER);
-}
-
-export function createMastraPresentUi<TResult>(
-  options: CreateMastraPresentUiOptions<TResult>,
-): MastraPresentUiAdapter<TResult> {
-  return createMastraAdapter(options.compiled, createMastraPresentUiTool(options));
-}
-
-export type CreateMastraIncrementalPresentUiOptions =
-  CreateMastraIncrementalPresentUiToolOptions;
-
-export function createMastraIncrementalPresentUi(
-  options: CreateMastraIncrementalPresentUiOptions,
-) {
-  return createMastraAdapter(options.compiled, createMastraIncrementalPresentUiTool(options));
-}
-
-export class MastraPresentUiInputError extends TypeError {
-  readonly code = "mastra.present-ui-input-invalid";
-
-  constructor(summary: string) {
-    super(`present_ui input is invalid: ${summary}`);
-    this.name = "MastraPresentUiInputError";
-  }
-}
-
-export class MastraPresentUiExecutionContextError extends TypeError {
-  readonly code = "mastra.present-ui-tool-call-id-missing";
-
-  constructor() {
-    super("Incremental present_ui execution requires an agent toolCallId or workflow runId.");
-    this.name = "MastraPresentUiExecutionContextError";
-  }
-}
-
-type MastraToolHooks<TResult> = Readonly<{
-  compiled: CompiledPresentUi;
-  execute: MastraPresentUiExecutor<TResult>;
-  toModelOutput?: (output: TResult) => unknown;
-  onInputStart?: NonNullable<MastraPresentUiTool<TResult>["onInputStart"]>;
-  onInputDelta?: NonNullable<MastraPresentUiTool<TResult>["onInputDelta"]>;
-  onInputAvailable?: NonNullable<MastraPresentUiTool<TResult>["onInputAvailable"]>;
-}>;
-
-function createMastraTool<TResult>(
-  options: MastraToolHooks<TResult>,
-): MastraPresentUiTool<TResult> {
-  const inputSchema = z.fromJSONSchema(
-    options.compiled.providerInputSchema as Parameters<typeof z.fromJSONSchema>[0],
-  ) as z.ZodType<PresentUiAuthoringInput>;
-  const presentUi = createTool({
-    id: options.compiled.tool.name,
-    description: options.compiled.tool.description,
-    inputSchema,
-    strict: options.compiled.tool.strict,
-    mcp: {
-      annotations: {
-        title: "Open Generative interface",
-        readOnlyHint: false,
-        destructiveHint: false,
-        idempotentHint: false,
-        openWorldHint: false,
-      },
-    },
-    execute: async (input, context) => options.execute(input, context),
-    ...(options.onInputStart ? { onInputStart: options.onInputStart } : {}),
-    ...(options.onInputDelta ? { onInputDelta: options.onInputDelta } : {}),
-    ...(options.onInputAvailable ? { onInputAvailable: options.onInputAvailable } : {}),
-    toModelOutput: (output: unknown) => (
-      options.toModelOutput ? options.toModelOutput(output as TResult) : SAFE_MODEL_OUTPUT
-    ),
-    transform: createPayloadTransform(),
+  if (!writer) return;
+  const stream = openGenerativeSurfaceStreamSchema.parse({
+    surfaceSessionId: request.turn.surfaceSessionId,
+    events: request.events,
   });
-  return presentUi as MastraPresentUiTool<TResult>;
-}
-
-function createMastraAdapter<TResult>(
-  compiled: CompiledPresentUi,
-  presentUi: MastraPresentUiTool<TResult>,
-) {
-  return Object.freeze({
-    system: compiled.systemPrompt,
-    compiled,
-    tools: Object.freeze({ present_ui: presentUi }),
-    tracingOptions: MASTRA_PRESENT_UI_TRACING_OPTIONS,
+  await writer.custom({
+    type: "data-openGenerativeSurface",
+    id: `open-generative:${request.turn.surfaceSessionId}`,
+    data: stream,
   });
 }
 
-function validateInput(
-  compiled: CompiledPresentUi,
-  input: unknown,
-): PresentUiAuthoringInput {
-  const validated = validatePresentUiInput(compiled, input);
-  if (!validated.success) {
-    throw new MastraPresentUiInputError(schemaIssueSummary(validated));
-  }
-  return validated.data as PresentUiAuthoringInput;
+async function openSession(
+  request: PresentationRequest,
+  abortSignal: AbortSignal | undefined,
+): Promise<OpenGenerativeLanguageSession> {
+  request.session ??= await request.turn.createSession({
+    ...(abortSignal === undefined ? {} : { abortSignal }),
+  });
+  return request.session;
 }
 
-function createPayloadTransform(): ToolPayloadTransform<PresentUiAuthoringInput, unknown> {
+async function abortSession(
+  request: PresentationRequest,
+  writer: ProcessOutputStepArgs["writer"],
+): Promise<void> {
+  if (!request.session) return;
+  await request.session.abort("cancelled");
+  request.session = undefined;
+  await publishEvents(request, writer);
+}
+
+function isGenerating(request: PresentationRequest): boolean {
+  return request.phase === "candidate" || request.phase === "repair";
+}
+
+function isTerminal(request: PresentationRequest): boolean {
+  return request.phase === "committed" || request.phase === "aborted";
+}
+
+function shouldRejectToolCall(request: PresentationRequest): boolean {
+  return request.phase === "repair" || request.oglStarted;
+}
+
+function requestState(state: Record<string, unknown>): PresentationRequest | undefined {
+  const value = state[STATE_KEY];
+  return isPresentationRequest(value) ? value : undefined;
+}
+
+function isPresentationRequest(value: unknown): value is PresentationRequest {
+  return typeof value === "object"
+    && value !== null
+    && "phase" in value
+    && "turn" in value
+    && "events" in value;
+}
+
+function stepContext(args: ProcessInputStepArgs): OpenGenerativeMastraStepContext {
   return {
-    display: {
-      input: () => SAFE_INPUT,
-      inputDelta: () => SAFE_INPUT,
-      output: () => SAFE_OUTPUT,
-      error: () => SAFE_ERROR,
-      approval: () => SAFE_APPROVAL,
-      suspend: () => SAFE_SUSPEND,
-      resume: () => SAFE_RESUME,
-    },
-    transcript: {
-      input: () => SAFE_INPUT,
-      inputDelta: () => SAFE_INPUT,
-      output: () => SAFE_OUTPUT,
-      error: () => SAFE_ERROR,
-      approval: () => SAFE_APPROVAL,
-      suspend: () => SAFE_SUSPEND,
-      resume: () => SAFE_RESUME,
-    },
+    stepNumber: args.stepNumber,
+    steps: args.steps,
+    requestContext: args.requestContext,
+    abortSignal: args.abortSignal,
   };
 }
 
-function redactObservability(context: ToolExecutionContext): ToolExecutionContext {
-  const {
-    observe = noopObserve,
-    tracing,
-    tracingContext: _tracingContext,
-    loggerVNext: _loggerVNext,
-    metrics: _metrics,
-    ...executionContext
-  } = context;
-  tracing?.currentSpan?.update({ input: SAFE_INPUT });
-  return {
-    ...executionContext,
-    observe: createRedactedObserve(observe),
-  };
+function isOwnedSystemMessage(content: unknown): boolean {
+  return typeof content === "string" && content.startsWith(SYSTEM_MARKER);
 }
 
-function createRedactedObserve(observe: ToolObserve): ToolObserve {
-  return {
-    span(_name, fn) {
-      return observe.span("open-generative.present-ui", fn, SAFE_OBSERVABILITY);
-    },
-    log(level) {
-      observe.log(
-        level,
-        "Open Generative present_ui lifecycle event.",
-        SAFE_OBSERVABILITY,
-      );
-    },
-  };
-}
-
-function compilerOutcomeModelOutput(outcome: CompilerTurnOutcome) {
-  if (outcome.status === "committed") return SAFE_MODEL_OUTPUT;
-  const diagnosticCodes = [...new Set(outcome.diagnostics
-    .map((diagnostic) => diagnostic.code)
-    .filter(isSafeDiagnosticCode))]
-    .slice(0, 4);
-  return {
-    type: "text" as const,
-    value: diagnosticCodes.length === 0
-      ? "The interface proposal was rejected. Submit one corrected present_ui proposal."
-      : `The interface proposal was rejected. Correct these diagnostics: ${diagnosticCodes.join(", ")}.`,
-  };
-}
-
-function isSafeDiagnosticCode(code: string): boolean {
-  return /^[a-z0-9][a-z0-9.-]{0,95}$/i.test(code);
-}
-
-function executionContextToToolCallOptions(
-  context: ToolExecutionContext,
-): MastraPresentUiIncrementalContext {
-  const agent = context.agent;
-  if (agent?.toolCallId) {
-    return {
-      toolCallId: agent.toolCallId,
-      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
-    };
-  }
-  const workflow = context.workflow;
-  if (workflow?.runId) {
-    return {
-      toolCallId: `${workflow.workflowId}:${workflow.runId}:present_ui`,
-      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
-    };
-  }
-  throw new MastraPresentUiExecutionContextError();
-}
-
-function hookContextToIncrementalContext(
-  context: Parameters<NonNullable<MastraPresentUiTool<unknown>["onInputStart"]>>[0],
-): MastraPresentUiIncrementalContext {
-  return {
-    toolCallId: context.toolCallId,
-    ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
-  };
-}
-
-function mastraRequestKey(
-  context: Parameters<NonNullable<MastraPresentUiTool<unknown>["onInputStart"]>>[0],
-): object | undefined {
-  if (context.abortSignal) return context.abortSignal;
-  if (
-    (typeof context.experimental_context === "object" && context.experimental_context !== null)
-    || typeof context.experimental_context === "function"
-  ) {
-    return context.experimental_context;
-  }
-  return undefined;
+function resolveDefaultHost(): Promise<OpenGenerativeHost> {
+  defaultHost ??= createOpenGenerativeHost();
+  return defaultHost;
 }

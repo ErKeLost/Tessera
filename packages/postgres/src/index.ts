@@ -456,7 +456,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
     // indistinguishable from relations that do not exist.
     const maxTables = normalizeMaxTables(options.maxTables);
 
-    const [tableRows, columnRows, primaryKeyRows, foreignKeyRows, indexRows, databaseName] = await this.#withReadOnlyTransaction(
+    const [tableRows, columnRows, primaryKeyRows, databaseName] = await this.#withReadOnlyTransaction(
       signal,
       async (client) => {
         // node-postgres serializes work on one client. Running these in parallel
@@ -465,18 +465,51 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
         const tableRows = await queryTables(client, schemas, maxTables);
         const columnRows = await queryColumns(client, schemas, maxTables);
         const primaryKeyRows = await queryPrimaryKeys(client, schemas, maxTables);
-        const foreignKeyRows = await queryForeignKeys(client, schemas, maxTables);
-        const indexRows = await queryIndexes(client, schemas, maxTables);
         const databaseName = await queryDatabaseName(client);
-        return [tableRows, columnRows, primaryKeyRows, foreignKeyRows, indexRows, databaseName] as const;
+        return [tableRows, columnRows, primaryKeyRows, databaseName] as const;
       },
     );
+
+    let foreignKeyRows: ForeignKeyRow[] | undefined;
+    try {
+      foreignKeyRows = await this.#withReadOnlyTransaction(
+        signal,
+        (client) => queryForeignKeys(client, schemas, maxTables),
+      );
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      // Relation/column visibility is independent from constraint visibility.
+      // Keep the usable catalog and expose the missing relationship inventory
+      // explicitly instead of turning it into an empty, misleading array.
+      foreignKeyRows = undefined;
+    }
+
+    // Index privileges vary independently from relation/column privileges.
+    // Probe them in a separate read-only transaction so a rejected metadata
+    // query cannot abort the transaction that already loaded the usable
+    // catalog. An explicit cancellation still propagates to the caller.
+    let indexRows: IndexRow[] | undefined;
+    try {
+      indexRows = await this.#withReadOnlyTransaction(
+        signal,
+        (client) => queryIndexes(client, schemas, maxTables),
+      );
+    } catch (error) {
+      if (isAbort(error)) throw error;
+      indexRows = undefined;
+    }
 
     const catalog = finalizeCatalog({
       connectorId: this.id,
       dialect: "postgres",
       databaseName,
       scannedAt: new Date().toISOString(),
+      coverage: {
+        status: maxTables !== undefined && tableRows.length >= maxTables ? "partial" : "complete",
+        ...(maxTables !== undefined && tableRows.length >= maxTables ? { reason: "max_tables" as const, maxTables } : {}),
+        returnedTables: tableRows.length,
+        ...(maxTables !== undefined && tableRows.length >= maxTables ? {} : { omittedTables: 0 }),
+      },
       schemas: assembleCatalog(
         tableRows,
         columnRows,
@@ -934,8 +967,8 @@ function assembleCatalog(
   tableRows: readonly TableRow[],
   columnRows: readonly ColumnRow[],
   primaryKeyRows: readonly PrimaryKeyRow[],
-  foreignKeyRows: readonly ForeignKeyRow[],
-  indexRows: readonly IndexRow[],
+  foreignKeyRows: readonly ForeignKeyRow[] | undefined,
+  indexRows: readonly IndexRow[] | undefined,
   includeComments: boolean,
 ): DatabaseSchema[] {
   const columns = new Map<string, ColumnRow[]>();
@@ -946,12 +979,32 @@ function assembleCatalog(
   const foreignKeys = new Map<string, ForeignKeyRow[]>();
   const indexes = new Map<string, IndexRow[]>();
   for (const row of columnRows) append(columns, tableKey(row.schema_name, row.table_name), row);
-  for (const row of foreignKeyRows) append(foreignKeys, tableKey(row.schema_name, row.table_name), row);
-  for (const row of indexRows) append(indexes, tableKey(row.schema_name, row.table_name), row);
+  for (const row of foreignKeyRows ?? []) append(foreignKeys, tableKey(row.schema_name, row.table_name), row);
+  for (const row of indexRows ?? []) append(indexes, tableKey(row.schema_name, row.table_name), row);
 
   const schemas = new Map<string, DatabaseTable[]>();
   for (const row of tableRows) {
     const key = tableKey(row.schema_name, row.table_name);
+    let indexMetadata: "complete" | "partial" | "unavailable" = indexRows === undefined ? "unavailable" : "complete";
+    let foreignKeyMetadata: "complete" | "partial" | "unavailable" = foreignKeyRows === undefined ? "unavailable" : "complete";
+    const assembledIndexes = (indexes.get(key) ?? []).flatMap((index) => {
+      const indexColumns = catalogIdentifierArray(index.columns, 4_000);
+      if (indexColumns === undefined) {
+        // An index definition that exceeds the catalog contract cannot be
+        // represented faithfully. Preserve the table and mark the inventory
+        // partial instead of silently claiming no such index exists.
+        indexMetadata = "partial";
+        return [];
+      }
+      return [{
+        name: index.index_name,
+        columns: indexColumns,
+        unique: index.is_unique,
+        ...(index.access_method ? { method: index.access_method } : {}),
+        ...(index.definition ? { definition: index.definition } : {}),
+        isConstraint: index.is_constraint,
+      }];
+    });
     const table: DatabaseTable = {
       schema: row.schema_name,
       name: row.table_name,
@@ -975,6 +1028,7 @@ function assembleCatalog(
         if (foreignKeyColumns === undefined
           || referencedColumns === undefined
           || foreignKeyColumns.length !== referencedColumns.length) {
+          foreignKeyMetadata = "partial";
           return [];
         }
         return [{
@@ -985,18 +1039,9 @@ function assembleCatalog(
           referencedColumns,
         }];
       }),
-      indexes: (indexes.get(key) ?? []).flatMap((index) => {
-        const indexColumns = catalogIdentifierArray(index.columns, 4_000);
-        if (indexColumns === undefined) return [];
-        return [{
-          name: index.index_name,
-          columns: indexColumns,
-          unique: index.is_unique,
-          ...(index.access_method ? { method: index.access_method } : {}),
-          ...(index.definition ? { definition: index.definition } : {}),
-          isConstraint: index.is_constraint,
-        }];
-      }),
+      foreignKeyMetadata,
+      ...(indexRows === undefined ? {} : { indexes: assembledIndexes }),
+      indexMetadata,
     };
     append(schemas, row.schema_name, table);
   }
