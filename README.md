@@ -50,19 +50,24 @@ export default defineTesseraConfig({
 
 ## Development
 
-```bash
-bun install
-bun run typecheck
-bun run test
-bun run build
-```
-
-Run Studio and the documentation site locally:
+Tessera consumes Open Generative as a separate package boundary. For linked
+development, keep both repositories next to each other and use Bun 1.4 or newer:
 
 ```bash
-bun --cwd apps/studio dev
-bun --cwd apps/docs dev
+cd ../open-generative && bun install
+cd ../open-tessera && bun install
+bun run link:open-generative
+bun run dev:studio
 ```
+
+`bun run dev:studio` rebuilds and watches the sibling Open Generative packages
+before starting Studio on `http://127.0.0.1:4317`. Set
+`OPEN_GENERATIVE_ROOT=/absolute/path/to/open-generative` when the repositories
+are not siblings. Tessera does not keep an in-repository Open Generative
+workspace or compatibility copy.
+
+The standard checks remain `bun run typecheck`, `bun run test`, and
+`bun run build`. Run the documentation site with `bun --cwd apps/docs dev`.
 
 Public documentation lives in [`apps/docs`](apps/docs). Architecture notes in
 [`docs/architecture`](docs/architecture) are repository design records rather

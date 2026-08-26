@@ -1,6 +1,13 @@
 import { toAISdkStream } from "@mastra/ai-sdk";
-import { createOpenGenerativeProcessor } from "@open-generative/mastra";
-import { openGenerativeSurfaceStreamSchema } from "@open-generative/protocol";
+import {
+  createOpenGenerativeProcessor,
+  type OpenGenerativeMastraGenerationContext,
+  type OpenGenerativeMastraStepConfiguration,
+} from "@open-generative/mastra";
+import {
+  openGenerativeFallbackSchema,
+  openGenerativeSurfaceStreamSchema,
+} from "@open-generative/protocol";
 import { Agent } from "@mastra/core/agent";
 import { Mastra } from "@mastra/core/mastra";
 import type { MastraModelConfig } from "@mastra/core/llm";
@@ -57,6 +64,15 @@ import {
   createTesseraDataResources,
   createTesseraPresentationAuthority,
 } from "./generative/presentation";
+import {
+  selectTesseraOpenGenerativeComponents,
+} from "./generative/catalog-selection";
+import {
+  createTesseraPresentationResourceSidecar,
+  isTesseraChartPresentationRequest,
+  isTesseraPresentationFollowUp,
+  type TesseraPresentationResourceSidecar,
+} from "./generative/presentation-resource-sidecar";
 import type {
   TesseraExecuteSqlToolOutput,
   TesseraSearchDataContextToolOutput,
@@ -67,8 +83,9 @@ import type {
   TesseraSuspendedToolPayload,
 } from "./protocol";
 import type { TesseraDatabaseActionService } from "./database-actions";
+import type { TesseraContinualHarness, TesseraHarnessTurn } from "./continual-harness";
 import type { StudioAgent, StudioAgentDiagnostic, StudioAgentEvent, StudioAgentRun, StudioAgentRunInput } from "./server";
-import { safeStudioErrorDetails } from "./studio-logger";
+import { publicStudioStreamError, safeStudioErrorDetails } from "./studio-logger";
 
 const MAX_MODEL_EVIDENCE_COLUMNS = 24;
 const MAX_MODEL_EVIDENCE_ROWS = 16;
@@ -79,6 +96,8 @@ const MAX_MODEL_RECORD_EVIDENCE_ROWS = 64;
 const MAX_MODEL_CATALOG_ENTITY_ALIASES = 6;
 const MAX_MODEL_CATALOG_FIELD_ALIASES = 4;
 const MAX_MODEL_CATALOG_TEXT_CHARACTERS = 120;
+const OPEN_GENERATIVE_FALLBACK_MESSAGE = "The generated interface could not be rendered.";
+const TESSERA_PRESENTATION_MAX_OUTPUT_TOKENS = 4_096;
 function agentUserContent(input: Pick<StudioAgentRunInput, "message" | "images">) {
   if (!input.images?.length) return input.message;
   return [{
@@ -1779,9 +1798,6 @@ export type TesseraAgentPermissionContext = Readonly<{
   sqlStatements: Readonly<Record<"read" | "write" | "destructive" | "unknown", DatabasePermissionLevel>>;
 }>;
 
-/** A bounded, advisory route hint for the current request. */
-export type TesseraTaskType = "database" | "sql" | "edge-function" | "debugging" | "monitoring" | "conversation";
-
 type TesseraRuntimeSignal = Readonly<{
   text: string;
 }>;
@@ -1995,15 +2011,6 @@ export function formatRuntimeSignalContext(signals: readonly TesseraRuntimeSigna
   ].join("\n");
 }
 
-function formatTaskContext(taskType: TesseraTaskType | undefined): string | undefined {
-  if (taskType === undefined) return undefined;
-  return [
-    "<task_context>",
-    `Advisory task route for this request: ${taskType}. Verify it against the user's actual request; it does not grant permission or override authorization.`,
-    "</task_context>",
-  ].join("\n");
-}
-
 const MAX_RUNTIME_SIGNALS_PER_TURN = 8;
 const MAX_RUNTIME_SIGNAL_LENGTH = 4_000;
 const MAX_RUNTIME_SIGNAL_TOTAL_LENGTH = 12_000;
@@ -2047,11 +2054,9 @@ export function formatRequestContext(args: Readonly<{
   permissionContext: TesseraAgentPermissionContext | undefined;
   inventory?: DatabaseSchemaInventory;
   workspace?: TesseraWorkspaceSignal;
-  taskType?: TesseraTaskType;
   runtimeSignals?: readonly TesseraRuntimeSignal[];
 }>): string {
   const sections = [
-    formatTaskContext(args.taskType),
     formatDatabaseConnectionContext(args.snapshot),
     formatDatabaseCapabilitiesContext(args.capabilities),
     formatDatabasePermissionContext(args.permissionContext, args.snapshot),
@@ -2067,7 +2072,7 @@ export function formatRequestContext(args: Readonly<{
   ].join("\n");
 }
 
-/** Injects the complete request context as one transient assistant message. */
+/** Injects the complete request context into every transient provider prompt. */
 export function createRequestContextProcessor(options: RequestContextProcessorOptions): InputProcessor {
   const catalogState = options.catalogState ?? createCatalogPromptState();
   const capabilityState = options.capabilityState ?? createCapabilityPromptState();
@@ -2076,23 +2081,12 @@ export function createRequestContextProcessor(options: RequestContextProcessorOp
     name: "Request context",
     description: "Injects bounded request-scoped database, authorization, workspace, and runtime context.",
     async processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.requestContextInjected === true) return undefined;
-      args.state.requestContextInjected = true;
-
-      let snapshot: CatalogPromptSnapshot | undefined;
-      try {
-        snapshot = await loadCatalogPromptSnapshot(options.dataAgent, catalogState, args.abortSignal);
-      } catch (error) {
-        delete args.state.requestContextInjected;
-        throw error;
-      }
-      let capabilities: CapabilityPromptSnapshot | undefined;
-      try {
-        capabilities = await loadCapabilityPromptSnapshot(options.capabilityReader ?? options.dataAgent, capabilityState, args.abortSignal);
-      } catch (error) {
-        delete args.state.requestContextInjected;
-        throw error;
-      }
+      const snapshot = await loadCatalogPromptSnapshot(options.dataAgent, catalogState, args.abortSignal);
+      const capabilities = await loadCapabilityPromptSnapshot(
+        options.capabilityReader ?? options.dataAgent,
+        capabilityState,
+        args.abortSignal,
+      );
 
       let inventory: DatabaseSchemaInventory | undefined;
       if (snapshot !== undefined) {
@@ -2110,7 +2104,6 @@ export function createRequestContextProcessor(options: RequestContextProcessorOp
             ...(capabilities === undefined ? {} : { capabilities }),
             permissionContext: options.permissionContext,
             inventory,
-            taskType: taskTypeFromRequestContext(args.requestContext),
             ...(workspace === undefined ? {} : { workspace }),
             ...(runtimeSignals.length === 0 ? {} : { runtimeSignals }),
           }),
@@ -2123,7 +2116,7 @@ export function createRequestContextProcessor(options: RequestContextProcessorOp
   };
 }
 
-/** Injects connection status and dialect as transient context before the first user message. */
+/** Injects connection status and dialect into every transient provider prompt. */
 export function createDatabaseConnectionContextProcessor(
   dataAgent: SchemaCatalogReader,
   catalogState: CatalogPromptState = createCatalogPromptState(),
@@ -2133,15 +2126,7 @@ export function createDatabaseConnectionContextProcessor(
     name: "Database connection context",
     description: "Determines the connected database dialect and availability for the current Agent turn.",
     async processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.databaseConnectionContextInjected === true) return undefined;
-      args.state.databaseConnectionContextInjected = true;
-      let snapshot: CatalogPromptSnapshot | undefined;
-      try {
-        snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
-      } catch (error) {
-        delete args.state.databaseConnectionContextInjected;
-        throw error;
-      }
+      const snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
       const contextMessage = {
         role: "assistant" as const,
         content: [{ type: "text" as const, text: formatDatabaseConnectionContext(snapshot) }],
@@ -2164,15 +2149,7 @@ export function createDatabasePermissionContextProcessor(
     name: "Database authorization context",
     description: "Injects the current database access mode and permission levels for this Agent turn.",
     async processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.databasePermissionContextInjected === true) return undefined;
-      args.state.databasePermissionContextInjected = true;
-      let snapshot: CatalogPromptSnapshot | undefined;
-      try {
-        snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
-      } catch (error) {
-        delete args.state.databasePermissionContextInjected;
-        throw error;
-      }
+      const snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
       const text = formatDatabasePermissionContext(permissionContext, snapshot);
       if (text === undefined) return undefined;
       const contextMessage = {
@@ -2193,8 +2170,6 @@ export function createRuntimeSignalContextProcessor(): InputProcessor {
     name: "Runtime signals",
     description: "Injects transient system-owned instructions for the current Agent turn.",
     processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.runtimeSignalContextInjected === true) return undefined;
-      args.state.runtimeSignalContextInjected = true;
       const value = args.requestContext?.get("tessera.runtime-signals");
       const signals = runtimeSignalsFromRequestContext(value);
       const text = formatRuntimeSignalContext(signals);
@@ -2210,7 +2185,7 @@ export function createRuntimeSignalContextProcessor(): InputProcessor {
   };
 }
 
-/** Loads a cheap physical relation inventory once at the start of an Agent turn. */
+/** Injects the cached physical relation inventory into every provider prompt. */
 export function createSchemaContextProcessor(
   dataAgent: SchemaCatalogReader,
   observe?: SchemaContextObserver,
@@ -2221,18 +2196,7 @@ export function createSchemaContextProcessor(
     name: "Database schema context",
     description: "Loads a bounded physical relation inventory before the first model request.",
     async processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.schemaContextInjected === true) return undefined;
-      // Mark the attempt before awaiting the connector so a failed scan does
-      // not repeat on every later model step in the same Agent turn.
-      args.state.schemaContextInjected = true;
-
-      let snapshot: CatalogPromptSnapshot | undefined;
-      try {
-        snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
-      } catch (error) {
-        delete args.state.schemaContextInjected;
-        throw error;
-      }
+      const snapshot = await loadCatalogPromptSnapshot(dataAgent, catalogState, args.abortSignal);
       if (snapshot === undefined) return undefined;
       const { catalog, semanticCatalog } = snapshot;
 
@@ -2249,18 +2213,13 @@ export function createSchemaContextProcessor(
   };
 }
 
-/** Injects request-scoped workspace state without changing the cached base instructions. */
+/** Injects request-scoped workspace state into every transient provider prompt. */
 export function createWorkspaceContextProcessor(): InputProcessor {
   return {
     id: "tessera-workspace-context",
     name: "Workspace context",
     description: "Injects bounded request-scoped workspace state before the first user message.",
     processLLMRequest(args: ProcessLLMRequestArgs) {
-      if (args.state.workspaceContextInjected === true) return undefined;
-      // A single agent turn can make several model requests. Keep this transient
-      // context once per turn, matching the request-scoped context pattern.
-      args.state.workspaceContextInjected = true;
-
       const contextMessage = {
         role: "assistant" as const,
         content: [{
@@ -2333,6 +2292,8 @@ type CopilotRuntime = {
   analyses: CompletedAnalysis[];
   /** Verified explicit read results are equally eligible for presentation. */
   queries: CompletedQuery[];
+  /** Server-only signal that this turn attempted to replace presentation data. */
+  presentationDataAttempted: boolean;
   /** Exact successful plans are terminal for this turn; do not execute them again. */
   completedAnalysisPlans: Set<string>;
   /** Plans prepared in this turn remain server-only until execute_sql consumes their reference. */
@@ -2380,7 +2341,6 @@ function escapePromptDelimiters(value: string): string {
 
 type TesseraCopilotRequestContext = {
   "tessera.workspace": TesseraWorkspaceSignal;
-  "tessera.task": TesseraTaskType;
   "tessera.runtime-signals"?: readonly TesseraRuntimeSignal[];
 };
 
@@ -2414,6 +2374,8 @@ export type TesseraStudioAgentOptions = Readonly<{
    * backed by the same storage as the supplied Memory so suspend/resume
    * snapshots survive Agent recreation between HTTP requests. */
   mastra?: Mastra;
+  /** Optional server-owned continual refinement layer. It never receives database tools. */
+  continualHarness?: TesseraContinualHarness;
 }>;
 
 /**
@@ -2436,24 +2398,70 @@ export function createTesseraStudioAgent(options: TesseraStudioAgentOptions): St
   const llm = resolveTesseraLlmConfig({ llm: options.llm });
   const model = toMastraModelConfig(llm);
   const queue = createThreadQueue();
+  const continualHarness = options.continualHarness;
+  const presentationResources = createTesseraPresentationResourceSidecar();
 
   return {
     catalogLoading: "data-agent" as const,
-    run: (input) => queue.run(threadQueueKey(input), () => runTesseraAgentTurn(input, options.dataAgent, memory, model, llm, mastra, options.permissionContext, options.databaseActions, databaseDialect)),
+    ...(continualHarness === undefined ? {} : { continualHarness }),
+    run: (input) => queue.run(threadQueueKey(input), async () => {
+      const enriched = await withContinualHarnessContext(input, continualHarness);
+      const run = await runTesseraAgentTurn(enriched, options.dataAgent, memory, model, llm, mastra, presentationResources, options.permissionContext, options.databaseActions, databaseDialect);
+      submitHarnessRun(continualHarness, enriched, run.message);
+      return run;
+    }),
     // Keep embedded hosts on the same native Agent stream as Studio rather
     // than generating a complete message and replaying it as one fake delta.
     stream: (input, emit) => queue.run(
       threadQueueKey(input),
-      () => streamTesseraAgentTurn(input, options.dataAgent, memory, model, llm, mastra, emit, options.permissionContext, options.databaseActions, databaseDialect),
+      async () => {
+        const enriched = await withContinualHarnessContext(input, continualHarness);
+        const run = await streamTesseraAgentTurn(enriched, options.dataAgent, memory, model, llm, mastra, presentationResources, emit, options.permissionContext, options.databaseActions, databaseDialect);
+        submitHarnessRun(continualHarness, enriched, run.message);
+        return run;
+      },
     ),
-    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, mastra, queue, options.permissionContext, options.databaseActions, databaseDialect),
+    streamUI: (input) => streamTesseraAgentTurnUI(input, options.dataAgent, memory, model, llm, mastra, queue, presentationResources, options.permissionContext, options.databaseActions, databaseDialect, continualHarness),
   };
+}
+
+async function withContinualHarnessContext(
+  input: StudioAgentRunInput,
+  harness: TesseraContinualHarness | undefined,
+): Promise<StudioAgentRunInput> {
+  if (!harness) return input;
+  const context = await harness.contextFor({
+    resourceId: tesseraSessionResourceId(input.identity),
+    threadId: input.threadId,
+  });
+  if (!context) return input;
+  return {
+    ...input,
+    runtimeSignals: [...(input.runtimeSignals ?? []), context],
+  };
+}
+
+function submitHarnessRun(
+  harness: TesseraContinualHarness | undefined,
+  input: StudioAgentRunInput,
+  assistantText: string,
+): void {
+  if (!harness) return;
+  const turn: TesseraHarnessTurn = {
+    runId: input.runId,
+    resourceId: tesseraSessionResourceId(input.identity),
+    threadId: input.threadId,
+    userText: input.message,
+    assistantText,
+  };
+  harness.submitCompletedTurn(turn);
 }
 
 function createCopilotRuntime(): CopilotRuntime {
   return {
     analyses: [],
     queries: [],
+    presentationDataAttempted: false,
     completedAnalysisPlans: new Set(),
     preparedAnalyses: new Map(),
     preparedAnalysisPlans: new Set(),
@@ -2473,6 +2481,16 @@ function reportAgentDiagnostic(input: StudioAgentRunInput, diagnostic: StudioAge
   }
 }
 
+function reportPublicStreamError(
+  input: StudioAgentRunInput,
+  error: unknown,
+  model: string,
+) {
+  const publicError = publicStudioStreamError(error, model);
+  reportAgentDiagnostic(input, { phase: publicError.phase, error });
+  return publicError;
+}
+
 /** Tool schemas are intentionally bounded even when terminal diagnostics retain more detail. */
 function safeToolResultMessage(error: unknown): string {
   return safeStudioErrorDetails(error).errorMessage.slice(0, 2_000);
@@ -2485,32 +2503,42 @@ async function runTesseraAgentTurn(
   model: MastraModelConfig,
   llm: TesseraLlmConfig,
   mastra: Mastra,
+  presentationResources: TesseraPresentationResourceSidecar,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
 ): Promise<StudioAgentRun> {
   const runtime: CopilotRuntime = createCopilotRuntime();
-  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, permissionContext, databaseActions, databaseDialect });
+  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, presentationResources, permissionContext, databaseActions, databaseDialect });
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
-  const { aborted, failed, finishReason, hasCommittedSurface, response } = await consumeCopilotUIStream(
+  const {
+    aborted,
+    failed,
+    finishReason,
+    hasCommittedSurface,
+    hasOpenGenerativeFallback,
+    response,
+  } = await consumeCopilotUIStream(
     appendCopilotOutcome(
       filterTesseraPublicToolParts(toAISdkStream(output, {
         from: "agent",
         sendReasoning: true,
         version: "v7",
         onError: (error) => {
-          reportAgentDiagnostic(input, { phase: "provider", error });
-          return safeStudioErrorDetails(error).errorMessage;
+          return reportPublicStreamError(input, error, llm.model).message;
         },
       }) as ReadableStream<TesseraUIMessageChunk>),
     ),
   );
   const message = safeAssistantNarration(response);
   if (aborted || input.signal.aborted) throw createAbortError();
-  if (failed || finishReason !== "stop" || (!message && !hasCommittedSurface)) {
+  if (failed || finishReason !== "stop" || (!message && !hasCommittedSurface && !hasOpenGenerativeFallback)) {
     throw new Error("The Data Copilot did not return a usable response.");
   }
-  return studioRunFrom(runtime, message ?? "Analysis complete.");
+  return studioRunFrom(
+    runtime,
+    message ?? (hasOpenGenerativeFallback ? OPEN_GENERATIVE_FALLBACK_MESSAGE : "Analysis complete."),
+  );
 }
 
 /** Streams the default Agent to legacy hosts without replaying an accumulated answer. */
@@ -2521,13 +2549,14 @@ async function streamTesseraAgentTurn(
   model: MastraModelConfig,
   llm: TesseraLlmConfig,
   mastra: Mastra,
+  presentationResources: TesseraPresentationResourceSidecar,
   emit: (event: StudioAgentEvent) => void | Promise<void>,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
 ): Promise<StudioAgentRun> {
   const runtime: CopilotRuntime = createCopilotRuntime();
-  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, permissionContext, databaseActions, databaseDialect });
+  const agent = createDataCopilotAgent({ input, dataAgent, memory, model, llm, mastra, runtime, presentationResources, permissionContext, databaseActions, databaseDialect });
   const output = await agent.stream(agentUserContent(input), copilotGenerationOptions(input, llm));
   const source = appendCopilotOutcome(
     filterTesseraPublicToolParts(toAISdkStream(output, {
@@ -2535,13 +2564,19 @@ async function streamTesseraAgentTurn(
       sendReasoning: true,
       version: "v7",
       onError: (error) => {
-        reportAgentDiagnostic(input, { phase: "provider", error });
-        return safeStudioErrorDetails(error).errorMessage;
+        return reportPublicStreamError(input, error, llm.model).message;
       },
     }) as ReadableStream<TesseraUIMessageChunk>),
   );
   const activeTools = new Map<string, TesseraToolName>();
-  const { aborted, failed, finishReason, hasCommittedSurface, response } = await consumeCopilotUIStream(source, async (chunk) => {
+  const {
+    aborted,
+    failed,
+    finishReason,
+    hasCommittedSurface,
+    hasOpenGenerativeFallback,
+    response,
+  } = await consumeCopilotUIStream(source, async (chunk) => {
     if (chunk.type === "text-delta") {
       await emit({ type: "text-delta", text: chunk.delta });
       return;
@@ -2552,10 +2587,11 @@ async function streamTesseraAgentTurn(
 
   const message = safeAssistantNarration(response);
   if (aborted || input.signal.aborted) throw createAbortError();
-  if (failed || finishReason !== "stop" || (!message && !hasCommittedSurface)) {
+  if (failed || finishReason !== "stop" || (!message && !hasCommittedSurface && !hasOpenGenerativeFallback)) {
     throw new Error("The Data Copilot did not return a usable response.");
   }
-  const acceptedMessage = message ?? "Analysis complete.";
+  const acceptedMessage = message
+    ?? (hasOpenGenerativeFallback ? OPEN_GENERATIVE_FALLBACK_MESSAGE : "Analysis complete.");
   if (!message) await emit({ type: "text-delta", text: acceptedMessage });
   return studioRunFrom(runtime, acceptedMessage);
 }
@@ -2569,6 +2605,7 @@ async function consumeCopilotUIStream(
   failed: boolean;
   aborted: boolean;
   hasCommittedSurface: boolean;
+  hasOpenGenerativeFallback: boolean;
   finishReason?: FinishReason;
 }>> {
   const reader = source.getReader();
@@ -2576,6 +2613,7 @@ async function consumeCopilotUIStream(
   let failed = false;
   let aborted = false;
   let hasCommittedSurface = false;
+  let hasOpenGenerativeFallback = false;
   let finishReason: FinishReason | undefined;
   try {
     while (true) {
@@ -2587,6 +2625,9 @@ async function consumeCopilotUIStream(
       if (chunk.type === "abort") aborted = true;
       if (chunk.type === "data-openGenerativeSurface") {
         hasCommittedSurface ||= isCommittedOpenGenerativeSurface(chunk.data);
+      }
+      if (chunk.type === "data-openGenerativeFallback") {
+        hasOpenGenerativeFallback ||= openGenerativeFallbackSchema.safeParse(chunk.data).success;
       }
       if (chunk.type === "finish") {
         finishReason = chunk.finishReason;
@@ -2602,6 +2643,7 @@ async function consumeCopilotUIStream(
     failed,
     aborted,
     hasCommittedSurface,
+    hasOpenGenerativeFallback,
     ...(finishReason === undefined ? {} : { finishReason }),
   };
 }
@@ -2660,6 +2702,7 @@ function createDataCopilotAgent(context: Readonly<{
   llm: TesseraLlmConfig;
   mastra: Mastra;
   runtime: CopilotRuntime;
+  presentationResources: TesseraPresentationResourceSidecar;
   permissionContext?: TesseraAgentPermissionContext;
   databaseActions?: TesseraDatabaseActionService;
   databaseDialect?: DatabaseDialect;
@@ -3042,6 +3085,7 @@ function createDataCopilotAgent(context: Readonly<{
     execute: async (input, toolContext): Promise<ExecuteSqlToolOutput | void> => {
       const signal = toolContext.abortSignal ?? context.input.signal;
       if (input.analysisRef !== undefined) {
+        context.runtime.presentationDataAttempted = true;
         if (context.permissionContext?.sqlStatements.read !== "allow") {
           return {
             status: "blocked",
@@ -3101,6 +3145,7 @@ function createDataCopilotAgent(context: Readonly<{
         }
       }
       if (input.sql !== undefined) {
+        context.runtime.presentationDataAttempted = true;
         if (context.permissionContext?.sqlStatements.read !== "allow") {
           return {
             status: "blocked",
@@ -3394,16 +3439,43 @@ function createDataCopilotAgent(context: Readonly<{
 
   const catalogPromptState = createCatalogPromptState();
   const capabilityPromptState = createCapabilityPromptState();
+  const presentationFollowUp = isTesseraPresentationFollowUp(context.input.message);
   const openGenerative = createOpenGenerativeProcessor({
-    resources: async () => createTesseraDataResources({
-      analyses: context.runtime.analyses,
-      queries: context.runtime.queries,
-    }),
+    resources: async () => {
+      const current = createTesseraDataResources({
+        analyses: context.runtime.analyses,
+        queries: context.runtime.queries,
+      });
+      return context.presentationResources.resourcesFor({
+        resourceId: tesseraSessionResourceId(context.input.identity),
+        threadId: context.input.threadId,
+        current,
+        dataAttempted: context.runtime.presentationDataAttempted,
+        allowCached: presentationFollowUp,
+      });
+    },
     authority: async () => createTesseraPresentationAuthority(
       context.input.identity ?? LOCAL_STUDIO_IDENTITY,
     ),
+    componentSelection: ({ resources }) => selectTesseraOpenGenerativeComponents({
+      message: context.input.message,
+      workspace: workspaceSignalFromInput(context.input),
+      hasAnalyses: context.runtime.analyses.length > 0,
+      hasQueries: context.runtime.queries.length > 0,
+      resources,
+    }),
+    presentationActivation: true,
+    stepConfiguration: (step) => tesseraOpenGenerativeStepConfiguration(
+      step,
+      context.llm,
+      presentationFollowUp,
+    ),
+    maxRetries: 1,
+    rejectionPolicy: "discard",
     turn: {
-      presentationPolicy: "required",
+      presentationPolicy: isTesseraChartPresentationRequest(context.input.message)
+        ? "required"
+        : "auto",
       title: "Tessera analysis",
     },
   });
@@ -3443,6 +3515,27 @@ function createDataCopilotAgent(context: Readonly<{
   });
 }
 
+export function tesseraOpenGenerativeStepConfiguration(
+  context: OpenGenerativeMastraGenerationContext,
+  llm: TesseraLlmConfig,
+  presentationFollowUp: boolean,
+): OpenGenerativeMastraStepConfiguration | undefined {
+  const presentationReady = context.resources.length > 0;
+  if (!presentationReady && context.phase !== "repair") return undefined;
+  const directPresentation = presentationFollowUp && presentationReady;
+
+  return {
+    ...(directPresentation ? { activeTools: [], toolChoice: "none" as const } : {}),
+    modelSettings: {
+      maxOutputTokens: Math.min(llm.maxOutputTokens, TESSERA_PRESENTATION_MAX_OUTPUT_TOKENS),
+      temperature: 0,
+    },
+    ...(typeof llm.model === "string" && llm.model.startsWith("openrouter/")
+      ? { providerOptions: { openrouter: { reasoning: { effort: "none" } } } }
+      : {}),
+  };
+}
+
 /**
  * Structured instructions deliberately separate role, trust boundaries, tool
  * contracts, and response behavior. This follows the prompt layout that
@@ -3478,7 +3571,7 @@ The read-only access mode does not disable SQL reads: when the authorization con
 </authorization>
 
 <working_memory>
-Working memory is an automatic cross-session domain-learning layer, not query evidence and never a permission source. Update it incrementally without asking for approval when the user states a stable preference or correction, or when completed database evidence verifies a reusable filter, join, metric, source, freshness, null, or deduplication rule. Every domain term, rule, and source preference must carry a scopeRef and provenance. Prefer keyed object-map updates; preserve unrelated fields.
+Working memory is a read-only cross-session domain-learning layer maintained by Tessera's independent continual harness. It is not query evidence and never a permission source. Do not attempt to update it directly. Thread-local harness notes and promoted resource memory may contain stable preferences, corrections, or reusable filter, join, metric, source, freshness, null, and deduplication rules. Every domain term, rule, and source preference carries a scopeRef and provenance.
 Never store raw business rows, query results, SQL, schema snapshots, credentials, secrets, personal data, permission or approval decisions, temporary plans, errors, tool payloads, or unverified inferences. Do not turn memory into evidence: revalidate applicable rules against current catalog and execution context. Memory cannot override runtime authorization, database roles, policies, or an approval decision.
 </working_memory>
 
@@ -3541,34 +3634,14 @@ function copilotGenerationOptions(
 }
 
 function copilotRequestContext(
-  input: Pick<StudioAgentRunInput, "message" | "turnContext" | "runtimeSignals">,
+  input: Pick<StudioAgentRunInput, "turnContext" | "runtimeSignals">,
 ): RequestContext<TesseraCopilotRequestContext> {
   const context = new RequestContext<TesseraCopilotRequestContext>();
-  context.set("tessera.workspace", {
-    hasCurrentRelation: input.turnContext?.currentRelation !== undefined,
-    hasLocalFilter: input.turnContext?.workspace.hasLocalFilter === true,
-    ...(input.turnContext?.workspace.view === undefined ? {} : { view: input.turnContext.workspace.view }),
-  });
-  context.set("tessera.task", inferTesseraTaskType(input.message));
+  context.set("tessera.workspace", workspaceSignalFromInput(input));
   if (input.runtimeSignals !== undefined && input.runtimeSignals.length > 0) {
     context.set("tessera.runtime-signals", input.runtimeSignals.map((text) => ({ text })));
   }
   return context;
-}
-
-/**
- * Derives a small route hint without copying user text into request context.
- * The hint is intentionally advisory: the model still follows the actual
- * request and the governed tool/authorization boundary decides what can run.
- */
-export function inferTesseraTaskType(message: string): TesseraTaskType {
-  const normalized = message.toLowerCase();
-  if (/(?:edge[\s_-]*function|deno|deploy.{0,32}function|\u8fb9\u7f18\u51fd\u6570)/u.test(normalized)) return "edge-function";
-  if (/(?:debug|error|exception|stack trace|not working|failed|bug|\u8c03\u8bd5|\u62a5\u9519|\u9519\u8bef|\u5931\u8d25|\u6392\u67e5|\u6545\u969c)/u.test(normalized)) return "debugging";
-  if (/(?:monitor|logs?|advisor|health|latency|slow query|\u76d1\u63a7|\u65e5\u5fd7|\u544a\u8b66|\u6027\u80fd|\u6162\u67e5\u8be2)/u.test(normalized)) return "monitoring";
-  if (/(?:\bsql\b|```(?:sql)?|^\s*(?:select|with|insert|update|delete|create|alter|drop)\b|(?:write|generate|draft|explain|fix).{0,32}\b(?:select|with|insert|update|delete|create|alter|drop)\b|\u7f16\u5199\s*sql)/u.test(normalized)) return "sql";
-  if (/(?:database|schema|table|column|row|record|data|\u6570\u636e\u5e93|\u8868|\u5b57\u6bb5|\u8bb0\u5f55|\u6570\u636e)/u.test(normalized)) return "database";
-  return "conversation";
 }
 
 function workspaceSignalFromRequestContext(requestContext: RequestContext | undefined): TesseraWorkspaceSignal | undefined {
@@ -3583,16 +3656,14 @@ function workspaceSignalFromRequestContext(requestContext: RequestContext | unde
   };
 }
 
-function taskTypeFromRequestContext(requestContext: RequestContext | undefined): TesseraTaskType | undefined {
-  const value = requestContext?.get("tessera.task");
-  return value === "database"
-    || value === "sql"
-    || value === "edge-function"
-    || value === "debugging"
-    || value === "monitoring"
-    || value === "conversation"
-    ? value
-    : undefined;
+function workspaceSignalFromInput(
+  input: Pick<StudioAgentRunInput, "turnContext">,
+): TesseraWorkspaceSignal {
+  return {
+    hasCurrentRelation: input.turnContext?.currentRelation !== undefined,
+    hasLocalFilter: input.turnContext?.workspace.hasLocalFilter === true,
+    ...(input.turnContext?.workspace.view === undefined ? {} : { view: input.turnContext.workspace.view }),
+  };
 }
 
 function workspaceInstruction(workspace: TesseraWorkspaceSignal | undefined): string {
@@ -4070,9 +4141,11 @@ function streamTesseraAgentTurnUI(
   llm: TesseraLlmConfig,
   mastra: Mastra,
   queue: ReturnType<typeof createThreadQueue>,
+  presentationResources: TesseraPresentationResourceSidecar,
   permissionContext?: TesseraAgentPermissionContext,
   databaseActions?: TesseraDatabaseActionService,
   databaseDialect?: DatabaseDialect,
+  continualHarness?: TesseraContinualHarness,
 ): ReadableStream<TesseraUIMessageChunk> {
   const controller = new AbortController();
   let cancelled = false;
@@ -4101,14 +4174,19 @@ function streamTesseraAgentTurnUI(
           // Cancellation can happen while a prior turn owns this thread queue.
           // Do not start an Agent or LLM call after that request is gone.
           if (controller.signal.aborted) return;
+          const enrichedInput = await withContinualHarnessContext(
+            { ...input, signal: controller.signal, allowRuntimeSuspension: true },
+            continualHarness,
+          );
           const agent = createDataCopilotAgent({
-            input: { ...input, signal: controller.signal, allowRuntimeSuspension: true },
+            input: enrichedInput,
             dataAgent,
             memory,
             model,
             llm,
             mastra,
             runtime,
+            presentationResources,
             permissionContext,
             databaseActions,
             databaseDialect,
@@ -4121,9 +4199,9 @@ function streamTesseraAgentTurnUI(
             ? undefined
             : await resolvePendingMutationResume(agent, input);
           const executionInput = resumed === undefined
-            ? { ...input, signal: controller.signal }
+            ? enrichedInput
             : {
-              ...input,
+              ...enrichedInput,
               runId: resumed.runId,
               toolCallId: resumed.toolCallId,
               resumeData: resumed.resumeData,
@@ -4131,7 +4209,7 @@ function streamTesseraAgentTurnUI(
             };
           const generationOptions = copilotGenerationOptions(executionInput, llm);
           const output = input.resumeData === undefined
-            ? await agent.stream(agentUserContent(input), generationOptions)
+            ? await agent.stream(agentUserContent(enrichedInput), generationOptions)
             : await agent.resumeStream(executionInput.resumeData, generationOptions);
           const source = appendCopilotOutcome(
             normalizeTesseraToolInvocationOrder(filterTesseraPublicToolParts(toAISdkStream(output, {
@@ -4139,8 +4217,7 @@ function streamTesseraAgentTurnUI(
               sendReasoning: true,
               version: "v7",
               onError: (error) => {
-                reportAgentDiagnostic(input, { phase: "provider", error });
-                return safeStudioErrorDetails(error).errorMessage;
+                return reportPublicStreamError(input, error, llm.model).message;
               },
             }) as ReadableStream<TesseraUIMessageChunk>)),
           );
@@ -4163,9 +4240,9 @@ function streamTesseraAgentTurnUI(
           }
         } catch (error) {
           if (!cancelled && !controller.signal.aborted) {
-            reportAgentDiagnostic(input, { phase: "stream", error });
+            const publicError = reportPublicStreamError(input, error, llm.model);
             if (!started) streamController.enqueue({ type: "start", messageId: `message-${input.runId}` });
-            streamController.enqueue({ type: "error", errorText: safeStudioErrorDetails(error).errorMessage });
+            streamController.enqueue({ type: "error", errorText: publicError.message });
             streamController.enqueue({ type: "finish", finishReason: "error" });
           }
         } finally {
@@ -4361,6 +4438,7 @@ export function appendCopilotOutcome(
   let hasVisibleText = false;
   let response = "";
   let hasCommittedSurface = false;
+  let hasOpenGenerativeFallback = false;
   let suspended = false;
   let pendingError: Extract<TesseraUIMessageChunk, { type: "error" }> | undefined;
   return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
@@ -4380,6 +4458,9 @@ export function appendCopilotOutcome(
 
       if (chunk.type === "data-openGenerativeSurface") {
         hasCommittedSurface ||= isCommittedOpenGenerativeSurface(chunk.data);
+      }
+      if (chunk.type === "data-openGenerativeFallback") {
+        hasOpenGenerativeFallback ||= openGenerativeFallbackSchema.safeParse(chunk.data).success;
       }
 
       if (chunk.type === "error") {
@@ -4418,7 +4499,7 @@ export function appendCopilotOutcome(
           return;
         }
 
-        if (!hasVisibleText && !hasCommittedSurface) {
+        if (!hasVisibleText && !hasCommittedSurface && !hasOpenGenerativeFallback) {
           streamController.enqueue(pendingError ?? {
             type: "error",
             errorText: "The Tessera Agent stopped before it returned a visible response.",
@@ -4468,6 +4549,23 @@ export function appendCopilotOutcome(
 /** An empty or whitespace-only model turn must never be reported as a completed answer. */
 export function hasVisibleCopilotText(value: string): boolean {
   return value.trim().length > 0;
+}
+
+export function hasVisibleCopilotOutput(value: unknown): boolean {
+  const message = isRecord(value) ? value : undefined;
+  if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
+  return message.parts.some((part) => {
+    const record = isRecord(part) ? part : undefined;
+    if (!record || typeof record.type !== "string") return false;
+    if (record.type === "text") {
+      return typeof record.text === "string" && hasVisibleCopilotText(record.text);
+    }
+    if (record.type === "data-openGenerativeSurface") {
+      return isCommittedOpenGenerativeSurface(record.data);
+    }
+    return record.type === "data-openGenerativeFallback"
+      && openGenerativeFallbackSchema.safeParse(record.data).success;
+  });
 }
 
 function isCommittedOpenGenerativeSurface(input: unknown): boolean {

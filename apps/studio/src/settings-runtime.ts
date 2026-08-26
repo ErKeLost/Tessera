@@ -35,8 +35,9 @@ import { createMySqlConnector } from "@open-tessera/mysql";
 import { createPostgresConnector } from "@open-tessera/postgres";
 import { createSqliteConnector } from "@open-tessera/sqlite";
 import { createTursoConnector } from "@open-tessera/turso";
-import { createTesseraStudioAgent } from "./agent";
+import { createTesseraStudioAgent, toMastraModelConfig } from "./agent";
 import { createTesseraSessionMemory, type TesseraSessionMemory } from "./session-memory";
+import { createTesseraContinualHarness } from "./continual-harness";
 import {
   defineTesseraConfig,
   getTesseraProviderBaseUrl,
@@ -469,20 +470,32 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
           policy: config.database.permissions,
           getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
         });
-      const agent = isTesseraLlmConfigured(config)
-        ? createTesseraStudioAgent({
+      const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
+      const continualHarness = llm === undefined || !config.studio.continualHarness.enabled
+        ? undefined
+        : createTesseraContinualHarness({
+          memory: sessionMemory.memory,
+          model: toMastraModelConfig(llm),
+          maxRetries: llm.maxRetries,
+          maxOutputTokens: Math.min(llm.maxOutputTokens, 4_096),
+          autoReviewInterval: config.studio.continualHarness.autoReviewInterval,
+          autoReviewCooldownMs: config.studio.continualHarness.autoReviewCooldownMs,
+        });
+      const agent = llm === undefined
+        ? undefined
+        : createTesseraStudioAgent({
           dataAgent,
           databaseDialect: config.database.dialect,
           memory: sessionMemory.memory,
-          llm: resolveTesseraLlmConfig(config),
+          llm,
+          continualHarness,
           ...(databaseActions === undefined ? {} : { databaseActions }),
           permissionContext: {
             accessMode: options.accessMode,
             databaseActionsAvailable: databaseActions !== undefined,
             sqlStatements: config.database.permissions.sqlStatements,
           },
-        })
-        : undefined;
+        });
       return Object.freeze({
         connector,
         dataAgent,
@@ -490,7 +503,11 @@ export const defaultTesseraStudioRuntimeFactory: TesseraStudioRuntimeFactory = O
         ...(agent === undefined ? {} : { agent }),
         ...(databaseActions === undefined ? {} : { databaseActions }),
         async close() {
-          await Promise.allSettled([sessionMemory.close(), connector.close()]);
+          await Promise.allSettled([
+            continualHarness?.close(),
+            sessionMemory.close(),
+            connector.close(),
+          ]);
         },
       });
     } catch {

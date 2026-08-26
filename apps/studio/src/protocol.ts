@@ -1,5 +1,8 @@
 import type { UIMessage, UIMessageChunk } from "ai";
-import type { OpenGenerativeSurfaceStream } from "@open-generative/protocol";
+import type {
+  OpenGenerativeFallback,
+  OpenGenerativeSurfaceStream,
+} from "@open-generative/protocol";
 
 /** Stable, server-executed tool ids exposed to the Studio UI. */
 export type TesseraToolName = "list_database" | "search_data_context" | "prepare_analysis" | "execute_sql";
@@ -108,6 +111,7 @@ export type TesseraSuspendedToolPayload = Readonly<{
 }>;
 
 export type TesseraUIData = {
+  openGenerativeFallback: OpenGenerativeFallback;
   openGenerativeSurface: OpenGenerativeSurfaceStream;
   "tool-call-suspended": Readonly<{
     state: "data-tool-call-suspended";

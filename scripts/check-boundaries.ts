@@ -41,7 +41,7 @@ for (const definition of packageGraph) {
   const manifest = JSON.parse(await readFile(join(root, definition.directory, "package.json"), "utf8")) as Manifest;
   if (manifest.name !== definition.name) issues.push(`${definition.directory} must be named ${definition.name}.`);
   const internalDependencies = Object.keys(manifest.dependencies ?? {}).filter(
-    (name) => name.startsWith("@open-generative/") || name.startsWith("@open-tessera/"),
+    (name) => name.startsWith("@open-tessera/"),
   );
   for (const dependency of internalDependencies) {
     if (!packageByName.has(dependency)) {
@@ -99,4 +99,4 @@ for (const entry of appEntries.filter((candidate) => candidate.isDirectory())) {
 }
 
 if (issues.length > 0) throw new Error(["Package boundary check failed:", ...issues].join("\n"));
-console.log(`Verified the acyclic boundaries of ${packageGraph.length} Open Generative packages.`);
+console.log(`Verified the acyclic boundaries of ${packageGraph.length} Tessera packages.`);

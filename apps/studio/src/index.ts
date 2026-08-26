@@ -1,5 +1,8 @@
 export {
   DEFAULT_CATALOG_CACHE_TTL_MS,
+  DEFAULT_TESSERA_CONTINUAL_HARNESS_COOLDOWN_MS,
+  DEFAULT_TESSERA_CONTINUAL_HARNESS_ENABLED,
+  DEFAULT_TESSERA_CONTINUAL_HARNESS_REVIEW_INTERVAL,
   DEFAULT_TESSERA_LLM_MAX_OUTPUT_TOKENS,
   DEFAULT_TESSERA_LLM_MAX_RETRIES,
   DEFAULT_TESSERA_LLM_MAX_STEPS,
@@ -43,6 +46,15 @@ export type {
   TesseraStudioConfig,
   TesseraStudioOverrides,
 } from "./config";
+export {
+  DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
+  OPEN_GENERATIVE_THEME_PRESET_IDS,
+  TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE,
+  isOpenGenerativeThemePresetId,
+  resolveOpenGenerativeThemePreset,
+  resolveOpenGenerativeThemePresetFromEnvironment,
+} from "./open-generative-theme-preset";
+export type { OpenGenerativeThemePresetId } from "./open-generative-theme-preset";
 export {
   createStudioApp,
   createDataAgentCatalogProvider,
@@ -105,6 +117,36 @@ export type {
 } from "./settings-runtime";
 export { createTesseraStudioAgent } from "./agent";
 export type { TesseraStudioAgentOptions } from "./agent";
+export {
+  createTesseraContinualHarness,
+  sanitizeHarnessTrajectory,
+  tesseraHarnessEditSchema,
+  tesseraHarnessPayloadSchema,
+  tesseraHarnessProposalSchema,
+  tesseraHarnessReviewSchema,
+  TesseraHarnessConflictError,
+  TesseraHarnessValidationError,
+} from "./continual-harness";
+export type {
+  CreateTesseraContinualHarnessOptions,
+  TesseraContinualHarness,
+  TesseraHarnessApplyInput,
+  TesseraHarnessEdit,
+  TesseraHarnessEntry,
+  TesseraHarnessKind,
+  TesseraHarnessPayload,
+  TesseraHarnessPlanInput,
+  TesseraHarnessProposal,
+  TesseraHarnessProvenance,
+  TesseraHarnessResult,
+  TesseraHarnessReview,
+  TesseraHarnessReviewInput,
+  TesseraHarnessRevision,
+  TesseraHarnessScope,
+  TesseraHarnessSnapshot,
+  TesseraHarnessTrajectory,
+  TesseraHarnessTurn,
+} from "./continual-harness";
 export type { DataAgent } from "@open-tessera/data-agent";
 export type {
   CreateStudioCatalogProviderOptions,

@@ -1,7 +1,21 @@
 import { resolve } from "node:path";
+import {
+  buildOpenGenerativePackages,
+  ensureOpenGenerativeLinks,
+  resolveOpenGenerativeRoot,
+} from "./open-generative-link";
 
 const studioRoot = resolve(import.meta.dir, "..");
-const workspaceRoot = resolve(studioRoot, "../..");
+const openGenerativeRoot = resolveOpenGenerativeRoot();
+
+if (!openGenerativeRoot) {
+  throw new Error(
+    "Open Generative workspace not found. Set OPEN_GENERATIVE_ROOT or place it next to open-tessera.",
+  );
+}
+
+await buildOpenGenerativePackages(openGenerativeRoot);
+await ensureOpenGenerativeLinks(openGenerativeRoot);
 
 const processes = [
   Bun.spawn(
@@ -16,7 +30,7 @@ const processes = [
       "--output-logs=new-only",
     ],
     {
-      cwd: workspaceRoot,
+      cwd: openGenerativeRoot,
       stdin: "inherit",
       stdout: "inherit",
       stderr: "inherit",

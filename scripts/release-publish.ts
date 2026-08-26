@@ -115,7 +115,7 @@ function validateInternalDependencies(
     assertObject(dependencies, `${label} ${packageName} ${field}`);
 
     for (const [name, specifier] of Object.entries(dependencies)) {
-      if (!name.startsWith("@open-generative/") && !name.startsWith("@open-tessera/")) continue;
+      if (!name.startsWith("@open-tessera/")) continue;
       if (!graphNames.has(name)) throw new Error(`${label} ${packageName} references unknown internal package ${name}.`);
       if (!expectedDependencies.has(name)) {
         throw new Error(`${label} ${packageName} has undeclared graph dependency ${name}.`);
@@ -277,7 +277,7 @@ async function registryHasVersion(name: string, version: string, attempts = 3): 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
       const response = await fetch(registryVersionUrl(name, version), {
-        headers: { "Cache-Control": "no-cache", "User-Agent": "open-generative-release" },
+        headers: { "Cache-Control": "no-cache", "User-Agent": "open-tessera-release" },
         signal: AbortSignal.timeout(15_000),
       });
       if (response.status === 404) return false;

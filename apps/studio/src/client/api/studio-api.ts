@@ -9,6 +9,7 @@ import type {
   DatabaseMutationResult,
 } from "@open-tessera/database";
 import type { TesseraUIMessage } from "../../protocol";
+import type { OpenGenerativeThemePresetId } from "../../open-generative-theme-preset";
 
 export type StudioThreadSummary = Readonly<{
   id: string;
@@ -66,7 +67,8 @@ export type StudioCatalog = Readonly<{
 
 export type StudioMeta = Readonly<{
   protocolVersion: number;
-  capabilities: Readonly<{ chat: boolean; artifacts: boolean }>;
+  capabilities: Readonly<{ chat: boolean }>;
+  generativeUi: Readonly<{ themePreset: OpenGenerativeThemePresetId }>;
 }>;
 
 export type StudioSettingsStatus = Readonly<{

@@ -74,6 +74,11 @@ describe("Tessera configuration", () => {
       requireAuthentication: false,
       allowedOrigins: [],
       catalogCacheTtlMs: 60_000,
+      continualHarness: {
+        enabled: true,
+        autoReviewInterval: 25,
+        autoReviewCooldownMs: 1_200_000,
+      },
     });
     expect(TESSERA_AGENT_MODEL).toBe(DEFAULT_TESSERA_LLM_MODEL);
     expect(resolveTesseraLlmConfig(config)).toEqual({

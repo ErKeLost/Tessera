@@ -106,13 +106,6 @@ describe("trusted artifact catalog", () => {
       commitPolicy: "atomic",
       eventPorts: { select: z.object({ cell: z.number().int().nonnegative() }).strict() },
       renderer: { bindingId: "acme.react.heatmap", exportName: "HeatmapArtifact" },
-      distribution: {
-        registryName: "acme-heatmap",
-        entryFile: "heatmap.tsx",
-        targetFile: "@components/acme/heatmap.tsx",
-        clientBoundary: true,
-        styleFiles: [],
-      },
     });
     const catalog = defaultArtifactCatalog.extend([custom]);
     expect(catalog.parse({ protocolVersion: "1.0", kind: "acme.heatmap", id: "h", title: "H", cells: [1] }).kind).toBe("acme.heatmap");

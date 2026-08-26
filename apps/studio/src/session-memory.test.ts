@@ -80,7 +80,7 @@ describe("Tessera Studio UI transcript memory", () => {
     expect(tesseraWorkingMemoryOptions).toMatchObject({
       enabled: true,
       scope: "resource",
-      agentManaged: true,
+      agentManaged: false,
       useStateSignals: false,
     });
     expect(tesseraWorkingMemorySchema.safeParse({
@@ -521,6 +521,40 @@ describe("Tessera Studio UI transcript memory", () => {
     }
   });
 
+  test("persists the bounded Open Generative fallback without compiler diagnostics", async () => {
+    const rootDirectory = temporaryRoot();
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+    try {
+      await sessions.createThread({ id: "thread-generative-fallback", resourceId: "resource-generative-fallback" });
+      await sessions.appendUiMessages({
+        id: "thread-generative-fallback",
+        resourceId: "resource-generative-fallback",
+        messages: [{
+          id: "message-generative-fallback",
+          role: "assistant",
+          parts: [{
+            type: "data-openGenerativeFallback",
+            id: "open-generative-fallback:surface-rejected",
+            data: { state: "discarded", reason: "invalid-presentation" },
+          }],
+        }],
+      });
+
+      const messages = await sessions.readMessages({
+        id: "thread-generative-fallback",
+        resourceId: "resource-generative-fallback",
+      });
+      expect(messages?.[0]?.parts).toEqual([{
+        type: "data-openGenerativeFallback",
+        id: "open-generative-fallback:surface-rejected",
+        data: { state: "discarded", reason: "invalid-presentation" },
+      }]);
+      expect(JSON.stringify(messages)).not.toContain("diagnostic");
+    } finally {
+      await sessions.close();
+    }
+  });
+
   test("preserves list_database lookup and availability states without turning them into failures", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-session-list-database-status-"));
     const sessions = createTesseraSessionMemory({ rootDirectory });
@@ -555,6 +589,67 @@ describe("Tessera Studio UI transcript memory", () => {
           reason: "relation_not_found",
         }),
       })]);
+    } finally {
+      await sessions.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("restores prepare_analysis outcomes with their public completed and blocked states", async () => {
+    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-session-analysis-status-"));
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+    try {
+      await sessions.createThread({ id: "thread-analysis-status", resourceId: "resource-analysis-status" });
+      await sessions.appendUiMessages({
+        id: "thread-analysis-status",
+        resourceId: "resource-analysis-status",
+        messages: [{
+          id: "assistant-analysis-status",
+          role: "assistant",
+          parts: [{
+            type: "tool-prepare_analysis",
+            toolCallId: "prepared-analysis",
+            state: "output-available",
+            input: { title: "Private plan input" },
+            output: { status: "prepared", analysisRef: "private-analysis-reference" },
+          }, {
+            type: "tool-prepare_analysis",
+            toolCallId: "rejected-analysis",
+            state: "output-available",
+            input: { title: "Private rejected input" },
+            output: {
+              status: "rejected",
+              reason: "catalog_incomplete",
+              message: "Expand the selected catalog entity before retrying.",
+            },
+          }],
+        }],
+      });
+
+      const messages = await sessions.readMessages({
+        id: "thread-analysis-status",
+        resourceId: "resource-analysis-status",
+      });
+      expect(messages?.[0]?.parts).toEqual([
+        expect.objectContaining({
+          type: "tool-prepare_analysis",
+          state: "output-available",
+          input: { action: "prepare_analysis" },
+          output: { status: "completed" },
+        }),
+        expect.objectContaining({
+          type: "tool-prepare_analysis",
+          state: "output-available",
+          input: { action: "prepare_analysis" },
+          output: {
+            status: "blocked",
+            reason: "catalog_incomplete",
+            message: "Expand the selected catalog entity before retrying.",
+          },
+        }),
+      ]);
+      expect(JSON.stringify(messages)).not.toContain("private-analysis-reference");
+      expect(JSON.stringify(messages)).not.toContain("Private plan input");
     } finally {
       await sessions.close();
       rmSync(rootDirectory, { force: true, recursive: true });

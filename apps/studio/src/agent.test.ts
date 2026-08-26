@@ -29,7 +29,6 @@ import {
   formatDatabaseSchemaContext,
   formatDatabaseSchemaInventory,
   filterTesseraPublicToolParts,
-  inferTesseraTaskType,
   inspectDatabaseSchema,
   executeSqlInputSchema,
   executeSqlOutputSchema,
@@ -40,11 +39,13 @@ import {
   modelAnalysisToolInputSchema,
   normalizeAnalysisToolDraft,
   normalizeTesseraToolInvocationOrder,
+  hasVisibleCopilotOutput,
   hasVisibleCopilotText,
   publicToolOutput,
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
+  tesseraOpenGenerativeStepConfiguration,
   toMastraModelConfig,
 } from "./agent";
 import { RequestContext } from "@mastra/core/request-context";
@@ -79,7 +80,7 @@ function streamOnlyTestModel() {
               });
               controller.enqueue({ type: "reasoning-end", id: "reasoning-1" });
               controller.enqueue({ type: "text-start", id: "text-1" });
-              controller.enqueue({ type: "text-delta", id: "text-1", delta: "A streamed Tessera response." });
+              controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("A streamed Tessera response.")\n' });
               controller.enqueue({ type: "text-end", id: "text-1" });
               controller.enqueue({
                 type: "finish",
@@ -171,6 +172,54 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
+  test("constrains only direct presentation and repair model calls", () => {
+    const llm: TesseraLlmConfig = {
+      model: "openrouter/qwen/qwen3.8-27b",
+      headers: {},
+      reasoningEffort: "low",
+      temperature: 0.4,
+      maxOutputTokens: 12_800,
+      maxSteps: 50,
+      maxRetries: 0,
+    };
+    const context = (phase: "candidate" | "repair", resources: unknown[]) => ({
+      phase,
+      resources,
+    }) as never;
+
+    expect(tesseraOpenGenerativeStepConfiguration(
+      context("candidate", [{}]),
+      llm,
+      true,
+    )).toEqual({
+      activeTools: [],
+      toolChoice: "none",
+      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
+      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
+    });
+    expect(tesseraOpenGenerativeStepConfiguration(
+      context("candidate", []),
+      llm,
+      true,
+    )).toBeUndefined();
+    expect(tesseraOpenGenerativeStepConfiguration(
+      context("candidate", [{}]),
+      llm,
+      false,
+    )).toEqual({
+      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
+      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
+    });
+    expect(tesseraOpenGenerativeStepConfiguration(
+      context("repair", []),
+      llm,
+      false,
+    )).toEqual({
+      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
+      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
+    });
+  });
+
   test("keeps Mastra working-memory tool parts out of the public AI SDK stream", async () => {
     const chunks = await readUiChunks(filterTesseraPublicToolParts(new ReadableStream<TesseraUIMessageChunk>({
       start(controller) {
@@ -433,6 +482,48 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "stop" });
   });
 
+  test("preserves a processor-owned Open Generative fallback as a normal Agent stop", async () => {
+    const fallback = {
+      type: "data-openGenerativeFallback",
+      id: "open-generative-fallback:surface-rejected",
+      data: { state: "discarded", reason: "invalid-presentation" },
+    } as TesseraUIMessageChunk;
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-ui-fallback" });
+        controller.enqueue(fallback);
+        controller.enqueue({ type: "finish", finishReason: "stop" });
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(appendCopilotOutcome(source));
+
+    expect(chunks).toContainEqual(fallback);
+    expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
+    expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "stop" });
+    expect(hasVisibleCopilotOutput({ role: "assistant", parts: [fallback] })).toBeTrue();
+    expect(hasVisibleCopilotOutput({
+      role: "assistant",
+      parts: [{ ...fallback, data: { state: "discarded", reason: "compiler-secret" } }],
+    })).toBeFalse();
+  });
+
+  test("still rejects an ordinary empty Agent stop without an Open Generative fallback", async () => {
+    const source = new ReadableStream<TesseraUIMessageChunk>({
+      start(controller) {
+        controller.enqueue({ type: "start", messageId: "message-empty-stop" });
+        controller.enqueue({ type: "finish", finishReason: "stop" });
+        controller.close();
+      },
+    });
+
+    const chunks = await readUiChunks(appendCopilotOutcome(source));
+
+    expect(chunks.some((chunk) => chunk.type === "error")).toBeTrue();
+    expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "error" });
+  });
+
   test("retains a terminal stream error when the model does not recover", async () => {
     const source = new ReadableStream<TesseraUIMessageChunk>({
       start(controller) {
@@ -563,7 +654,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(JSON.stringify(firstResult?.prompt)).toContain("analytics");
     expect(firstResult?.prompt?.[0]?.role).toBe("assistant");
     expect(firstResult?.prompt?.[1]?.role).toBe("user");
-    expect(secondResult).toBeUndefined();
+    expect(secondResult?.prompt).toEqual(firstResult?.prompt);
 
     const oversizedCatalog = {
       dialect: "postgres",
@@ -612,7 +703,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(calls.inspect).toBe(1);
   });
 
-  test("aggregates request context into one transient message and reuses the catalog", async () => {
+  test("reinjects one transient request-context message per provider step and reuses the catalog", async () => {
     const calls = { inspect: 0 };
     const processor = createRequestContextProcessor({
       dataAgent: {
@@ -677,19 +768,11 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(serialized).toContain("orders");
     expect(serialized).toContain("Use the selected page context.");
     expect(serialized?.match(/Keep the current approval boundary active\./gu)?.length).toBe(1);
-    expect(second).toBeUndefined();
+    expect(second?.prompt).toEqual(first?.prompt);
   });
 
-  test("adds only a bounded advisory task route to request context", async () => {
-    expect(inferTesseraTaskType("Please debug the failed SQL query")).toBe("debugging");
-    expect(inferTesseraTaskType("Write a CREATE TABLE statement")).toBe("sql");
-    expect(inferTesseraTaskType("Check the slow query logs")).toBe("monitoring");
-    expect(inferTesseraTaskType("Deploy an Edge Function")).toBe("edge-function");
-    expect(inferTesseraTaskType("Show the orders table")).toBe("database");
-    expect(inferTesseraTaskType("Hello there")).toBe("conversation");
-
+  test("keeps the presentation task route out of the business request context", async () => {
     const requestContext = new RequestContext();
-    requestContext.set("tessera.task", "sql");
     const processor = createRequestContextProcessor({
       dataAgent: {
         async inspectCatalog() {
@@ -710,12 +793,11 @@ describe("Tessera Agent vNext public boundary", () => {
     });
 
     const serialized = JSON.stringify(result?.prompt);
-    expect(serialized).toContain("<task_context>");
-    expect(serialized).toContain("sql");
-    expect(serialized).toContain("Advisory");
+    expect(serialized).not.toContain("<task_context>");
+    expect(serialized).not.toContain("Advisory task route");
   });
 
-  test("injects request-scoped workspace context once and keeps it out of base instructions", async () => {
+  test("reinjects request-scoped workspace context per provider step and keeps it out of base instructions", async () => {
     const instructions = buildDataCopilotInstructions();
     expect(instructions).not.toContain("<workspace_context>");
     expect(instructions).not.toContain("No browser page context is available");
@@ -752,7 +834,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(serialized).toContain("<workspace_context>");
     expect(serialized).toContain("data definition");
     expect(serialized).toContain("local browser filter exists");
-    expect(secondResult).toBeUndefined();
+    expect(secondResult?.prompt).toEqual(firstResult?.prompt);
   });
 
   test("injects the connected database dialect and expert role as transient context", async () => {
@@ -1380,9 +1462,7 @@ describe("Tessera Agent vNext public boundary", () => {
         "reasoning-start",
         "reasoning-delta",
         "reasoning-end",
-        "text-start",
-        "text-delta",
-        "text-end",
+        "data-openGenerativeSurface",
         "finish",
       ]));
       expect(JSON.stringify(chunks)).toContain("Checked the request against the available context.");
@@ -1393,7 +1473,8 @@ describe("Tessera Agent vNext public boundary", () => {
         resourceId: "local-studio",
       });
       expect(JSON.stringify(memory.messages)).toContain("Remember the stream marker.");
-      expect(JSON.stringify(memory.messages)).toContain("A streamed Tessera response.");
+      expect(JSON.stringify(memory.messages)).toContain("Presented the requested Open Generative UI.");
+      expect(JSON.stringify(memory.messages)).not.toContain("root = Text");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1475,7 +1556,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The orders schema is available." });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("The orders schema is available.")\n' });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1511,13 +1592,13 @@ describe("Tessera Agent vNext public boundary", () => {
         signal: new AbortController().signal,
       });
 
-      expect(run.message).toBe("The orders schema is available.");
+      expect(run.message).toBe("Analysis complete.");
       expect(calls.inspect).toBe(1);
       expect(calls.streams).toBe(2);
       expect(prompts[0]).toContain("<database_schema_inventory>");
       expect(prompts[0]).toContain("orders");
       expect(prompts[1]).toContain("created_at");
-      expect(prompts[1]).not.toContain("<database_schema_inventory>");
+      expect(prompts[1]).toContain("<database_schema_inventory>");
       expect(memoryBeforeFinalStep).toContain("Describe the orders schema.");
       expect(memoryBeforeFinalStep).toContain("list_database");
       expect(memoryBeforeFinalStep).toContain("created_at");
@@ -1603,7 +1684,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The selected data definition is ready." });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("The selected data definition is ready.")\n' });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1648,7 +1729,7 @@ describe("Tessera Agent vNext public boundary", () => {
         },
       });
 
-      expect(run.message).toBe("The selected data definition is ready.");
+      expect(run.message).toBe("Analysis complete.");
       expect(describeCapabilities).toEqual([current.capability.token]);
       expect(modelTurn).toBe(3);
 
@@ -1749,7 +1830,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: "I need one clarification before I can continue." });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("I need one clarification before I can continue.")\n' });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1785,7 +1866,7 @@ describe("Tessera Agent vNext public boundary", () => {
         signal: new AbortController().signal,
       });
 
-      expect(run.message).toBe("I need one clarification before I can continue.");
+      expect(run.message).toBe("Analysis complete.");
       expect(calls.inspect).toBe(1);
       expect(calls.describe).toEqual([initial.capability.token]);
       expect(modelTurn).toBe(3);
@@ -1967,6 +2048,14 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(run.message).toBe("Analysis complete.");
       expect(run.evidence).toHaveLength(1);
       expect(modelTurn).toBe(4);
+      const memory = await session.memory.getContext({
+        threadId: "thread-prepared-analysis",
+        resourceId: "local-studio",
+      });
+      const serializedMemory = JSON.stringify(memory.messages);
+      expect(serializedMemory).toContain("execute_sql");
+      expect(serializedMemory).toContain("Presented the requested Open Generative UI.");
+      expect(serializedMemory).not.toContain("root = Report");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -2073,8 +2162,8 @@ describe("Tessera Agent vNext public boundary", () => {
                   delta: 'root = Report("Database operations", "The read completed and the change is waiting for approval.", content)\n',
                 });
                 controller.enqueue({ type: "text-delta", id: "text-1", delta: 'content = Stack("md", [metric, insight])\n' });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'metric = Metric("Query value", @data1, "value", "number")\n' });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'insight = Insight("Approval", "The database change is waiting for approval.", "warning")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'metric = Metric("Query value", @data1, "value", "first", "number")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'insight = Insight(@data1, "Approval", "The database change is waiting for approval.", "warning")\n' });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -2246,7 +2335,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-resumed" });
-                controller.enqueue({ type: "text-delta", id: "text-resumed", delta: "The order was created after approval." });
+                controller.enqueue({ type: "text-delta", id: "text-resumed", delta: 'root = Text("The order was created after approval.")\n' });
                 controller.enqueue({ type: "text-end", id: "text-resumed" });
                 controller.enqueue({
                   type: "finish",

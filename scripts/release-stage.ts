@@ -133,7 +133,7 @@ function rewriteInternalDependencies(
 
     for (const [name, specifier] of Object.entries(dependencies)) {
       if (typeof specifier !== "string") throw new Error(`${definition.name} ${field}.${name} must be a string.`);
-      if (!name.startsWith("@open-generative/") && !name.startsWith("@open-tessera/")) continue;
+      if (!name.startsWith("@open-tessera/")) continue;
       if (!graphNames.has(name)) throw new Error(`${definition.name} depends on unknown internal package ${name}.`);
       if (!expectedDependencies.has(name)) throw new Error(`${definition.name} has undeclared graph dependency ${name}.`);
       if (specifier !== "workspace:*") {
@@ -158,7 +158,7 @@ function rewriteInternalDependencies(
   if (devDependencies !== undefined) {
     assertObject(devDependencies, `${definition.name} devDependencies`);
     for (const [name, specifier] of Object.entries(devDependencies)) {
-      if (!name.startsWith("@open-generative/") && !name.startsWith("@open-tessera/")) continue;
+      if (!name.startsWith("@open-tessera/")) continue;
       if (!graphNames.has(name)) throw new Error(`${definition.name} depends on unknown internal package ${name}.`);
       if (specifier !== "workspace:*") {
         throw new Error(`${definition.name} devDependencies.${name} must use workspace:* before staging.`);

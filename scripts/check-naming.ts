@@ -16,9 +16,8 @@ await process.exited;
 
 const violations: string[] = [];
 for (const file of files) {
-  // Tessera's compatibility packages intentionally preserve the historical
-  // Artifact API for the database agent and Studio. Generative packages use
-  // the new Open Generative vocabulary and are still checked below.
+  // Tessera's database-agent packages intentionally preserve their Artifact
+  // vocabulary. Open Generative is consumed through an external package boundary.
   if (
     file.startsWith("apps/studio/")
     || file.startsWith("packages/tessera-")
@@ -52,4 +51,4 @@ if (violations.length > 0) {
   throw new Error(["Retired product or API naming remains:", ...violations].join("\n"));
 }
 
-console.log(`Verified ${files.length} repository files use Open Generative naming.`);
+console.log(`Verified ${files.length} repository files use Tessera naming.`);

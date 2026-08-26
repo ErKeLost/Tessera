@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentProps } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { ShimmerLabel } from "@/lib/surfaces";
 import { StudioIcon } from "@/components/studio-icon";
@@ -10,7 +10,7 @@ export interface ErrorStateProps extends Omit<
   "children" | "role"
 > {
   title: string;
-  detail: string;
+  detail: ReactNode;
   retrying: boolean;
   onRetry: () => void;
 }

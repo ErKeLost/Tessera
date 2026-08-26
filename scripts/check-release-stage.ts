@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const rootManifest = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as { version: string };
-const outputDirectory = await mkdtemp(join(tmpdir(), "open-generative-release-check-"));
+const outputDirectory = await mkdtemp(join(tmpdir(), "open-tessera-release-check-"));
 const releaseManifestPath = join(outputDirectory, "release-manifest.json");
 
 type PackedReleaseManifest = Readonly<{

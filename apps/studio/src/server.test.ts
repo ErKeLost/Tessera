@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { APICallError, RetryError } from "ai";
 import {
   finalizeCatalog,
   type ConnectionAssessment,
@@ -19,6 +20,10 @@ import {
   type StudioAgentRunInput,
   type StudioLogEvent,
 } from "./server";
+import {
+  DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
+  TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE,
+} from "./open-generative-theme-preset";
 import { defineTesseraConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
 import { createTesseraSessionMemory } from "./session-memory";
@@ -352,7 +357,18 @@ describe("Tessera Studio Nitro app", () => {
     expect(await response.json()).toEqual({
       protocolVersion: 1,
       capabilities: { chat: false },
+      generativeUi: { themePreset: DEFAULT_OPEN_GENERATIVE_THEME_PRESET },
     });
+  });
+
+  test("rejects an uncompiled presentation preset before serving requests", () => {
+    const suppliedValue = "private-theme-payload";
+    expect(() => createStudioApp({
+      connector: createConnector(),
+      openGenerativeThemePreset: suppliedValue as never,
+    })).toThrow(
+      `${TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE} must contain a supported preset ID.`,
+    );
   });
 
   test("fails closed for a foreign browser origin while allowing an explicit Studio origin", async () => {
@@ -1072,6 +1088,82 @@ describe("Tessera Studio Nitro app", () => {
     expect(body).toContain('"type":"text-end"');
   });
 
+  test("submits only complete visible UI turns to the continual harness", async () => {
+    const observed: unknown[] = [];
+    const continualHarness = {
+      submitCompletedTurn(input: unknown) { observed.push(input); },
+    } as never;
+    const complete = createStudioApp({
+      connector: createConnector(),
+      agent: {
+        continualHarness,
+        async run() { return { status: "completed", message: "Unused fallback." }; },
+        streamUI() {
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "provider-complete" });
+              controller.enqueue({ type: "text-start", id: "provider-text" });
+              controller.enqueue({ type: "text-delta", id: "provider-text", delta: "Completed answer." });
+              controller.enqueue({ type: "text-end", id: "provider-text" });
+              controller.enqueue({ type: "finish", finishReason: "stop" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+    const completedResponse = await complete.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-harness-complete",
+        threadId: "chat-harness-complete",
+        trigger: "submit-message",
+        messages: [{ id: "user-harness", role: "user", parts: [{ type: "text", text: "Remember this correction" }] }],
+      }),
+    }));
+    await completedResponse.text();
+
+    const failed = createStudioApp({
+      connector: createConnector(),
+      agent: {
+        continualHarness,
+        async run() { return { status: "completed", message: "Unused fallback." }; },
+        streamUI() {
+          return new ReadableStream<TesseraUIMessageChunk>({
+            start(controller) {
+              controller.enqueue({ type: "start", messageId: "provider-failed" });
+              controller.enqueue({ type: "text-start", id: "provider-text-failed" });
+              controller.enqueue({ type: "text-delta", id: "provider-text-failed", delta: "Partial answer." });
+              controller.enqueue({ type: "text-end", id: "provider-text-failed" });
+              controller.enqueue({ type: "finish", finishReason: "error" });
+              controller.close();
+            },
+          });
+        },
+      },
+    });
+    const failedResponse = await failed.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-harness-failed",
+        threadId: "chat-harness-failed",
+        trigger: "submit-message",
+        messages: [{ id: "user-harness-failed", role: "user", parts: [{ type: "text", text: "Do not learn this" }] }],
+      }),
+    }));
+    await failedResponse.text();
+
+    expect(observed).toHaveLength(1);
+    expect(observed[0]).toMatchObject({
+      threadId: "chat-harness-complete",
+      resourceId: "local-studio",
+      userText: "Remember this correction",
+    });
+    expect(JSON.stringify(observed[0])).toContain("Completed answer.");
+  });
+
   test("passes split assistant text through without content rewriting", async () => {
     const app = createStudioApp({
       connector: createConnector(),
@@ -1278,14 +1370,24 @@ describe("Tessera Studio Nitro app", () => {
           return { status: "completed", message: "Unused fallback." };
         },
         async stream() {
-          const error = new Error([
-            "OpenRouter returned 429: quota exceeded for this model.",
-            "api_key=sk-or-secret-provider-key-123456789",
-            "sql: SELECT secret_value FROM private.accounts",
-            "response body: {\"raw\":\"provider-payload-do-not-log\"}",
-          ].join(" "));
-          Object.assign(error, { code: "429" });
-          throw error;
+          const apiError = new APICallError({
+            message: "provider-message-secret",
+            url: "https://provider.example/private",
+            requestBodyValues: { prompt: "private-user-prompt" },
+            statusCode: 429,
+            responseHeaders: { authorization: "Bearer secret-provider-token" },
+            responseBody: '{"raw":"private-response-body"}',
+          });
+          throw new RetryError({
+            reason: "maxRetriesExceeded",
+            errors: [apiError],
+            message: [
+              "OpenRouter returned 429: quota exceeded for this model.",
+              "api_key=sk-or-secret-provider-key-123456789",
+              "sql: SELECT secret_value FROM private.accounts",
+              "response body: {\"raw\":\"provider-payload-do-not-log\"}",
+            ].join(" "),
+          });
         },
       },
     });
@@ -1304,7 +1406,12 @@ describe("Tessera Studio Nitro app", () => {
         }],
       }),
     }));
-    await response.text();
+    const body = await response.text();
+
+    expect(body).toContain("Model provider 429: Too Many Requests. The rate or usage limit was reached.");
+    expect(body).not.toContain("sk-or-secret-provider-key-123456789");
+    expect(body).not.toContain("secret_value");
+    expect(body).not.toContain("provider-payload-do-not-log");
 
     expect(info).toEqual(expect.arrayContaining([
       expect.objectContaining({ event: "request", stage: "received", operation: "chat" }),
@@ -1319,9 +1426,8 @@ describe("Tessera Studio Nitro app", () => {
       status: 200,
       outcome: "failed",
       finishReason: "error",
-      diagnosticCode: "429",
       errorPhase: "provider",
-      errorType: "Error",
+      errorType: "AI_RetryError",
       errorMessage: expect.stringContaining("OpenRouter returned 429: quota exceeded for this model."),
     })]);
     const serializedErrors = JSON.stringify(errors);
@@ -1331,6 +1437,41 @@ describe("Tessera Studio Nitro app", () => {
     expect(serializedErrors).not.toContain("sk-or-secret-provider-key-123456789");
     expect(serializedErrors).not.toContain("secret_value");
     expect(serializedErrors).not.toContain("provider-payload-do-not-log");
+  });
+
+  test("keeps internal stream failures generic and out of the provider phase", async () => {
+    const errors: StudioLogEvent[] = [];
+    const app = createStudioApp({
+      connector: createConnector(),
+      logger: { info() {}, error(event) { errors.push(event); } },
+      agent: {
+        async run() { return { status: "completed", message: "Unused fallback." }; },
+        async stream() {
+          throw new Error("private-tool-error-without-http-status");
+        },
+      },
+    });
+
+    const response = await app.fetch(request("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "chat-internal-stream-error",
+        trigger: "submit-message",
+        messages: [{ id: "user-1", role: "user", parts: [{ type: "text", text: "Check orders" }] }],
+      }),
+    }));
+    const body = await response.text();
+
+    expect(body).toContain("The Tessera Agent stream could not be processed.");
+    expect(body).not.toContain("private-tool-error-without-http-status");
+    expect(body).not.toContain("Model provider");
+    expect(errors).toEqual([expect.objectContaining({
+      event: "stream",
+      stage: "failed",
+      errorPhase: "stream",
+      errorMessage: "private-tool-error-without-http-status",
+    })]);
   });
 
   test("logs native tool events with the server-owned run correlation", async () => {

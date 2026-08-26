@@ -331,6 +331,154 @@ export function safeStudioErrorDetails(error: unknown): SafeStudioErrorDetails {
   };
 }
 
+export type PublicStudioStreamError = Readonly<{
+  message: string;
+  phase: Extract<StudioErrorPhase, "provider" | "stream">;
+}>;
+
+const GENERIC_PUBLIC_STREAM_ERROR = "The Tessera Agent stream could not be processed.";
+
+/**
+ * Produces the only error shape allowed to cross the Studio stream boundary.
+ * The error graph is inspected solely for an HTTP status; no error-owned text
+ * or metadata is copied into the browser response.
+ */
+export function publicStudioStreamError(
+  error: unknown,
+  model?: string,
+): PublicStudioStreamError {
+  const status = providerHttpStatus(error);
+  if (status === undefined) {
+    return { message: GENERIC_PUBLIC_STREAM_ERROR, phase: "stream" };
+  }
+  return {
+    message: `${publicProviderName(model)} ${status}: ${publicHttpReason(status)}. ${publicProviderFailureDetail(status)}`,
+    phase: "provider",
+  };
+}
+
+function publicProviderFailureDetail(status: number): string {
+  switch (status) {
+    case 401: return "The configured API credentials were rejected.";
+    case 403: return "This account or model is not authorized for the request.";
+    case 429: return "The rate or usage limit was reached.";
+    default: return status >= 500
+      ? "The provider is temporarily unavailable."
+      : "The provider rejected the model request.";
+  }
+}
+
+const PUBLIC_PROVIDER_NAMES: Readonly<Record<string, string>> = {
+  anthropic: "Anthropic",
+  azure: "Azure OpenAI",
+  google: "Google",
+  groq: "Groq",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  xai: "xAI",
+};
+
+function publicProviderName(model: string | undefined): string {
+  const provider = typeof model === "string"
+    ? model.split("/", 1)[0]?.trim().toLocaleLowerCase("en-US")
+    : undefined;
+  return provider === undefined ? "Model provider" : PUBLIC_PROVIDER_NAMES[provider] ?? "Model provider";
+}
+
+const MAX_PUBLIC_ERROR_NODES = 24;
+const MAX_PUBLIC_RETRY_ERRORS = 8;
+
+function providerHttpStatus(error: unknown): number | undefined {
+  const pending: unknown[] = [error];
+  const visited = new Set<object>();
+
+  for (let inspected = 0; inspected < MAX_PUBLIC_ERROR_NODES && pending.length > 0; inspected += 1) {
+    const current = pending.shift();
+    if (!isObjectLike(current) || visited.has(current)) continue;
+    visited.add(current);
+
+    const response = safeProperty(current, "response");
+    const metadata = safeProperty(current, "$metadata");
+    for (const candidate of [
+      safeProperty(current, "statusCode"),
+      safeProperty(current, "status"),
+      safeProperty(current, "code"),
+      safeProperty(response, "status"),
+      safeProperty(metadata, "httpStatusCode"),
+    ]) {
+      const status = publicHttpStatus(candidate);
+      if (status !== undefined) return status;
+    }
+
+    pending.push(
+      safeProperty(current, "lastError"),
+      safeProperty(current, "cause"),
+      ...safeArrayPrefix(safeProperty(current, "errors"), MAX_PUBLIC_RETRY_ERRORS).reverse(),
+    );
+  }
+  return undefined;
+}
+
+function publicHttpStatus(value: unknown): number | undefined {
+  const status = typeof value === "string" && /^\d{3}$/u.test(value)
+    ? Number(value)
+    : value;
+  return typeof status === "number"
+    && Number.isInteger(status)
+    && status >= 100
+    && status <= 599
+    ? status
+    : undefined;
+}
+
+function safeArrayPrefix(value: unknown, limit: number): unknown[] {
+  try {
+    if (!Array.isArray(value)) return [];
+    const length = Math.min(value.length, limit);
+    const items: unknown[] = [];
+    for (let index = 0; index < length; index += 1) {
+      items.push(safeProperty(value, index));
+    }
+    return items;
+  } catch {
+    return [];
+  }
+}
+
+function safeProperty(value: unknown, key: PropertyKey): unknown {
+  if (!isObjectLike(value)) return undefined;
+  try {
+    return Reflect.get(value, key);
+  } catch {
+    return undefined;
+  }
+}
+
+function isObjectLike(value: unknown): value is object {
+  return (typeof value === "object" && value !== null) || typeof value === "function";
+}
+
+function publicHttpReason(status: number): string {
+  switch (status) {
+    case 400: return "Bad Request";
+    case 401: return "Unauthorized";
+    case 403: return "Forbidden";
+    case 404: return "Not Found";
+    case 408: return "Request Timeout";
+    case 409: return "Conflict";
+    case 413: return "Content Too Large";
+    case 415: return "Unsupported Media Type";
+    case 422: return "Unprocessable Content";
+    case 429: return "Too Many Requests";
+    case 500: return "Internal Server Error";
+    case 501: return "Not Implemented";
+    case 502: return "Bad Gateway";
+    case 503: return "Service Unavailable";
+    case 504: return "Gateway Timeout";
+    default: return status >= 500 ? "Provider Error" : "Request Failed";
+  }
+}
+
 /** Final safety boundary for terminal-facing diagnostic strings. */
 export function sanitizeStudioErrorText(value: string): string | undefined {
   let text = value

@@ -61,3 +61,41 @@ application and Studio runtime as the Nitro deployment.
 
 The package exports the server factory and the `./main` command entry for
 integrations that embed Tessera Studio.
+
+## Continual harness
+
+Studio uses an independent Reviewer/Planner harness to turn evidence-backed
+corrections into thread-local editable domain memory. Automatic review is
+enabled by default after 25 successful turns, with a 20-minute cooldown. It
+cannot edit prompts, tools, database permissions, approval policy, SQL
+boundaries, credentials, or connections.
+
+```ts
+studio: {
+  continualHarness: {
+    enabled: true,
+    autoReviewInterval: 25,
+    autoReviewCooldownMs: 20 * 60_000,
+  },
+}
+```
+
+Automatic changes remain isolated to the current thread. Cross-session memory
+requires an explicit Host promotion through the exported continual-harness API.
+See [the architecture guide](../../docs/architecture/tessera-agent-continual-harness.md)
+for the state machine, validation policy, rollback flow, and Sandbox boundary.
+
+## Open Generative theme
+
+Tessera resolves the generated UI theme on the server and exposes only its
+allowlisted preset ID to the browser. Configure the shadcn Lyra/Taupe preset in
+the project `.env` or deployment environment:
+
+```bash
+TESSERA_OPEN_GENERATIVE_THEME=b7VWPDLHc
+```
+
+Theme configuration affects presentation only. It is not added to Agent
+prompts, request context, conversation memory, or model calls. Arbitrary theme
+JSON and CSS are rejected; each accepted preset must be compiled into Studio's
+local theme registry first.

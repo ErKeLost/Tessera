@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-shimmer";
-@source "../../../../packages/react/src";
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme inline {
@@ -1170,15 +1169,84 @@ body { color: var(--foreground); }
 .tessera-user-message-content { border: 0; border-radius: 14px !important; background: var(--secondary) !important; }
 .tessera-conversation-scroll { bottom: 14px !important; }
 .tessera-generative-surface {
+  width: var(--tessera-generative-surface-width, 70%);
+  max-width: 100%;
+  min-width: 0;
+  margin: 12px 0 2px;
+  font-family: "Inter Variable", Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.tessera-generative-renderer {
   width: 100%;
   min-width: 0;
-  margin: 14px 0 2px;
-  overflow: hidden;
-  border: 1px solid color-mix(in oklab, var(--border) 84%, transparent);
-  border-radius: 8px;
-  background: var(--card);
 }
-.tessera-generative-surface > * { width: 100%; }
+.tessera-generative-surface .og-layout-grid { grid-auto-flow: dense; }
+.tessera-generative-surface .og-chart-surface[class*="og-recipe-"] {
+  display: block;
+  min-height: 0 !important;
+  aspect-ratio: auto !important;
+  padding: var(--og-card-padding);
+}
+.tessera-generative-surface .og-chart-surface[data-og-surface="card"] {
+  border: var(--og-border-width) solid var(--og-border);
+  border-radius: var(--og-radius-card);
+  background: var(--og-card);
+  box-shadow: none;
+}
+.tessera-generative-surface .og-chart-surface[data-og-surface="embedded"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.tessera-generative-surface .og-chart-surface[class*="og-recipe-"] .og-chart {
+  display: block;
+  height: auto;
+  min-height: 0 !important;
+}
+.tessera-generative-surface :is(
+  .og-steps-panel,
+  .og-pipeline-panel,
+  .og-sleep-score-panel,
+  .og-revenue-scatter-panel,
+  .og-tracked-time-panel,
+  .og-visitors-radial-panel,
+  .og-visitors-radar-panel,
+  .og-activity-calendar-panel,
+  .og-selected-activity-panel,
+  .og-revenue-area-panel,
+  .og-active-users-panel,
+  .og-signup-funnel-panel,
+  .og-earned-panel,
+  .og-contributions-panel,
+  .og-combo-panel,
+  .og-devices-panel,
+  .og-stacked-area-panel,
+  .og-activity-rings-panel
+) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.tessera-generative-surface :is(
+  .og-pipeline-summary-card,
+  .og-sleep-score-details,
+  .og-revenue-scatter-summary-card,
+  .og-dashboard-value-card,
+  .og-contribution-highlight
+) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.tessera-generative-surface .og-layout-grid > .og-insight-card {
+  grid-column: 1 / -1;
+}
 .tessera-generative-surface-loading {
   min-height: 320px;
   background: color-mix(in oklab, var(--muted) 32%, transparent);
@@ -1190,7 +1258,7 @@ body { color: var(--foreground); }
   margin: 14px 0 2px;
   padding: 12px 14px;
   border: 1px solid color-mix(in oklab, var(--destructive) 30%, var(--border));
-  border-radius: 8px;
+  border-radius: var(--radius-panel);
   background: color-mix(in oklab, var(--destructive) 6%, var(--card));
   color: var(--foreground);
   font-size: 12px;
@@ -1215,6 +1283,7 @@ body { color: var(--foreground); }
   .tessera-composer-dock { padding-top: 8px; padding-bottom: calc(14px + env(safe-area-inset-bottom)); }
   .tessera-composer-form { width: min(calc(100% - 28px), 680px); }
   .studio-composer { min-height: 94px; border-radius: 18px !important; }
+  .tessera-generative-surface { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

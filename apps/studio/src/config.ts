@@ -21,6 +21,9 @@ const UNCONFIGURED_TESSERA_DATABASE_URL = "postgresql://127.0.0.1:1/tessera";
 // default with Data Agent's cache so an active analysis does not rescan every
 // 15 seconds; callers can still set `catalogCacheTtlMs: 0` when they need it.
 export const DEFAULT_CATALOG_CACHE_TTL_MS = 60_000;
+export const DEFAULT_TESSERA_CONTINUAL_HARNESS_ENABLED = true;
+export const DEFAULT_TESSERA_CONTINUAL_HARNESS_REVIEW_INTERVAL = 25;
+export const DEFAULT_TESSERA_CONTINUAL_HARNESS_COOLDOWN_MS = 20 * 60_000;
 /** The local default keeps existing OpenRouter setups working without a config migration. */
 export const DEFAULT_TESSERA_LLM_MODEL = "openrouter/qwen/qwen3.8-27b";
 export const DEFAULT_TESSERA_LLM_TEMPERATURE = 0.1;
@@ -86,6 +89,11 @@ const studioConfigSchema = z.object({
   requireAuthentication: z.boolean().optional(),
   allowedOrigins: z.array(originSchema).max(50).optional(),
   catalogCacheTtlMs: z.number().int().min(0).max(10 * 60_000).optional(),
+  continualHarness: z.object({
+    enabled: z.boolean().optional(),
+    autoReviewInterval: z.number().int().min(1).max(10_000).optional(),
+    autoReviewCooldownMs: z.number().int().min(0).max(30 * 24 * 60 * 60_000).optional(),
+  }).strict().optional(),
 }).strict();
 
 const databaseConfigSchema = z.object({
@@ -171,6 +179,11 @@ export type TesseraStudioConfig = Readonly<{
   requireAuthentication: boolean;
   allowedOrigins: readonly string[];
   catalogCacheTtlMs: number;
+  continualHarness: Readonly<{
+    enabled: boolean;
+    autoReviewInterval: number;
+    autoReviewCooldownMs: number;
+  }>;
 }>;
 
 export type TesseraLlmConfig = Readonly<{
@@ -279,6 +292,13 @@ export function defineTesseraConfig(input: TesseraConfigInput): TesseraConfig {
       requireAuthentication,
       allowedOrigins,
       catalogCacheTtlMs: configuredStudio.catalogCacheTtlMs ?? DEFAULT_CATALOG_CACHE_TTL_MS,
+      continualHarness: {
+        enabled: configuredStudio.continualHarness?.enabled ?? DEFAULT_TESSERA_CONTINUAL_HARNESS_ENABLED,
+        autoReviewInterval: configuredStudio.continualHarness?.autoReviewInterval
+          ?? DEFAULT_TESSERA_CONTINUAL_HARNESS_REVIEW_INTERVAL,
+        autoReviewCooldownMs: configuredStudio.continualHarness?.autoReviewCooldownMs
+          ?? DEFAULT_TESSERA_CONTINUAL_HARNESS_COOLDOWN_MS,
+      },
     },
   };
   // `defineTesseraConfig()` resolves an omitted dialect for callers, while this

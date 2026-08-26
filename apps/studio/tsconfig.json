@@ -16,15 +16,7 @@
       "@open-tessera/postgres": ["../../packages/postgres/src/index.ts"],
       "@open-tessera/sqlite": ["../../packages/sqlite/src/index.ts"],
       "@open-tessera/turso": ["../../packages/turso/src/index.ts"],
-      "@open-tessera/data-agent": ["../../packages/data-agent/src/index.ts"],
-      "@open-generative/protocol": ["../../packages/protocol/src/index.ts"],
-      "@open-generative/host": ["../../packages/host/src/index.ts"],
-      "@open-generative/client": ["../../packages/client/src/index.ts"],
-      "@open-generative/components": ["../../packages/components/src/index.ts"],
-      "@open-generative/react": ["../../packages/react/src/index.ts"],
-      "@open-generative/ui": ["../../packages/ui/src/index.ts"],
-      "@open-generative/ai-sdk": ["../../packages/ai-sdk/src/index.ts"],
-      "@open-generative/ai-sdk/*": ["../../packages/ai-sdk/src/*.ts"]
+      "@open-tessera/data-agent": ["../../packages/data-agent/src/index.ts"]
     }
   },
   "include": ["src"]

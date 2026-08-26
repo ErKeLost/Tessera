@@ -35,7 +35,7 @@ import { fileURLToPath } from "node:url";
 import { HTTPError } from "h3";
 import { serve, type Server, type ServerRequest } from "srvx";
 import { z } from "zod";
-import { createTesseraStudioAgent } from "./agent";
+import { createTesseraStudioAgent, hasVisibleCopilotOutput, toMastraModelConfig } from "./agent";
 import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
@@ -60,6 +60,7 @@ import {
   tesseraThreadTitleFromMessage,
   type TesseraSessionMemory,
 } from "./session-memory";
+import { createTesseraContinualHarness, type TesseraContinualHarness } from "./continual-harness";
 import {
   createTesseraLocalSettingsStore,
   createTesseraStudioRuntimeManager,
@@ -83,6 +84,7 @@ import {
 } from "./openrouter-model-catalog";
 import {
   createStudioConsoleLogger,
+  publicStudioStreamError,
   safeStudioErrorDetails,
   silentStudioLogger,
   type StudioApiOperation,
@@ -93,6 +95,11 @@ import {
   type StudioStreamOutcome,
 } from "./studio-logger";
 import { StudioHttpApp, type StudioHttpContext } from "./studio-http";
+import {
+  resolveOpenGenerativeThemePreset,
+  resolveOpenGenerativeThemePresetFromEnvironment,
+  type OpenGenerativeThemePresetId,
+} from "./open-generative-theme-preset";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
@@ -356,6 +363,8 @@ export interface StudioAgent {
    * catalog behavior for embedded Studio Agents.
    */
   catalogLoading?: "data-agent";
+  /** Server-only adaptive memory owned by this Agent implementation. */
+  continualHarness?: TesseraContinualHarness;
   run(input: StudioAgentRunInput): Promise<StudioAgentRun>;
   stream?(input: StudioAgentRunInput, emit: (event: StudioAgentEvent) => void | Promise<void>): Promise<StudioAgentRun>;
   streamUI?(input: StudioAgentRunInput): ReadableStream<TesseraUIMessageChunk>;
@@ -392,6 +401,8 @@ export type StudioAppDependencies = Readonly<{
   modelCatalog?: OpenRouterModelCatalogProvider;
   /** Supports dynamic runtimes where an LLM can be configured after startup. */
   agentAvailable?: () => Promise<boolean>;
+  /** Public presentation-only preset. It never enters Agent or memory state. */
+  openGenerativeThemePreset?: OpenGenerativeThemePresetId;
   allowedOrigins?: readonly string[];
   authenticate?: StudioAuthenticator;
   requireAuthentication?: boolean;
@@ -435,6 +446,8 @@ export type CreateTesseraStudioRuntimeOptions = Omit<StudioAppDependencies, "con
   databaseState?: DurableStateStorePort;
   /** Static runtimes expose mutation actions only when the embedding host opts in. */
   accessMode?: TesseraDatabaseAccessMode;
+  /** False disables continual refinement; an instance lets embedded hosts own it. */
+  continualHarness?: TesseraContinualHarness | false;
 }>;
 
 export type TesseraStudioRuntime = Readonly<{
@@ -463,6 +476,9 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   const logger = dependencies.logger ?? silentStudioLogger;
   const chatRetries = createStudioChatRetryRegistry();
   const modelCatalog = dependencies.modelCatalog ?? createOpenRouterModelCatalogProvider();
+  const openGenerativeThemePreset = dependencies.openGenerativeThemePreset === undefined
+    ? resolveOpenGenerativeThemePresetFromEnvironment(process.env)
+    : resolveOpenGenerativeThemePreset(dependencies.openGenerativeThemePreset);
   const dataAgent = dependencies.dataAgent ?? createDataAgent({ connector: dependencies.connector });
   const catalogProvider = dependencies.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const staticRuntime: StudioRouteRuntime = Object.freeze({
@@ -567,6 +583,9 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       protocolVersion: 1,
       capabilities: {
         chat: agentAvailable,
+      },
+      generativeUi: {
+        themePreset: openGenerativeThemePreset,
       },
     });
   }));
@@ -1104,7 +1123,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       }));
     } catch (error) {
-      const diagnostic = safeStreamDiagnostic("provider", error);
+      const diagnostic = safeStreamDiagnostic(publicStudioStreamError(error).phase, error);
       logAgentEvent(logger, "error", context.get("apiRequest"), runId, {
         stage: "run_failed",
         code: "agent_run_failed",
@@ -1221,7 +1240,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           // Mastra owns the durable run snapshot for suspended tools. The UI
           // transcript is only a browser-safe projection of completed steps.
           if (hasSuspendedToolCall(responseMessage)) return;
-          if (isAborted || finishReason !== "stop" || !hasVisibleAssistantText(responseMessage)) {
+          if (isAborted || finishReason !== "stop" || !hasVisibleCopilotOutput(responseMessage)) {
             chatRetries.mark({
               resourceId: sessionResourceId,
               threadId,
@@ -1235,6 +1254,13 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
             resourceId: sessionResourceId,
             checkpointId: runId,
             message: responseMessage,
+          });
+          runtime.agent?.continualHarness?.submitCompletedTurn({
+            runId,
+            resourceId: sessionResourceId,
+            threadId,
+            userText: message,
+            assistantMessage: responseMessage,
           });
         },
       });
@@ -1323,12 +1349,19 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         },
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
           if (hasSuspendedToolCall(responseMessage) || isAborted || finishReason !== "stop"
-            || !hasVisibleAssistantText(responseMessage)) return;
+            || !hasVisibleCopilotOutput(responseMessage)) return;
           await checkpointStudioUiMessage(runtime.sessionMemory, {
             id: parsed.data.threadId,
             resourceId: resourceIdForContext(context),
             checkpointId: parsed.data.runId,
             message: responseMessage,
+          });
+          runtime.agent?.continualHarness?.submitCompletedTurn({
+            runId: parsed.data.runId,
+            resourceId: resourceIdForContext(context),
+            threadId: parsed.data.threadId,
+            userText: message,
+            assistantMessage: responseMessage,
           });
         },
       });
@@ -1627,6 +1660,9 @@ export function createTesseraStudioRuntime(
           : { databaseActions: runtime.databaseActions }),
         settingsRuntime: options.settingsRuntime,
         agentAvailable: options.agentAvailable,
+        ...(options.openGenerativeThemePreset === undefined
+          ? {}
+          : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
         allowedOrigins: config.studio.allowedOrigins,
         authenticate: options.authenticate,
         requireAuthentication: config.studio.requireAuthentication,
@@ -1674,6 +1710,19 @@ export function createTesseraStudioRuntime(
   });
   const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const sessionMemory = createTesseraSessionMemory();
+  const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
+  const continualHarness = options.continualHarness === false
+    ? undefined
+    : options.continualHarness ?? (options.agent !== undefined || llm === undefined || !config.studio.continualHarness.enabled
+      ? undefined
+      : createTesseraContinualHarness({
+        memory: sessionMemory.memory,
+        model: toMastraModelConfig(llm),
+        maxRetries: llm.maxRetries,
+        maxOutputTokens: Math.min(llm.maxOutputTokens, 4_096),
+        autoReviewInterval: config.studio.continualHarness.autoReviewInterval,
+        autoReviewCooldownMs: config.studio.continualHarness.autoReviewCooldownMs,
+      }));
   const accessMode = options.accessMode ?? "read-only";
   const databaseActions = accessMode !== "read-write"
     || config.database.dialect === "mongodb"
@@ -1688,12 +1737,13 @@ export function createTesseraStudioRuntime(
       policy: config.database.permissions,
       getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
     }));
-  const agent = options.agent ?? (isTesseraLlmConfigured(config)
+  const agent = options.agent ?? (llm !== undefined
     ? createTesseraStudioAgent({
       dataAgent,
       databaseDialect: config.database.dialect,
       memory: sessionMemory.memory,
-      llm: resolveTesseraLlmConfig(config),
+      llm,
+      ...(continualHarness === undefined ? {} : { continualHarness }),
       ...(databaseActions === undefined ? {} : { databaseActions }),
       permissionContext: {
         accessMode,
@@ -1709,6 +1759,9 @@ export function createTesseraStudioRuntime(
     agent,
     sessionMemory,
     ...(databaseActions === undefined ? {} : { databaseActions }),
+    ...(options.openGenerativeThemePreset === undefined
+      ? {}
+      : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
     allowedOrigins: config.studio.allowedOrigins,
     authenticate: options.authenticate,
     requireAuthentication: config.studio.requireAuthentication,
@@ -1723,6 +1776,7 @@ export function createTesseraStudioRuntime(
     dataAgent,
     ...(databaseActions === undefined ? {} : { databaseActions }),
     async close() {
+      await agent?.continualHarness?.close();
       await sessionMemory.close();
       if (ownsConnector) await connector.close();
     },
@@ -2115,15 +2169,6 @@ async function checkpointStudioUiMessage(
     // A transcript checkpoint must not interrupt a valid Agent stream.
     // Mastra's private model memory is persisted independently per step.
   }
-}
-
-function hasVisibleAssistantText(value: unknown): boolean {
-  const message = asRecord(value);
-  if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
-  return message.parts.some((part) => {
-    const record = asRecord(part);
-    return record?.type === "text" && typeof record.text === "string" && record.text.trim().length > 0;
-  });
 }
 
 function hasSuspendedToolCall(message: TesseraUIMessage): boolean {
@@ -3385,8 +3430,9 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
   const activeToolIds = new Map<string, string>();
   const stream = createUIMessageStream<TesseraUIMessage>({
     onError: (error) => {
-      input.reportDiagnostic?.({ phase: "stream", error });
-      return safeStudioErrorDetails(error).errorMessage;
+      const publicError = publicStudioStreamError(error);
+      input.reportDiagnostic?.({ phase: publicError.phase, error });
+      return publicError.message;
     },
     execute: async ({ writer }) => {
       const startText = () => {
@@ -3458,9 +3504,10 @@ function streamLegacyAgentToUI(agent: StudioAgent, input: StudioAgentRunInput): 
 
         writer.write({ type: "finish", finishReason: "stop" });
       } catch (error) {
-        input.reportDiagnostic?.({ phase: "provider", error });
+        const publicError = publicStudioStreamError(error);
+        input.reportDiagnostic?.({ phase: publicError.phase, error });
         finishText();
-        writer.write({ type: "error", errorText: safeStudioErrorDetails(error).errorMessage });
+        writer.write({ type: "error", errorText: publicError.message });
         writer.write({ type: "finish", finishReason: "error" });
       }
     },

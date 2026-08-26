@@ -4,6 +4,7 @@ import {
   AuiConfig,
   AssistantRuntimeProvider,
   ComposerPrimitive,
+  ErrorPrimitive,
   groupPartByType,
   MessagePrimitive,
   ThreadPrimitive,
@@ -68,7 +69,10 @@ import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
 import { useStudioSettingsQuery } from "./queries/studio-queries";
 import { TesseraToolFallback, tesseraStudioToolkit } from "./tessera-toolkit";
-import { OpenGenerativeSurfaceDataRenderer } from "./open-generative-surface";
+import {
+  OpenGenerativeFallbackDataRenderer,
+  OpenGenerativeSurfaceDataRenderer,
+} from "./open-generative-surface";
 
 const tesseraStudioAssistantConfig = AuiConfig({
   tools: Tools({ toolkit: tesseraStudioToolkit }),
@@ -398,6 +402,9 @@ function StudioAssistantMessage() {
                 case "tool-call":
                   return part.toolUI ?? <TesseraToolFallback {...part} />;
                 case "data":
+                  if (part.name === "openGenerativeFallback") {
+                    return <OpenGenerativeFallbackDataRenderer data={part.data} />;
+                  }
                   if (part.name === "openGenerativeSurface") {
                     return <OpenGenerativeSurfaceDataRenderer data={part.data} />;
                   }
@@ -519,7 +526,7 @@ function MessageError() {
   return (
     <MessagePrimitive.Error>
       <ErrorState
-        detail="The model request did not complete. Verify the OpenRouter API key and its available usage limit in Settings, then retry."
+        detail={<ErrorPrimitive.Message />}
         onRetry={() => {
           if (retryRef.current?.disabled) return;
           setRetryRequested(true);

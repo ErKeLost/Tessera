@@ -12,7 +12,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { openGenerativeSurfaceStreamSchema } from "@open-generative/protocol";
+import {
+  openGenerativeFallbackSchema,
+  openGenerativeSurfaceStreamSchema,
+} from "@open-generative/protocol";
 import { z } from "zod";
 import type { TesseraUIMessage } from "./protocol";
 import { sanitizeStudioErrorText } from "./studio-logger";
@@ -86,11 +89,14 @@ export const tesseraWorkingMemorySchema = z.object({
   ).optional(),
 }).strict();
 
+export type TesseraWorkingMemory = z.infer<typeof tesseraWorkingMemorySchema>;
+
 export const tesseraWorkingMemoryOptions = Object.freeze({
   enabled: true,
   scope: "resource" as const,
   schema: tesseraWorkingMemorySchema,
-  agentManaged: true,
+  // The independent continual harness owns writes after review and host validation.
+  agentManaged: false,
   useStateSignals: false,
 });
 
@@ -394,6 +400,17 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
       continue;
     }
 
+    if (source.role === "assistant" && part.type === "data-openGenerativeFallback") {
+      const fallback = openGenerativeFallbackSchema.safeParse(part.data);
+      if (!fallback.success || parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
+      parts.push({
+        type: "data-openGenerativeFallback" as const,
+        id: typeof part.id === "string" ? part.id : `open-generative-fallback:${messageId}`,
+        data: fallback.data,
+      });
+      continue;
+    }
+
     if (parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
 
     if (part.type === "text" && typeof part.text === "string" && remainingText > 0) {
@@ -629,9 +646,7 @@ function sanitizeAnalysisToolPart(
 ): TesseraUIMessage["parts"][number] {
   const input = { action: "prepare_analysis" as const };
   const output = asRecord(part.output);
-  const status = output?.status === "completed" || output?.status === "blocked" || output?.status === "failed"
-    ? output.status
-    : "failed";
+  const status = sanitizedToolStatus(output?.status);
   if (part.state !== "output-available") {
     return {
       type: "tool-prepare_analysis",

@@ -38,13 +38,6 @@ export type ArtifactContract<TArtifact extends ArtifactLike = ArtifactLike> = {
     bindingId: string;
     exportName: string;
   };
-  distribution: {
-    registryName: string;
-    entryFile: string;
-    targetFile: string;
-    clientBoundary: boolean;
-    styleFiles: readonly string[];
-  };
 };
 
 export function defineArtifactContract<TArtifact extends ArtifactLike>(
@@ -62,7 +55,6 @@ export function defineArtifactContract<TArtifact extends ArtifactLike>(
     prompt: Object.freeze({ ...contract.prompt }),
     eventPorts: Object.freeze({ ...contract.eventPorts }),
     renderer: Object.freeze({ ...contract.renderer }),
-    distribution: Object.freeze({ ...contract.distribution }),
   });
 }
 
@@ -107,13 +99,6 @@ function defineBuiltInArtifactContract<TKind extends ArtifactKind>(
     renderer: {
       bindingId: `data-elements.react.${definition.kind}`,
       exportName: `${toPascalCase(definition.kind)}Artifact`,
-    },
-    distribution: {
-      registryName: `${definition.kind}-artifact`,
-      entryFile: `packages/react/src/${definition.kind}-artifact.tsx`,
-      targetFile: `@components/data-elements/${definition.kind}-artifact.tsx`,
-      clientBoundary: true,
-      styleFiles: ["packages/react/src/styles.css"],
     },
   });
 }
@@ -466,13 +451,6 @@ function normalizeCatalogEntry<TArtifact extends ArtifactLike>(
       bindingId: `custom.${entry.kind}`,
       exportName: `${toPascalCase(entry.kind)}Artifact`,
     },
-    distribution: {
-      registryName: `${entry.kind.replaceAll(".", "-")}-artifact`,
-      entryFile: "",
-      targetFile: "",
-      clientBoundary: true,
-      styleFiles: [],
-    },
   });
 }
 
@@ -668,7 +646,6 @@ export class ArtifactCatalog<TArtifact extends ArtifactLike = never> {
       commitPolicy: contract.commitPolicy,
       eventPorts: Object.fromEntries(Object.entries(contract.eventPorts).sort(([left], [right]) => left.localeCompare(right)).map(([name, schema]) => [name, z.toJSONSchema(schema, { target: "draft-2020-12", io: "input" })])),
       renderer: contract.renderer,
-      distribution: contract.distribution,
     })).sort((left, right) => left.kind.localeCompare(right.kind));
     return `sha256:${sha256(canonicalJson(contracts))}`;
   }
