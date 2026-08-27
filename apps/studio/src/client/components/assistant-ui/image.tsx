@@ -292,7 +292,7 @@ function ImageZoom({ src, alt = "Image preview", children }: ImageZoomProps) {
             data-slot="image-zoom-overlay"
             role="button"
             tabIndex={0}
-            className="aui-image-zoom-overlay fade-in animate-in fixed inset-0 z-50 flex items-center justify-center bg-black/80 duration-200"
+            className="aui-image-zoom-overlay fade-in animate-in fixed inset-0 z-(--z-dialog) flex items-center justify-center bg-(--media-scrim) duration-(--motion-base)"
             onClick={handleClose}
             onKeyDown={(e) => e.key === "Enter" && handleClose()}
             aria-label="Close zoomed image"

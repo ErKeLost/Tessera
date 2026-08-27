@@ -188,7 +188,7 @@ const AttachmentUI: FC = () => {
             <TooltipTrigger asChild>
               <div
                 className={cn(
-                  "aui-attachment-tile bg-muted hover:after:bg-foreground/10 focus-visible:ring-ring/50 relative size-14 cursor-pointer overflow-hidden rounded-[calc(var(--composer-radius,1.5rem)-var(--composer-padding,8px))] transition-colors outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-black/10 after:transition-colors after:ring-inset focus-visible:ring-3 motion-reduce:transition-none dark:after:ring-white/10",
+                  "aui-attachment-tile bg-muted hover:after:bg-foreground/10 focus-visible:ring-ring/50 relative size-14 cursor-pointer overflow-hidden rounded-[calc(var(--composer-radius,1.5rem)-var(--composer-padding,8px))] transition-colors outline-none after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:ring-1 after:ring-(--media-border) after:transition-colors after:ring-inset focus-visible:ring-3 motion-reduce:transition-none",
                   isError &&
                     "after:ring-destructive/60 dark:after:ring-destructive/60",
                 )}
@@ -247,7 +247,7 @@ const AttachmentRemove: FC = () => {
     <AttachmentPrimitive.Remove asChild>
       <TooltipIconButton
         tooltip="Remove file"
-        className="aui-attachment-tile-remove absolute end-1 top-1 size-5 rounded-full bg-black/50! text-white backdrop-blur-sm after:absolute after:-inset-1.5 transition-colors hover:bg-black/70! hover:text-white! motion-reduce:transition-none"
+        className="aui-attachment-tile-remove absolute end-1 top-1 size-5 rounded-full bg-(--media-control)! text-(--media-foreground) backdrop-blur-sm after:absolute after:-inset-1.5 transition-colors hover:bg-(--media-control-hover)! hover:text-(--media-foreground)! motion-reduce:transition-none"
         side="top"
       >
         <XIcon className="aui-attachment-remove-icon size-3 stroke-[2.5]" />

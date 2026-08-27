@@ -357,11 +357,6 @@ html > body[data-scroll-locked] { margin-right: 0 !important; --removed-body-scr
 }
 
 .tessera-brand-lockup {
-  --tessera-logo-surface: #1f2123;
-  --tessera-logo-glyph: #fff;
-  --tessera-logo-border-start: #2e3032;
-  --tessera-logo-border-end: #101214;
-  --tessera-logo-outline: rgb(0 0 0 / 0.6);
   display: inline-flex;
   align-items: center;
   gap: .7rem;
@@ -372,19 +367,10 @@ html > body[data-scroll-locked] { margin-right: 0 !important; --removed-body-scr
   white-space: nowrap;
 }
 
-.dark .tessera-brand-lockup {
-  --tessera-logo-surface: #f4f4f5;
-  --tessera-logo-glyph: #18181b;
-  --tessera-logo-border-start: #fff;
-  --tessera-logo-border-end: #d4d4d8;
-  --tessera-logo-outline: rgb(255 255 255 / 0.18);
-}
-
 .tessera-brand-logo {
   width: 1.95rem;
   height: auto;
   flex: none;
-  box-shadow: 0 1px 2px color-mix(in oklab, var(--foreground), transparent 88%);
 }
 
 .de-source-code pre { margin: 0; border: 0; border-radius: 0; box-shadow: none; }

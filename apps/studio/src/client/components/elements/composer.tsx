@@ -35,7 +35,7 @@ export function ComposerBar({
       data-drag-active={dragActive || undefined}
       className={cn(
         paper,
-        "flex w-full flex-col gap-2 rounded-[24px] p-2.5 transition-colors focus-within:ring-2 focus-within:ring-ring/50",
+        "flex w-full flex-col gap-2 rounded-(--radius-card) p-2.5 transition-colors focus-within:ring-2 focus-within:ring-ring/20",
         dragActive && "bg-accent",
         className,
       )}
@@ -110,7 +110,7 @@ export function ComposerModelTrigger({
       aria-haspopup="dialog"
       data-slot="composer-model-trigger"
       className={cn(
-        "text-muted-foreground hover:bg-accent hover:text-accent-foreground flex h-8 max-w-56 items-center gap-1.5 rounded-full px-3 text-[12.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "text-muted-foreground hover:bg-accent hover:text-accent-foreground flex h-8 max-w-56 items-center gap-1.5 rounded-md px-3 text-[12.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/25",
         className,
       )}
       {...props}
@@ -175,7 +175,7 @@ export function ComposerVoiceButton({
       data-slot="composer-voice-button"
       className={cn(
         active
-          ? cn(inkButton, "flex size-8 items-center justify-center rounded-full")
+          ? cn(inkButton, "flex size-8 items-center justify-center rounded-md")
           : cn(ghostButton, "size-8"),
         className,
       )}
@@ -198,7 +198,7 @@ export function ComposerSend({
       aria-label={streaming ? "Stop generating" : "Send message"}
       data-slot="composer-send"
       className={cn(
-        "grid size-8 place-items-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        "grid size-8 place-items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/25",
         streaming || !idle
           ? inkButton
           : "bg-muted text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground",

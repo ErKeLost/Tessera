@@ -484,7 +484,7 @@ const AssistantActionBar: FC = () => {
           side="bottom"
           align="start"
           sideOffset={6}
-          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out z-50 overflow-hidden rounded-md border-0 p-1 shadow-sm outline-none"
+          className="aui-action-bar-more-content bg-popover text-popover-foreground data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=open]:animate-in data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:animate-out z-(--z-popover) overflow-hidden rounded-(--radius-overlay) border-0 p-1 shadow-(--shadow-float) outline-none"
         >
           <ActionBarPrimitive.ExportMarkdown asChild>
             <ActionBarMorePrimitive.Item aria-label="Export as Markdown" className="aui-action-bar-more-item hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground flex size-7 cursor-pointer items-center justify-center rounded-sm outline-none select-none">

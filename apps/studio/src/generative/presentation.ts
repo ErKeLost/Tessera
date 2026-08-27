@@ -4,6 +4,7 @@ import type { DatabaseQueryResult } from "@open-tessera/database";
 import type {
   OpenGenerativeAuthority,
   OpenGenerativeDatasetResource,
+  OpenGenerativeIntentRequest,
 } from "@open-generative/mastra";
 import {
   actorAuditRefSchema,
@@ -33,6 +34,18 @@ export type TesseraPresentationIdentity = Readonly<{
   subject: string;
   tenantId: string;
 }>;
+
+/**
+ * Tessera supplies only product-level intent. Open Generative owns component
+ * and chart recipe selection from the bounded resource shapes.
+ */
+export function createTesseraPresentationIntent(
+  resources: readonly OpenGenerativeDatasetResource[],
+): OpenGenerativeIntentRequest | undefined {
+  return resources.length > 1
+    ? Object.freeze({ kind: "auto", interactions: Object.freeze(["tabs"] as const) })
+    : undefined;
+}
 
 /**
  * Projects verified analyses into the only contract Studio needs to provide:

@@ -16,9 +16,20 @@ import {
   openGenerativeFallbackSchema,
   openGenerativeSurfaceStreamSchema,
 } from "@open-generative/protocol";
+import {
+  tesseraWorkingMemoryOptions,
+  tesseraWorkingMemorySchema,
+  type TesseraWorkingMemory,
+} from "@open-tessera/agent";
 import { z } from "zod";
 import type { TesseraUIMessage } from "./protocol";
 import { sanitizeStudioErrorText } from "./studio-logger";
+
+export {
+  tesseraWorkingMemoryOptions,
+  tesseraWorkingMemorySchema,
+  type TesseraWorkingMemory,
+} from "@open-tessera/agent";
 
 const SESSION_DIRECTORY = ".tessera";
 const SESSION_DATABASE_FILE = "memory.db";
@@ -33,72 +44,6 @@ const MAX_USER_TEXT_LENGTH = 12_000;
 const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
 const MAX_REASONING_TEXT_LENGTH = 30_000;
 const HISTORY_TOOL_FAILURE = "This governed tool call did not complete.";
-
-const workingMemoryProvenanceSchema = z.enum([
-  "user-correction",
-  "verified-query",
-  "schema",
-  "code",
-  "curated",
-]);
-
-/**
- * Cross-session domain learning for one project principal. Keyed object maps
- * preserve Mastra's schema deep-merge semantics; unbounded arrays would be
- * replaced wholesale on every incremental update.
- */
-export const tesseraWorkingMemorySchema = z.object({
-  preferences: z.object({
-    timezone: z.string().min(1).max(128).optional(),
-    locale: z.string().min(1).max(64).optional(),
-    currency: z.string().min(1).max(32).optional(),
-    defaultDateRange: z.string().min(1).max(256).optional(),
-    weekStartsOn: z.enum(["monday", "saturday", "sunday"]).optional(),
-  }).strict().optional(),
-  terminologyById: z.record(
-    z.string().min(1).max(128),
-    z.object({
-      term: z.string().min(1).max(256),
-      definition: z.string().min(1).max(2_000),
-      scopeRef: z.string().min(1).max(512),
-      provenance: workingMemoryProvenanceSchema,
-      lastVerifiedAt: z.string().datetime().optional(),
-    }).strict(),
-  ).optional(),
-  analysisRulesById: z.record(
-    z.string().min(1).max(128),
-    z.object({
-      kind: z.enum(["filter", "join", "metric", "source", "freshness", "null", "dedupe"]),
-      rule: z.string().min(1).max(2_000),
-      scopeRef: z.string().min(1).max(512),
-      provenance: workingMemoryProvenanceSchema,
-      lastVerifiedAt: z.string().datetime().optional(),
-      expiresAt: z.string().datetime().optional(),
-    }).strict(),
-  ).optional(),
-  sourcePreferencesById: z.record(
-    z.string().min(1).max(128),
-    z.object({
-      intent: z.string().min(1).max(512),
-      preferredRef: z.string().min(1).max(512),
-      reason: z.string().min(1).max(1_000),
-      scopeRef: z.string().min(1).max(512),
-      provenance: workingMemoryProvenanceSchema,
-      lastVerifiedAt: z.string().datetime().optional(),
-    }).strict(),
-  ).optional(),
-}).strict();
-
-export type TesseraWorkingMemory = z.infer<typeof tesseraWorkingMemorySchema>;
-
-export const tesseraWorkingMemoryOptions = Object.freeze({
-  enabled: true,
-  scope: "resource" as const,
-  schema: tesseraWorkingMemorySchema,
-  // The independent continual harness owns writes after review and host validation.
-  agentManaged: false,
-  useStateSignals: false,
-});
 
 /** Stable principal for a loopback Studio without a host identity provider. */
 export const LOCAL_STUDIO_IDENTITY = Object.freeze({

@@ -7,26 +7,13 @@ import {
   analysisToolRejection,
   appendCopilotOutcome,
   buildDatabaseSchemaInventory,
-  buildDatabaseSchemaContext,
   buildDataCopilotInstructions,
   compactDescribeDataForModel,
   compactInspectCurrentContextForModel,
-  createDatabaseConnectionContextProcessor,
-  createDatabasePermissionContextProcessor,
   createRequestContextProcessor,
-  createRuntimeSignalContextProcessor,
-  createCatalogPromptState,
-  createSchemaContextProcessor,
-  createWorkspaceContextProcessor,
-  createTesseraStudioAgent,
-  DATABASE_SCHEMA_CONTEXT_LIMITS,
+  createTesseraOpenGenerativeTerminalStep,
   DATABASE_SCHEMA_INSPECTION_LIMITS,
   DATABASE_SCHEMA_INVENTORY_LIMITS,
-  formatDatabaseConnectionContext,
-  formatDatabasePermissionContext,
-  formatRuntimeSignalContext,
-  formatRequestContext,
-  formatDatabaseSchemaContext,
   formatDatabaseSchemaInventory,
   filterTesseraPublicToolParts,
   inspectDatabaseSchema,
@@ -45,7 +32,9 @@ import {
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
-  tesseraOpenGenerativeStepConfiguration,
+} from "@open-tessera/agent";
+import {
+  createTesseraStudioAgent,
   toMastraModelConfig,
 } from "./agent";
 import { RequestContext } from "@mastra/core/request-context";
@@ -80,7 +69,16 @@ function streamOnlyTestModel() {
               });
               controller.enqueue({ type: "reasoning-end", id: "reasoning-1" });
               controller.enqueue({ type: "text-start", id: "text-1" });
-              controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("A streamed Tessera response.")\n' });
+              controller.enqueue({
+                type: "text-delta",
+                id: "text-1",
+                delta: "## Tessera\n\n- A **stream",
+              });
+              controller.enqueue({
+                type: "text-delta",
+                id: "text-1",
+                delta: "ed** Markdown response with `inline code`.\n",
+              });
               controller.enqueue({ type: "text-end", id: "text-1" });
               controller.enqueue({
                 type: "finish",
@@ -172,7 +170,7 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
-  test("constrains only direct presentation and repair model calls", () => {
+  test("constrains the tool-free OGL terminal model call", () => {
     const llm: TesseraLlmConfig = {
       model: "openrouter/qwen/qwen3.8-27b",
       headers: {},
@@ -182,41 +180,9 @@ describe("Tessera Agent vNext public boundary", () => {
       maxSteps: 50,
       maxRetries: 0,
     };
-    const context = (phase: "candidate" | "repair", resources: unknown[]) => ({
-      phase,
-      resources,
-    }) as never;
-
-    expect(tesseraOpenGenerativeStepConfiguration(
-      context("candidate", [{}]),
-      llm,
-      true,
-    )).toEqual({
-      activeTools: [],
-      toolChoice: "none",
+    expect(createTesseraOpenGenerativeTerminalStep(llm)).toEqual({
       modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
-      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
-    });
-    expect(tesseraOpenGenerativeStepConfiguration(
-      context("candidate", []),
-      llm,
-      true,
-    )).toBeUndefined();
-    expect(tesseraOpenGenerativeStepConfiguration(
-      context("candidate", [{}]),
-      llm,
-      false,
-    )).toEqual({
-      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
-      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
-    });
-    expect(tesseraOpenGenerativeStepConfiguration(
-      context("repair", []),
-      llm,
-      false,
-    )).toEqual({
-      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
-      providerOptions: { openrouter: { reasoning: { effort: "none" } } },
+      providerOptions: { openrouter: { reasoning: { effort: "low" } } },
     });
   });
 
@@ -253,14 +219,6 @@ describe("Tessera Agent vNext public boundary", () => {
   });
 
   test("uses the expanded schema discovery budgets", () => {
-    expect(DATABASE_SCHEMA_CONTEXT_LIMITS).toEqual({
-      maxSchemas: 64,
-      maxTables: 240,
-      maxColumnsPerTable: 96,
-      maxForeignKeysPerTable: 32,
-      maxIndexesPerTable: 64,
-      maxCharacters: 96_000,
-    });
     expect(DATABASE_SCHEMA_INVENTORY_LIMITS).toEqual({
       maxSchemas: 128,
       maxTables: 512,
@@ -565,144 +523,6 @@ describe("Tessera Agent vNext public boundary", () => {
     }
   });
 
-  test("loads a bounded physical schema context without exposing connection metadata", async () => {
-    const catalog = {
-      connectorId: "secret-connector",
-      dialect: "postgres",
-      databaseName: "secret-database",
-      scannedAt: "2026-08-20T00:00:00.000Z",
-      fingerprint: semanticFingerprint,
-      schemas: [{
-        name: "analytics",
-        tables: [{
-          schema: "analytics",
-          name: "orders",
-          kind: "table",
-          comment: "Do not send comments to the model.",
-          estimatedRows: 42,
-          columns: [
-            { name: "id", dataType: "uuid", nullable: false, ordinal: 1, defaultValue: "gen_random_uuid()" },
-            { name: "created_at", dataType: "timestamp with time zone", nullable: false, ordinal: 2 },
-          ],
-          primaryKey: ["id"],
-          foreignKeys: [{
-            name: "orders_customer_id_fkey",
-            columns: ["customer_id"],
-            referencedSchema: "analytics",
-            referencedTable: "customers",
-            referencedColumns: ["id"],
-          }],
-          indexes: [{
-            name: "orders_customer_id_idx",
-            columns: ["customer_id"],
-            unique: false,
-            method: "btree",
-            isConstraint: false,
-          }],
-        }],
-      }],
-    } as DatabaseCatalog;
-    const summary = buildDatabaseSchemaContext(catalog);
-    const serialized = JSON.stringify(summary);
-
-    expect(summary.schemas[0]?.name).toBe("analytics");
-    expect(summary.schemas[0]?.tables[0]?.name).toBe("orders");
-    expect(summary.schemas[0]?.tables[0]?.columns.map((column) => column.name)).toEqual(["id", "created_at"]);
-    expect(summary.schemas[0]?.tables[0]?.indexes).toEqual([{
-      name: "orders_customer_id_idx",
-      columns: ["customer_id"],
-      unique: false,
-      method: "btree",
-      isConstraint: false,
-    }]);
-    expect(summary.schemas[0]?.tables[0]?.indexMetadata).toBe("complete");
-    expect(serialized).not.toContain("orders_customer_id_fkey");
-    expect(serialized).not.toContain("secret-connector");
-    expect(serialized).not.toContain("secret-database");
-    expect(serialized).not.toContain("Do not send comments");
-    expect(serialized).not.toContain("gen_random_uuid");
-    expect(serialized).not.toContain("estimatedRows");
-    expect(formatDatabaseSchemaContext(summary)).toContain("<database_schema>");
-
-    const calls = { inspect: 0 };
-    const processor = createSchemaContextProcessor({
-      async inspectCatalog() {
-        calls.inspect += 1;
-        return { catalog };
-      },
-    });
-    const state: Record<string, unknown> = {};
-    const processLLMRequest = processor.processLLMRequest!;
-    const prompt = [{
-      role: "user" as const,
-      content: [{ type: "text" as const, text: "Show order counts." }],
-    }];
-    const processArgs = {
-      prompt,
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state,
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    };
-    const firstResult = await processLLMRequest(processArgs);
-    const secondResult = await processLLMRequest(processArgs);
-
-    expect(calls.inspect).toBe(1);
-    expect(firstResult?.prompt).toHaveLength(2);
-    expect(JSON.stringify(firstResult?.prompt)).toContain("analytics");
-    expect(firstResult?.prompt?.[0]?.role).toBe("assistant");
-    expect(firstResult?.prompt?.[1]?.role).toBe("user");
-    expect(secondResult?.prompt).toEqual(firstResult?.prompt);
-
-    const oversizedCatalog = {
-      dialect: "postgres",
-      schemas: [{
-        name: "public",
-        tables: Array.from({ length: DATABASE_SCHEMA_CONTEXT_LIMITS.maxTables + 1 }, (_, index) => ({
-          schema: "public",
-          name: `table_${index}`,
-          kind: "table" as const,
-          columns: [{ name: "id", dataType: "integer", nullable: false, ordinal: 1 }],
-          primaryKey: ["id"],
-          foreignKeys: [],
-        })),
-      }],
-    } as Pick<DatabaseCatalog, "dialect" | "schemas">;
-    const oversized = buildDatabaseSchemaContext(oversizedCatalog);
-    expect(oversized.truncated).toBeTrue();
-    expect(oversized.omitted.tables).toBe(1);
-    expect(JSON.stringify(oversized).length).toBeLessThanOrEqual(DATABASE_SCHEMA_CONTEXT_LIMITS.maxCharacters);
-  });
-
-  test("attempts schema inventory only once when the connector is unavailable", async () => {
-    const calls = { inspect: 0 };
-    const processor = createSchemaContextProcessor({
-      async inspectCatalog() {
-        calls.inspect += 1;
-        throw new Error("catalog unavailable");
-      },
-    });
-    const processLLMRequest = processor.processLLMRequest!;
-    const processArgs = {
-      prompt: [{
-        role: "user" as const,
-        content: [{ type: "text" as const, text: "Show order counts." }],
-      }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state: {} as Record<string, unknown>,
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    };
-
-    await expect(processLLMRequest(processArgs)).resolves.toBeUndefined();
-    await expect(processLLMRequest(processArgs)).resolves.toBeUndefined();
-    expect(calls.inspect).toBe(1);
-  });
-
   test("reinjects one transient request-context message per provider step and reuses the catalog", async () => {
     const calls = { inspect: 0 };
     const processor = createRequestContextProcessor({
@@ -795,111 +615,6 @@ describe("Tessera Agent vNext public boundary", () => {
     const serialized = JSON.stringify(result?.prompt);
     expect(serialized).not.toContain("<task_context>");
     expect(serialized).not.toContain("Advisory task route");
-  });
-
-  test("reinjects request-scoped workspace context per provider step and keeps it out of base instructions", async () => {
-    const instructions = buildDataCopilotInstructions();
-    expect(instructions).not.toContain("<workspace_context>");
-    expect(instructions).not.toContain("No browser page context is available");
-
-    const processor = createWorkspaceContextProcessor();
-    const requestContext = new RequestContext();
-    requestContext.set("tessera.workspace", {
-      hasCurrentRelation: true,
-      hasLocalFilter: true,
-      view: "definition",
-    });
-    const state: Record<string, unknown> = {};
-    const processLLMRequest = processor.processLLMRequest!;
-    const processArgs = {
-      prompt: [{
-        role: "user" as const,
-        content: [{ type: "text" as const, text: "Describe this table." }],
-      }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state,
-      requestContext,
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    };
-
-    const firstResult = await processLLMRequest(processArgs);
-    const secondResult = await processLLMRequest(processArgs);
-    const serialized = JSON.stringify(firstResult?.prompt);
-
-    expect(firstResult?.prompt).toHaveLength(2);
-    expect(firstResult?.prompt?.[0]?.role).toBe("assistant");
-    expect(serialized).toContain("<workspace_context>");
-    expect(serialized).toContain("data definition");
-    expect(serialized).toContain("local browser filter exists");
-    expect(secondResult?.prompt).toEqual(firstResult?.prompt);
-  });
-
-  test("injects the connected database dialect and expert role as transient context", async () => {
-    const catalog = {
-      dialect: "mysql",
-      schemas: [],
-    } as unknown as DatabaseCatalog;
-    const calls = { inspect: 0 };
-    const dataAgent = {
-      async inspectCatalog() {
-        calls.inspect += 1;
-        return { catalog };
-      },
-    };
-    const catalogState = createCatalogPromptState();
-    const connectionProcessor = createDatabaseConnectionContextProcessor(dataAgent, catalogState);
-    const schemaProcessor = createSchemaContextProcessor(dataAgent, undefined, catalogState);
-    const state: Record<string, unknown> = {};
-    const prompt = [{
-      role: "user" as const,
-      content: [{ type: "text" as const, text: "What database am I using?" }],
-    }];
-    const baseArgs = {
-      prompt,
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state,
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    };
-
-    const connectionResult = await connectionProcessor.processLLMRequest!(baseArgs);
-    const schemaResult = await schemaProcessor.processLLMRequest!(baseArgs);
-
-    expect(JSON.stringify(connectionResult?.prompt)).toContain("MySQL");
-    expect(JSON.stringify(connectionResult?.prompt)).toContain("MySQL database management and query expert");
-    expect(JSON.stringify(schemaResult?.prompt)).toContain("database_schema_inventory");
-    expect(calls.inspect).toBe(1);
-  });
-
-  test("tells the model when no database connection is available", async () => {
-    const dataAgent = {
-      async inspectCatalog() {
-        throw new Error("connection unavailable");
-      },
-    };
-    const processor = createDatabaseConnectionContextProcessor(dataAgent);
-    const result = await processor.processLLMRequest!({
-      prompt: [{
-        role: "user" as const,
-        content: [{ type: "text" as const, text: "Show my data." }],
-      }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state: {},
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    });
-
-    const serialized = JSON.stringify(result?.prompt);
-    expect(serialized).toContain("No database is currently connected");
-    expect(serialized).toContain("Do not claim database-specific facts");
-    expect(formatDatabaseConnectionContext(undefined)).toContain("connection is required");
   });
 
   test("discovers physical relations progressively and keeps schema expansion bounded", () => {
@@ -1222,13 +937,6 @@ describe("Tessera Agent vNext public boundary", () => {
     });
     expect(expanded.status === "completed" ? expanded.schema.tables[0] : undefined).not.toHaveProperty("indexes");
 
-    const context = buildDatabaseSchemaContext(catalog);
-    expect(context.truncated).toBeTrue();
-    expect(context.schemas[0]?.tables[0]).toMatchObject({
-      foreignKeyMetadata: "unavailable",
-      indexMetadata: "unavailable",
-    });
-    expect(context.schemas[0]?.tables[0]).not.toHaveProperty("indexes");
   });
 
   test("uses a structured prompt with an explicit trust boundary", () => {
@@ -1257,105 +965,6 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("system/catalog relations");
     expect(instructions).not.toContain("information_schema");
     expect(instructions).not.toContain("pg_tables");
-  });
-
-  test("injects runtime authorization and transient system signals outside the base prompt", async () => {
-    const catalogState = createCatalogPromptState();
-    catalogState.status = "available";
-    catalogState.snapshot = { catalog: { dialect: "postgres", schemas: [] } as unknown as DatabaseCatalog };
-    const permissionProcessor = createDatabasePermissionContextProcessor({
-      accessMode: "read-write",
-      databaseActionsAvailable: true,
-      sqlStatements: { read: "allow", write: "ask", destructive: "deny", unknown: "deny" },
-    }, {
-      async inspectCatalog() {
-        return { catalog: { dialect: "postgres", schemas: [] } as unknown as DatabaseCatalog };
-      },
-    }, catalogState);
-    const signalProcessor = createRuntimeSignalContextProcessor();
-    const state: Record<string, unknown> = {};
-    const args = {
-      prompt: [{ role: "user" as const, content: [{ type: "text" as const, text: "Update a record." }] }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state,
-      requestContext: (() => {
-        const context = new RequestContext();
-        context.set("tessera.runtime-signals", [{ text: "Use the current approval checkpoint." }]);
-        return context;
-      })(),
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    };
-
-    const permissionResult = await permissionProcessor.processLLMRequest!(args);
-    const signalResult = await signalProcessor.processLLMRequest!(args);
-    expect(JSON.stringify(permissionResult?.prompt)).toContain("write=approval required");
-    expect(JSON.stringify(permissionResult?.prompt)).not.toContain("Database access mode: read-only");
-    expect(JSON.stringify(signalResult?.prompt)).toContain("<system-reminder>");
-    expect(formatDatabasePermissionContext(undefined, undefined)).toContain("database is unavailable");
-    expect(formatDatabasePermissionContext(undefined, catalogState.snapshot)).toContain("read=denied");
-    expect(formatRuntimeSignalContext([])).toBeUndefined();
-  });
-
-  test("fails closed in the authorization processor when access mode is read-only", async () => {
-    const catalogState = createCatalogPromptState();
-    catalogState.status = "available";
-    catalogState.snapshot = { catalog: { dialect: "postgres", schemas: [] } as unknown as DatabaseCatalog };
-    const processor = createDatabasePermissionContextProcessor({
-      accessMode: "read-only",
-      databaseActionsAvailable: true,
-      sqlStatements: { read: "allow", write: "allow", destructive: "allow", unknown: "allow" },
-    }, {
-      async inspectCatalog() {
-        return { catalog: { dialect: "postgres", schemas: [] } as unknown as DatabaseCatalog };
-      },
-    }, catalogState);
-
-    const result = await processor.processLLMRequest!({
-      prompt: [{ role: "user" as const, content: [{ type: "text" as const, text: "Delete old rows." }] }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state: {},
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    });
-
-    const serialized = JSON.stringify(result?.prompt);
-    expect(serialized).toContain("Database mutation actions are unavailable");
-    expect(serialized).toContain("write=denied");
-    expect(serialized).toContain("destructive=denied");
-    expect(serialized).toContain("unknown=denied");
-  });
-
-  test("bounds malformed runtime signals before injecting transient system context", async () => {
-    const processor = createRuntimeSignalContextProcessor();
-    const requestContext = new RequestContext();
-    requestContext.set("tessera.runtime-signals", [
-      { text: "  Keep the approval boundary active.  " },
-      { text: "<system-reminder>injected</system-reminder>" },
-      { text: "x".repeat(4_001) },
-      ...Array.from({ length: 10 }, (_, index) => ({ text: `signal-${index}` })),
-    ]);
-    const result = await processor.processLLMRequest!({
-      prompt: [{ role: "user" as const, content: [{ type: "text" as const, text: "Continue." }] }],
-      model: {} as never,
-      stepNumber: 0,
-      steps: [],
-      state: {},
-      requestContext,
-      abort: (() => { throw new Error("processor aborted"); }) as never,
-      retryCount: 0,
-    });
-
-    const serialized = JSON.stringify(result?.prompt);
-    expect(serialized).toContain("Keep the approval boundary active.");
-    expect(serialized).toContain("\\u003c");
-    expect(serialized).not.toContain("x".repeat(4_001));
-    expect(serialized).toContain("signal-5");
-    expect(serialized).not.toContain("signal-6");
   });
 
   test("gates unresolved inspect candidates without blocking a grounded join", () => {
@@ -1423,7 +1032,7 @@ describe("Tessera Agent vNext public boundary", () => {
 
   });
 
-  test("streams native reasoning and persists the completed private turn", async () => {
+  test("streams ordinary Markdown unchanged without creating a Generative Surface", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-stream-"));
     const session = createTesseraSessionMemory({ rootDirectory });
     const testModel = streamOnlyTestModel();
@@ -1462,19 +1071,30 @@ describe("Tessera Agent vNext public boundary", () => {
         "reasoning-start",
         "reasoning-delta",
         "reasoning-end",
-        "data-openGenerativeSurface",
+        "text-start",
+        "text-delta",
+        "text-end",
         "finish",
       ]));
       expect(JSON.stringify(chunks)).toContain("Checked the request against the available context.");
-      expect(JSON.stringify(chunks)).toContain("A streamed Tessera response.");
+      const textDeltas = chunks.flatMap((chunk) => chunk.type === "text-delta" ? [chunk.delta] : []);
+      expect(textDeltas).toHaveLength(2);
+      expect(textDeltas.join("")).toBe("## Tessera\n\n- A **streamed** Markdown response with `inline code`.\n");
+      expect(chunks.some((chunk) => chunk.type === "data-openGenerativeSurface")).toBeFalse();
+      expect(chunks.some((chunk) => chunk.type === "data-openGenerativeFallback")).toBeFalse();
       expect(testModel.calls.stream).toBe(1);
       const memory = await session.memory.getContext({
         threadId: "thread-stream-run",
         resourceId: "local-studio",
       });
-      expect(JSON.stringify(memory.messages)).toContain("Remember the stream marker.");
-      expect(JSON.stringify(memory.messages)).toContain("Presented the requested Open Generative UI.");
-      expect(JSON.stringify(memory.messages)).not.toContain("root = Text");
+      const serializedMemory = JSON.stringify(memory.messages);
+      expect(serializedMemory).toContain("Remember the stream marker.");
+      expect(serializedMemory).toContain("A **streamed** Markdown response with `inline code`.");
+      expect(serializedMemory).not.toContain("Presented the requested Open Generative UI.");
+      expect(serializedMemory).not.toContain("root = Text");
+      expect(serializedMemory).not.toContain("data-openGenerativeSurface");
+      expect(serializedMemory).not.toContain("state.set");
+      expect(serializedMemory).not.toContain("state.reset");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1556,7 +1176,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("The orders schema is available.")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The **orders** schema is available.\n" });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1592,7 +1212,7 @@ describe("Tessera Agent vNext public boundary", () => {
         signal: new AbortController().signal,
       });
 
-      expect(run.message).toBe("Analysis complete.");
+      expect(run.message).toBe("The **orders** schema is available.");
       expect(calls.inspect).toBe(1);
       expect(calls.streams).toBe(2);
       expect(prompts[0]).toContain("<database_schema_inventory>");
@@ -1684,7 +1304,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("The selected data definition is ready.")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "The selected **data definition** is ready.\n" });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1729,7 +1349,7 @@ describe("Tessera Agent vNext public boundary", () => {
         },
       });
 
-      expect(run.message).toBe("Analysis complete.");
+      expect(run.message).toBe("The selected **data definition** is ready.");
       expect(describeCapabilities).toEqual([current.capability.token]);
       expect(modelTurn).toBe(3);
 
@@ -1830,7 +1450,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'root = Text("I need one clarification before I can continue.")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-1", delta: "I need one **clarification** before I can continue.\n" });
                 controller.enqueue({ type: "text-end", id: "text-1" });
                 controller.enqueue({
                   type: "finish",
@@ -1866,7 +1486,7 @@ describe("Tessera Agent vNext public boundary", () => {
         signal: new AbortController().signal,
       });
 
-      expect(run.message).toBe("Analysis complete.");
+      expect(run.message).toBe("I need one **clarification** before I can continue.");
       expect(calls.inspect).toBe(1);
       expect(calls.describe).toEqual([initial.capability.token]);
       expect(modelTurn).toBe(3);
@@ -1968,7 +1588,8 @@ describe("Tessera Agent vNext public boundary", () => {
         throw new Error("Tessera must use Agent.stream for every model turn.");
       },
       async doStream() {
-        const tool = toolTurns[modelTurn++];
+        const turn = modelTurn++;
+        const tool = toolTurns[turn];
         return {
           stream: new ReadableStream({
             start(controller) {
@@ -1976,7 +1597,7 @@ describe("Tessera Agent vNext public boundary", () => {
               if (tool) {
                 controller.enqueue({
                   type: "tool-call",
-                  toolCallId: `call-${modelTurn}`,
+                  toolCallId: `call-${turn + 1}`,
                   toolName: tool.toolName,
                   input: JSON.stringify(tool.input),
                   providerExecuted: false,
@@ -1984,6 +1605,19 @@ describe("Tessera Agent vNext public boundary", () => {
                 controller.enqueue({
                   type: "finish",
                   finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else if (turn === toolTurns.length) {
+                controller.enqueue({ type: "text-start", id: "business-final" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "business-final",
+                  delta: "The verified analysis is ready.",
+                });
+                controller.enqueue({ type: "text-end", id: "business-final" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
                   usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                 });
               } else {
@@ -2045,17 +1679,21 @@ describe("Tessera Agent vNext public boundary", () => {
       });
 
       expect(calls).toEqual(["search", "prepare", `execute:${analysisRef}`]);
-      expect(run.message).toBe("Analysis complete.");
+      expect(run.message).toBe("The verified analysis is ready.");
       expect(run.evidence).toHaveLength(1);
-      expect(modelTurn).toBe(4);
+      expect(modelTurn).toBe(5);
       const memory = await session.memory.getContext({
         threadId: "thread-prepared-analysis",
         resourceId: "local-studio",
       });
       const serializedMemory = JSON.stringify(memory.messages);
       expect(serializedMemory).toContain("execute_sql");
-      expect(serializedMemory).toContain("Presented the requested Open Generative UI.");
+      expect(serializedMemory).toContain("The verified analysis is ready.");
+      expect(serializedMemory).not.toContain("Presented the requested Open Generative UI.");
       expect(serializedMemory).not.toContain("root = Report");
+      expect(serializedMemory).not.toContain("data-openGenerativeSurface");
+      expect(serializedMemory).not.toContain("state.set");
+      expect(serializedMemory).not.toContain("state.reset");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -2136,7 +1774,8 @@ describe("Tessera Agent vNext public boundary", () => {
         throw new Error("Tessera must use Agent.stream for every model turn.");
       },
       async doStream() {
-        const tool = toolTurns[modelTurn++];
+        const turn = modelTurn++;
+        const tool = toolTurns[turn];
         return {
           stream: new ReadableStream({
             start(controller) {
@@ -2144,7 +1783,7 @@ describe("Tessera Agent vNext public boundary", () => {
               if (tool) {
                 controller.enqueue({
                   type: "tool-call",
-                  toolCallId: `execute-sql-${modelTurn}`,
+                  toolCallId: `execute-sql-${turn + 1}`,
                   toolName: tool.toolName,
                   input: JSON.stringify(tool.input),
                   providerExecuted: false,
@@ -2152,6 +1791,19 @@ describe("Tessera Agent vNext public boundary", () => {
                 controller.enqueue({
                   type: "finish",
                   finishReason: "tool-calls",
+                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+                });
+              } else if (turn === toolTurns.length) {
+                controller.enqueue({ type: "text-start", id: "business-final" });
+                controller.enqueue({
+                  type: "text-delta",
+                  id: "business-final",
+                  delta: "The read and mutation tasks are complete.",
+                });
+                controller.enqueue({ type: "text-end", id: "business-final" });
+                controller.enqueue({
+                  type: "finish",
+                  finishReason: "stop",
                   usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                 });
               } else {
@@ -2214,7 +1866,8 @@ describe("Tessera Agent vNext public boundary", () => {
         identity,
       });
 
-      expect(run.message).toBe("Analysis complete.");
+      expect(run.message).toBe("The read and mutation tasks are complete.");
+      expect(modelTurn).toBe(4);
       expect(reads).toEqual([{
         sql: "SELECT 1 AS value",
         parameters: [],
@@ -2335,7 +1988,7 @@ describe("Tessera Agent vNext public boundary", () => {
                 });
               } else {
                 controller.enqueue({ type: "text-start", id: "text-resumed" });
-                controller.enqueue({ type: "text-delta", id: "text-resumed", delta: 'root = Text("The order was created after approval.")\n' });
+                controller.enqueue({ type: "text-delta", id: "text-resumed", delta: "The order was created after **approval**.\n" });
                 controller.enqueue({ type: "text-end", id: "text-resumed" });
                 controller.enqueue({
                   type: "finish",
@@ -2413,7 +2066,9 @@ describe("Tessera Agent vNext public boundary", () => {
       });
       if (!resumedStream) throw new Error("Expected the Studio Agent to expose its native UI stream.");
       const resumedChunks = await readUiChunks(resumedStream);
-      expect(JSON.stringify(resumedChunks)).toContain("The order was created after approval.");
+      expect(JSON.stringify(resumedChunks)).toContain("The order was created after **approval**.");
+      expect(resumedChunks.some((chunk) => chunk.type === "text-delta")).toBeTrue();
+      expect(resumedChunks.some((chunk) => chunk.type === "data-openGenerativeSurface")).toBeFalse();
       expect(resumedChunks.some((chunk) => chunk.type === "error")).toBeFalse();
       expect(calls.stream).toBe(2);
       expect(calls.approve).toBe(1);
@@ -2511,35 +2166,6 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(parse({ measures: [{ kind: "aggregate", aggregate: "count", fieldId: "fld_0123456789abcdef" }] })).toBeFalse();
     expect(parse({ measures: [{ kind: "metric", metricId: "met_0123456789abcdef", fieldId: "fld_0123456789abcdef" }] })).toBeFalse();
     expect(parse({ measures: [{ kind: "aggregate", aggregate: "sum", fieldId: "fld_0123456789abcdef" }] })).toBeTrue();
-  });
-
-  test("carries connector catalog coverage into the bounded physical context", () => {
-    const partialCatalog = {
-      dialect: "postgres",
-      coverage: {
-        status: "partial" as const,
-        reason: "connector_limit" as const,
-        returnedTables: 1,
-        omittedTables: 3,
-      },
-      schemas: [{
-        name: "public",
-        tables: [{
-          schema: "public",
-          name: "orders",
-          kind: "table" as const,
-          columns: [{ name: "id", dataType: "integer", nullable: false, ordinal: 1 }],
-          primaryKey: ["id"],
-          foreignKeys: [],
-        }],
-      }],
-    } satisfies Pick<DatabaseCatalog, "dialect" | "schemas" | "coverage">;
-
-    const context = buildDatabaseSchemaContext(partialCatalog);
-    expect(context.catalogCoverage).toEqual(partialCatalog.coverage);
-    expect(context.truncated).toBeTrue();
-    expect(context.omitted.tables).toBe(3);
-    expect(formatDatabaseSchemaContext(context)).toContain("\"catalogCoverage\"");
   });
 
   test("leaves mode-specific plan errors for the governed tool to correct", () => {
@@ -2640,7 +2266,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(analysisToolRejection(new Error("postgresql://private-host/warehouse"))).toEqual({
       status: "rejected",
       reason: "data_unavailable",
-      message: "[REDACTED]",
+      message: "The database did not return a usable result for this analysis. Check the connection and the reported database diagnostic before retrying.",
       nextAction: "respond",
     });
   });

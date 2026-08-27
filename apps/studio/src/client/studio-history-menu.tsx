@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { StudioThreadSummary } from "./api/studio-api";
 import { StudioIcon } from "./components/studio-icon";
+import { StudioLoading } from "./components/studio-loading";
 
 type StudioHistoryMenuProps = Readonly<{
   activeThreadId: string | undefined;
@@ -62,7 +63,13 @@ export function StudioHistoryMenu({
   return (
     <section aria-label="Session history" className="studio-history-menu">
       <div className="studio-history-items">
-        {isLoading ? <HistoryLoading /> : null}
+        {isLoading ? (
+          <StudioLoading
+            className="studio-history-loading"
+            label="Loading saved sessions"
+            size="compact"
+          />
+        ) : null}
         {!isLoading && threads.length === 0 ? (
           <p className="studio-history-empty">No saved sessions yet.</p>
         ) : null}
@@ -188,16 +195,6 @@ export function StudioHistoryMenu({
         </div>
       )}
     </section>
-  );
-}
-
-function HistoryLoading() {
-  return (
-    <div aria-label="Loading saved sessions" className="studio-history-loading" role="status">
-      <span />
-      <span />
-      <span />
-    </div>
   );
 }
 

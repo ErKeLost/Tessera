@@ -177,7 +177,7 @@ export function PromptInput({
       onDragOver={handleDragOver}
       onDrop={handleDrop}
       className={cn(
-        "relative w-full rounded-2xl border border-border/80 bg-background p-2 transition-colors focus-within:border-foreground/25",
+        "relative w-full rounded-(--radius-card) border border-border bg-card p-2 shadow-(--shadow-whisper) transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20",
         disabled && "opacity-60",
         className,
       )}
@@ -242,7 +242,7 @@ export function PromptInput({
                     onAction?.(action.value);
                     setActionsOpen(false);
                   }}
-                  className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                  className="flex w-full items-start gap-2.5 rounded-md px-2.5 py-2 text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 >
                   {action.icon ? (
                     <span className="mt-0.5 grid size-5 shrink-0 place-items-center text-muted-foreground [&_svg]:size-4">

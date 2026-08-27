@@ -420,9 +420,11 @@ function StudioAssistantMessage() {
           </MessagePrimitive.GroupedParts>
           <MessageError />
         </MessageContent>
-        <MessageToolbar className="tessera-message-toolbar">
-          <AssistantActions />
-        </MessageToolbar>
+        {hasAssistantOutput ? (
+          <MessageToolbar className="tessera-message-toolbar">
+            <AssistantActions />
+          </MessageToolbar>
+        ) : null}
       </Message>
     </MessagePrimitive.Root>
   );

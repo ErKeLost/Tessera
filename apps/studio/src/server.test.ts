@@ -9,6 +9,18 @@ import {
   type DatabaseQueryResult,
 } from "@open-tessera/database";
 import { semanticCatalogSchema, type DataAgent } from "@open-tessera/data-agent";
+import type {
+  OpenGenerativeAuthority,
+  OpenGenerativeHost,
+  OpenGenerativeInspectionRecord,
+} from "@open-generative/mastra";
+import {
+  OPEN_GENERATIVE_HOST_COMMAND_PROTOCOL,
+  OPEN_GENERATIVE_PROTOCOL_REVISION,
+  hostCommandEnvelopeSchema,
+  sha256HashSchema,
+  type HostCommandEnvelope,
+} from "@open-generative/protocol";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +32,7 @@ import {
   type StudioAgentRunInput,
   type StudioLogEvent,
 } from "./server";
+import type { TesseraOpenGenerativeInspectionReader } from "./generative/inspection";
 import {
   DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
   TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE,
@@ -27,6 +40,7 @@ import {
 import { defineTesseraConfig } from "./config";
 import type { TesseraUIMessageChunk } from "./protocol";
 import { createTesseraSessionMemory } from "./session-memory";
+import { createTesseraPresentationAuthority } from "./generative/presentation";
 
 const catalog = finalizeCatalog({
   connectorId: "postgres:catalog-secret",
@@ -137,6 +151,196 @@ describe("Tessera Studio Nitro app", () => {
     expect(await response.json()).toEqual({ status: "ok", service: "tessera-studio", readiness: "ready" });
   });
 
+  test("dispatches Surface commands through the shared Host with server-derived identity", async () => {
+    let received: Readonly<Record<string, unknown>> | undefined;
+    const host = {
+      async handleCommand(command: HostCommandEnvelope, authority: unknown, context: unknown) {
+        received = { command, authority, context };
+        return { status: "acknowledged", acknowledgedThrough: 1, replayed: false } as const;
+      },
+    } as unknown as OpenGenerativeHost;
+    const app = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(host),
+    });
+    const command = surfaceCommandFixture();
+    const response = await app.fetch(request("/api/open-generative/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(command),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "acknowledged", acknowledgedThrough: 1, replayed: false });
+    expect(received?.command).toEqual(command);
+    expect(received?.context).toEqual({
+      operationScope: "tessera.surface.command",
+      locale: "en-US",
+      timezone: "Asia/Shanghai",
+    });
+    const serializedAuthority = JSON.stringify(received?.authority);
+    expect(serializedAuthority).not.toContain("local-user");
+    expect(serializedAuthority).not.toContain("local-studio");
+  });
+
+  test("returns the exact public Host rejection code without leaking its message", async () => {
+    const host = {
+      async handleCommand() {
+        const error = new Error("database private.users rejected token=secret");
+        Object.assign(error, { code: "surface.revision-precondition-conflict" });
+        throw error;
+      },
+    } as unknown as OpenGenerativeHost;
+    const app = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(host),
+    });
+    const response = await app.fetch(request("/api/open-generative/commands", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(surfaceCommandFixture()),
+    }));
+    const text = await response.text();
+
+    expect(response.status).toBe(409);
+    expect(text).toContain("surface.revision-precondition-conflict");
+    expect(text).not.toContain("private.users");
+    expect(text).not.toContain("secret");
+  });
+
+  test("serves an authorized Inspector record directly and reports the enabled Host deployment", async () => {
+    const identity = { subject: "inspector-user", tenantId: "inspector-tenant" } as const;
+    const authority = createTesseraPresentationAuthority(identity);
+    const record = inspectionRecord("surface:inspector", authority);
+    let received: Parameters<TesseraOpenGenerativeInspectionReader["read"]>[0] | undefined;
+    const reader: TesseraOpenGenerativeInspectionReader = {
+      async read(input) {
+        received = input;
+        return record;
+      },
+    };
+    const host = { deployment: "production" } as OpenGenerativeHost;
+    const app = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(host, reader),
+      requireAuthentication: true,
+      authenticate: async () => identity,
+    });
+
+    const meta = await app.fetch(request("/api/meta"));
+    expect(meta.status).toBe(200);
+    expect((await meta.json() as { generativeUi: unknown }).generativeUi).toEqual({
+      themePreset: DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
+      inspectorEnabled: true,
+      hostDeployment: "production",
+    });
+
+    const response = await app.fetch(request(
+      "/api/open-generative/inspections/surface:inspector?tenantId=attacker&actorBindingHash=attacker",
+    ));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(record);
+    expect(received).toEqual({ surfaceSessionId: "surface:inspector", authority });
+    expect(JSON.stringify(received)).not.toContain(identity.subject);
+    expect(JSON.stringify(received)).not.toContain(identity.tenantId);
+  });
+
+  test("lets the Inspector reader reject a cross-tenant lookup without exposing the record", async () => {
+    const admittedIdentity = { subject: "inspector-user", tenantId: "tenant-denied" } as const;
+    const admittedAuthority = createTesseraPresentationAuthority(admittedIdentity);
+    const allowedAuthority = createTesseraPresentationAuthority({
+      subject: admittedIdentity.subject,
+      tenantId: "tenant-allowed",
+    });
+    let receivedAuthority: OpenGenerativeAuthority | undefined;
+    const reader: TesseraOpenGenerativeInspectionReader = {
+      read(input) {
+        receivedAuthority = input.authority;
+        return input.authority.tenantBindingHash === allowedAuthority.tenantBindingHash
+          ? inspectionRecord(input.surfaceSessionId, allowedAuthority)
+          : undefined;
+      },
+    };
+    const app = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(
+        { deployment: "production" } as OpenGenerativeHost,
+        reader,
+      ),
+      requireAuthentication: true,
+      authenticate: async () => admittedIdentity,
+    });
+
+    const response = await app.fetch(request(
+      "/api/open-generative/inspections/surface:tenant-bound?tenantId=tenant-allowed",
+    ));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({
+      error: expect.objectContaining({
+        code: "not_found",
+        message: "The requested Studio endpoint was not found.",
+      }),
+    });
+    expect(receivedAuthority).toEqual(admittedAuthority);
+  });
+
+  test("rejects an invalid Inspector Surface path before invoking the reader", async () => {
+    let reads = 0;
+    const app = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(
+        { deployment: "production" } as OpenGenerativeHost,
+        {
+        read() {
+          reads += 1;
+          return undefined;
+        },
+        },
+      ),
+    });
+
+    const response = await app.fetch(request("/api/open-generative/inspections/surface%20invalid"));
+    expect(response.status).toBe(400);
+    expect((await response.json() as { error: { code: string } }).error.code).toBe("invalid_surface_session_id");
+    expect(reads).toBe(0);
+  });
+
+  test("returns the same generic 404 for a missing or out-of-scope Inspector record", async () => {
+    const identity = { subject: "inspector-user", tenantId: "inspector-tenant" } as const;
+    const missing = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(
+        { deployment: "production" } as OpenGenerativeHost,
+        { read: () => undefined },
+      ),
+    });
+    const mismatched = createStudioApp({
+      connector: createConnector(),
+      openGenerativeRuntime: testOpenGenerativeRuntime(
+        { deployment: "production" } as OpenGenerativeHost,
+        {
+          read: () => inspectionRecord(
+            "surface:other",
+            createTesseraPresentationAuthority({ subject: identity.subject, tenantId: "other-tenant" }),
+          ),
+        },
+      ),
+    });
+
+    const [missingResponse, mismatchedResponse] = await Promise.all([
+      missing.fetch(request("/api/open-generative/inspections/surface:missing")),
+      mismatched.fetch(request("/api/open-generative/inspections/surface:requested")),
+    ]);
+    expect(missingResponse.status).toBe(404);
+    expect(mismatchedResponse.status).toBe(404);
+    const missingError = (await missingResponse.json() as { error: { code: string; message: string } }).error;
+    const mismatchedError = (await mismatchedResponse.json() as { error: { code: string; message: string } }).error;
+    expect({ code: missingError.code, message: missingError.message }).toEqual({
+      code: mismatchedError.code,
+      message: mismatchedError.message,
+    });
+  });
+
   test("returns connection status without connector ids, hosts, warnings, or credentials", async () => {
     const app = createStudioApp({ connector: createConnector() });
     const response = await app.fetch(request("/api/connection"));
@@ -236,6 +440,79 @@ describe("Tessera Studio Nitro app", () => {
     expect(JSON.stringify(preview)).not.toContain("query-secret-id");
     expect(JSON.stringify(preview)).not.toContain("count-secret-id");
     expect(JSON.stringify(preview)).not.toContain("must not reach the browser");
+  });
+
+  test("projects JSON columns as text and identifies incomplete cells", async () => {
+    const jsonCatalog = finalizeCatalog({
+      connectorId: "postgres:catalog-secret",
+      dialect: "postgres",
+      databaseName: "warehouse",
+      scannedAt: "2026-08-15T00:00:00.000Z",
+      schemas: [{
+        name: "public",
+        tables: [{
+          schema: "public",
+          name: "events",
+          kind: "table",
+          columns: [
+            { name: "id", dataType: "uuid", nullable: false, ordinal: 1 },
+            { name: "metadata", dataType: "jsonb", nullable: true, ordinal: 2 },
+          ],
+          primaryKey: ["id"],
+          foreignKeys: [],
+        }],
+      }],
+    });
+    const requests: DatabaseQueryRequest[] = [];
+    const app = createStudioApp({
+      connector: createConnector({
+        introspect: async () => jsonCatalog,
+        query: async (query) => {
+          requests.push(query);
+          if (query.purpose === "Tessera table editor row count") {
+            return {
+              queryId: "count-json",
+              columns: [{ name: "__total_count" }],
+              rows: [{ __total_count: 4 }],
+              rowCount: 1,
+              truncated: false,
+              durationMs: 1,
+            };
+          }
+          return {
+            queryId: "preview-json",
+            columns: [{ name: "id" }, { name: "metadata" }],
+            rows: [
+              { id: "event-1", metadata: { flags: ["a", true], role: "user" } },
+              { id: "event-2", metadata: "null" },
+              { id: "event-3", metadata: null },
+              { id: "event-4", metadata: { one: { two: { three: { four: { five: true } } } } } },
+            ],
+            rowCount: 4,
+            truncated: false,
+            durationMs: 3,
+          };
+        },
+      }),
+    });
+
+    const response = await app.fetch(request("/api/data/public/events"));
+    const preview = await response.json() as {
+      incompleteCells: Array<{ columns: string[]; rowIndex: number }>;
+      rows: Array<Record<string, string | null>>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(requests).toEqual(expect.arrayContaining([expect.objectContaining({
+      sql: 'SELECT "id", CAST("metadata" AS TEXT) AS "metadata" FROM "public"."events" LIMIT 100',
+      parameters: [],
+      purpose: "Tessera relation preview",
+    })]));
+    expect(preview.rows[0]?.metadata).toBe('{"flags":["a",true],"role":"user"}');
+    expect(preview.rows[1]?.metadata).toBe("null");
+    expect(preview.rows[2]?.metadata).toBeNull();
+    expect(preview.rows[3]?.metadata).toContain("[nested value omitted]");
+    expect(preview.incompleteCells).toEqual([{ columns: ["metadata"], rowIndex: 3 }]);
   });
 
   test("executes table-editor search, filters, sorting, and pagination against the catalog-bound relation", async () => {
@@ -357,8 +634,16 @@ describe("Tessera Studio Nitro app", () => {
     expect(await response.json()).toEqual({
       protocolVersion: 1,
       capabilities: { chat: false },
-      generativeUi: { themePreset: DEFAULT_OPEN_GENERATIVE_THEME_PRESET },
+      generativeUi: {
+        themePreset: DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
+        inspectorEnabled: false,
+        hostDeployment: null,
+      },
     });
+
+    const inspection = await app.fetch(request("/api/open-generative/inspections/surface:disabled"));
+    expect(inspection.status).toBe(404);
+    expect((await inspection.json() as { error: { code: string } }).error.code).toBe("not_found");
   });
 
   test("rejects an uncompiled presentation preset before serving requests", () => {
@@ -1725,6 +2010,56 @@ describe("Tessera Studio Nitro app", () => {
     expect(runText).not.toContain("openrouter-key-super-secret");
   });
 });
+
+function surfaceCommandFixture(): HostCommandEnvelope {
+  return hostCommandEnvelopeSchema.parse({
+    protocol: OPEN_GENERATIVE_HOST_COMMAND_PROTOCOL,
+    protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
+    surfaceSessionId: "surface:test",
+    streamId: "stream:test",
+    epoch: 1,
+    commandId: "request:test",
+    correlationId: "correlation:test",
+    payloadHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
+    payload: {
+      type: "ack",
+      ack: {
+        acknowledgedThrough: 1,
+        eventId: "event:test",
+        cursor: "cursor_test_1234567890",
+      },
+    },
+  });
+}
+
+function testOpenGenerativeRuntime(
+  host: OpenGenerativeHost,
+  inspectionReader?: TesseraOpenGenerativeInspectionReader,
+) {
+  return Object.freeze({
+    host,
+    ...(inspectionReader === undefined ? {} : { inspectionReader }),
+    async close() {},
+  });
+}
+
+function inspectionRecord(
+  surfaceSessionId: string,
+  authority: OpenGenerativeAuthority,
+): OpenGenerativeInspectionRecord {
+  return Object.freeze({
+    authority: Object.freeze({
+      actorBindingHash: authority.actorBindingHash,
+      tenantBindingHash: authority.tenantBindingHash,
+      authorityPolicyRevision: authority.authorityPolicyRevision,
+    }),
+    snapshot: Object.freeze({
+      surfaceSessionId,
+      version: 2,
+      diagnostics: Object.freeze([]),
+    }),
+  }) as unknown as OpenGenerativeInspectionRecord;
+}
 
 describe("Tessera database connector selection", () => {
   test("selects SQL connectors without connecting during construction", async () => {

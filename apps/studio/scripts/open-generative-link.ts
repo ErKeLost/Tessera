@@ -8,8 +8,14 @@ const linkedPackageNames = [
   "@open-generative/ui",
 ] as const;
 
+const agentPackageNames = [
+  "@open-generative/mastra",
+  "@open-generative/protocol",
+] as const;
+
 const studioRoot = resolve(import.meta.dir, "..");
 const tesseraRoot = resolve(studioRoot, "../..");
+const agentRoot = resolve(tesseraRoot, "packages/tessera-agent");
 
 export function resolveOpenGenerativeRoot(): string | undefined {
   const configuredRoot = process.env.OPEN_GENERATIVE_ROOT?.trim();
@@ -25,19 +31,30 @@ export async function ensureOpenGenerativeLinks(openGenerativeRoot: string): Pro
     await run(["bun", "link", "--no-save"], packageRoot);
   }
 
+  await linkConsumer("@open-tessera/studio", linkedPackageNames);
+  await linkConsumer("@open-tessera/agent", agentPackageNames);
+
+  for (const packageName of linkedPackageNames) {
+    assertResolvedInside(packageName, packageRootFor(openGenerativeRoot, packageName), studioRoot);
+  }
+  for (const packageName of agentPackageNames) {
+    assertResolvedInside(packageName, packageRootFor(openGenerativeRoot, packageName), agentRoot);
+  }
+  assertResolvedInside("@open-generative/ui/styles.css", packageRootFor(openGenerativeRoot, "@open-generative/ui"), studioRoot);
+  assertResolvedInside("@open-generative/ui/renderer-release.json", packageRootFor(openGenerativeRoot, "@open-generative/ui"), studioRoot);
+}
+
+async function linkConsumer(
+  consumer: "@open-tessera/studio" | "@open-tessera/agent",
+  packages: readonly string[],
+): Promise<void> {
   await run([
     "bun",
     "add",
-    "--filter=@open-tessera/studio",
+    `--filter=${consumer}`,
     "--no-save",
-    ...linkedPackageNames.map((packageName) => `${packageName}@link:${packageName}`),
+    ...packages.map((packageName) => `${packageName}@link:${packageName}`),
   ], tesseraRoot);
-
-  for (const packageName of linkedPackageNames) {
-    assertResolvedInside(packageName, packageRootFor(openGenerativeRoot, packageName));
-  }
-  assertResolvedInside("@open-generative/ui/styles.css", packageRootFor(openGenerativeRoot, "@open-generative/ui"));
-  assertResolvedInside("@open-generative/ui/renderer-release.json", packageRootFor(openGenerativeRoot, "@open-generative/ui"));
 }
 
 function assertSupportedBunVersion(): void {
@@ -83,9 +100,9 @@ function packageRootFor(openGenerativeRoot: string, packageName: string): string
   return resolve(openGenerativeRoot, "packages", packageName.slice("@open-generative/".length));
 }
 
-function assertResolvedInside(specifier: string, expectedPackageRoot: string): void {
+function assertResolvedInside(specifier: string, expectedPackageRoot: string, consumerRoot: string): void {
   const expectedRoot = realpathSync(expectedPackageRoot);
-  const actualEntry = realpathSync(Bun.resolveSync(specifier, studioRoot));
+  const actualEntry = realpathSync(Bun.resolveSync(specifier, consumerRoot));
   const relativeEntry = relative(expectedRoot, actualEntry);
   if (relativeEntry === ".." || relativeEntry.startsWith(`..${sep}`) || isAbsolute(relativeEntry)) {
     throw new Error(`Expected ${specifier} to resolve inside ${expectedRoot}, received ${actualEntry}.`);

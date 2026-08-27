@@ -6,6 +6,7 @@ import {
   type DatabaseConnector,
 } from "@open-tessera/database";
 import { defineTesseraConfig } from "./config";
+import type { OpenGenerativeHost } from "@open-generative/mastra";
 import type { TesseraUIMessageChunk } from "./protocol";
 import {
   createStudioApp,
@@ -229,6 +230,68 @@ async function createManagedApp(options: ManagedAppOptions = {}) {
 }
 
 describe("Tessera Studio Settings routes", () => {
+  test("uses the Host and Inspector reader from the same managed generation", async () => {
+    let buildNumber = 0;
+    const manager = await createTesseraStudioRuntimeManager({
+      config: baseConfig,
+      factory: {
+        async create(config) {
+          const currentBuild = ++buildNumber;
+          const connector = createConnector(config.database.dialect);
+          const host = { deployment: "demo" } as OpenGenerativeHost;
+          const openGenerativeRuntime = {
+            host,
+            ...(currentBuild === 1 ? { inspectionReader: { read: () => undefined } } : {}),
+            async close() {},
+          } as const;
+          return {
+            connector,
+            dataAgent: createDataAgent({ connector }),
+            openGenerativeRuntime,
+            async close() {
+              await openGenerativeRuntime.close();
+              await connector.close();
+            },
+          };
+        },
+      },
+    });
+    const staticDecoy = {
+      host: { deployment: "demo" } as OpenGenerativeHost,
+      inspectionReader: { read: () => undefined },
+      async close() {},
+    } as const;
+    expect(() => createStudioApp({
+      connector: createConnector("postgres"),
+      settingsRuntime: manager,
+      openGenerativeRuntime: staticDecoy,
+    })).toThrow("leased generation");
+    const app = createStudioApp({
+      connector: createConnector("postgres"),
+      settingsRuntime: manager,
+    });
+
+    try {
+      const initialMeta = await app.fetch(request("/api/meta"));
+      expect((await initialMeta.json() as { generativeUi: { inspectorEnabled: boolean } })
+        .generativeUi.inspectorEnabled).toBe(true);
+
+      await manager.replace(settingsCandidate({
+        database: {
+          dialect: "mysql",
+          accessMode: "read-only",
+          url: "mysql://readonly:next-secret@localhost/analytics",
+        },
+      }));
+
+      const nextMeta = await app.fetch(request("/api/meta"));
+      expect((await nextMeta.json() as { generativeUi: { inspectorEnabled: boolean } })
+        .generativeUi.inspectorEnabled).toBe(false);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test("returns redacted settings and test results without credentials or database URLs", async () => {
     const { app, manager } = await createManagedApp();
     try {

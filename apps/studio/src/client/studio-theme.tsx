@@ -38,8 +38,10 @@ export function StudioThemeProvider({ children }: PropsWithChildren) {
   }, []);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = resolvedTheme;
-    document.documentElement.style.colorScheme = resolvedTheme;
+    const root = document.documentElement;
+    root.dataset.theme = resolvedTheme;
+    root.style.colorScheme = resolvedTheme;
+    root.classList.toggle("dark", resolvedTheme === "dark");
   }, [resolvedTheme]);
 
   const setPreference = useCallback((nextPreference: StudioThemePreference) => {

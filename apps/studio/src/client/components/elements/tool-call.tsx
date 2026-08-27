@@ -69,11 +69,16 @@ export function ToolCall({
         <span className="ms-auto flex w-4 items-center justify-end">
           {!running && (failed
             ? <XCircleIcon className="fade-in zoom-in-90 animate-in size-3.5 text-destructive duration-200" />
-            : <CheckIcon className="fade-in zoom-in-90 animate-in size-3.5 text-emerald-500 duration-200" />)}
+            : <CheckIcon className="text-success fade-in zoom-in-90 animate-in size-3.5 duration-200" />)}
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className={cn(collapsePanel, "outline-none")}>
-        <div className={cn(field, "mt-2 overflow-hidden rounded-2xl text-xs")}>
+        <div
+          className={cn(
+            field,
+            "mt-2 overflow-hidden rounded-(--radius-card) text-xs",
+          )}
+        >
           <div className="px-3.5 pt-2.5 pb-2">
             <p className={cn(mono, "text-foreground/35 mb-1")}>Request</p>
             <p className="text-foreground/55 break-words whitespace-pre-wrap font-mono">{request}</p>

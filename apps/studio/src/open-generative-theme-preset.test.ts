@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
+  OPEN_GENERATIVE_SHADCN_PRESETS,
   TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE,
   isOpenGenerativeThemePresetId,
   resolveOpenGenerativeThemePreset,
@@ -12,6 +13,21 @@ describe("Open Generative theme preset configuration", () => {
     expect(resolveOpenGenerativeThemePreset(undefined)).toBe(
       DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
     );
+  });
+
+  test("locks the default preset to the official shadcn Lyra configuration", () => {
+    expect(OPEN_GENERATIVE_SHADCN_PRESETS[DEFAULT_OPEN_GENERATIVE_THEME_PRESET]).toEqual({
+      style: "lyra",
+      theme: "taupe",
+      baseColor: "taupe",
+      chartColor: "taupe",
+      radius: "default",
+      font: "inter",
+      fontHeading: "inherit",
+      iconLibrary: "lucide",
+      menuColor: "default",
+      menuAccent: "subtle",
+    });
   });
 
   test("normalizes the allowlisted environment preset", () => {

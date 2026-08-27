@@ -10,6 +10,11 @@ import type {
 } from "@open-tessera/database";
 import type { TesseraUIMessage } from "../../protocol";
 import type { OpenGenerativeThemePresetId } from "../../open-generative-theme-preset";
+import {
+  surfaceEventEnvelopeSchema,
+  type HostCommandEnvelope,
+  type SurfaceEventEnvelope,
+} from "@open-generative/protocol";
 
 export type StudioThreadSummary = Readonly<{
   id: string;
@@ -68,7 +73,34 @@ export type StudioCatalog = Readonly<{
 export type StudioMeta = Readonly<{
   protocolVersion: number;
   capabilities: Readonly<{ chat: boolean }>;
-  generativeUi: Readonly<{ themePreset: OpenGenerativeThemePresetId }>;
+  generativeUi: Readonly<{
+    themePreset: OpenGenerativeThemePresetId;
+    inspectorEnabled: boolean;
+    hostDeployment: "demo" | "production" | null;
+  }>;
+}>;
+
+export type StudioOpenGenerativeInspectionObject = Readonly<Record<string, unknown>>;
+
+export type StudioOpenGenerativeInspection = Readonly<{
+  authority: Readonly<{
+    actorBindingHash: string;
+    tenantBindingHash: string;
+    authorityPolicyRevision: string;
+  }>;
+  snapshot: Readonly<{
+    version: 2;
+    surfaceSessionId: string;
+    ogl: StudioOpenGenerativeInspectionObject & Readonly<{
+      source?: string;
+      ast?: readonly unknown[];
+    }>;
+    catalog: StudioOpenGenerativeInspectionObject;
+    resourceAuthorizations: readonly StudioOpenGenerativeInspectionObject[];
+    events: readonly StudioOpenGenerativeInspectionObject[];
+    receipts: readonly StudioOpenGenerativeInspectionObject[];
+    rejections: readonly StudioOpenGenerativeInspectionObject[];
+  }>;
 }>;
 
 export type StudioSettingsStatus = Readonly<{
@@ -141,6 +173,43 @@ export async function requestJson<T>(input: RequestInfo | URL, init?: RequestIni
     throw new Error(message || "Tessera could not complete this request.");
   }
   return body as T;
+}
+
+/** Dispatches a governed Surface command without starting another Agent turn. */
+export async function dispatchStudioOpenGenerativeCommand(
+  command: HostCommandEnvelope,
+  signal?: AbortSignal,
+): Promise<readonly SurfaceEventEnvelope[]> {
+  const body = await requestJson<unknown>("/api/open-generative/commands", {
+    body: JSON.stringify(command),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  });
+  const result = asRecord(body);
+  if (result?.status === "events") {
+    return surfaceEventEnvelopeSchema.array().parse(result.events);
+  }
+  if (result?.status === "acknowledged") return [];
+  if (result?.status === "snapshot-required") {
+    const reason = readPublicText(result.reason, 128) ?? "snapshot-required";
+    throw new Error(`The Surface must be reloaded (${reason}).`);
+  }
+  throw new Error("The Surface command response is invalid.");
+}
+
+/** Reads a server-authorized Inspector snapshot without starting an Agent turn. */
+export async function fetchStudioOpenGenerativeInspection(
+  surfaceSessionId: string,
+  signal?: AbortSignal,
+): Promise<StudioOpenGenerativeInspection> {
+  const normalizedSessionId = readStudioSurfaceSessionId(surfaceSessionId);
+  if (normalizedSessionId !== surfaceSessionId) throw new Error("surface_session_id_invalid");
+  const body = await requestJson<unknown>(
+    `/api/open-generative/inspections/${encodeURIComponent(normalizedSessionId)}`,
+    { headers: { Accept: "application/json" }, signal },
+  );
+  return readStudioOpenGenerativeInspection(body, normalizedSessionId);
 }
 
 export async function fetchStudioConnection(signal?: AbortSignal): Promise<StudioConnection> {
@@ -368,6 +437,76 @@ function readPublicUiMessages(value: unknown): readonly TesseraUIMessage[] {
 
 function readStudioThreadId(value: unknown): string | undefined {
   const id = readPublicText(value, 128);
+  return id && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(id) ? id : undefined;
+}
+
+function readStudioOpenGenerativeInspection(
+  value: unknown,
+  expectedSurfaceSessionId: string,
+): StudioOpenGenerativeInspection {
+  const root = asRecord(value);
+  const authority = asRecord(root?.authority);
+  const snapshot = asRecord(root?.snapshot);
+  const ogl = asRecord(snapshot?.ogl);
+  const catalog = asRecord(snapshot?.catalog);
+  const actorBindingHash = readPublicText(authority?.actorBindingHash, 256);
+  const tenantBindingHash = readPublicText(authority?.tenantBindingHash, 256);
+  const authorityPolicyRevision = readPublicText(authority?.authorityPolicyRevision, 256);
+  const surfaceSessionId = readStudioSurfaceSessionId(snapshot?.surfaceSessionId);
+  const resourceAuthorizations = readInspectionObjectArray(snapshot?.resourceAuthorizations);
+  const events = readInspectionObjectArray(snapshot?.events);
+  const receipts = readInspectionObjectArray(snapshot?.receipts);
+  const rejections = readInspectionObjectArray(snapshot?.rejections);
+  const source = ogl?.source;
+  const ast = ogl?.ast;
+  if (
+    snapshot?.version !== 2
+    || surfaceSessionId !== expectedSurfaceSessionId
+    || !actorBindingHash
+    || !tenantBindingHash
+    || !authorityPolicyRevision
+    || !ogl
+    || !catalog
+    || resourceAuthorizations === undefined
+    || events === undefined
+    || receipts === undefined
+    || rejections === undefined
+    || (source !== undefined && (typeof source !== "string" || source.length > 96_000))
+    || (ast !== undefined && (!Array.isArray(ast) || ast.length > 1_024))
+  ) {
+    throw new Error("open_generative_inspection_response_invalid");
+  }
+  const serialized = JSON.stringify(value);
+  if (serialized.length > 2_000_000) throw new Error("open_generative_inspection_response_too_large");
+  return Object.freeze({
+    authority: Object.freeze({ actorBindingHash, tenantBindingHash, authorityPolicyRevision }),
+    snapshot: Object.freeze({
+      version: 2,
+      surfaceSessionId,
+      ogl: Object.freeze({
+        ...ogl,
+        ...(source === undefined ? {} : { source }),
+        ...(ast === undefined ? {} : { ast: Object.freeze([...ast]) }),
+      }),
+      catalog: Object.freeze({ ...catalog }),
+      resourceAuthorizations,
+      events,
+      receipts,
+      rejections,
+    }),
+  });
+}
+
+function readInspectionObjectArray(value: unknown): readonly StudioOpenGenerativeInspectionObject[] | undefined {
+  if (!Array.isArray(value) || value.length > 10_000) return undefined;
+  const records = value.map(asRecord);
+  return records.every((record): record is Record<string, unknown> => record !== undefined)
+    ? Object.freeze(records.map((record) => Object.freeze({ ...record })))
+    : undefined;
+}
+
+function readStudioSurfaceSessionId(value: unknown): string | undefined {
+  const id = readPublicText(value, 256);
   return id && /^[A-Za-z0-9][A-Za-z0-9:_-]*$/.test(id) ? id : undefined;
 }
 

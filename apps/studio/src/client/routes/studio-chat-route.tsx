@@ -1,6 +1,7 @@
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Button } from "../components/motion/button";
+import { StudioLoading } from "../components/studio-loading";
 import { publicError } from "../api/studio-api";
 import { useStudioRouteContext } from "../layout/studio-route-context";
 import { useStudioThreadMessagesQuery, useStudioThreadMutations } from "../queries/studio-queries";
@@ -78,7 +79,7 @@ export function StudioChatEntryRoute() {
           </Button>
         </div>
       ) : (
-        <StudioIcon aria-label="Opening chat" className="studio-session-entry-spinner spin" icon="solar:refresh-linear" size={18} />
+        <StudioLoading className="studio-session-entry-loading" label="Opening chat" />
       )}
     </section>
   );

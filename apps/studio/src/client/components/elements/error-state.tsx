@@ -4,6 +4,7 @@ import type { ComponentProps, ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { ShimmerLabel } from "@/lib/surfaces";
 import { StudioIcon } from "@/components/studio-icon";
+import { Button } from "@/components/ui/button";
 
 export interface ErrorStateProps extends Omit<
   ComponentProps<"div">,
@@ -27,6 +28,7 @@ export function ErrorState({
     return (
       <div
         data-slot="error-state"
+        data-state="retrying"
         key="retrying"
         role="status"
         className={cn(
@@ -47,30 +49,34 @@ export function ErrorState({
   return (
     <div
       data-slot="error-state"
+      data-state="error"
       key="error"
       role="alert"
       className={cn(
-        "fade-in animate-in flex w-full max-w-sm items-start gap-2.5 rounded-2xl bg-destructive/10 px-4 py-3 text-sm duration-300 motion-reduce:animate-none",
+        "fade-in animate-in grid w-full max-w-xl grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3 rounded-(--radius-card) bg-destructive/10 px-4 py-3 text-sm duration-300 motion-reduce:animate-none",
         className,
       )}
 
       {...props}
     >
       <StudioIcon className="mt-0.5 size-4 shrink-0 text-destructive/80" icon="solar:danger-triangle-linear" />
-      <div>
-        <p className="font-medium text-destructive">{title}</p>
-        <p className="mt-0.5 text-[13px] leading-snug text-destructive/70">
+      <div className="min-w-0">
+        <p className="font-semibold text-destructive">{title}</p>
+        <p className="mt-0.5 leading-snug text-muted-foreground [overflow-wrap:anywhere]">
           {detail}
         </p>
       </div>
-      <button
+      <Button
+        aria-label="Retry analysis"
+        className="-me-1 -mt-1 shrink-0 self-start whitespace-nowrap px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+        size="sm"
         type="button"
         onClick={onRetry}
-        className="ms-auto flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+        variant="ghost"
       >
         <StudioIcon icon="solar:refresh-linear" size={13} />
         Retry
-      </button>
+      </Button>
     </div>
   );
 }

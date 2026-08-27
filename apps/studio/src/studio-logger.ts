@@ -1,7 +1,7 @@
 import pino, { type Logger as PinoLogger } from "pino";
 import pretty from "pino-pretty";
 
-export type StudioApiOperation = "catalog" | "chat" | "connection" | "data_preview" | "database_actions" | "meta" | "runs" | "settings" | "threads" | "unknown";
+export type StudioApiOperation = "catalog" | "chat" | "connection" | "data_preview" | "database_actions" | "generative_ui" | "meta" | "runs" | "settings" | "threads" | "unknown";
 export type StudioStreamOutcome = "completed" | "suspended" | "failed" | "cancelled";
 export type StudioToolName = "list_database" | "search_data_context" | "prepare_analysis" | "execute_sql";
 export type StudioToolState = "started" | "completed" | "blocked" | "failed";

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { DataAgentRunResult } from "@open-tessera/data-agent";
 import {
   createTesseraDataResources,
+  createTesseraPresentationIntent,
   createTesseraPresentationAuthority,
 } from "./presentation";
 
@@ -29,6 +30,15 @@ function completedResult(): DataAgentRunResult {
 }
 
 describe("Tessera Open Generative resource projection", () => {
+  test("delegates component selection to resource shape and only requests tabs for peer resources", () => {
+    expect(createTesseraPresentationIntent([])).toBeUndefined();
+    expect(createTesseraPresentationIntent([{} as never])).toBeUndefined();
+    expect(createTesseraPresentationIntent([{} as never, {} as never])).toEqual({
+      kind: "auto",
+      interactions: ["tabs"],
+    });
+  });
+
   test("publishes verified analysis rows without choosing a component recipe", () => {
     const resources = createTesseraDataResources({
       analyses: [{ title: "Daily revenue", result: completedResult() }],

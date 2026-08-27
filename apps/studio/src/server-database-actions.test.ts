@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDataAgent } from "@open-tessera/data-agent";
+import type { OpenGenerativeHost } from "@open-generative/mastra";
 import {
   createDatabaseScopedPermissionPolicy,
   finalizeCatalog,
@@ -16,6 +17,50 @@ import { createTesseraStudioRuntimeManager } from "./settings-runtime";
 const IDENTITY = { subject: "alice", tenantId: "tenant-a", roles: ["operator"] } as const;
 
 describe("Tessera Studio database action routes", () => {
+  test("fails closed when a static production runtime has no matching Host bundle", async () => {
+    const config = defineTesseraConfig({
+      database: {
+        dialect: "postgres",
+        url: "postgresql://readonly:secret@localhost/analytics",
+      },
+      studio: { generativeUi: { hostMode: "production" } },
+    });
+    const { connector } = createConnector();
+
+    await expect(createTesseraStudioRuntime(config, { connector })).rejects.toThrow("factory");
+
+    let demoCloseCalls = 0;
+    await expect(createTesseraStudioRuntime(config, {
+      connector,
+      openGenerativeHostFactory: {
+        create: async () => ({
+          host: { deployment: "demo" } as OpenGenerativeHost,
+          async close() {
+            demoCloseCalls += 1;
+          },
+        }),
+      },
+    })).rejects.toThrow("deployment");
+    expect(demoCloseCalls).toBe(1);
+
+    let productionCloseCalls = 0;
+    const runtime = await createTesseraStudioRuntime(config, {
+      connector,
+      openGenerativeHostFactory: {
+        create: async () => ({
+          host: { deployment: "production" } as OpenGenerativeHost,
+          async close() {
+            productionCloseCalls += 1;
+          },
+        }),
+      },
+    });
+    expect(runtime.openGenerativeRuntime?.host.deployment).toBe("production");
+    await runtime.close();
+    await runtime.close();
+    expect(productionCloseCalls).toBe(1);
+  });
+
   test("uses the local Studio principal when host authentication is not configured", async () => {
     const { connector } = createConnector();
     const service = createTesseraDatabaseActionService({
@@ -80,7 +125,7 @@ describe("Tessera Studio database action routes", () => {
       state: new InMemoryDurableStateStore(),
       policy: createDatabaseScopedPermissionPolicy({ profile: "auto" }),
     });
-    const runtime = createTesseraStudioRuntime(runtimeConfig(), {
+    const runtime = await createTesseraStudioRuntime(runtimeConfig(), {
       connector,
       databaseActions: service,
       authenticate: () => IDENTITY,
@@ -104,7 +149,7 @@ describe("Tessera Studio database action routes", () => {
       state: new InMemoryDurableStateStore(),
       policy: createDatabaseScopedPermissionPolicy({ profile: "auto" }),
     });
-    const runtime = createTesseraStudioRuntime(runtimeConfig(), {
+    const runtime = await createTesseraStudioRuntime(runtimeConfig(), {
       connector,
       databaseActions: service,
       accessMode: "read-write",

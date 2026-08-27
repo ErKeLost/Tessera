@@ -74,6 +74,8 @@ export {
 export {
   TesseraSettingsRuntimeError,
   createTesseraLocalSettingsStore,
+  createDefaultTesseraStudioRuntimeFactory,
+  createTesseraOpenGenerativeRuntimeBundle,
   createTesseraStudioRuntimeManager,
   createTesseraStudioSettingsSnapshot,
   normalizeTesseraStudioSettings,
@@ -101,6 +103,9 @@ export type {
 export type {
   CreateTesseraLocalSettingsStoreOptions,
   TesseraDatabaseAccessMode,
+  TesseraOpenGenerativeHostFactory,
+  TesseraOpenGenerativeHostFactoryInput,
+  TesseraOpenGenerativeRuntimeBundle,
   TesseraRuntimeManagerOptions,
   TesseraRuntimeReplaceOptions,
   TesseraSettingsConnectionSnapshot,
@@ -169,6 +174,10 @@ export type {
   TesseraStudioRuntime,
   TesseraStudioServer,
 } from "./server";
+export type {
+  OpenGenerativeInspectionRecord,
+  TesseraOpenGenerativeInspectionReader,
+} from "./generative/inspection";
 export type {
   CreateStudioConsoleLoggerOptions,
   StudioLogLevel,

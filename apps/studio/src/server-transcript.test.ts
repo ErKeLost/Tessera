@@ -20,6 +20,7 @@ import type { TesseraUIMessageChunk } from "./protocol";
 const SAFE_SQL = "select count(*) from public.orders";
 const SAFE_TOOL_ROW = "orders-count";
 const SAFE_REASONING = "Checked SELECT count(*) FROM orders against the requested period.";
+const SURFACE_MARKDOWN = "## Visual analysis\n\n- **Verified** result";
 
 const catalog = finalizeCatalog({
   connectorId: "test-connector",
@@ -157,7 +158,7 @@ function cumulativeSurfaceSourceStream(events: readonly [SurfaceEventEnvelope, S
   const chunks: TesseraUIMessageChunk[] = [
     { type: "start", messageId: "provider-surface-message" },
     { type: "text-start", id: "provider-surface-text" },
-    { type: "text-delta", id: "provider-surface-text", delta: "The visual analysis is ready." },
+    { type: "text-delta", id: "provider-surface-text", delta: SURFACE_MARKDOWN },
     { type: "text-end", id: "provider-surface-text" },
     { type: "data-openGenerativeSurface", id, data: { surfaceSessionId, events: [events[0]] } },
     { type: "data-openGenerativeSurface", id, data: { surfaceSessionId, events: [...events] } },
@@ -427,8 +428,17 @@ describe("Studio chat transcript integration", () => {
 
       const messagesResponse = await app.fetch(request(`/api/threads/${threadId}/messages`));
       const payload = await messagesResponse.json() as {
-        messages: Array<{ parts: Array<{ type: string; data?: { events?: unknown[] } }> }>;
+        messages: Array<{
+          role: string;
+          parts: Array<{ type: string; text?: string; data?: { events?: unknown[] } }>;
+        }>;
       };
+      const assistant = payload.messages.find((message) => message.role === "assistant");
+      expect(assistant?.parts.map((part) => part.type)).toEqual([
+        "text",
+        "data-openGenerativeSurface",
+      ]);
+      expect(assistant?.parts[0]?.text).toBe(SURFACE_MARKDOWN);
       const surfaceParts = payload.messages.flatMap((message) => (
         message.parts.filter((part) => part.type === "data-openGenerativeSurface")
       ));

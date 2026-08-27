@@ -2,7 +2,7 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
+import { StudioLoading } from "@/components/studio-loading";
 import { cn } from "@/lib/utils";
 import {
   AuiIf,
@@ -108,7 +108,11 @@ export const ThreadListItems: FC<
       {...props}
     >
       <AuiIf condition={(s) => s.threads.isLoading}>
-        <ThreadListSkeleton />
+        <StudioLoading
+          className="aui-thread-list-loading"
+          label="Loading threads"
+          size="compact"
+        />
       </AuiIf>
       <AuiIf condition={(s) => !s.threads.isLoading}>
         <ThreadListItemGroups searchQuery={searchQuery} />
@@ -255,27 +259,6 @@ export const ThreadListNew = forwardRef<
 
 ThreadListNew.displayName = "ThreadListNew";
 
-const ThreadListSkeleton: FC = () => {
-  return (
-    <div className="flex flex-col gap-1">
-      {Array.from({ length: 5 }, (_, i) => (
-        <div
-          key={i}
-          role="status"
-          aria-label="Loading threads"
-          data-slot="aui_thread-list-skeleton-wrapper"
-          className="flex h-9 items-center px-3"
-        >
-          <Skeleton
-            data-slot="aui_thread-list-skeleton"
-            className="h-3.5 w-full"
-          />
-        </div>
-      ))}
-    </div>
-  );
-};
-
 export const ThreadListItem: FC = () => {
   const isRunning = useAuiState((s) => s.threadListItem.isRunning);
   const [isRenaming, setIsRenaming] = useState(false);
@@ -410,7 +393,7 @@ const ThreadListItemMore: FC<{ onRename: () => void }> = ({ onRename }) => {
         align="start"
         sideOffset={6}
         data-slot="aui_thread-list-item-more-content"
-        className="z-50 max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border-0 bg-popover p-1 text-popover-foreground shadow-md outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
+        className="z-(--z-dropdown) max-h-(--radix-dropdown-menu-content-available-height) min-w-[8rem] origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-(--radius-overlay) border-0 bg-popover p-1 text-popover-foreground shadow-(--shadow-float) outline-none data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95"
       >
         <ThreadListItemMorePrimitive.Item
           data-slot="aui_thread-list-item-more-item"

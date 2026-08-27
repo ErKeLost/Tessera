@@ -13,14 +13,31 @@ import {
   DATA_AGENT_RELATION_PREVIEW_MAX_COLUMNS,
   relationPlanningCatalogInputSchema,
   type DataAgent,
-  type PlanningCapability,
-  type SemanticCatalog,
 } from "@open-tessera/data-agent";
+import {
+  hasVisibleCopilotOutput,
+  tesseraAgentEventSchema,
+  tesseraAgentIdentitySchema,
+  tesseraAgentRunSchema,
+  type TesseraAgentDiagnostic,
+  type TesseraAgentEvent,
+  type TesseraAgentIdentity,
+  type TesseraAgentImageInput,
+  type TesseraAgentImageMediaType,
+  type TesseraAgentRun,
+  type TesseraAgentRunInput,
+  type TesseraAgentTurnContext,
+} from "@open-tessera/agent";
 import { createMongoDbConnector } from "@open-tessera/mongodb";
 import { createMySqlConnector } from "@open-tessera/mysql";
 import { createPostgresConnector } from "@open-tessera/postgres";
 import { createSqliteConnector } from "@open-tessera/sqlite";
 import { createTursoConnector } from "@open-tessera/turso";
+import type { OpenGenerativeAuthority } from "@open-generative/mastra";
+import {
+  hostCommandEnvelopeSchema,
+  surfaceSessionIdSchema,
+} from "@open-generative/protocol";
 import {
   consumeStream,
   createUIMessageStream,
@@ -35,7 +52,7 @@ import { fileURLToPath } from "node:url";
 import { HTTPError } from "h3";
 import { serve, type Server, type ServerRequest } from "srvx";
 import { z } from "zod";
-import { createTesseraStudioAgent, hasVisibleCopilotOutput, toMastraModelConfig } from "./agent";
+import { createTesseraStudioAgent, toMastraModelConfig } from "./agent";
 import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
@@ -62,15 +79,23 @@ import {
 } from "./session-memory";
 import { createTesseraContinualHarness, type TesseraContinualHarness } from "./continual-harness";
 import {
+  assertTesseraOpenGenerativeRuntimeDeployment,
+  createTesseraOpenGenerativeRuntimeBundle,
   createTesseraLocalSettingsStore,
   createTesseraStudioRuntimeManager,
   parseTesseraStudioSettingsCandidate,
   TesseraSettingsRuntimeError,
   type TesseraDatabaseAccessMode,
   type TesseraDatabasePermissionSettings,
+  type TesseraOpenGenerativeHostFactory,
+  type TesseraOpenGenerativeRuntimeBundle,
   type TesseraStudioRuntimeManager,
   type TesseraStudioRuntimeLease,
 } from "./settings-runtime";
+import type {
+  OpenGenerativeInspectionRecord,
+  TesseraOpenGenerativeInspectionReader,
+} from "./generative/inspection";
 import {
   createTesseraDatabaseActionService,
   type TesseraDatabaseActionEffect,
@@ -100,6 +125,7 @@ import {
   resolveOpenGenerativeThemePresetFromEnvironment,
   type OpenGenerativeThemePresetId,
 } from "./open-generative-theme-preset";
+import { createTesseraPresentationAuthority } from "./generative/presentation";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
@@ -167,26 +193,8 @@ const renameThreadRequestSchema = z.object({
 
 const threadIdSchema = z.string().trim().min(1).max(128).regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
 
-const agentRunSchema = z.object({
-  status: z.enum(["completed", "needs_input"]),
-  message: z.string().max(30_000),
-  evidence: z.array(z.object({
-    queryId: z.string().min(1).max(256),
-    label: z.string().min(1).max(512),
-  }).strict()).max(50).optional(),
-}).strict();
-
-const studioAgentEventSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("text-delta"),
-    text: z.string().min(1).max(4_096),
-  }).strict(),
-  z.object({
-    type: z.literal("tool"),
-    tool: z.enum(["list_database", "search_data_context", "prepare_analysis", "execute_sql"]),
-    state: z.enum(["started", "completed", "blocked", "failed"]),
-  }).strict(),
-]);
+const agentRunSchema = tesseraAgentRunSchema;
+const studioAgentEventSchema = tesseraAgentEventSchema;
 
 const databaseActionSubmitRequestSchema = z.object({
   action: databaseActionSchema,
@@ -222,11 +230,7 @@ const databaseActionRequestIdSchema = z.string().trim().min(1).max(256).refine(
 );
 
 type StudioChatTrigger = "submit-message" | "regenerate-message";
-type StudioImageMediaType = "image/png" | "image/jpeg" | "image/webp" | "image/gif";
-export type StudioImageInput = Readonly<{
-  dataUrl: string;
-  mediaType: StudioImageMediaType;
-}>;
+export type StudioImageInput = TesseraAgentImageInput;
 type StudioChatWorkspaceContext = Readonly<{
   currentRelation?: z.output<typeof relationPlanningCatalogInputSchema>;
   hasLocalFilter: boolean;
@@ -251,7 +255,7 @@ type StudioEnv = {
 type StudioContext = StudioHttpContext<StudioEnv["Variables"]>;
 type StudioApp = StudioHttpApp<StudioEnv["Variables"]>;
 
-type StudioErrorStatus = 400 | 401 | 403 | 404 | 413 | 415 | 422 | 500 | 502 | 503;
+type StudioErrorStatus = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 500 | 502 | 503;
 
 type StudioApiRequestLog = Readonly<{
   requestId: string;
@@ -260,13 +264,9 @@ type StudioApiRequestLog = Readonly<{
   startedAt: number;
 }>;
 
-const studioIdentitySchema = z.object({
-  subject: z.string().trim().min(1).max(256).refine((value) => !/[\u0000-\u001f\u007f]/.test(value)),
-  tenantId: z.string().trim().min(1).max(256).refine((value) => !/[\u0000-\u001f\u007f]/.test(value)),
-  roles: z.array(z.string().trim().min(1).max(128)).max(64).readonly().optional(),
-}).strict();
+const studioIdentitySchema = tesseraAgentIdentitySchema;
 
-export type StudioIdentity = Readonly<z.infer<typeof studioIdentitySchema>>;
+export type StudioIdentity = TesseraAgentIdentity;
 export type StudioAuthenticationInput = Readonly<{
   request: Request;
   requestId: string;
@@ -294,61 +294,20 @@ export type StudioSettingsChangeAuthorizer = (
  * navigation hint against the live catalog; physical relation coordinates never
  * cross this boundary into Mastra or the browser stream.
  */
-export type StudioAgentTurnContext = Readonly<{
-  workspace: Readonly<{
-    hasLocalFilter: boolean;
-    view?: "data" | "definition";
-  }>;
-  currentRelation?: Readonly<{
-    capability: PlanningCapability;
-    semanticCatalog: SemanticCatalog;
-    truncated: boolean;
-    omitted: Readonly<{
-      entities: number;
-      fields: number;
-      metrics: number;
-      relationships: number;
-    }>;
-  }>;
-}>;
+export type StudioAgentTurnContext = TesseraAgentTurnContext;
 
-export type StudioAgentRunInput = Readonly<{
-  runId: string;
-  threadId: string;
-  message: string;
-  images?: readonly StudioImageInput[];
+export type StudioAgentRunInput = TesseraAgentRunInput & Readonly<{
   /**
    * Legacy Studio Agents receive a server-loaded catalog. Tessera's governed
    * Data Agent owns this lookup itself so its visible catalog stage remains
    * the source of truth for a chat run.
    */
   catalog?: DatabaseCatalog;
-  /** Server-bound transient page context. Never sourced directly from UI text. */
-  turnContext?: StudioAgentTurnContext;
-  /** Server-owned transient instructions. Never sourced directly from user or browser text. */
-  runtimeSignals?: readonly string[];
-  signal: AbortSignal;
-  identity?: StudioIdentity;
-  /** Server-only data used to resume a Mastra runtime suspension. */
-  resumeData?: unknown;
-  /** Identifies the exact suspended tool when a run has multiple suspensions. */
-  toolCallId?: string;
-  /** Enables Mastra runtime suspension for UI chat transports. */
-  allowRuntimeSuspension?: boolean;
-  /** Server-only diagnostic channel. Implementations must never expose the raw error to the browser or model. */
-  reportDiagnostic?: (diagnostic: StudioAgentDiagnostic) => void;
 }>;
 
-export type StudioAgentDiagnostic = Readonly<{
-  phase: StudioErrorPhase;
-  error: unknown;
-  tool?: TesseraToolName;
-  field?: string;
-  reason?: string;
-}>;
-
-export type StudioAgentRun = z.infer<typeof agentRunSchema>;
-export type StudioAgentEvent = z.infer<typeof studioAgentEventSchema>;
+export type StudioAgentDiagnostic = TesseraAgentDiagnostic;
+export type StudioAgentRun = TesseraAgentRun;
+export type StudioAgentEvent = TesseraAgentEvent;
 
 /**
  * The Agent boundary is intentionally narrow. It receives a discovered
@@ -403,6 +362,8 @@ export type StudioAppDependencies = Readonly<{
   agentAvailable?: () => Promise<boolean>;
   /** Public presentation-only preset. It never enters Agent or memory state. */
   openGenerativeThemePreset?: OpenGenerativeThemePresetId;
+  /** Same-generation Host and Inspector side channel. */
+  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   allowedOrigins?: readonly string[];
   authenticate?: StudioAuthenticator;
   requireAuthentication?: boolean;
@@ -422,6 +383,7 @@ type StudioRouteRuntime = Readonly<{
   connector: DatabaseConnector;
   dataAgent: DataAgent;
   catalogProvider: StudioCatalogProvider;
+  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   agent?: StudioAgent;
   sessionMemory?: TesseraSessionMemory;
   databaseActions?: TesseraDatabaseActionService;
@@ -437,7 +399,10 @@ export type CreateStudioCatalogProviderOptions = Readonly<{
   ttlMs?: number;
 }>;
 
-export type CreateTesseraStudioRuntimeOptions = Omit<StudioAppDependencies, "connector" | "catalogProvider" | "allowedOrigins" | "requireAuthentication"> & Readonly<{
+export type CreateTesseraStudioRuntimeOptions = Omit<
+  StudioAppDependencies,
+  "connector" | "catalogProvider" | "openGenerativeRuntime" | "allowedOrigins" | "requireAuthentication"
+> & Readonly<{
   connector?: DatabaseConnector;
   catalogProvider?: StudioCatalogProvider;
   /** Optional shared governed Data Agent. When omitted, runtime creates one. */
@@ -446,6 +411,8 @@ export type CreateTesseraStudioRuntimeOptions = Omit<StudioAppDependencies, "con
   databaseState?: DurableStateStorePort;
   /** Static runtimes expose mutation actions only when the embedding host opts in. */
   accessMode?: TesseraDatabaseAccessMode;
+  /** Creates one owned Host/Inspector generation. */
+  openGenerativeHostFactory?: TesseraOpenGenerativeHostFactory;
   /** False disables continual refinement; an instance lets embedded hosts own it. */
   continualHarness?: TesseraContinualHarness | false;
 }>;
@@ -454,6 +421,7 @@ export type TesseraStudioRuntime = Readonly<{
   app: StudioApp;
   connector: DatabaseConnector;
   dataAgent: DataAgent;
+  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   databaseActions?: TesseraDatabaseActionService;
   close(): Promise<void>;
 }>;
@@ -472,6 +440,9 @@ export type TesseraStudioServer = Readonly<{
  * no provider credentials, model construction, or direct SQL route.
  */
 export function createStudioApp(dependencies: StudioAppDependencies): StudioApp {
+  if (dependencies.settingsRuntime !== undefined && dependencies.openGenerativeRuntime !== undefined) {
+    throw new TypeError("A managed Studio must source Open Generative runtime capabilities from its leased generation.");
+  }
   const app = new StudioHttpApp<StudioEnv["Variables"]>();
   const logger = dependencies.logger ?? silentStudioLogger;
   const chatRetries = createStudioChatRetryRegistry();
@@ -485,6 +456,9 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     connector: dependencies.connector,
     dataAgent,
     catalogProvider,
+    ...(dependencies.openGenerativeRuntime === undefined
+      ? {}
+      : { openGenerativeRuntime: dependencies.openGenerativeRuntime }),
     ...(dependencies.agent === undefined ? {} : { agent: dependencies.agent }),
     ...(dependencies.sessionMemory === undefined ? {} : { sessionMemory: dependencies.sessionMemory }),
     ...(dependencies.databaseActions === undefined ? {} : { databaseActions: dependencies.databaseActions }),
@@ -579,6 +553,9 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   /** Secret-free runtime handshake. It intentionally does not disclose model or database configuration. */
   app.get("/api/meta", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
     const agentAvailable = runtime.agent !== undefined || await dependencies.agentAvailable?.() === true;
+    const hostDeployment = runtime.openGenerativeRuntime === undefined
+      ? null
+      : runtime.openGenerativeRuntime.host.deployment;
     return context.json({
       protocolVersion: 1,
       capabilities: {
@@ -586,9 +563,79 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       },
       generativeUi: {
         themePreset: openGenerativeThemePreset,
+        inspectorEnabled: runtime.openGenerativeRuntime?.inspectionReader !== undefined,
+        hostDeployment,
       },
     });
   }));
+
+  app.get("/api/open-generative/inspections/:surfaceSessionId", async (context) => (
+    withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+      const reader = runtime.openGenerativeRuntime?.inspectionReader;
+      if (reader === undefined) throw inspectionNotFoundError();
+
+      const parsedSurfaceSessionId = surfaceSessionIdSchema.safeParse(context.req.param("surfaceSessionId"));
+      if (!parsedSurfaceSessionId.success) {
+        throw new StudioHttpError(
+          400,
+          "invalid_surface_session_id",
+          "The Surface session identifier is invalid.",
+        );
+      }
+      const identity = context.get("identity");
+      if (!identity) {
+        throw new StudioHttpError(
+          401,
+          "authentication_required",
+          "An authenticated session is required.",
+        );
+      }
+
+      const authority = createTesseraPresentationAuthority(identity);
+      const record = await reader.read({
+        surfaceSessionId: parsedSurfaceSessionId.data,
+        authority,
+      });
+      if (!isInspectionRecordInScope(record, parsedSurfaceSessionId.data, authority)) {
+        throw inspectionNotFoundError();
+      }
+      return context.json(record);
+    })
+  ));
+
+  app.post("/api/open-generative/commands", async (context) => (
+    withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+      if (runtime.openGenerativeRuntime === undefined) {
+        throw new StudioHttpError(
+          503,
+          "generative_ui_unavailable",
+          "Interactive generative UI is not enabled for this Studio runtime.",
+        );
+      }
+      const identity = context.get("identity");
+      if (!identity) {
+        throw new StudioHttpError(401, "authentication_required", "A Surface command requires an authenticated session.");
+      }
+      const command = hostCommandEnvelopeSchema.safeParse(await readJsonBody(context.req.raw));
+      if (!command.success) {
+        throw new StudioHttpError(400, "invalid_surface_command", "The Surface command is invalid.");
+      }
+      try {
+        const host = runtime.openGenerativeRuntime.host;
+        return context.json(await host.handleCommand(
+          command.data,
+          createTesseraPresentationAuthority(identity),
+          {
+            operationScope: "tessera.surface.command",
+            locale: "en-US",
+            timezone: "Asia/Shanghai",
+          },
+        ));
+      } catch (error) {
+        throw surfaceCommandHttpError(error);
+      }
+    })
+  ));
 
   /**
    * Settings run only against the server-side runtime manager. Responses are
@@ -918,13 +965,21 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       let result: DatabaseQueryResult;
       let countResult: DatabaseQueryResult;
       try {
-        const [preview, count] = await Promise.all([
-          runtime.dataAgent.previewRelation({
+        const previewRequest = dialect !== "mongodb" && previewColumns.some((column) => isJsonDataType(column.dataType))
+          ? runtime.connector.query({
+            sql: `SELECT ${previewColumns.map((column) => tablePreviewSelectExpression(dialect, column, quote)).join(", ")} FROM ${relationSql} LIMIT ${TABLE_PREVIEW_MAX_ROWS}`,
+            parameters: [],
+            purpose: "Tessera relation preview",
+            maxRows: TABLE_PREVIEW_MAX_ROWS,
+          }, context.req.raw.signal)
+          : runtime.dataAgent.previewRelation({
             schema: table.schema,
             table: table.name,
             columns: previewColumns.map((column) => column.name),
             refresh: false,
-          }, context.req.raw.signal),
+          }, context.req.raw.signal).then(({ result }) => result);
+        [result, countResult] = await Promise.all([
+          previewRequest,
           runtime.connector.query(dialect === "mongodb"
             ? {
               kind: "mongodb",
@@ -942,8 +997,6 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
               maxRows: 1,
             }, context.req.raw.signal),
         ]);
-        result = preview.result;
-        countResult = count;
       } catch {
         throw new StudioHttpError(503, "table_preview_unavailable", "Tessera could not load a preview for the selected table.");
       }
@@ -1053,7 +1106,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     const whereSql = whereParts.length ? ` WHERE ${whereParts.join(" AND ")}` : "";
     const countSql = `SELECT COUNT(*) AS ${quote("__total_count")} FROM ${relationSql}${whereSql}`;
     const nullOrdering = dialect === "postgres" ? ` NULLS ${query.direction === "desc" ? "FIRST" : "LAST"}` : "";
-    const selectSql = `SELECT ${previewColumns.map((column) => quote(column.name)).join(", ")} FROM ${relationSql}${whereSql}`
+    const selectSql = `SELECT ${previewColumns.map((column) => tablePreviewSelectExpression(dialect, column, quote)).join(", ")} FROM ${relationSql}${whereSql}`
       + (query.sort ? ` ORDER BY ${quote(query.sort)} ${query.direction === "desc" ? "DESC" : "ASC"}${nullOrdering}` : "")
       + ` LIMIT ${query.pageSize} OFFSET ${(query.page - 1) * query.pageSize}`;
 
@@ -1463,6 +1516,9 @@ function acquireStudioRouteRuntime(
       dataAgent: lease.runtime.dataAgent,
       catalogProvider: createDataAgentCatalogProvider(lease.runtime.dataAgent),
       ...(lease.runtime.agent === undefined ? {} : { agent: lease.runtime.agent }),
+      ...(lease.runtime.openGenerativeRuntime === undefined
+        ? {}
+        : { openGenerativeRuntime: lease.runtime.openGenerativeRuntime }),
       ...(lease.runtime.sessionMemory === undefined ? {} : { sessionMemory: lease.runtime.sessionMemory }),
       ...(lease.runtime.accessMode !== "read-write" || lease.runtime.databaseActions === undefined
         ? {}
@@ -1634,21 +1690,25 @@ export function createDataAgentCatalogProvider(dataAgent: DataAgent): StudioCata
  * Builds the selected database runtime from a Tessera config. Agent creation is
  * injected so this server package stays useful while the Agent package evolves.
  */
-export function createTesseraStudioRuntime(
+export async function createTesseraStudioRuntime(
   config: TesseraConfig,
   options: CreateTesseraStudioRuntimeOptions = {},
-): TesseraStudioRuntime {
+): Promise<TesseraStudioRuntime> {
   const logger = options.logger ?? createStudioConsoleLogger();
   if (config.studio.requireAuthentication && options.authenticate === undefined) {
     throw new TesseraConfigError(
       "A Tessera Studio with studio.requireAuthentication enabled requires a host-provided authenticate adapter.",
     );
   }
+  if (options.settingsRuntime !== undefined && options.openGenerativeHostFactory !== undefined) {
+    throw new TypeError("A managed Studio owns its Open Generative Host factory through the runtime manager.");
+  }
 
   if (options.settingsRuntime) {
     const lease = options.settingsRuntime.acquire();
     try {
       const runtime = lease.runtime;
+      assertTesseraOpenGenerativeRuntimeDeployment(config, runtime.openGenerativeRuntime);
       const app = createStudioApp({
         connector: runtime.connector,
         dataAgent: runtime.dataAgent,
@@ -1684,7 +1744,7 @@ export function createTesseraStudioRuntime(
     } finally {
       // The current generation cannot retire before this handoff completes;
       // routes subsequently acquire their own leases from the manager.
-      void lease.release();
+      await lease.release();
     }
   }
 
@@ -1693,94 +1753,132 @@ export function createTesseraStudioRuntime(
   if (connector.dialect !== config.database.dialect) {
     throw new TypeError("The injected Tessera database connector does not match the configured dialect.");
   }
-  const dataAgent = options.dataAgent ?? createDataAgent({
-    connector,
-    ...(config.semantic === undefined ? {} : { semantic: config.semantic }),
-    catalog: {
-      ttlMs: config.studio.catalogCacheTtlMs,
-      introspection: {
-        schemas: config.database.schemas,
-        includeComments: true,
-      },
-    },
-    query: {
-      maxRows: config.database.maxRows,
-      timeoutMs: config.database.statementTimeoutMs,
-    },
-  });
-  const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
-  const sessionMemory = createTesseraSessionMemory();
-  const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
-  const continualHarness = options.continualHarness === false
-    ? undefined
-    : options.continualHarness ?? (options.agent !== undefined || llm === undefined || !config.studio.continualHarness.enabled
-      ? undefined
-      : createTesseraContinualHarness({
-        memory: sessionMemory.memory,
-        model: toMastraModelConfig(llm),
-        maxRetries: llm.maxRetries,
-        maxOutputTokens: Math.min(llm.maxOutputTokens, 4_096),
-        autoReviewInterval: config.studio.continualHarness.autoReviewInterval,
-        autoReviewCooldownMs: config.studio.continualHarness.autoReviewCooldownMs,
-      }));
-  const accessMode = options.accessMode ?? "read-only";
-  const databaseActions = accessMode !== "read-write"
-    || config.database.dialect === "mongodb"
-    || config.database.dialect === "sqlite"
-    || config.database.dialect === "turso"
-    ? undefined
-    : options.databaseActions ?? (options.databaseState === undefined
-    ? undefined
-    : createTesseraDatabaseActionService({
+  let sessionMemory: TesseraSessionMemory | undefined;
+  let openGenerativeRuntime: TesseraOpenGenerativeRuntimeBundle | undefined;
+  let continualHarness: TesseraContinualHarness | undefined;
+  try {
+    const dataAgent = options.dataAgent ?? createDataAgent({
       connector,
-      state: options.databaseState,
-      policy: config.database.permissions,
-      getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
-    }));
-  const agent = options.agent ?? (llm !== undefined
-    ? createTesseraStudioAgent({
-      dataAgent,
-      databaseDialect: config.database.dialect,
-      memory: sessionMemory.memory,
-      llm,
-      ...(continualHarness === undefined ? {} : { continualHarness }),
-      ...(databaseActions === undefined ? {} : { databaseActions }),
-      permissionContext: {
-        accessMode,
-        databaseActionsAvailable: databaseActions !== undefined,
-        sqlStatements: config.database.permissions.sqlStatements,
+      ...(config.semantic === undefined ? {} : { semantic: config.semantic }),
+      catalog: {
+        ttlMs: config.studio.catalogCacheTtlMs,
+        introspection: {
+          schemas: config.database.schemas,
+          includeComments: true,
+        },
       },
-    })
-    : undefined);
-  const app = createStudioApp({
-    connector,
-    dataAgent,
-    catalogProvider,
-    agent,
-    sessionMemory,
-    ...(databaseActions === undefined ? {} : { databaseActions }),
-    ...(options.openGenerativeThemePreset === undefined
-      ? {}
-      : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
-    allowedOrigins: config.studio.allowedOrigins,
-    authenticate: options.authenticate,
-    requireAuthentication: config.studio.requireAuthentication,
-    authorizeSettingsChange: options.authorizeSettingsChange,
-    reportError: options.reportError,
-    logger,
-  });
+      query: {
+        maxRows: config.database.maxRows,
+        timeoutMs: config.database.statementTimeoutMs,
+      },
+    });
+    const catalogProvider = options.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
+    sessionMemory = createTesseraSessionMemory();
+    const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
+    const accessMode = options.accessMode ?? "read-only";
+    if (
+      options.openGenerativeHostFactory !== undefined
+      || llm !== undefined
+      || config.studio.generativeUi.hostMode === "production"
+    ) {
+      openGenerativeRuntime = await createTesseraOpenGenerativeRuntimeBundle({
+        config,
+        connector,
+        dataAgent,
+        accessMode,
+        ...(options.databaseState === undefined ? {} : { databaseState: options.databaseState }),
+      }, options.openGenerativeHostFactory);
+    }
+    assertTesseraOpenGenerativeRuntimeDeployment(config, openGenerativeRuntime);
 
-  return {
-    app,
-    connector,
-    dataAgent,
-    ...(databaseActions === undefined ? {} : { databaseActions }),
-    async close() {
-      await agent?.continualHarness?.close();
-      await sessionMemory.close();
-      if (ownsConnector) await connector.close();
-    },
-  };
+    continualHarness = options.continualHarness === false
+      ? undefined
+      : options.continualHarness ?? (options.agent !== undefined || llm === undefined || !config.studio.continualHarness.enabled
+        ? undefined
+        : createTesseraContinualHarness({
+          memory: sessionMemory.memory,
+          model: toMastraModelConfig(llm),
+          maxRetries: llm.maxRetries,
+          maxOutputTokens: Math.min(llm.maxOutputTokens, 4_096),
+          autoReviewInterval: config.studio.continualHarness.autoReviewInterval,
+          autoReviewCooldownMs: config.studio.continualHarness.autoReviewCooldownMs,
+        }));
+    const databaseActions = accessMode !== "read-write"
+      || config.database.dialect === "mongodb"
+      || config.database.dialect === "sqlite"
+      || config.database.dialect === "turso"
+      ? undefined
+      : options.databaseActions ?? (options.databaseState === undefined
+        ? undefined
+        : createTesseraDatabaseActionService({
+          connector,
+          state: options.databaseState,
+          policy: config.database.permissions,
+          getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
+        }));
+    const agent = options.agent ?? (llm === undefined
+      ? undefined
+      : createTesseraStudioAgent({
+        dataAgent,
+        databaseDialect: config.database.dialect,
+        memory: sessionMemory.memory,
+        llm,
+        ...(openGenerativeRuntime === undefined
+          ? {}
+          : { openGenerativeHost: openGenerativeRuntime.host }),
+        ...(continualHarness === undefined ? {} : { continualHarness }),
+        ...(databaseActions === undefined ? {} : { databaseActions }),
+        permissionContext: {
+          accessMode,
+          databaseActionsAvailable: databaseActions !== undefined,
+          sqlStatements: config.database.permissions.sqlStatements,
+        },
+      }));
+    const app = createStudioApp({
+      connector,
+      dataAgent,
+      catalogProvider,
+      ...(agent === undefined ? {} : { agent }),
+      sessionMemory,
+      ...(openGenerativeRuntime === undefined ? {} : { openGenerativeRuntime }),
+      ...(databaseActions === undefined ? {} : { databaseActions }),
+      ...(options.openGenerativeThemePreset === undefined
+        ? {}
+        : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
+      allowedOrigins: config.studio.allowedOrigins,
+      authenticate: options.authenticate,
+      requireAuthentication: config.studio.requireAuthentication,
+      authorizeSettingsChange: options.authorizeSettingsChange,
+      reportError: options.reportError,
+      logger,
+    });
+
+    let closeTask: Promise<void> | undefined;
+    return {
+      app,
+      connector,
+      dataAgent,
+      ...(openGenerativeRuntime === undefined ? {} : { openGenerativeRuntime }),
+      ...(databaseActions === undefined ? {} : { databaseActions }),
+      close() {
+        closeTask ??= Promise.allSettled([
+          agent?.continualHarness?.close(),
+          openGenerativeRuntime?.close(),
+          sessionMemory?.close(),
+          ownsConnector ? connector.close() : undefined,
+        ]).then(() => undefined);
+        return closeTask;
+      },
+    };
+  } catch (error) {
+    await Promise.allSettled([
+      continualHarness?.close(),
+      openGenerativeRuntime?.close(),
+      sessionMemory?.close(),
+      ownsConnector ? connector.close() : undefined,
+    ]);
+    throw error;
+  }
 }
 
 /**
@@ -1825,6 +1923,9 @@ export async function createTesseraStudioService(
   config: TesseraConfig,
   options: CreateTesseraStudioRuntimeOptions = {},
 ): Promise<TesseraStudioRuntime> {
+  if (options.settingsRuntime !== undefined && options.openGenerativeHostFactory !== undefined) {
+    throw new TypeError("Specify either a managed Studio runtime or its Open Generative Host factory, not both.");
+  }
   let settingsRuntime = options.settingsRuntime;
   let durableState: TesseraDurableStateStore | undefined;
   let runtime: TesseraStudioRuntime | undefined;
@@ -1836,9 +1937,14 @@ export async function createTesseraStudioService(
         initiallyUnconfigured: isTesseraStudioUnconfigured(config),
         store: createTesseraLocalSettingsStore(),
         databaseState: durableState.state,
+        ...(options.openGenerativeHostFactory === undefined
+          ? {}
+          : { openGenerativeHostFactory: options.openGenerativeHostFactory }),
       });
     }
-    runtime = createTesseraStudioRuntime(config, { ...options, settingsRuntime });
+    const { openGenerativeHostFactory: _managedFactory, ...runtimeOptions } = options;
+    void _managedFactory;
+    runtime = await createTesseraStudioRuntime(config, { ...runtimeOptions, settingsRuntime });
   } catch (error) {
     await runtime?.close().catch(() => undefined);
     if (!runtime && options.settingsRuntime === undefined) {
@@ -2100,6 +2206,9 @@ function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/runs") return "runs";
   if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
   if (path.startsWith("/api/database-actions")) return "database_actions";
+  if (path === "/api/open-generative/commands" || path.startsWith("/api/open-generative/inspections/")) {
+    return "generative_ui";
+  }
   if (path === "/api/threads" || path.startsWith("/api/threads/")) return "threads";
   if (path.startsWith("/api/data/")) return "data_preview";
   return "unknown";
@@ -2745,6 +2854,39 @@ function requireDatabaseActionService(value: TesseraDatabaseActionService | unde
   return value;
 }
 
+function inspectionNotFoundError(): StudioHttpError {
+  return new StudioHttpError(404, "not_found", "The requested Studio endpoint was not found.");
+}
+
+function isInspectionRecordInScope(
+  record: OpenGenerativeInspectionRecord | undefined,
+  surfaceSessionId: string,
+  authority: OpenGenerativeAuthority,
+): record is OpenGenerativeInspectionRecord {
+  return record !== undefined
+    && record.snapshot?.surfaceSessionId === surfaceSessionId
+    && record.authority?.actorBindingHash === authority.actorBindingHash
+    && record.authority?.tenantBindingHash === authority.tenantBindingHash
+    && record.authority?.authorityPolicyRevision === authority.authorityPolicyRevision;
+}
+
+/** Exposes a stable Host rejection code without leaking adapter or database details. */
+function surfaceCommandHttpError(error: unknown): StudioHttpError {
+  if (error instanceof StudioHttpError) return error;
+  const candidate = typeof error === "object" && error !== null && "code" in error
+    ? String(error.code)
+    : "";
+  const code = /^(?:action|host|intent|interaction|policy|resource|state|surface|transaction|transport|validate)\.[a-z0-9.-]{1,192}$/u.test(candidate)
+    ? candidate
+    : "surface.command-rejected";
+  const status: StudioErrorStatus = code.startsWith("policy.") || code.includes("denied")
+    ? 403
+    : code.includes("conflict") || code.includes("stale")
+      ? 409
+      : 400;
+  return new StudioHttpError(status, code, `The Surface command was rejected (${code}).`);
+}
+
 function databaseActionActor(context: StudioContext): {
   tenantRef: string;
   actorRef: string;
@@ -2898,6 +3040,7 @@ function publicTableColumn(column: DatabaseTable["columns"][number], includeMeta
 }
 
 type PublicPreviewValue = string | number | boolean | null;
+type PublicPreviewCell = Readonly<{ incomplete: boolean; value: PublicPreviewValue }>;
 
 function publicTablePreview(
   table: DatabaseTable,
@@ -2914,22 +3057,26 @@ function publicTablePreview(
   let remainingCharacters = TABLE_PREVIEW_MAX_RESPONSE_CHARS;
   let responseBudgetExceeded = false;
   const rows: Array<Record<string, PublicPreviewValue>> = [];
+  const incompleteCells: Array<Readonly<{ columns: string[]; rowIndex: number }>> = [];
 
   for (const sourceRow of result.rows.slice(0, TABLE_PREVIEW_MAX_ROWS)) {
     const row = Object.create(null) as Record<string, PublicPreviewValue>;
+    const incompleteColumns: string[] = [];
     let rowCharacters = 0;
     for (const column of columns) {
-      const value = Object.prototype.hasOwnProperty.call(sourceRow, column.name)
-        ? publicPreviewValue(sourceRow[column.name])
-        : null;
-      row[column.name] = value;
-      rowCharacters += column.name.length + previewValueCharacterCost(value);
+      const cell = Object.prototype.hasOwnProperty.call(sourceRow, column.name)
+        ? publicPreviewCell(sourceRow[column.name], column.dataType)
+        : { incomplete: true, value: null };
+      row[column.name] = cell.value;
+      if (cell.incomplete) incompleteColumns.push(column.name);
+      rowCharacters += column.name.length + previewValueCharacterCost(cell.value);
     }
     if (rowCharacters > remainingCharacters) {
       responseBudgetExceeded = true;
       break;
     }
     remainingCharacters -= rowCharacters;
+    if (incompleteColumns.length) incompleteCells.push({ columns: incompleteColumns, rowIndex: rows.length });
     rows.push(row);
   }
 
@@ -2942,6 +3089,7 @@ function publicTablePreview(
     }),
     columns: columns.map((column) => publicTableColumn(column)),
     rows,
+    incompleteCells,
     rowCount: rows.length,
     totalRowCount: options.totalRowCount,
     page: options.page,
@@ -2996,6 +3144,21 @@ function quoteTableEditorIdentifier(dialect: DatabaseCatalog["dialect"], identif
   return dialect === "postgres" || dialect === "sqlite" || dialect === "turso"
     ? `"${identifier.replaceAll('"', '""')}"`
     : `\`${identifier.replaceAll("`", "``")}\``;
+}
+
+function tablePreviewSelectExpression(
+  dialect: DatabaseCatalog["dialect"],
+  column: DatabaseTable["columns"][number],
+  quote: (identifier: string) => string,
+): string {
+  const identifier = quote(column.name);
+  if (!isJsonDataType(column.dataType)) return identifier;
+  const textType = dialect === "mysql" ? "CHAR" : "TEXT";
+  return `CAST(${identifier} AS ${textType}) AS ${identifier}`;
+}
+
+function isJsonDataType(dataType: string): boolean {
+  return /^(?:json|jsonb)$/iu.test(dataType.trim());
 }
 
 function buildMongoTablePreviewMatch(
@@ -3109,78 +3272,119 @@ function buildTableDefinition(dialect: DatabaseCatalog["dialect"], table: Databa
   return [tableDefinition, ...indexDefinitions].join("\n\n");
 }
 
-function publicPreviewValue(value: unknown): PublicPreviewValue {
-  if (value === null || value === undefined) return null;
+function publicPreviewCell(value: unknown, dataType?: string): PublicPreviewCell {
+  if (value === null || value === undefined) return { incomplete: false, value: null };
+  if (dataType && isJsonDataType(dataType)) return serializeJsonPreviewValue(value);
   if (typeof value === "string") return truncatePreviewText(value);
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : "[non-finite number]";
-  if (typeof value === "bigint") return value.toString(10);
+  if (typeof value === "boolean") return { incomplete: false, value };
+  if (typeof value === "number") return Number.isFinite(value)
+    ? { incomplete: false, value }
+    : { incomplete: true, value: "[non-finite number]" };
+  if (typeof value === "bigint") return { incomplete: false, value: value.toString(10) };
   if (value instanceof Date) {
     try {
-      return value.toISOString();
+      return { incomplete: false, value: value.toISOString() };
     } catch {
-      return "[invalid date]";
+      return { incomplete: true, value: "[invalid date]" };
     }
   }
   if (typeof value === "object") return serializePreviewObject(value);
-  return "[unsupported value]";
+  return { incomplete: true, value: "[unsupported value]" };
 }
 
-function serializePreviewObject(value: object): string {
-  if (ArrayBuffer.isView(value)) return "[binary value]";
+function serializeJsonPreviewValue(value: unknown): PublicPreviewCell {
+  if (typeof value === "string") {
+    const bounded = truncatePreviewText(value);
+    if (bounded.incomplete) return bounded;
+    try {
+      JSON.parse(value);
+      return bounded;
+    } catch {
+      return { incomplete: true, value };
+    }
+  }
+  if (typeof value !== "object" || value === null) {
+    try {
+      return truncatePreviewText(JSON.stringify(value));
+    } catch {
+      return { incomplete: true, value: "[structured value unavailable]" };
+    }
+  }
+  return serializePreviewObject(value);
+}
+
+function serializePreviewObject(value: object): PublicPreviewCell {
+  if (ArrayBuffer.isView(value)) return { incomplete: true, value: "[binary value]" };
   const seen = new WeakSet<object>();
   try {
-    const serialized = JSON.stringify(normalizePreviewObject(value, seen, 0));
-    return truncatePreviewText(serialized ?? "[structured value unavailable]");
+    const normalized = normalizePreviewObject(value, seen, 0);
+    const serialized = JSON.stringify(normalized.value);
+    if (serialized === undefined) return { incomplete: true, value: "[structured value unavailable]" };
+    const bounded = truncatePreviewText(serialized);
+    return { incomplete: normalized.incomplete || bounded.incomplete, value: bounded.value };
   } catch {
-    return "[structured value unavailable]";
+    return { incomplete: true, value: "[structured value unavailable]" };
   }
 }
 
-function normalizePreviewObject(value: unknown, seen: WeakSet<object>, depth: number): unknown {
-  if (value === null || value === undefined) return null;
+type NormalizedPreviewObject = Readonly<{ incomplete: boolean; value: unknown }>;
+
+function normalizePreviewObject(value: unknown, seen: WeakSet<object>, depth: number): NormalizedPreviewObject {
+  if (value === null || value === undefined) return { incomplete: false, value: null };
   if (typeof value === "string") return truncatePreviewText(value);
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number") return Number.isFinite(value) ? value : "[non-finite number]";
-  if (typeof value === "bigint") return value.toString(10);
-  if (value instanceof Date) return publicPreviewValue(value);
-  if (typeof value !== "object") return "[unsupported value]";
-  if (ArrayBuffer.isView(value)) return "[binary value]";
-  if (depth >= TABLE_PREVIEW_MAX_OBJECT_DEPTH) return "[nested value omitted]";
-  if (seen.has(value)) return "[circular value]";
+  if (typeof value === "boolean") return { incomplete: false, value };
+  if (typeof value === "number") return Number.isFinite(value)
+    ? { incomplete: false, value }
+    : { incomplete: true, value: "[non-finite number]" };
+  if (typeof value === "bigint") return { incomplete: false, value: value.toString(10) };
+  if (value instanceof Date) return publicPreviewCell(value);
+  if (typeof value !== "object") return { incomplete: true, value: "[unsupported value]" };
+  if (ArrayBuffer.isView(value)) return { incomplete: true, value: "[binary value]" };
+  if (depth >= TABLE_PREVIEW_MAX_OBJECT_DEPTH) return { incomplete: true, value: "[nested value omitted]" };
+  if (seen.has(value)) return { incomplete: true, value: "[circular value]" };
   seen.add(value);
 
   if (Array.isArray(value)) {
-    const normalized = value
+    const items = value
       .slice(0, TABLE_PREVIEW_MAX_OBJECT_ITEMS)
       .map((item) => normalizePreviewObject(item, seen, depth + 1));
+    const incomplete = value.length > TABLE_PREVIEW_MAX_OBJECT_ITEMS || items.some((item) => item.incomplete);
+    const normalized = items.map((item) => item.value);
     if (value.length > TABLE_PREVIEW_MAX_OBJECT_ITEMS) normalized.push("[truncated]");
-    return normalized;
+    seen.delete(value);
+    return { incomplete, value: normalized };
   }
 
   const normalized = Object.create(null) as Record<string, unknown>;
   const record = value as Record<string, unknown>;
+  let incomplete = false;
   let itemCount = 0;
   for (const key in record) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) continue;
     if (itemCount >= TABLE_PREVIEW_MAX_OBJECT_ITEMS) {
       normalized["..."] = "[truncated]";
+      incomplete = true;
       break;
     }
     itemCount += 1;
     try {
-      normalized[truncatePreviewText(key)] = normalizePreviewObject(record[key], seen, depth + 1);
+      const boundedKey = truncatePreviewText(key);
+      const item = normalizePreviewObject(record[key], seen, depth + 1);
+      normalized[String(boundedKey.value)] = item.value;
+      incomplete ||= boundedKey.incomplete || item.incomplete;
     } catch {
-      normalized[truncatePreviewText(key)] = "[unavailable]";
+      normalized[String(truncatePreviewText(key).value)] = "[unavailable]";
+      incomplete = true;
     }
   }
-  return normalized;
+  seen.delete(value);
+  return { incomplete, value: normalized };
 }
 
-function truncatePreviewText(value: string): string {
+function truncatePreviewText(value: string): PublicPreviewCell {
   return value.length <= TABLE_PREVIEW_MAX_CELL_CHARS
-    ? value
-    : `${value.slice(0, TABLE_PREVIEW_MAX_CELL_CHARS - 3)}...`;
+    ? { incomplete: false, value }
+    : { incomplete: true, value: `${value.slice(0, TABLE_PREVIEW_MAX_CELL_CHARS - 3)}...` };
 }
 
 function previewValueCharacterCost(value: PublicPreviewValue): number {
@@ -3293,7 +3497,7 @@ function chatWorkspaceContextFromPayload(value: unknown): StudioChatWorkspaceCon
   };
 }
 
-function isStudioImageMediaType(value: string): value is StudioImageMediaType {
+function isStudioImageMediaType(value: string): value is TesseraAgentImageMediaType {
   return value === "image/png"
     || value === "image/jpeg"
     || value === "image/webp"

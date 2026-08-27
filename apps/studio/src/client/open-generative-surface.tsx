@@ -15,6 +15,8 @@ import rendererRelease from "@open-generative/ui/renderer-release.json";
 import { useStudioRouteContext } from "./layout/studio-route-context";
 import { openGenerativeThemeFor } from "./open-generative-theme";
 import { useStudioTheme } from "./studio-theme";
+import { dispatchStudioOpenGenerativeCommand } from "./api/studio-api";
+import { OpenGenerativeInspector } from "./open-generative-inspector";
 
 const verifiedRendererRelease = officialRendererReleaseSchema.parse(rendererRelease);
 
@@ -23,6 +25,7 @@ export function OpenGenerativeSurfaceDataRenderer({ data }: { data: unknown }) {
   const { workspace } = useStudioRouteContext();
   const stream = openGenerativeSurfaceStreamSchema.safeParse(data);
   if (!stream.success) return <OpenGenerativeSurfaceError error={stream.error} />;
+  const generativeUi = workspace.meta.data?.generativeUi;
   return (
     <OpenGenerativeThemeProvider
       className="tessera-generative-surface"
@@ -31,9 +34,18 @@ export function OpenGenerativeSurfaceDataRenderer({ data }: { data: unknown }) {
         workspace.meta.data?.generativeUi.themePreset,
       )}
     >
+      {generativeUi?.inspectorEnabled ? (
+        <div className="tessera-generative-surface-tools">
+          <OpenGenerativeInspector
+            hostDeployment={generativeUi.hostDeployment}
+            surfaceSessionId={stream.data.surfaceSessionId}
+          />
+        </div>
+      ) : null}
       <OpenGenerativeRenderer
         className="tessera-generative-renderer"
         errorFallback={(error) => <OpenGenerativeSurfaceError error={error} />}
+        onCommand={dispatchStudioOpenGenerativeCommand}
         stream={stream.data}
         locale="en-US"
         rendererRelease={verifiedRendererRelease}

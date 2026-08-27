@@ -6,6 +6,35 @@ export const OPEN_GENERATIVE_THEME_PRESET_IDS = ["b7VWPDLHc"] as const;
 export type OpenGenerativeThemePresetId =
   (typeof OPEN_GENERATIVE_THEME_PRESET_IDS)[number];
 
+export type OpenGenerativeShadcnPreset = Readonly<{
+  style: "lyra";
+  theme: "taupe";
+  baseColor: "taupe";
+  chartColor: "taupe";
+  radius: "default";
+  font: "inter";
+  fontHeading: "inherit";
+  iconLibrary: "lucide";
+  menuColor: "default";
+  menuAccent: "subtle";
+}>;
+
+/** Official shadcn preset metadata decoded from ui.shadcn.com. */
+export const OPEN_GENERATIVE_SHADCN_PRESETS = {
+  b7VWPDLHc: {
+    style: "lyra",
+    theme: "taupe",
+    baseColor: "taupe",
+    chartColor: "taupe",
+    radius: "default",
+    font: "inter",
+    fontHeading: "inherit",
+    iconLibrary: "lucide",
+    menuColor: "default",
+    menuAccent: "subtle",
+  },
+} as const satisfies Record<OpenGenerativeThemePresetId, OpenGenerativeShadcnPreset>;
+
 export const DEFAULT_OPEN_GENERATIVE_THEME_PRESET: OpenGenerativeThemePresetId =
   "b7VWPDLHc";
 

@@ -236,7 +236,7 @@ export function SelectTrigger({ className, children }: SelectTriggerProps) {
         borderBottomRightRadius: isTop ? INSTANT_TRANSITION : kfT,
       }}
       className={cn(
-        "relative z-10 flex w-full items-center justify-between gap-2 rounded-xl border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors",
+        "relative z-10 flex w-full items-center justify-between gap-2 rounded-(--radius-control) border border-border bg-background px-3 py-2 text-sm text-foreground outline-none transition-colors",
         "hover:border-(--color-border-strong) focus-visible:ring-2 focus-visible:ring-foreground/20",
         "disabled:pointer-events-none disabled:opacity-50",
         className,
@@ -375,7 +375,7 @@ export function SelectContent({ className, children }: SelectContentProps) {
       // flush against the trigger, then separates into its own rounded pill;
       // sits above or below depending on available space
       className={cn(
-        "absolute left-0 right-0 z-20 rounded-xl border border-border bg-background shadow-lg",
+        "absolute left-0 right-0 z-(--z-dropdown) rounded-(--radius-overlay) border border-border bg-background shadow-(--shadow-float)",
         isTop ? "bottom-full" : "top-full",
         className,
       )}

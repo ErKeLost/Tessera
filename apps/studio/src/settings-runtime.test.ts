@@ -3,6 +3,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createDataAgent } from "@open-tessera/data-agent";
+import type { OpenGenerativeHost } from "@open-generative/mastra";
 import {
   finalizeCatalog,
   type ConnectionAssessment,
@@ -12,13 +13,18 @@ import { defineTesseraConfig } from "./config";
 import {
   TesseraSettingsRuntimeError,
   createTesseraLocalSettingsStore,
+  createTesseraOpenGenerativeRuntimeBundle,
   createTesseraStudioRuntimeManager,
+  createDefaultTesseraStudioRuntimeFactory,
   createTesseraStudioSettingsSnapshot,
   normalizeTesseraStudioSettings,
   type TesseraStudioRuntimeFactory,
   type TesseraStudioSettingsCandidate,
 } from "./settings-runtime";
 import type { TesseraDatabaseActionService } from "./database-actions";
+import type { TesseraOpenGenerativeInspectionReader } from "./generative/inspection";
+import { createTesseraPresentationAuthority } from "./generative/presentation";
+import { LOCAL_STUDIO_IDENTITY } from "./session-memory";
 
 const baseConfig = defineTesseraConfig({
   database: {
@@ -136,6 +142,120 @@ function createFakeConnector(
 }
 
 describe("Tessera Studio settings runtime", () => {
+  test("keeps full demo inspection bounded to the local Studio authority and outside Surface events", async () => {
+    const connector = createFakeConnector("postgres", baseConfig.database.url, true);
+    const dataAgent = createDataAgent({ connector });
+    const runtime = await createTesseraOpenGenerativeRuntimeBundle({
+      config: baseConfig,
+      connector,
+      dataAgent,
+      accessMode: "read-only",
+    });
+    try {
+      expect(runtime.inspectionReader).toBeDefined();
+      const authority = createTesseraPresentationAuthority(LOCAL_STUDIO_IDENTITY);
+      const turn = await runtime.host.prepareTurn({ authority, resources: [] });
+      if (!turn) throw new Error("Expected a local inspected turn.");
+      const session = await turn.createSession();
+      const ogl = 'root = Text("Local Inspector source")\n';
+      await session.pushTextDelta(ogl);
+      expect((await session.finish()).status).toBe("committed");
+      await Promise.resolve();
+
+      const record = await runtime.inspectionReader!.read({
+        surfaceSessionId: turn.surfaceSessionId,
+        authority,
+      });
+      expect(record?.snapshot.ogl).toMatchObject({
+        capture: "full",
+        source: ogl,
+        truncated: false,
+      });
+      expect(JSON.stringify(turn.drainEvents())).not.toContain(ogl);
+      expect(await runtime.inspectionReader!.read({
+        surfaceSessionId: turn.surfaceSessionId,
+        authority: { ...authority, tenantBindingHash: authority.actorBindingHash },
+      })).toBeUndefined();
+
+      let newestSurfaceSessionId = turn.surfaceSessionId;
+      // The local store retains 32 snapshots. Creating 32 newer Surfaces must
+      // evict this completed turn while retaining the newest authorized one.
+      for (let index = 0; index < 32; index += 1) {
+        const next = await runtime.host.prepareTurn({ authority, resources: [] });
+        if (!next) throw new Error("Expected a retained local inspection turn.");
+        newestSurfaceSessionId = next.surfaceSessionId;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(await runtime.inspectionReader!.read({
+        surfaceSessionId: turn.surfaceSessionId,
+        authority,
+      })).toBeUndefined();
+      expect(await runtime.inspectionReader!.read({
+        surfaceSessionId: newestSurfaceSessionId,
+        authority,
+      })).toBeDefined();
+    } finally {
+      await runtime.close();
+      await connector.close();
+    }
+  });
+
+  test("requires an explicit production Host factory and rejects deployment downgrade", async () => {
+    const productionConfig = defineTesseraConfig({
+      ...baseConfig,
+      database: {
+        ...baseConfig.database,
+        permissions: undefined,
+      },
+      studio: { generativeUi: { hostMode: "production" } },
+    });
+    await expect(createDefaultTesseraStudioRuntimeFactory().create(productionConfig, {
+      accessMode: "read-only",
+    })).rejects.toThrow("runtime");
+
+    const demoHost = await import("@open-generative/mastra").then(({ createOpenGenerativeHost }) => (
+      createOpenGenerativeHost()
+    ));
+    await expect(createDefaultTesseraStudioRuntimeFactory({
+      create: async () => ({
+        host: demoHost,
+        async close() {
+          await demoHost.close();
+        },
+      }),
+    }).create(productionConfig, { accessMode: "read-only" })).rejects.toThrow("runtime");
+
+    let closed = 0;
+    const productionHost = {
+      deployment: "production",
+      close: async () => { closed += 1; },
+    } as unknown as OpenGenerativeHost;
+    const inspectionReader: TesseraOpenGenerativeInspectionReader = {
+      read: () => undefined,
+    };
+    const runtime = await createDefaultTesseraStudioRuntimeFactory({
+      create: async () => ({
+        host: productionHost,
+        inspectionReader,
+        async close() {
+          await productionHost.close();
+        },
+      }),
+    }).create(productionConfig, { accessMode: "read-only" });
+    expect(runtime.openGenerativeRuntime?.host.deployment).toBe("production");
+    expect(runtime.openGenerativeRuntime?.inspectionReader).toBe(inspectionReader);
+    await runtime.close();
+    await runtime.close();
+    expect(closed).toBe(1);
+
+    const tracker: BuildTracker = { closed: 0, records: [] };
+    await expect(createTesseraStudioRuntimeManager({
+      config: productionConfig,
+      factory: createFactory(tracker),
+    })).rejects.toMatchObject({ code: "runtime_unavailable" });
+    expect(tracker.records[0]?.closeCalls).toBe(1);
+  });
+
   test("does not publish database mutations from a read-only generation", async () => {
     const manager = await createTesseraStudioRuntimeManager({
       config: baseConfig,

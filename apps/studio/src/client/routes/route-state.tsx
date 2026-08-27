@@ -1,14 +1,8 @@
 import { AlertDescription } from "../components/ui/alert";
-import { Skeleton } from "../components/ui/skeleton";
+import { StudioLoading } from "../components/studio-loading";
 
 export function RouteLoading({ label }: { label: string }) {
-  return (
-    <div aria-busy="true" aria-label={label} className="studio-route-loading">
-      <Skeleton />
-      <Skeleton />
-      <Skeleton />
-    </div>
-  );
+  return <StudioLoading className="studio-route-loading" label={label} size="large" />;
 }
 
 export function RouteError({ message }: { message: string }) {

@@ -223,7 +223,7 @@ export function StudioRouteShell() {
                       connectionError={workspace.connection.error ? publicError(workspace.connection.error) : undefined}
                       onAgentPageContextChange={onAgentPageContextChange}
                       onClose={() => setDatabaseOpen(false)}
-                      onRefreshCatalog={() => { void refreshWorkspace(); }}
+                      onRefreshCatalog={refreshWorkspace}
                       refreshingCatalog={workspace.catalog.isFetching}
                     />
                   </Suspense>

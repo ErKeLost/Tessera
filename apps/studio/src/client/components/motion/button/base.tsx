@@ -55,10 +55,10 @@ const VARIANT_CLASS: Record<ButtonVariant, string> = {
 };
 
 const SIZE_CLASS: Record<ButtonSize, string> = {
-  sm: "h-8 px-3 text-xs gap-1.5 rounded-full",
-  md: "h-10 px-5 text-sm gap-2 rounded-full",
-  lg: "h-12 px-6 text-base gap-2 rounded-full",
-  icon: "h-8 w-8 rounded-lg",
+  sm: "h-8 gap-1.5 rounded-md px-3 text-xs",
+  md: "h-10 gap-2 rounded-md px-5 text-sm",
+  lg: "h-12 gap-2 rounded-md px-6 text-base",
+  icon: "h-8 w-8 rounded-md",
 };
 
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
@@ -66,7 +66,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
     {
       variant = "primary",
       size = "md",
-      pressScale = 0.93,
+      pressScale = 0.98,
       ripple = false,
       className,
       children,
@@ -106,7 +106,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         type="button"
         whileTap={reduce ? undefined : { scale: pressScale }}
-        whileHover={reduce || !canHover ? undefined : { scale: 1.02 }}
+        whileHover={reduce || !canHover ? undefined : { opacity: 0.92 }}
         transition={SPRING_PRESS}
         onPointerDown={handlePointerDown}
         className={cn(
@@ -158,7 +158,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
     {
       variant = "primary",
       size = "md",
-      pressScale = 0.93,
+      pressScale = 0.98,
       className,
       children,
       ...rest
@@ -172,7 +172,7 @@ export const ButtonLink = forwardRef<HTMLAnchorElement, ButtonLinkProps>(
       <motion.a
         ref={ref}
         whileTap={reduce ? undefined : { scale: pressScale }}
-        whileHover={reduce || !canHover ? undefined : { scale: 1.02 }}
+      whileHover={reduce || !canHover ? undefined : { opacity: 0.92 }}
         transition={SPRING_PRESS}
         className={cn(
           "inline-flex items-center justify-center font-medium select-none",

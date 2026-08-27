@@ -1,5 +1,6 @@
 import {
   CheckIcon,
+  CircleXIcon,
   CircleAlertIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
@@ -12,6 +13,10 @@ import {
   KeyRoundIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
+  ListXIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
+  PanelRightCloseIcon,
   PencilIcon,
   PlusIcon,
   RefreshCwIcon,
@@ -23,7 +28,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { File as HighlightedFile } from "@pierre/diffs/react";
-import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import {
   approveStudioDatabaseAction,
   fetchStudioDatabaseActionCapabilities,
@@ -46,6 +51,13 @@ import {
 import { Alert, AlertDescription } from "./components/ui/alert";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "./components/ui/context-menu";
 import {
   Dialog,
   DialogContent,
@@ -79,6 +91,16 @@ import { Tabs, TabsList, TabsTrigger } from "./components/ui/tabs";
 import "./table-editor.css";
 import { cx } from "./utils";
 import { useStudioTheme } from "./studio-theme";
+import { CreateTableDialog, type CreateTableDraft } from "./create-table-dialog";
+import { eventOriginatedWithinCurrentTarget } from "./event-boundary";
+import { isJsonColumnType, JsonCellEditor, type JsonCellSaveResult } from "./json-cell-editor";
+import {
+  INITIAL_TABLE_EDITOR_WORKSPACE_STATE,
+  tableEditorWorkspaceReducer,
+  type RecentTableVisit,
+  type TableEditorWorkspaceState,
+  type TableTabCloseCommand,
+} from "./table-editor-workspace";
 
 type DatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
 
@@ -144,6 +166,7 @@ type Catalog = {
 type PreviewValue = string | number | boolean | null;
 
 type PreviewRow = Readonly<{
+  incompleteColumns: ReadonlySet<string>;
   row: Record<string, PreviewValue>;
   sourceIndex: number;
 }>;
@@ -159,6 +182,7 @@ type TablePreview = {
   columns: CatalogColumn[];
   definition?: string;
   durationMs: number;
+  incompleteCells?: Array<Readonly<{ columns: string[]; rowIndex: number }>>;
   page?: number;
   pageSize?: number;
   rowCount: number;
@@ -182,6 +206,8 @@ type MutationFeedback = Readonly<{
   message: string;
   tone: "error" | "notice" | "success";
 }>;
+
+type MutationSubmissionResult = JsonCellSaveResult;
 
 type SortDirection = "asc" | "desc";
 type TableSort = Readonly<{ column: string; direction: SortDirection }>;
@@ -228,19 +254,22 @@ type TableEditorProps = {
   connectionError: string | undefined;
   onClose: () => void;
   onAgentPageContextChange?: (context: TableEditorAgentPageContext | undefined) => void;
-  onRefreshCatalog: () => void;
+  onRefreshCatalog: () => void | Promise<unknown>;
   refreshingCatalog: boolean;
 };
 
 const PAGE_SIZE = 100;
 const MAX_TABLE_FILTERS = 32;
-const TABLE_EDITOR_STORAGE_VERSION = 1;
+const TABLE_EDITOR_STORAGE_VERSION = 2;
 
 type PersistedTableEditorState = {
+  activeWorkspace: "new" | "table";
   openTableKeys: string[];
   page: number;
+  recentTables: RecentTableVisit[];
   selectedSchema?: string;
   selectedTableKey?: string;
+  sidebarCollapsed: boolean;
   tableSearch: string;
   view: "data" | "definition";
 };
@@ -267,20 +296,28 @@ export function TableEditor({
   const [filterColumn, setFilterColumn] = useState<string>();
   const [permissionsPopoverOpen, setPermissionsPopoverOpen] = useState(false);
   const [selectedSchema, setSelectedSchema] = useState<string>();
-  const [selectedTableKey, setSelectedTableKey] = useState<string>();
-  const [openTableKeys, setOpenTableKeys] = useState<string[]>([]);
+  const [workspace, dispatchWorkspace] = useReducer(
+    tableEditorWorkspaceReducer,
+    INITIAL_TABLE_EDITOR_WORKSPACE_STATE,
+  );
   const [previews, setPreviews] = useState<Record<string, PreviewState>>({});
   const [view, setView] = useState<"data" | "definition">("data");
   const [page, setPage] = useState(1);
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
   const [cellSelection, setCellSelection] = useState<TableCellSelection>();
   const previewRequestIds = useRef<Record<string, number>>({});
+  const previewAbortControllers = useRef<Record<string, AbortController>>({});
   const [copiedColumn, setCopiedColumn] = useState<string>();
   const [writeCapabilities, setWriteCapabilities] = useState<WriteCapabilityState>({ status: "loading" });
   const [mutationDialog, setMutationDialog] = useState<MutationDialogState>();
   const [mutationFeedback, setMutationFeedback] = useState<MutationFeedback>();
   const [pendingApproval, setPendingApproval] = useState<PendingApproval>();
   const [mutationBusy, setMutationBusy] = useState(false);
+  const [createTableOpen, setCreateTableOpen] = useState(false);
+  const [pendingCreatedTableKey, setPendingCreatedTableKey] = useState<string>();
+  const tabsRef = useRef<HTMLElement>(null);
+  const selectedTableKey = workspace.active.kind === "table" ? workspace.active.key : undefined;
+  const { openTableKeys, recentTables, sidebarCollapsed } = workspace;
 
   useEffect(() => {
     let current = true;
@@ -314,19 +351,46 @@ export function TableEditor({
 
   useEffect(() => {
     const restored = readPersistedTableEditorState(storageKey);
+    const validTableKeys = new Set(allTables.map(tableKey));
+    const defaultTableKey = allTables[0] ? tableKey(allTables[0]) : undefined;
+    const restoredTableKey = restored?.activeWorkspace === "table"
+      && restored.selectedTableKey
+      && validTableKeys.has(restored.selectedTableKey)
+      ? restored.selectedTableKey
+      : undefined;
+    const active = restored?.activeWorkspace === "new"
+      ? { kind: "new" } as const
+      : restoredTableKey
+        ? { key: restoredTableKey, kind: "table" } as const
+        : defaultTableKey
+          ? { key: defaultTableKey, kind: "table" } as const
+          : { kind: "new" } as const;
+    const openTableKeys = (restored?.openTableKeys ?? [])
+      .filter((key) => validTableKeys.has(key));
+    if (active.kind === "table" && !openTableKeys.includes(active.key)) openTableKeys.push(active.key);
+
     setTableSearch(restored?.tableSearch ?? "");
     setTableFilters([]);
     setTableSort(undefined);
     setPermissionsPopoverOpen(false);
     setSelectedSchema(restored?.selectedSchema);
-    setSelectedTableKey(restored?.selectedTableKey);
-    setOpenTableKeys(restored?.openTableKeys ?? []);
+    dispatchWorkspace({
+      state: {
+        active,
+        openTableKeys,
+        recentTables: (restored?.recentTables ?? []).filter(({ key }) => validTableKeys.has(key)),
+        sidebarCollapsed: restored?.sidebarCollapsed ?? false,
+      },
+      type: "restore",
+    });
     setView(restored?.view ?? "data");
     setPage(restored?.page ?? 1);
     setSelectedRows(new Set());
     setCellSelection(undefined);
     setCopiedColumn(undefined);
     setPreviews({});
+    for (const controller of Object.values(previewAbortControllers.current)) controller.abort();
+    previewAbortControllers.current = {};
     setRestoredStorageKey(storageKey);
   }, [storageKey]);
 
@@ -338,27 +402,27 @@ export function TableEditor({
 
   useEffect(() => {
     if (restoredStorageKey !== storageKey) return;
-    const firstTable = allTables[0];
-    if (!firstTable) {
-      setSelectedTableKey(undefined);
-      return;
-    }
-    if (selectedTableKey && allTables.some((table) => tableKey(table) === selectedTableKey)) {
-      setOpenTableKeys((keys) => keys.includes(selectedTableKey) ? keys : [...keys, selectedTableKey]);
-      return;
-    }
-    const nextKey = tableKey(firstTable);
-    setSelectedTableKey(nextKey);
-    setOpenTableKeys([nextKey]);
-  }, [allTables, restoredStorageKey, selectedTableKey, storageKey]);
+    dispatchWorkspace({ type: "prune", validTableKeys: new Set(allTables.map(tableKey)) });
+  }, [allTables, restoredStorageKey, storageKey]);
+
+  useEffect(() => {
+    if (!pendingCreatedTableKey) return;
+    const createdTable = allTables.find((table) => tableKey(table) === pendingCreatedTableKey);
+    if (!createdTable) return;
+    dispatchWorkspace({ key: pendingCreatedTableKey, openedAt: Date.now(), type: "open-table" });
+    setPendingCreatedTableKey(undefined);
+  }, [allTables, pendingCreatedTableKey]);
 
   useEffect(() => {
     if (restoredStorageKey !== storageKey) return;
     writePersistedTableEditorState(storageKey, {
+      activeWorkspace: workspace.active.kind,
       openTableKeys: openTableKeys.filter((key) => allTables.some((table) => tableKey(table) === key)),
       page,
+      recentTables: recentTables.filter(({ key }) => allTables.some((table) => tableKey(table) === key)),
       selectedSchema,
       selectedTableKey,
+      sidebarCollapsed,
       tableSearch,
       view,
     });
@@ -366,12 +430,15 @@ export function TableEditor({
     allTables,
     openTableKeys,
     page,
+    recentTables,
     restoredStorageKey,
     selectedSchema,
     selectedTableKey,
+    sidebarCollapsed,
     storageKey,
     tableSearch,
     view,
+    workspace.active.kind,
   ]);
 
   const selectedTable = useMemo(
@@ -383,7 +450,7 @@ export function TableEditor({
   const catalogFingerprint = catalog?.fingerprint;
 
   useEffect(() => {
-    onAgentPageContextChange?.(catalogFingerprint
+    onAgentPageContextChange?.(catalogFingerprint && workspace.active.kind === "table"
       ? {
         catalogFingerprint,
         filterActive: tableFilters.length > 0,
@@ -400,10 +467,14 @@ export function TableEditor({
     selectedTable?.schema,
     tableFilters.length,
     view,
+    workspace.active.kind,
   ]);
 
   const loadPreview = useCallback(async (table: CatalogTable, _force = false) => {
     const key = tableKey(table);
+    previewAbortControllers.current[key]?.abort();
+    const controller = new AbortController();
+    previewAbortControllers.current[key] = controller;
     const requestId = (previewRequestIds.current[key] ?? 0) + 1;
     previewRequestIds.current[key] = requestId;
     setPreviews((values) => ({ ...values, [key]: { status: "loading" } }));
@@ -418,7 +489,9 @@ export function TableEditor({
         })
         : undefined;
       const relationPath = `/api/data/${encodeURIComponent(table.schema)}/${encodeURIComponent(table.name)}`;
-      const response = await fetch(params ? `${relationPath}?${params.toString()}` : relationPath);
+      const response = await fetch(params ? `${relationPath}?${params.toString()}` : relationPath, {
+        signal: controller.signal,
+      });
       const body = await response.json().catch(() => undefined) as { error?: { message?: string } } | TablePreview | undefined;
       if (!response.ok) {
         const message = body && typeof body === "object" && "error" in body ? body.error?.message : undefined;
@@ -427,13 +500,21 @@ export function TableEditor({
       if (previewRequestIds.current[key] !== requestId) return;
       setPreviews((values) => ({ ...values, [key]: { data: body as TablePreview, status: "ready" } }));
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (previewRequestIds.current[key] !== requestId) return;
       setPreviews((values) => ({
         ...values,
         [key]: { error: publicError(error), status: "error" },
       }));
+    } finally {
+      if (previewAbortControllers.current[key] === controller) delete previewAbortControllers.current[key];
     }
   }, [page, tableFilters, tableSort]);
+
+  useEffect(() => () => {
+    for (const controller of Object.values(previewAbortControllers.current)) controller.abort();
+    previewAbortControllers.current = {};
+  }, []);
 
   useEffect(() => {
     if (selectedTable) void loadPreview(selectedTable);
@@ -443,10 +524,7 @@ export function TableEditor({
     setCellSelection(undefined);
   }, [page, selectedTableKey, tableFilters, tableSort]);
 
-  const selectTable = useCallback((table: CatalogTable) => {
-    const key = tableKey(table);
-    setSelectedTableKey(key);
-    setOpenTableKeys((keys) => keys.includes(key) ? keys : [...keys, key]);
+  const resetTableView = useCallback(() => {
     setView("data");
     setTableFilters([]);
     setTableSort(undefined);
@@ -455,6 +533,18 @@ export function TableEditor({
     setCellSelection(undefined);
   }, []);
 
+  const selectTable = useCallback((table: CatalogTable) => {
+    const key = tableKey(table);
+    dispatchWorkspace({ key, openedAt: Date.now(), type: "open-table" });
+    resetTableView();
+  }, [resetTableView]);
+
+  const openNewWorkspace = useCallback(() => {
+    if (selectedTableKey) previewAbortControllers.current[selectedTableKey]?.abort();
+    dispatchWorkspace({ type: "open-new" });
+    resetTableView();
+  }, [resetTableView, selectedTableKey]);
+
   const selectSchema = useCallback((schemaName: string) => {
     setSelectedSchema(schemaName);
     const firstTable = catalog?.schemas.find((schema) => schema.name === schemaName)?.tables[0];
@@ -462,22 +552,35 @@ export function TableEditor({
       selectTable(firstTable);
       return;
     }
-    setSelectedTableKey(undefined);
-    setOpenTableKeys([]);
-    setTableFilters([]);
-    setTableSort(undefined);
-    setPage(1);
-    setSelectedRows(new Set());
-    setCellSelection(undefined);
-  }, [catalog?.schemas, selectTable]);
+    openNewWorkspace();
+  }, [catalog?.schemas, openNewWorkspace, selectTable]);
 
-  const closeTable = useCallback((key: string) => {
-    setOpenTableKeys((keys) => {
-      const nextKeys = keys.filter((current) => current !== key);
-      if (selectedTableKey === key) setSelectedTableKey(nextKeys.at(-1));
-      return nextKeys;
+  const closeTable = useCallback((key: string, command: TableTabCloseCommand = "close") => {
+    const targetIndex = openTableKeys.indexOf(key);
+    if (targetIndex === -1) return;
+    const closedKeys = command === "close-all"
+      ? [...openTableKeys]
+      : command === "close-others"
+        ? openTableKeys.filter((candidate) => candidate !== key)
+        : command === "close-right"
+          ? openTableKeys.slice(targetIndex + 1)
+          : [key];
+    for (const closedKey of closedKeys) {
+      previewAbortControllers.current[closedKey]?.abort();
+      delete previewAbortControllers.current[closedKey];
+      delete previewRequestIds.current[closedKey];
+    }
+    if (closedKeys.length) {
+      const closed = new Set(closedKeys);
+      setPreviews((current) => Object.fromEntries(
+        Object.entries(current).filter(([previewKey]) => !closed.has(previewKey)),
+      ));
+    }
+    dispatchWorkspace({ command, key, type: "close-tabs" });
+    window.requestAnimationFrame(() => {
+      tabsRef.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus();
     });
-  }, [selectedTableKey]);
+  }, [openTableKeys]);
 
   const filteredSchemas = useMemo(() => {
     const normalized = tableSearch.trim().toLocaleLowerCase("en-US");
@@ -496,8 +599,15 @@ export function TableEditor({
   const columns = preview?.columns ?? selectedTable?.columns ?? [];
   const filteredRows = useMemo<PreviewRow[]>(() => {
     const rows = preview?.rows ?? [];
-    return rows.map((row, sourceIndex) => ({ row, sourceIndex }));
-  }, [preview?.rows]);
+    const incompleteByRow = new Map(
+      (preview?.incompleteCells ?? []).map(({ columns: incompleteColumns, rowIndex }) => [rowIndex, new Set(incompleteColumns)]),
+    );
+    return rows.map((row, sourceIndex) => ({
+      incompleteColumns: incompleteByRow.get(sourceIndex) ?? new Set<string>(),
+      row,
+      sourceIndex,
+    }));
+  }, [preview?.incompleteCells, preview?.rows]);
   const totalRowCount = preview?.totalRowCount ?? preview?.rowCount ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalRowCount / PAGE_SIZE));
   useEffect(() => {
@@ -506,7 +616,7 @@ export function TableEditor({
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * PAGE_SIZE;
   const visibleRows = filteredRows;
-  const selectedTableDisplayName = selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "Table Editor";
+  const selectedTableDisplayName = selectedTable ? `${selectedTable.schema}.${selectedTable.name}` : "New";
   const hasQueryControls = tableFilters.length > 0 || tableSort !== undefined;
   const selectionIncludesPage = selectedTable !== undefined
     && visibleRows.length > 0
@@ -533,6 +643,23 @@ export function TableEditor({
   const canInsert = writeServiceAvailable && connectionCanWrite && tableCanMutate && !writeBusy;
   const canUpdate = canInsert && tableHasPrimaryKey;
   const canDelete = canUpdate && selectedMutationRows.length > 0;
+  const ddlDialectSupported = connection?.dialect === "postgres" || connection?.dialect === "mysql";
+  const canCreateTable = writeServiceAvailable
+    && connectionCanWrite
+    && ddlDialectSupported
+    && Boolean(catalog?.schemas.length)
+    && !writeBusy;
+  const createTableUnavailableReason = !connection?.connected
+    ? "Connect a database before creating a table."
+    : !ddlDialectSupported
+      ? "Table creation is currently available for PostgreSQL and MySQL connections."
+      : !writeServiceAvailable
+        ? "Governed database writes are unavailable for this workspace."
+        : !connectionCanWrite
+          ? "The current connection is read-only."
+          : !catalog?.schemas.length
+            ? "The current catalog does not expose a writable schema."
+            : undefined;
   const writeStateLabel = writeCapabilities.status === "loading"
     ? "Checking write access"
     : !writeServiceAvailable
@@ -558,6 +685,10 @@ export function TableEditor({
             ? "Every database change is reviewed through the active permission policy."
             : "Database writes are available through the active permission policy.";
   const showMutationStatus = pendingApproval !== undefined || mutationFeedback !== undefined;
+  const recentTableItems = recentTables.flatMap((visit) => {
+    const table = allTables.find((candidate) => tableKey(candidate) === visit.key);
+    return table ? [{ table, visit }] : [];
+  });
 
   const copySelectedColumn = useCallback(async (columnName: string) => {
     if (!selectedTable) return;
@@ -598,45 +729,55 @@ export function TableEditor({
     setCellSelection(undefined);
     const affectedRows = effect.result?.affectedRows;
     setMutationFeedback({
-      message: affectedRows === undefined
+      message: action.kind === "data.ddl" || affectedRows === undefined
         ? `${databaseActionLabel(action)} completed.`
         : `${databaseActionLabel(action)} completed for ${affectedRows} ${affectedRows === 1 ? "row" : "rows"}.`,
       tone: "success",
     });
+    if (action.kind === "data.ddl") {
+      if (action.operation.kind === "create-table") {
+        setPendingCreatedTableKey(tableKey({ name: action.relation.table, schema: action.relation.schema }));
+      }
+      await onRefreshCatalog();
+      return;
+    }
     const refreshedTable = allTables.find((table) => (
       table.schema === action.relation.schema && table.name === action.relation.table
     ));
     if (refreshedTable) await loadPreview(refreshedTable, true);
-  }, [allTables, loadPreview]);
+  }, [allTables, loadPreview, onRefreshCatalog]);
 
   const handleMutationEffect = useCallback(async (
     action: StudioDatabaseAction,
     purpose: string,
     effect: StudioDatabaseActionEffect,
-  ) => {
+  ): Promise<MutationSubmissionResult> => {
     if (effect.summary.status === "awaiting-approval" && effect.approval) {
       setMutationDialog(undefined);
       setPendingApproval({ action, effect, purpose });
       setMutationFeedback(undefined);
-      return;
+      return { accepted: true };
     }
     if (effect.summary.status === "succeeded") {
       await completeSucceededMutation(action, effect);
-      return;
+      return { accepted: true };
     }
     if (effect.summary.status === "cancelled") {
       setPendingApproval(undefined);
-      setMutationFeedback({ message: `${databaseActionLabel(action)} was not applied.`, tone: "success" });
-      return;
+      const message = `${databaseActionLabel(action)} was not applied.`;
+      setMutationFeedback({ message, tone: "success" });
+      return { accepted: false, error: message };
     }
     setPendingApproval(undefined);
-    setMutationFeedback({
-      message: `${databaseActionLabel(action)} could not be completed (${effect.summary.status}).`,
-      tone: "error",
-    });
+    const message = `${databaseActionLabel(action)} could not be completed (${effect.summary.status}).`;
+    setMutationFeedback({ message, tone: "error" });
+    return { accepted: false, error: message };
   }, [completeSucceededMutation]);
 
-  const submitMutation = useCallback(async (action: StudioDatabaseAction, purpose: string) => {
+  const submitMutation = useCallback(async (
+    action: StudioDatabaseAction,
+    purpose: string,
+  ): Promise<MutationSubmissionResult> => {
     const requestId = createDatabaseActionRequestId();
     setMutationBusy(true);
     setMutationFeedback(undefined);
@@ -647,9 +788,11 @@ export function TableEditor({
         purpose,
         requestId,
       });
-      await handleMutationEffect(action, purpose, effect);
+      return await handleMutationEffect(action, purpose, effect);
     } catch (error) {
-      setMutationFeedback({ message: publicError(error), tone: "error" });
+      const message = publicError(error);
+      setMutationFeedback({ message, tone: "error" });
+      return { accepted: false, error: message };
     } finally {
       setMutationBusy(false);
     }
@@ -679,28 +822,29 @@ export function TableEditor({
       ...databaseActionEnvelope(catalog, table),
       kind: "data.insert",
       maxAffectedRows: 1,
-      ...(table.primaryKey?.length ? { returning: [...table.primaryKey] } : {}),
+      ...databaseActionReturning(catalog, table),
       values: [values],
     };
     void submitMutation(action, `Insert a row in ${table.schema}.${table.name} from Table Editor.`);
   }, [catalog, submitMutation]);
 
   const submitUpdate = useCallback((table: CatalogTable, row: Record<string, PreviewValue>, patch: DatabaseWriteValues) => {
-    if (!catalog) return;
+    if (!catalog) return Promise.resolve({ accepted: false, error: "The database catalog is unavailable." } as const);
     const where = primaryKeyPredicate(table, row);
     if (!where) {
-      setMutationFeedback({ message: "This row no longer has a usable primary-key identity.", tone: "error" });
-      return;
+      const message = "This row no longer has a usable primary-key identity.";
+      setMutationFeedback({ message, tone: "error" });
+      return Promise.resolve({ accepted: false, error: message } as const);
     }
     const action: StudioDatabaseAction = {
       ...databaseActionEnvelope(catalog, table),
       kind: "data.update",
       maxAffectedRows: 1,
       patch,
-      ...(table.primaryKey?.length ? { returning: [...table.primaryKey] } : {}),
+      ...databaseActionReturning(catalog, table),
       where,
     };
-    void submitMutation(action, `Update one row in ${table.schema}.${table.name} from Table Editor.`);
+    return submitMutation(action, `Update one row in ${table.schema}.${table.name} from Table Editor.`);
   }, [catalog, submitMutation]);
 
   const openDeleteDialog = useCallback(() => {
@@ -719,15 +863,69 @@ export function TableEditor({
       ...databaseActionEnvelope(catalog, table),
       kind: "data.delete",
       maxAffectedRows: rows.length,
-      ...(table.primaryKey?.length ? { returning: [...table.primaryKey] } : {}),
+      ...databaseActionReturning(catalog, table),
       where,
     };
     void submitMutation(action, `Delete ${rows.length} ${rows.length === 1 ? "row" : "rows"} from ${table.schema}.${table.name} in Table Editor.`);
   }, [catalog, submitMutation]);
 
+  const submitCreateTable = useCallback((draft: CreateTableDraft) => {
+    if (!catalog) return;
+    const action: StudioDatabaseAction = {
+      catalogFingerprint: catalog.fingerprint,
+      connectionRef: catalog.connectionRef,
+      databaseRef: catalog.databaseName,
+      kind: "data.ddl",
+      operation: {
+        columns: draft.columns.map(({ dataType, name, nullable }) => ({ dataType, name, nullable })),
+        kind: "create-table",
+        primaryKey: draft.columns.filter(({ primaryKey }) => primaryKey).map(({ name }) => name),
+      },
+      relation: { schema: draft.schema, table: draft.name },
+      version: 1,
+    };
+    setCreateTableOpen(false);
+    dispatchWorkspace({ type: "open-new" });
+    void submitMutation(action, `Create ${draft.schema}.${draft.name} from Table Editor.`);
+  }, [catalog, submitMutation]);
+
+  const activateWorkspaceTab = (index: number) => {
+    if (index === openTableKeys.length) {
+      openNewWorkspace();
+    } else {
+      const key = openTableKeys[index];
+      const table = key ? allTables.find((candidate) => tableKey(candidate) === key) : undefined;
+      if (table) selectTable(table);
+    }
+    window.requestAnimationFrame(() => {
+      tabsRef.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[index]?.focus();
+    });
+  };
+
+  const handleWorkspaceTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
+    const tabCount = openTableKeys.length + 1;
+    let nextIndex: number | undefined;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabCount) % tabCount;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % tabCount;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabCount - 1;
+    if (nextIndex === undefined) return;
+    event.preventDefault();
+    activateWorkspaceTab(nextIndex);
+  };
+
+  const openCreateTable = () => {
+    openNewWorkspace();
+    setCreateTableOpen(true);
+  };
+
   return (
-    <section className="table-editor" aria-label="Tessera Table Editor">
-      <aside className="table-editor-sidebar">
+    <section
+      aria-label="Tessera Table Editor"
+      className="table-editor"
+      data-sidebar-collapsed={sidebarCollapsed || undefined}
+    >
+      {!sidebarCollapsed ? <aside className="table-editor-sidebar" id="table-editor-sidebar">
         <header className="table-editor-sidebar-header">
           <div className="table-editor-title-row">
             <Table2Icon aria-hidden="true" size={17} strokeWidth={1.8} />
@@ -760,17 +958,49 @@ export function TableEditor({
                 <ChevronDownIcon aria-hidden="true" size={14} strokeWidth={1.8} />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="table-editor-schema-menu" sideOffset={6}>
+            <DropdownMenuContent
+              align="start"
+              className="table-editor-schema-menu"
+              collisionPadding={8}
+              sideOffset={4}
+            >
               <DropdownMenuRadioGroup onValueChange={selectSchema} value={selectedSchema}>
                 {(catalog?.schemas ?? []).map((schema) => (
-                  <DropdownMenuRadioItem key={schema.name} value={schema.name}>
-                    <span className="table-editor-schema-menu-name">{schema.name}</span>
-                    <span className="table-editor-schema-menu-count">{schema.tables.length}</span>
+                  <DropdownMenuRadioItem
+                    className="table-editor-schema-menu-item"
+                    key={schema.name}
+                    value={schema.name}
+                  >
+                    <CheckIcon
+                      aria-hidden="true"
+                      className="table-editor-schema-menu-check"
+                      size={14}
+                      strokeWidth={2}
+                    />
+                    <span className="table-editor-schema-menu-name" title={schema.name}>{schema.name}</span>
+                    <span
+                      aria-label={`${schema.tables.length} ${schema.tables.length === 1 ? "table" : "tables"}`}
+                      className="table-editor-schema-menu-count"
+                    >
+                      {schema.tables.length}
+                    </span>
                   </DropdownMenuRadioItem>
                 ))}
               </DropdownMenuRadioGroup>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button
+            className="table-editor-new-table-button"
+            disabled={!canCreateTable}
+            onClick={openCreateTable}
+            size="sm"
+            title={createTableUnavailableReason ?? "Create a table"}
+            type="button"
+            variant="outline"
+          >
+            <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+            <span>New table</span>
+          </Button>
         </div>
 
         <label className="table-editor-table-search">
@@ -827,35 +1057,107 @@ export function TableEditor({
           <EyeIcon aria-hidden="true" size={14} />
           <span>Read-only catalog</span>
         </footer>
-      </aside>
+      </aside> : null}
 
-      <section className={cx("table-editor-main", showMutationStatus && "has-mutation-status")}>
-        <nav aria-label="Open tables" className="table-editor-tabs">
+      <section className={cx(
+        "table-editor-main",
+        workspace.active.kind === "new" && "is-new-workspace",
+        showMutationStatus && "has-mutation-status",
+      )}>
+        <nav aria-label="Open tables" className="table-editor-tabs" ref={tabsRef} role="tablist">
+          <TooltipIconButton
+            aria-controls="table-editor-sidebar"
+            aria-expanded={!sidebarCollapsed}
+            aria-label={sidebarCollapsed ? "Expand table navigation" : "Collapse table navigation"}
+            className="table-editor-sidebar-toggle"
+            onClick={() => dispatchWorkspace({ type: "toggle-sidebar" })}
+            tooltip={sidebarCollapsed ? "Expand table navigation" : "Collapse table navigation"}
+            type="button"
+          >
+            {sidebarCollapsed
+              ? <PanelLeftOpenIcon aria-hidden="true" size={15} strokeWidth={1.8} />
+              : <PanelLeftCloseIcon aria-hidden="true" size={15} strokeWidth={1.8} />}
+          </TooltipIconButton>
           {openTableKeys.map((key) => {
             const table = allTables.find((candidate) => tableKey(candidate) === key);
             if (!table) return null;
             const active = key === selectedTableKey;
+            const tabIndex = openTableKeys.indexOf(key);
             return (
-              <div className={cx("table-editor-tab", active && "is-active")} key={key}>
-                <Button aria-current={active ? "page" : undefined} onClick={() => selectTable(table)} size="sm" type="button" variant="ghost">
-                  <Table2Icon aria-hidden="true" size={14} strokeWidth={1.8} />
-                  <span>{table.schema}.{table.name}</span>
-                </Button>
-                <TooltipIconButton
-                  aria-label={`Close ${table.name}`}
-                  className="table-editor-tab-close"
-                  onClick={() => closeTable(key)}
-                  tooltip={`Close ${table.name}`}
-                  type="button"
-                >
-                  <XIcon aria-hidden="true" size={13} />
-                </TooltipIconButton>
-              </div>
+              <ContextMenu key={key}>
+                <ContextMenuTrigger asChild>
+                  <div className={cx("table-editor-tab", active && "is-active")}>
+                    <Button
+                      aria-controls="table-editor-workspace-panel"
+                      aria-selected={active}
+                      onClick={() => selectTable(table)}
+                      onKeyDown={(event) => handleWorkspaceTabKeyDown(event, tabIndex)}
+                      role="tab"
+                      size="sm"
+                      tabIndex={active ? 0 : -1}
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Table2Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+                      <span>{table.schema}.{table.name}</span>
+                    </Button>
+                    <TooltipIconButton
+                      aria-label={`Close ${table.name}`}
+                      className="table-editor-tab-close"
+                      onClick={() => closeTable(key)}
+                      tooltip={`Close ${table.name}`}
+                      type="button"
+                    >
+                      <XIcon aria-hidden="true" size={13} />
+                    </TooltipIconButton>
+                  </div>
+                </ContextMenuTrigger>
+                <ContextMenuContent className="table-editor-tab-context-menu">
+                  <ContextMenuItem onSelect={() => closeTable(key)}><XIcon aria-hidden="true" /> Close</ContextMenuItem>
+                  <ContextMenuItem disabled={openTableKeys.length <= 1} onSelect={() => closeTable(key, "close-others")}><ListXIcon aria-hidden="true" /> Close Others</ContextMenuItem>
+                  <ContextMenuItem disabled={tabIndex === openTableKeys.length - 1} onSelect={() => closeTable(key, "close-right")}><PanelRightCloseIcon aria-hidden="true" /> Close to the Right</ContextMenuItem>
+                  <ContextMenuSeparator />
+                  <ContextMenuItem onSelect={() => closeTable(key, "close-all")}><CircleXIcon aria-hidden="true" /> Close All</ContextMenuItem>
+                </ContextMenuContent>
+              </ContextMenu>
             );
           })}
+          <Button
+            aria-controls="table-editor-workspace-panel"
+            aria-selected={workspace.active.kind === "new"}
+            className={cx("table-editor-new-tab", workspace.active.kind === "new" && "is-active")}
+            onClick={openNewWorkspace}
+            onKeyDown={(event) => handleWorkspaceTabKeyDown(event, openTableKeys.length)}
+            role="tab"
+            size="sm"
+            tabIndex={workspace.active.kind === "new" ? 0 : -1}
+            type="button"
+            variant="ghost"
+          >
+            <PlusIcon aria-hidden="true" size={14} strokeWidth={1.8} />
+            <span>New</span>
+          </Button>
           <span className="table-editor-tabs-fill" />
         </nav>
 
+        {workspace.active.kind === "new" ? (
+          <>
+            <TableMutationStatus
+              busy={mutationBusy}
+              feedback={mutationFeedback}
+              onApprove={() => void respondToApproval("approve")}
+              onReject={() => void respondToApproval("reject")}
+              pendingApproval={pendingApproval}
+            />
+            <TableEditorNewWorkspace
+              canCreateTable={canCreateTable}
+              createTableUnavailableReason={createTableUnavailableReason}
+              onCreateTable={openCreateTable}
+              onSelectTable={selectTable}
+              recentTables={recentTableItems}
+            />
+          </>
+        ) : <>
         <header className="table-editor-toolbar">
           <TableFilterBar
             filters={tableFilters}
@@ -994,7 +1296,7 @@ export function TableEditor({
           pendingApproval={pendingApproval}
         />
 
-        <div className="table-editor-content">
+        <div className="table-editor-content" id="table-editor-workspace-panel" role="tabpanel">
           {!selectedTable ? <TableEditorEmpty title="No table selected" text="Choose a table from the current database catalog." /> : null}
           {selectedTable && selectedPreview?.status === "loading" ? <TableGridLoading columns={columns} showRowActions={Boolean(selectedTable.primaryKey?.length)} /> : null}
           {selectedTable && selectedPreview?.status === "error" ? <TableEditorEmpty title="Preview unavailable" text={selectedPreview.error} /> : null}
@@ -1027,6 +1329,7 @@ export function TableEditor({
                 setCellSelection(undefined);
               }}
               onEditRow={(row) => selectedTable && setMutationDialog({ kind: "update", row, table: selectedTable })}
+              onUpdate={submitUpdate}
               />
           ) : null}
           {selectedTable && preview && view === "definition" ? <TableDefinition definition={preview.definition} table={preview.table} /> : null}
@@ -1053,6 +1356,7 @@ export function TableEditor({
             </TabsList>
           </Tabs>
         </footer>
+        </>}
 
         <span className="sr-only">Viewing {selectedTableDisplayName}</span>
 
@@ -1064,8 +1368,83 @@ export function TableEditor({
           onInsert={submitInsert}
           onUpdate={submitUpdate}
         />
+        <CreateTableDialog
+          busy={mutationBusy}
+          dialect={connection?.dialect ?? catalog?.dialect ?? "postgres"}
+          existingRelations={allTables}
+          initialSchema={selectedSchema}
+          onOpenChange={setCreateTableOpen}
+          onSubmit={submitCreateTable}
+          open={createTableOpen}
+          schemas={(catalog?.schemas ?? []).map(({ name }) => name)}
+        />
       </section>
     </section>
+  );
+}
+
+function TableEditorNewWorkspace({
+  canCreateTable,
+  createTableUnavailableReason,
+  onCreateTable,
+  onSelectTable,
+  recentTables,
+}: {
+  canCreateTable: boolean;
+  createTableUnavailableReason: string | undefined;
+  onCreateTable: () => void;
+  onSelectTable: (table: CatalogTable) => void;
+  recentTables: readonly Readonly<{ table: CatalogTable; visit: RecentTableVisit }>[];
+}) {
+  return (
+    <div className="table-editor-new-workspace" id="table-editor-workspace-panel" role="tabpanel">
+      <div className="table-editor-new-workspace-inner">
+        <Button
+          className="table-editor-create-table-card"
+          disabled={!canCreateTable}
+          onClick={onCreateTable}
+          title={createTableUnavailableReason ?? "Create a table"}
+          type="button"
+          variant="secondary"
+        >
+          <span className="table-editor-create-table-icon">
+            <Table2Icon aria-hidden="true" size={18} strokeWidth={1.8} />
+          </span>
+          <span className="table-editor-create-table-copy">
+            <strong>Create a table</strong>
+            <small>{createTableUnavailableReason ?? "Design and create a new database table"}</small>
+          </span>
+        </Button>
+
+        <section className="table-editor-recent">
+          <header>
+            <h2>Recent items</h2>
+            {recentTables.length ? <span>{recentTables.length}</span> : null}
+          </header>
+          {recentTables.length ? (
+            <div className="table-editor-recent-list">
+              {recentTables.map(({ table, visit }) => (
+                <Button
+                  className="table-editor-recent-item"
+                  key={visit.key}
+                  onClick={() => onSelectTable(table)}
+                  type="button"
+                  variant="ghost"
+                >
+                  <span className="table-editor-recent-icon">
+                    <Table2Icon aria-hidden="true" size={14} strokeWidth={1.8} />
+                  </span>
+                  <span>{table.schema}.{table.name}</span>
+                  <time dateTime={new Date(visit.openedAt).toISOString()}>{recentVisitLabel(visit.openedAt)}</time>
+                </Button>
+              ))}
+            </div>
+          ) : (
+            <p className="table-editor-recent-empty">Tables you open will appear here.</p>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -1082,6 +1461,7 @@ function TableDataGrid({
   onFilterColumn,
   onSortColumn,
   onEditRow,
+  onUpdate,
   pageStart,
   rows,
   selectedRows,
@@ -1109,6 +1489,7 @@ function TableDataGrid({
   onFilterColumn: (columnName: string) => void;
   onSortColumn: (columnName: string, direction: SortDirection) => void;
   onEditRow: (row: Record<string, PreviewValue>) => void;
+  onUpdate: (table: CatalogTable, row: Record<string, PreviewValue>, patch: DatabaseWriteValues) => Promise<MutationSubmissionResult>;
 }) {
   const showRowActions = Boolean(table.primaryKey?.length);
   const gridRef = useRef<HTMLTableElement>(null);
@@ -1228,7 +1609,7 @@ function TableDataGrid({
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ row, sourceIndex }, rowIndex) => {
+          {rows.map(({ incompleteColumns, row, sourceIndex }, rowIndex) => {
             const selectionKey = stableRowKey(table, row, sourceIndex);
             const rowNumber = pageStart + rowIndex + 1;
             return (
@@ -1243,6 +1624,7 @@ function TableDataGrid({
                 {columns.map((column, columnIndex) => {
                   const value = row[column.name];
                   const formatted = displayValue(value);
+                  const jsonColumn = isJsonColumnType(column.dataType);
                   const position = { columnIndex, rowIndex };
                   const cellSelected = isCellSelected(position, cellSelection);
                   const cellFocused = cellSelection !== undefined
@@ -1254,25 +1636,49 @@ function TableDataGrid({
                       className={cx(value === null && "is-null", cellSelected && "is-cell-selected", cellFocused && "is-cell-focus")}
                       data-cell-position={`${rowIndex}:${columnIndex}`}
                       key={column.name}
-                      onFocus={() => {
+                      onFocus={(event) => {
+                        if (!eventOriginatedWithinCurrentTarget(event)) return;
                         if (!cellFocused) selectCell(position, false);
                       }}
-                      onKeyDown={(event) => moveCellFocus(event, position)}
+                      onKeyDown={(event) => {
+                        if (!eventOriginatedWithinCurrentTarget(event)) return;
+                        if (jsonColumn && (event.key === "Enter" || event.key === " ")) {
+                          event.preventDefault();
+                          event.currentTarget.querySelector<HTMLButtonElement>(".table-editor-json-cell-trigger")?.click();
+                          return;
+                        }
+                        moveCellFocus(event, position);
+                      }}
                       onPointerDown={(event) => {
+                        if (!eventOriginatedWithinCurrentTarget(event)) return;
                         if (event.button !== 0) return;
                         draggingSelection.current = true;
                         event.currentTarget.focus();
                         selectCell(position, event.shiftKey);
                       }}
                       onPointerEnter={(event) => {
+                        if (!eventOriginatedWithinCurrentTarget(event)) return;
                         if (draggingSelection.current && event.buttons === 1) selectCell(position, true);
                       }}
-                      onPointerUp={() => { draggingSelection.current = false; }}
+                      onPointerUp={(event) => {
+                        if (!eventOriginatedWithinCurrentTarget(event)) return;
+                        draggingSelection.current = false;
+                      }}
                       role="gridcell"
                       tabIndex={cellFocused || (!cellSelection && rowIndex === 0 && columnIndex === 0) ? 0 : -1}
                       title={formatted}
                     >
-                      {value === null ? <span>NULL</span> : formatted || <span className="table-editor-empty-value">EMPTY</span>}
+                      {value === null ? <span>NULL</span> : jsonColumn ? (
+                        <JsonCellEditor
+                          cacheKey={`json-cell:${tableKey(table)}:${selectionKey}:${column.name}`}
+                          canEdit={canUpdate}
+                          columnName={column.name}
+                          incomplete={incompleteColumns.has(column.name)}
+                          onSave={(json) => onUpdate(table, row, { [column.name]: json })}
+                          relationName={`${table.schema}.${table.name}`}
+                          value={formatted}
+                        />
+                      ) : formatted || <span className="table-editor-empty-value">EMPTY</span>}
                     </td>
                   );
                 })}
@@ -1408,7 +1814,7 @@ function TableMutationDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open>
-      <DialogContent className="table-editor-dialog max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl" showCloseButton={!busy}>
+      <DialogContent className="table-editor-dialog table-editor-row-dialog max-h-[calc(100dvh-2rem)] overflow-hidden sm:max-w-xl" showCloseButton={!busy}>
         <DialogHeader>
           <DialogTitle>{isInsert ? "Add row" : "Edit row"}</DialogTitle>
           <DialogDescription>
@@ -2091,11 +2497,24 @@ function readPersistedTableEditorState(storageKey: string): PersistedTableEditor
     const openTableKeys = Array.isArray(state.openTableKeys)
       ? state.openTableKeys.filter((value): value is string => typeof value === "string" && value.length <= 513).slice(0, 24)
       : [];
+    const recentTables = Array.isArray(state.recentTables)
+      ? state.recentTables.flatMap((value): RecentTableVisit[] => {
+        if (!isRecord(value)) return [];
+        const key = safeStoredOptionalText(value.key);
+        const openedAt = typeof value.openedAt === "number" && Number.isFinite(value.openedAt) && value.openedAt > 0
+          ? Math.floor(value.openedAt)
+          : undefined;
+        return key && openedAt ? [{ key, openedAt }] : [];
+      }).slice(0, 8)
+      : [];
     return {
+      activeWorkspace: state.activeWorkspace === "new" ? "new" : "table",
       openTableKeys,
       page: typeof state.page === "number" && Number.isInteger(state.page) && state.page > 0 ? Math.min(state.page, 10_000) : 1,
+      recentTables,
       selectedSchema: safeStoredOptionalText(state.selectedSchema),
       selectedTableKey: safeStoredOptionalText(state.selectedTableKey),
+      sidebarCollapsed: state.sidebarCollapsed === true,
       tableSearch: safeStoredText(state.tableSearch),
       view: state.view === "definition" ? "definition" : "data",
     };
@@ -2128,6 +2547,18 @@ function tableKey(table: Pick<CatalogTable, "name" | "schema">): string {
   return `${table.schema}\u0000${table.name}`;
 }
 
+function recentVisitLabel(openedAt: number, now = Date.now()): string {
+  const elapsedSeconds = Math.max(0, Math.floor((now - openedAt) / 1_000));
+  if (elapsedSeconds < 60) return "Just now";
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m ago`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h ago`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 7) return `${elapsedDays}d ago`;
+  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(openedAt);
+}
+
 function isMutableTable(table: CatalogTable): boolean {
   return table.kind === "table" || table.kind === "partitioned-table";
 }
@@ -2140,6 +2571,15 @@ function databaseActionEnvelope(catalog: Catalog, table: CatalogTable): Database
     catalogFingerprint: catalog.fingerprint,
     relation: { schema: table.schema, table: table.name },
   };
+}
+
+function databaseActionReturning(
+  catalog: Catalog,
+  table: CatalogTable,
+): Readonly<{ returning?: string[] }> {
+  return catalog.dialect === "postgres" && table.primaryKey?.length
+    ? { returning: [...table.primaryKey] }
+    : {};
 }
 
 function databaseActionLabel(action: StudioDatabaseAction): string {

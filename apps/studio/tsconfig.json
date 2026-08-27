@@ -5,6 +5,7 @@
     "types": ["bun", "node"],
     "paths": {
       "@/*": ["./src/client/*"],
+      "@open-tessera/agent": ["../../packages/tessera-agent/src/index.ts"],
       "@open-tessera/schema": ["../../packages/tessera-schema/src/index.ts"],
       "@open-tessera/core": ["../../packages/tessera-core/src/index.ts"],
       "@open-tessera/runtime": ["../../packages/tessera-runtime/src/index.ts"],

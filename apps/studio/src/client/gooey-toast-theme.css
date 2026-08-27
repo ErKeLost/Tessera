@@ -1,0 +1,145 @@
+/* Token bridge for goey-toast. The library owns motion and geometry; Studio
+   owns typography, color, radius, focus, and elevation. */
+.gooey-wrapper {
+  z-index: var(--z-toast);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-synthesis: none;
+}
+
+.gooey-wrapper[data-theme] .gooey-blobSvg {
+  filter: drop-shadow(var(--shadow-whisper));
+}
+
+.gooey-blobSvg path {
+  fill: var(--popover) !important;
+  stroke: var(--border) !important;
+  stroke-width: 1px !important;
+}
+
+.gooey-contentExpanded {
+  min-width: min(300px, calc(100vw - (var(--space-6) * 2)));
+  max-width: min(380px, calc(100vw - (var(--space-6) * 2)));
+}
+
+.gooey-title {
+  padding-bottom: 1px;
+  color: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0;
+  line-height: var(--line-tight);
+}
+
+.gooey-wrapper[data-theme] :is(
+  .gooey-titleDefault,
+  .gooey-titleLoading
+) {
+  color: var(--foreground);
+}
+
+.gooey-wrapper[data-theme] :is(
+  .gooey-titleSuccess,
+  .gooey-titleInfo
+) {
+  color: var(--success);
+}
+
+.gooey-wrapper[data-theme] .gooey-titleError {
+  color: var(--destructive);
+}
+
+.gooey-wrapper[data-theme] .gooey-titleWarning {
+  color: var(--warning);
+}
+
+.gooey-wrapper[data-theme] .gooey-timestamp {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.gooey-wrapper[data-theme] .gooey-description {
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--text-ui);
+  line-height: var(--line-body);
+}
+
+.gooey-actionWrapper {
+  margin-top: var(--space-3);
+}
+
+.gooey-wrapper[data-theme] .gooey-actionButton {
+  min-height: var(--control-height-md);
+  border: 1px solid var(--primary);
+  border-radius: var(--radius-control);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font-size: var(--text-ui);
+  font-weight: 500;
+  letter-spacing: 0;
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    transform var(--motion-fast) ease;
+}
+
+.gooey-wrapper[data-theme] .gooey-actionButton:hover {
+  border-color: color-mix(in srgb, var(--primary) 84%, var(--background));
+  background: color-mix(in srgb, var(--primary) 84%, var(--background));
+}
+
+.gooey-wrapper[data-theme] .gooey-actionButton:active {
+  transform: translateY(1px);
+}
+
+.gooey-actionButton:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent);
+}
+
+.gooey-wrapper[data-theme] .gooey-progressWrapper {
+  border-radius: var(--radius-indicator);
+  background: var(--muted);
+}
+
+.gooey-wrapper[data-theme] .gooey-progressDefault {
+  background: var(--text-faint);
+}
+
+.gooey-wrapper[data-theme] :is(
+  .gooey-progressSuccess,
+  .gooey-progressInfo
+) {
+  background: var(--success);
+}
+
+.gooey-wrapper[data-theme] .gooey-progressError {
+  background: var(--destructive);
+}
+
+.gooey-wrapper[data-theme] .gooey-progressWarning {
+  background: var(--warning);
+}
+
+.gooey-wrapper[data-theme] .gooey-closeButton {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-control);
+  background: var(--popover) !important;
+  color: var(--text-muted);
+  box-shadow: var(--shadow-whisper) !important;
+}
+
+.gooey-closeButton:hover {
+  color: var(--foreground);
+}
+
+.gooey-closeButton:focus,
+.gooey-closeButton:focus-visible {
+  box-shadow:
+    var(--shadow-whisper),
+    0 0 0 2px color-mix(in srgb, var(--ring) 28%, transparent) !important;
+}
