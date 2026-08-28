@@ -1,7 +1,15 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 const linkedPackageNames = [
+  "@open-generative/adapter-shadcn",
   "@open-generative/components",
   "@open-generative/mastra",
   "@open-generative/protocol",
@@ -31,8 +39,8 @@ export async function ensureOpenGenerativeLinks(openGenerativeRoot: string): Pro
     await run(["bun", "link", "--no-save"], packageRoot);
   }
 
-  await linkConsumer("@open-tessera/studio", linkedPackageNames);
-  await linkConsumer("@open-tessera/agent", agentPackageNames);
+  linkConsumer("@open-tessera/studio", linkedPackageNames, openGenerativeRoot);
+  linkConsumer("@open-tessera/agent", agentPackageNames, openGenerativeRoot);
 
   for (const packageName of linkedPackageNames) {
     assertResolvedInside(packageName, packageRootFor(openGenerativeRoot, packageName), studioRoot);
@@ -41,20 +49,31 @@ export async function ensureOpenGenerativeLinks(openGenerativeRoot: string): Pro
     assertResolvedInside(packageName, packageRootFor(openGenerativeRoot, packageName), agentRoot);
   }
   assertResolvedInside("@open-generative/ui/styles.css", packageRootFor(openGenerativeRoot, "@open-generative/ui"), studioRoot);
-  assertResolvedInside("@open-generative/ui/renderer-release.json", packageRootFor(openGenerativeRoot, "@open-generative/ui"), studioRoot);
+  assertResolvedInside("@open-generative/adapter-shadcn/styles.css", packageRootFor(openGenerativeRoot, "@open-generative/adapter-shadcn"), studioRoot);
+  assertResolvedInside("@open-generative/adapter-shadcn/renderer-release.json", packageRootFor(openGenerativeRoot, "@open-generative/adapter-shadcn"), studioRoot);
 }
 
-async function linkConsumer(
+function linkConsumer(
   consumer: "@open-tessera/studio" | "@open-tessera/agent",
   packages: readonly string[],
-): Promise<void> {
-  await run([
-    "bun",
-    "add",
-    `--filter=${consumer}`,
-    "--no-save",
-    ...packages.map((packageName) => `${packageName}@link:${packageName}`),
-  ], tesseraRoot);
+  openGenerativeRoot: string,
+): void {
+  const consumerRoot = consumer === "@open-tessera/studio" ? studioRoot : agentRoot;
+  for (const packageName of packages) {
+    linkLocalPackage(
+      packageRootFor(openGenerativeRoot, packageName),
+      resolve(consumerRoot, "node_modules", packageName),
+    );
+  }
+}
+
+function linkLocalPackage(source: string, target: string): void {
+  const packageDirectory = resolve(target, "..");
+  mkdirSync(packageDirectory, { recursive: true });
+  // The target is an exact scoped package path under a consumer's node_modules.
+  // Removing it only replaces that package entry; it never follows the source.
+  rmSync(target, { force: true, recursive: true });
+  symlinkSync(source, target, "dir");
 }
 
 function assertSupportedBunVersion(): void {
@@ -73,6 +92,7 @@ export async function buildOpenGenerativePackages(openGenerativeRoot: string): P
     "build",
     "--filter=@open-generative/mastra...",
     "--filter=@open-generative/ui...",
+    "--filter=@open-generative/adapter-shadcn...",
     "--output-logs=new-only",
   ], openGenerativeRoot);
 }

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "tw-shimmer";
+@import "@open-generative/ui/styles.css";
+@import "@open-generative/adapter-shadcn/styles.css";
 @import "./theme.css";
 @import "./primitives.css";
 

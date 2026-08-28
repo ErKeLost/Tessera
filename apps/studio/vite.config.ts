@@ -20,7 +20,9 @@ const hasLinkedOpenGenerativeWorkspace = existsSync(resolve(openGenerativeRoot, 
 const openGenerativeRestartFiles = hasLinkedOpenGenerativeWorkspace
   ? [
       resolve(openGenerativeRoot, "packages/mastra/dist/index.mjs"),
-      resolve(openGenerativeRoot, "packages/ui/dist/renderer-release.json"),
+      resolve(openGenerativeRoot, "packages/ui/dist/index.mjs"),
+      resolve(openGenerativeRoot, "packages/adapter-shadcn/dist/index.mjs"),
+      resolve(openGenerativeRoot, "packages/adapter-shadcn/dist/renderer-release.json"),
     ]
   : [];
 const studioPackage = JSON.parse(
@@ -94,6 +96,7 @@ export default defineConfig({
   optimizeDeps: {
     exclude: [
       "@open-generative/components",
+      "@open-generative/adapter-shadcn",
       "@open-generative/mastra",
       "@open-generative/protocol",
       "@open-generative/ui",

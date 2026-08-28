@@ -12,22 +12,14 @@ import {
 const hostThemeTokens = {
   background: "var(--ds-color-canvas)",
   foreground: "var(--ds-color-ink)",
-  card: "var(--ds-color-surface-raised)",
-  cardForeground: "var(--ds-color-ink)",
-  popover: "var(--ds-color-surface-overlay)",
-  popoverForeground: "var(--ds-color-ink)",
-  primary: "var(--ds-color-ink)",
-  primaryForeground: "var(--ds-color-on-primary)",
-  secondary: "var(--ds-color-surface-secondary)",
-  secondaryForeground: "var(--ds-color-ink)",
-  muted: "var(--ds-color-surface-muted)",
+  surface: "var(--ds-color-surface-raised)",
   mutedForeground: "var(--ds-color-body)",
-  accent: "var(--ds-color-surface-hover)",
-  accentForeground: "var(--ds-color-ink)",
-  destructive: "var(--ds-color-error)",
   border: "var(--ds-color-border)",
   input: "var(--ds-color-border-strong)",
+  primary: "var(--ds-color-ink)",
   ring: "var(--ds-color-focus)",
+  card: "var(--ds-color-surface-raised)",
+  cardForeground: "var(--ds-color-ink)",
   radius: "var(--ds-radius-card)",
   chart: [
     "var(--ds-chart-1)",
@@ -40,21 +32,11 @@ const hostThemeTokens = {
 
 const shadcnPreset = OPEN_GENERATIVE_SHADCN_PRESETS[DEFAULT_OPEN_GENERATIVE_THEME_PRESET];
 
-const shadcnDesign = {
-  style: shadcnPreset.style,
-  density: 0.6432,
-  radiusScale: 0.86,
-  borderWidth: "var(--ds-border-width-hairline)",
-  chartStrokeWidth: 1.5,
-  surfaceShadow: "var(--ds-shadow-whisper)",
-} as const;
-
 function createHostShadcnTheme(mode: OpenGenerativeThemeMode): OpenGenerativeTheme {
   return createOpenGenerativeTheme({
     name: `shadcn-${shadcnPreset.style}-${shadcnPreset.theme}-${mode}`,
     mode,
     tokens: hostThemeTokens,
-    design: shadcnDesign,
   });
 }
 

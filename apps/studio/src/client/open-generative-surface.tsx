@@ -1,9 +1,6 @@
 "use client";
 
 import {
-  officialRendererReleaseSchema,
-} from "@open-generative/components";
-import {
   openGenerativeFallbackSchema,
   openGenerativeSurfaceStreamSchema,
 } from "@open-generative/protocol";
@@ -11,14 +8,12 @@ import {
   OpenGenerativeRenderer,
   OpenGenerativeThemeProvider,
 } from "@open-generative/ui";
-import rendererRelease from "@open-generative/ui/renderer-release.json";
 import { useStudioRouteContext } from "./layout/studio-route-context";
 import { openGenerativeThemeFor } from "./open-generative-theme";
 import { useStudioTheme } from "./studio-theme";
 import { dispatchStudioOpenGenerativeCommand } from "./api/studio-api";
 import { OpenGenerativeInspector } from "./open-generative-inspector";
-
-const verifiedRendererRelease = officialRendererReleaseSchema.parse(rendererRelease);
+import { tesseraOpenGenerativeFoundationFor } from "./open-generative-foundation";
 
 export function OpenGenerativeSurfaceDataRenderer({ data }: { data: unknown }) {
   const { resolvedTheme } = useStudioTheme();
@@ -26,6 +21,7 @@ export function OpenGenerativeSurfaceDataRenderer({ data }: { data: unknown }) {
   const stream = openGenerativeSurfaceStreamSchema.safeParse(data);
   if (!stream.success) return <OpenGenerativeSurfaceError error={stream.error} />;
   const generativeUi = workspace.meta.data?.generativeUi;
+  const hostDeployment = generativeUi?.hostDeployment;
   return (
     <OpenGenerativeThemeProvider
       className="tessera-generative-surface"
@@ -45,10 +41,11 @@ export function OpenGenerativeSurfaceDataRenderer({ data }: { data: unknown }) {
       <OpenGenerativeRenderer
         className="tessera-generative-renderer"
         errorFallback={(error) => <OpenGenerativeSurfaceError error={error} />}
+        foundation={tesseraOpenGenerativeFoundationFor(hostDeployment)}
         onCommand={dispatchStudioOpenGenerativeCommand}
         stream={stream.data}
+        allowDevelopmentFoundation={hostDeployment !== "production"}
         locale="en-US"
-        rendererRelease={verifiedRendererRelease}
         timezone="Asia/Shanghai"
       />
     </OpenGenerativeThemeProvider>
