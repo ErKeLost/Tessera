@@ -5,8 +5,8 @@ description: Configure Tessera Studio, its database boundary, and model runtime.
 
 Tessera reads one server-only `tessera.config.ts`. The configuration owns the
 database connection, semantic definitions, model settings, and Studio network
-boundary. Generated analysis views are built into Studio and have no separate
-installation or public configuration block.
+boundary. The Studio client renders the sanitized text and tool transcript; no
+separate presentation runtime is required.
 
 ```ts
 import { defineTesseraConfig } from "@open-tessera/studio";

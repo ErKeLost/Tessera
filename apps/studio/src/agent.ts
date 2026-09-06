@@ -1,7 +1,6 @@
 import type { MastraModelConfig } from "@mastra/core/llm";
 import { Mastra } from "@mastra/core/mastra";
 import type { Memory } from "@mastra/memory";
-import type { OpenGenerativeHost } from "@open-generative/mastra";
 import {
   createTesseraAgent,
   toMastraModelConfig as toAgentMastraModelConfig,
@@ -39,7 +38,6 @@ export type TesseraStudioAgentOptions = Readonly<{
    */
   mastra?: Mastra;
   continualHarness?: TesseraContinualHarness;
-  openGenerativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost>;
 }>;
 
 export type TesseraStudioAgent = TesseraAgent & Readonly<{
@@ -80,9 +78,6 @@ export function createTesseraStudioAgent(
     ...(options.continualHarness === undefined
       ? {}
       : { continualHarness: options.continualHarness }),
-    ...(options.openGenerativeHost === undefined
-      ? {}
-      : { openGenerativeHost: options.openGenerativeHost }),
   });
 
   return {

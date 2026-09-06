@@ -17,11 +17,6 @@ import {
 } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 import { z } from "zod";
-import {
-  createOpenGenerativeHost,
-  type OpenGenerativeHost,
-  type OpenGenerativeInspectionRecord,
-} from "@open-generative/mastra";
 import { createDataAgent, type DataAgent } from "@open-tessera/data-agent";
 import type { DurableStateStorePort } from "@open-tessera/runtime";
 import {
@@ -42,8 +37,6 @@ import { createSqliteConnector } from "@open-tessera/sqlite";
 import { createTursoConnector } from "@open-tessera/turso";
 import { createTesseraStudioAgent, toMastraModelConfig } from "./agent";
 import type { StudioAgent } from "./server";
-import type { TesseraOpenGenerativeInspectionReader } from "./generative/inspection";
-import { createTesseraPresentationAuthority } from "./generative/presentation";
 import {
   LOCAL_STUDIO_IDENTITY,
   createTesseraSessionMemory,
@@ -67,8 +60,6 @@ import { createTesseraDatabaseActionService, type TesseraDatabaseActionService }
 const SETTINGS_DIRECTORY = ".tessera";
 const SETTINGS_FILE = "settings.json";
 const SETTINGS_STORE_VERSION = 1;
-/** At the Host default of 96 KiB OGL per record, this keeps local diagnostics bounded. */
-const LOCAL_OPEN_GENERATIVE_INSPECTION_RECORD_LIMIT = 32;
 
 const databaseDialectSchema = z.enum(["postgres", "mysql", "sqlite", "turso", "mongodb"]);
 const accessModeSchema = z.enum(["read-only", "read-write"]);
@@ -369,7 +360,6 @@ export function createTesseraStudioSettingsSnapshot(
 export type TesseraStudioRuntimeBuild = Readonly<{
   connector: DatabaseConnector;
   dataAgent: DataAgent;
-  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   sessionMemory?: TesseraSessionMemory;
   /** Undefined only when no provider credential source has been configured. */
   agent?: StudioAgent;
@@ -384,143 +374,12 @@ export type TesseraStudioRuntimeFactory = Readonly<{
   ): Promise<TesseraStudioRuntimeBuild> | TesseraStudioRuntimeBuild;
 }>;
 
-export type TesseraOpenGenerativeHostFactoryInput = Readonly<{
-  config: TesseraConfig;
-  connector: DatabaseConnector;
-  dataAgent: DataAgent;
-  accessMode: TesseraDatabaseAccessMode;
-  databaseState?: DurableStateStorePort;
-}>;
-
-/**
- * Production applications inject this server-only factory. It may assemble a
- * Supabase-backed Host, but its adapters and credentials never enter Mastra,
- * Agent memory, or browser state.
- */
-export type TesseraOpenGenerativeHostFactory = Readonly<{
-  create(
-    input: TesseraOpenGenerativeHostFactoryInput,
-  ): TesseraOpenGenerativeRuntimeBundle | Promise<TesseraOpenGenerativeRuntimeBundle>;
-}>;
-
-/**
- * One generation of Open Generative server capabilities. The Host, Inspector
- * reader, and their backing stores are created and retired as one unit.
- */
-export type TesseraOpenGenerativeRuntimeBundle = Readonly<{
-  host: OpenGenerativeHost;
-  inspectionReader?: TesseraOpenGenerativeInspectionReader;
-  close(): Promise<void>;
-}>;
-
-/** Creates and validates one deployment-matched Host/Inspector generation. */
-export async function createTesseraOpenGenerativeRuntimeBundle(
-  input: TesseraOpenGenerativeHostFactoryInput,
-  factory?: TesseraOpenGenerativeHostFactory,
-): Promise<TesseraOpenGenerativeRuntimeBundle> {
-  if (input.config.studio.generativeUi.hostMode === "production" && factory === undefined) {
-    throw new TypeError("A production Open Generative Host factory is required.");
-  }
-
-  const raw = factory === undefined
-    ? await createDemoOpenGenerativeRuntimeBundle()
-    : await factory.create(input);
-  let closeTask: Promise<void> | undefined;
-  const runtime = Object.freeze({
-    host: raw.host,
-    ...(raw.inspectionReader === undefined ? {} : { inspectionReader: raw.inspectionReader }),
-    close() {
-      closeTask ??= Promise.resolve().then(() => raw.close());
-      return closeTask;
-    },
-  });
-
-  try {
-    assertTesseraOpenGenerativeRuntimeDeployment(input.config, runtime);
-    return runtime;
-  } catch (error) {
-    await runtime.close().catch(() => undefined);
-    throw error;
-  }
-}
-
-/** Enforces fail-closed deployment selection for static and managed runtimes. */
-export function assertTesseraOpenGenerativeRuntimeDeployment(
-  config: TesseraConfig,
-  runtime: TesseraOpenGenerativeRuntimeBundle | undefined,
-): void {
-  const expected = config.studio.generativeUi.hostMode;
-  if (expected === "production" && runtime === undefined) {
-    throw new TypeError("A production Open Generative runtime is required.");
-  }
-  if (runtime !== undefined && runtime.host.deployment !== expected) {
-    throw new TypeError("The Open Generative Host deployment does not match Tessera configuration.");
-  }
-}
-
-async function createDemoOpenGenerativeRuntimeBundle(): Promise<TesseraOpenGenerativeRuntimeBundle> {
-  const localAuthority = createTesseraPresentationAuthority(LOCAL_STUDIO_IDENTITY);
-  const records = new Map<string, OpenGenerativeInspectionRecord>();
-  const inLocalScope = (authority: Readonly<{
-    actorBindingHash: string;
-    tenantBindingHash: string;
-    authorityPolicyRevision: string;
-  }>) => authority.actorBindingHash === localAuthority.actorBindingHash
-    && authority.tenantBindingHash === localAuthority.tenantBindingHash
-    && authority.authorityPolicyRevision === localAuthority.authorityPolicyRevision;
-  const host = await createOpenGenerativeHost({
-    mode: "demo",
-    inspector: {
-      policy: {
-        capture: "full",
-        authorize: ({ authority }) => authority.actorAuditRef === localAuthority.actorAuditRef
-          && inLocalScope(authority),
-      },
-      store: {
-        write(record) {
-          if (!inLocalScope(record.authority)) {
-            throw new Error("The local Inspector refused a record outside its Studio authority.");
-          }
-          const surfaceSessionId = record.snapshot.surfaceSessionId;
-          // Refresh insertion order for an active Surface, then evict the
-          // least recently updated snapshot when the local window is full.
-          records.delete(surfaceSessionId);
-          records.set(surfaceSessionId, structuredClone(record));
-          while (records.size > LOCAL_OPEN_GENERATIVE_INSPECTION_RECORD_LIMIT) {
-            const oldestSurfaceSessionId = records.keys().next().value;
-            if (oldestSurfaceSessionId === undefined) break;
-            records.delete(oldestSurfaceSessionId);
-          }
-        },
-        close() {
-          records.clear();
-        },
-      },
-    },
-  });
-  const inspectionReader: TesseraOpenGenerativeInspectionReader = Object.freeze({
-    read({ surfaceSessionId, authority }) {
-      if (!inLocalScope(authority)) return undefined;
-      const record = records.get(surfaceSessionId);
-      return record === undefined ? undefined : structuredClone(record);
-    },
-  });
-  return Object.freeze({
-    host,
-    inspectionReader,
-    async close() {
-      await host.close();
-    },
-  });
-}
-
 /** A lease-safe, secret-free handle for server routes to use during one request. */
 export type TesseraStudioRuntimeGeneration = Readonly<{
   generation: number;
   accessMode: TesseraDatabaseAccessMode;
   connector: DatabaseConnector;
   dataAgent: DataAgent;
-  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   sessionMemory?: TesseraSessionMemory;
   agent?: StudioAgent;
   databaseActions?: TesseraDatabaseActionService;
@@ -557,8 +416,6 @@ export type TesseraRuntimeManagerOptions = Readonly<{
   initiallyUnconfigured?: boolean;
   accessMode?: TesseraDatabaseAccessMode;
   factory?: TesseraStudioRuntimeFactory;
-  /** Used by the default runtime factory; mutually exclusive with `factory`. */
-  openGenerativeHostFactory?: TesseraOpenGenerativeHostFactory;
   store?: TesseraStudioSettingsStore;
   /** Shared durable store for grants, effects and mutation receipts. */
   databaseState?: DurableStateStorePort;
@@ -588,14 +445,11 @@ type RuntimeRecord = {
  * as Studio's static runtime. The current Data Agent remains the only SQL
  * execution boundary, so a `read-write` UI setting cannot widen Agent SQL.
  */
-export function createDefaultTesseraStudioRuntimeFactory(
-  openGenerativeHostFactory?: TesseraOpenGenerativeHostFactory,
-): TesseraStudioRuntimeFactory {
+export function createDefaultTesseraStudioRuntimeFactory(): TesseraStudioRuntimeFactory {
   return Object.freeze({
     async create(config, options) {
       const connector = createManagedConnector(config);
       let sessionMemory: TesseraSessionMemory | undefined;
-      let openGenerativeRuntime: TesseraOpenGenerativeRuntimeBundle | undefined;
       let continualHarness: ReturnType<typeof createTesseraContinualHarness> | undefined;
       try {
         sessionMemory = createTesseraSessionMemory();
@@ -625,15 +479,6 @@ export function createDefaultTesseraStudioRuntimeFactory(
             getCatalog: async (signal) => (await dataAgent.inspectCatalog({ refresh: true }, signal)).catalog,
           });
         const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
-        if (llm !== undefined || config.studio.generativeUi.hostMode === "production") {
-          openGenerativeRuntime = await createTesseraOpenGenerativeRuntimeBundle({
-            config,
-            connector,
-            dataAgent,
-            accessMode: options.accessMode,
-            ...(options.databaseState === undefined ? {} : { databaseState: options.databaseState }),
-          }, openGenerativeHostFactory);
-        }
         continualHarness = llm === undefined || !config.studio.continualHarness.enabled
           ? undefined
           : createTesseraContinualHarness({
@@ -652,9 +497,6 @@ export function createDefaultTesseraStudioRuntimeFactory(
             memory: sessionMemory.memory,
             llm,
             continualHarness,
-            ...(openGenerativeRuntime === undefined
-              ? {}
-              : { openGenerativeHost: openGenerativeRuntime.host }),
             ...(databaseActions === undefined ? {} : { databaseActions }),
             permissionContext: {
               accessMode: options.accessMode,
@@ -666,14 +508,12 @@ export function createDefaultTesseraStudioRuntimeFactory(
         return Object.freeze({
           connector,
           dataAgent,
-          ...(openGenerativeRuntime === undefined ? {} : { openGenerativeRuntime }),
           sessionMemory,
           ...(agent === undefined ? {} : { agent }),
           ...(databaseActions === undefined ? {} : { databaseActions }),
           close() {
             closeTask ??= Promise.allSettled([
               continualHarness?.close(),
-              openGenerativeRuntime?.close(),
               sessionMemory?.close(),
               connector.close(),
             ]).then(() => undefined);
@@ -683,7 +523,6 @@ export function createDefaultTesseraStudioRuntimeFactory(
       } catch {
         await Promise.allSettled([
           continualHarness?.close(),
-          openGenerativeRuntime?.close(),
           sessionMemory?.close(),
           closeSilently(connector),
         ]);
@@ -843,13 +682,7 @@ export class TesseraStudioRuntimeManager {
   }
 
   static async create(options: TesseraRuntimeManagerOptions): Promise<TesseraStudioRuntimeManager> {
-    if (options.factory !== undefined && options.openGenerativeHostFactory !== undefined) {
-      throw new TypeError("Specify either a complete Tessera runtime factory or an Open Generative Host factory, not both.");
-    }
-    const factory = options.factory
-      ?? (options.openGenerativeHostFactory === undefined
-        ? defaultTesseraStudioRuntimeFactory
-        : createDefaultTesseraStudioRuntimeFactory(options.openGenerativeHostFactory));
+    const factory = options.factory ?? defaultTesseraStudioRuntimeFactory;
     let state: Readonly<{ config: TesseraConfig; accessMode: TesseraDatabaseAccessMode }> = Object.freeze({
       config: options.config,
       accessMode: options.accessMode ?? "read-only",
@@ -1124,7 +957,6 @@ async function buildRuntimeRecord(
   let build: TesseraStudioRuntimeBuild | undefined;
   try {
     build = await factory.create(config, { accessMode, ...(databaseState === undefined ? {} : { databaseState }) });
-    assertTesseraOpenGenerativeRuntimeDeployment(config, build.openGenerativeRuntime);
   } catch (error) {
     if (build !== undefined) {
       await build.close().catch(() => undefined);
@@ -1148,9 +980,6 @@ async function buildRuntimeRecord(
       accessMode,
       connector: build.connector,
       dataAgent: build.dataAgent,
-      ...(build.openGenerativeRuntime === undefined
-        ? {}
-        : { openGenerativeRuntime: build.openGenerativeRuntime }),
       ...(build.sessionMemory === undefined ? {} : { sessionMemory: build.sessionMemory }),
       ...(build.agent === undefined ? {} : { agent: build.agent }),
       // Factories are injectable, so enforce the access-mode boundary here as

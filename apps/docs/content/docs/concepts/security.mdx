@@ -1,6 +1,6 @@
 ---
 title: Security Model
-description: The trust boundaries around Tessera Agent, connected databases, session memory, and generated views.
+description: The trust boundaries around Tessera Agent, connected databases, session memory, and grounded answers.
 ---
 
 Tessera treats model output, user text, catalog content, and database values as
@@ -18,22 +18,22 @@ authorization and execution.
 - Database mutations use typed actions, policy checks, durable approval, and
   idempotent resume identifiers.
 
-## Model and presentation boundary
+## Model and answer boundary
 
-Verified datasets are published only after a database tool succeeds. The
-presentation processor can reference those resources and the fixed Tessera
-catalog, but it cannot create credentials, URLs, SQL, tools, React components,
-HTML, scripts, CSS, callbacks, or executable formulas.
+Verified datasets enter the answer only after a database tool succeeds. The
+answer composer can reference those resources, but it cannot create
+credentials, URLs, SQL, tools, React components, HTML, scripts, CSS, callbacks,
+or executable formulas.
 
-Presentation output is parsed and validated before commit. Unknown recipes,
-invalid bindings, malformed values, stale sessions, and failed payload hashes
-are rejected. A rejected view cannot execute another query or effect.
+Answer output is parsed and validated before commit. Malformed values, stale
+sessions, and failed payload hashes are rejected. A rejected answer cannot
+execute another query or effect.
 
 ## Browser and memory boundary
 
 Mastra Memory stores private model context per completed step. Studio stores a
 separate allowlisted transcript for the browser. The browser receives safe UI
-message parts and committed, bounded view projections, never database
+message parts and committed, bounded Evidence projections, never database
 credentials or unrestricted private tool payloads.
 
 Approval decisions are checked against the persisted workflow snapshot and

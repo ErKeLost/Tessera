@@ -5,7 +5,6 @@ import "@fontsource-variable/geist/wght.css";
 import "@fontsource-variable/geist-mono/wght.css";
 import "goey-toast/styles.css";
 import "./gooey-toast-theme.css";
-import "@open-generative/ui/styles.css";
 import "./styles.css";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { StudioApp } from "./studio-app";

@@ -17,7 +17,7 @@ await process.exited;
 const violations: string[] = [];
 for (const file of files) {
   // Tessera's database-agent packages intentionally preserve their Artifact
-  // vocabulary. Open Generative is consumed through an external package boundary.
+  // vocabulary for validated analysis payloads.
   if (
     file.startsWith("apps/studio/")
     || file.startsWith("packages/tessera-")

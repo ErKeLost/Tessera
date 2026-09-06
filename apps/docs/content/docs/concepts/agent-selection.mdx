@@ -1,11 +1,11 @@
 ---
 title: Analysis Selection
-description: How Tessera chooses database tools and a useful final analysis view without adding a UI tool.
+description: How Tessera chooses database tools for a grounded final response.
 ---
 
-Tessera makes two separate decisions during a data question: how to obtain
-verified data and how to present the completed result. Presentation never gains
-database authority and never changes the selected query path.
+Tessera makes one authoritative decision during a data question: how to obtain
+verified data. Answer composition never gains database authority and never
+changes the selected query path.
 
 ## Database path selection
 
@@ -21,27 +21,9 @@ Tool output contains bounded evidence and stable column metadata. Invalid tool
 arguments return a structured rejection; they are not interpreted as proof
 that data is missing.
 
-## View selection
+## Answer composition
 
-When a successful query has renderable rows, the internal presentation
-processor adds a constrained presentation language to the final model step. It
-offers only the current dataset bindings, approved layout contracts, and the
-17 chart recipes already implemented by Tessera.
-
-The final model output is parsed incrementally and validated before a view is
-committed. It cannot contain React names, JSX, CSS, arbitrary colors, callbacks,
-URLs, SQL, or new tools. A bounded processor retry may repair invalid
-presentation syntax; business tools are disabled during that repair step.
-
-## Available chart intents
-
-| Need | Recipe examples |
-| --- | --- |
-| Ordered progress | Steps bars, pipeline stage bars, sign-up funnel |
-| Trend and comparison | Revenue smooth area, visitors stacked area, sessions and conversion combo |
-| Distribution and relationship | Revenue per account scatter, tracked time Sankey |
-| Cycles and intensity | Activity calendar, active users heatmap, contributions heatmap |
-| Compact status | Sleep score, visitors radial, visitors radar, devices bars, activity rings |
-
-The recipe is a validated presentation choice over an existing dataset and
-cannot perform another database operation.
+The final model step receives only the validated tool results and Evidence
+needed to explain the answer. Its output is parsed and validated before it is
+stored or streamed to the browser. It cannot contain credentials, raw SQL,
+arbitrary tool definitions, or executable content.

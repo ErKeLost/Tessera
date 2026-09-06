@@ -1,6 +1,6 @@
 ---
 title: 运行流程
-description: 一个 Tessera 问题如何变成有依据的回答与可选分析视图。
+description: 一个 Tessera 问题如何变成有依据的回答。
 ---
 
 一次 Tessera Turn 从问题到最终 UI 只有一条受治理链路：
@@ -11,7 +11,6 @@ description: 一个 Tessera 问题如何变成有依据的回答与可选分析�
 -> 执行一条受限数据库路径
 -> 校验并保留证据
 -> 组织最终回答
--> 按需编译生成式分析视图
 -> 传输一条对浏览器安全的 AI SDK Message
 ```
 
@@ -41,11 +40,7 @@ Turn 中断后也不会丢失。Studio 通过 AI SDK `onStepEnd` 保存另一份
 
 ## 4. 生成回答
 
-数据库 Tool 发布经过验证的 Dataset 后，Tessera 内部 Output Processor 可以从现有分析 Recipe 中
-选择并编译声明式视图。这属于回答格式，不是另一个 Agent Tool，也不会再次查询数据库。如果没有
-合适 Dataset，Tessera 只返回正常正文与 Tool Transcript，不会虚构视图。
+Tessera 根据已验证的 Evidence 返回有依据的 Markdown。浏览器接收 AI SDK 原生 Text、Reasoning
+和 Tool Part；刷新 Thread 后恢复同一份脱敏后的消息。
 
-浏览器接收 AI SDK 原生 Text、Reasoning、Tool Part，以及该回答最新的一份 Committed Analysis View
-Snapshot。刷新 Thread 后恢复同一条消息，不会重放每个中间副本。
-
-继续阅读 [Tool 契约](./tool-contract)与[生成式分析视图架构](./architecture/generative-ui)。
+继续阅读 [Tool 契约](./tool-contract)。

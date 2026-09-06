@@ -191,7 +191,7 @@ export const modelAnalysisToolInputSchema = z.object({
     "Required for output=table, series, or ranking; omit it only for output=scalar. Never send an empty array. For table, order by its first dimension ascending (then further dimensions ascending when useful). For series, order the time dimension ascending. For ranking, order the primary measure descending, then a dimension ascending as a tie-breaker. Each entry uses by plus a zero-based index into that plan array.",
   ),
   output: z.enum(["scalar", "table", "series", "ranking"]).optional().describe(
-    "Presentation shape. scalar returns one aggregate value and omits aggregateOrderBy. table, series, and ranking require a non-empty aggregateOrderBy that references this plan's included outputs.",
+    "Result shape. scalar returns one aggregate value and omits aggregateOrderBy. table, series, and ranking require a non-empty aggregateOrderBy that references this plan's included outputs.",
   ),
 }).strict().describe(
   "A governed semantic analysis plan. Use only catalog-returned opaque identifiers; never include SQL, physical relation names, connection details, compiler output ids, or invented identifiers.",
@@ -1122,7 +1122,7 @@ export const executeSqlOutputSchema = z.union([
       "True when the verified result was bounded; omitted rows must not be inferred.",
     ),
     evidence: modelEvidenceSchema.describe(
-      "Verified bounded read evidence. Use its columns and rows as the source for later presentation.",
+    "Verified bounded read evidence. Use its columns and rows as the source for the final response.",
     ),
   }).strict(),
   z.object({

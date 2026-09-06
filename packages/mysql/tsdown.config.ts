@@ -8,7 +8,7 @@ export default defineConfig({
   sourcemap: true,
   deps: {
     neverBundle: [
-      /^@data-elements\//,
+      /^@open-tessera\//,
       /^node:/,
       /^mysql2$/,
       /^mysql2\/promise$/,

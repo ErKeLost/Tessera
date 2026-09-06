@@ -20,8 +20,6 @@ describe("Tessera runtime documentation", () => {
       expect(content).toContain('scope: "resource"');
       expect(content).toContain("agentManaged: true");
       expect(content).not.toContain("workingMemory: { enabled: false }");
-      expect(content).not.toContain("@open-generative/mastra");
-      expect(content).not.toContain("OpenGenerativeRenderer");
     });
   }
 
@@ -32,7 +30,6 @@ describe("Tessera runtime documentation", () => {
       expect(content).toContain("createUIMessageStream");
       expect(content).toContain("onStepEnd");
       expect(content).toContain("onEnd");
-      expect(content).not.toContain("OpenGenerativeRenderer");
     });
   }
 });

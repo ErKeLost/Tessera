@@ -1,8 +1,4 @@
 import type { UIMessage, UIMessageChunk } from "ai";
-import type {
-  OpenGenerativeFallback,
-  OpenGenerativeSurfaceStream,
-} from "@open-generative/protocol";
 import type { TesseraAgentToolName, TesseraSuspendedToolPayload } from "./contracts";
 
 export type { TesseraSuspendedToolPayload } from "./contracts";
@@ -69,8 +65,6 @@ export type TesseraUITools = {
 };
 
 export type TesseraUIData = {
-  openGenerativeFallback: OpenGenerativeFallback;
-  openGenerativeSurface: OpenGenerativeSurfaceStream;
   "tool-call-suspended": Readonly<{
     state: "data-tool-call-suspended";
     runId: string;

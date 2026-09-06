@@ -1,9 +1,8 @@
 # Supabase Database Agent Analysis
 
 > **Historical, non-normative research input.** This source review is preserved
-> as Tessera Agent design evidence. It does not define the current Generative UI
-> protocol, component catalog, renderer path, or an Agent/Studio implementation
-> plan.
+> as Tessera Agent design evidence. It does not define the current Agent/Studio
+> implementation plan.
 
 Status: historical source-based review of the pinned `vendor/supabase` submodule
 

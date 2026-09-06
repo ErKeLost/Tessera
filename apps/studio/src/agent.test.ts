@@ -6,12 +6,12 @@ import { join } from "node:path";
 import {
   analysisToolRejection,
   appendCopilotOutcome,
+  buildCurrentDateSystemMessage,
   buildDatabaseSchemaInventory,
   buildDataCopilotInstructions,
   compactDescribeDataForModel,
   compactInspectCurrentContextForModel,
   createRequestContextProcessor,
-  createTesseraOpenGenerativeTerminalStep,
   DATABASE_SCHEMA_INSPECTION_LIMITS,
   DATABASE_SCHEMA_INVENTORY_LIMITS,
   formatDatabaseSchemaInventory,
@@ -32,6 +32,7 @@ import {
   safeAssistantNarration,
   planningScopesRequireDiscovery,
   selectPlanningCapabilityScopes,
+  type TesseraUIMessageChunk,
 } from "@open-tessera/agent";
 import {
   createTesseraStudioAgent,
@@ -39,7 +40,6 @@ import {
 } from "./agent";
 import { RequestContext } from "@mastra/core/request-context";
 import type { TesseraLlmConfig } from "./config";
-import type { TesseraUIMessageChunk } from "./protocol";
 import type { DatabaseCatalog, DatabaseQueryResult } from "@open-tessera/database";
 import { createTesseraSessionMemory, tesseraSessionResourceId } from "./session-memory";
 
@@ -170,22 +170,6 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
-  test("constrains the tool-free OGL terminal model call", () => {
-    const llm: TesseraLlmConfig = {
-      model: "openrouter/qwen/qwen3.8-27b",
-      headers: {},
-      reasoningEffort: "low",
-      temperature: 0.4,
-      maxOutputTokens: 12_800,
-      maxSteps: 50,
-      maxRetries: 0,
-    };
-    expect(createTesseraOpenGenerativeTerminalStep(llm)).toEqual({
-      modelSettings: { maxOutputTokens: 4_096, temperature: 0 },
-      providerOptions: { openrouter: { reasoning: { effort: "low" } } },
-    });
-  });
-
   test("keeps Mastra working-memory tool parts out of the public AI SDK stream", async () => {
     const chunks = await readUiChunks(filterTesseraPublicToolParts(new ReadableStream<TesseraUIMessageChunk>({
       start(controller) {
@@ -440,34 +424,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "stop" });
   });
 
-  test("preserves a processor-owned Open Generative fallback as a normal Agent stop", async () => {
-    const fallback = {
-      type: "data-openGenerativeFallback",
-      id: "open-generative-fallback:surface-rejected",
-      data: { state: "discarded", reason: "invalid-presentation" },
-    } as TesseraUIMessageChunk;
-    const source = new ReadableStream<TesseraUIMessageChunk>({
-      start(controller) {
-        controller.enqueue({ type: "start", messageId: "message-ui-fallback" });
-        controller.enqueue(fallback);
-        controller.enqueue({ type: "finish", finishReason: "stop" });
-        controller.close();
-      },
-    });
-
-    const chunks = await readUiChunks(appendCopilotOutcome(source));
-
-    expect(chunks).toContainEqual(fallback);
-    expect(chunks.some((chunk) => chunk.type === "error")).toBeFalse();
-    expect(chunks.at(-1)).toEqual({ type: "finish", finishReason: "stop" });
-    expect(hasVisibleCopilotOutput({ role: "assistant", parts: [fallback] })).toBeTrue();
-    expect(hasVisibleCopilotOutput({
-      role: "assistant",
-      parts: [{ ...fallback, data: { state: "discarded", reason: "compiler-secret" } }],
-    })).toBeFalse();
-  });
-
-  test("still rejects an ordinary empty Agent stop without an Open Generative fallback", async () => {
+  test("rejects an ordinary empty Agent stop", async () => {
     const source = new ReadableStream<TesseraUIMessageChunk>({
       start(controller) {
         controller.enqueue({ type: "start", messageId: "message-empty-stop" });
@@ -591,7 +548,7 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(second?.prompt).toEqual(first?.prompt);
   });
 
-  test("keeps the presentation task route out of the business request context", async () => {
+  test("keeps optional task routing out of the business request context", async () => {
     const requestContext = new RequestContext();
     const processor = createRequestContextProcessor({
       dataAgent: {
@@ -943,6 +900,7 @@ describe("Tessera Agent vNext public boundary", () => {
     const instructions = buildDataCopilotInstructions();
 
     expect(instructions).toContain("<role>");
+    expect(instructions).not.toContain("<current_date>");
     expect(instructions).toContain("<trust_boundary>");
     expect(instructions).toContain("<decision_policy>");
     expect(instructions).toContain("<tool_use>");
@@ -959,12 +917,21 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("Call routine, low-impact context-gathering tools directly without narration");
     expect(instructions).toContain("invoke it immediately without waiting for the user");
     expect(instructions).toContain("Do not emit HTML, script tags, ECharts configuration");
-    expect(instructions).toContain("Open Generative rendering is an output format, not a tool");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
     expect(instructions).toContain("system/catalog relations");
     expect(instructions).not.toContain("information_schema");
     expect(instructions).not.toContain("pg_tables");
+  });
+
+  test("builds a date-only per-run system message without changing static instructions", () => {
+    const instructions = buildDataCopilotInstructions();
+
+    expect(buildCurrentDateSystemMessage(new Date(2026, 8, 2, 12)))
+      .toBe("<current_date>2026-09-02</current_date>");
+    expect(buildCurrentDateSystemMessage(new Date(2026, 8, 3, 12)))
+      .toBe("<current_date>2026-09-03</current_date>");
+    expect(buildDataCopilotInstructions()).toBe(instructions);
   });
 
   test("gates unresolved inspect candidates without blocking a grounded join", () => {
@@ -1032,7 +999,7 @@ describe("Tessera Agent vNext public boundary", () => {
 
   });
 
-  test("streams ordinary Markdown unchanged without creating a Generative Surface", async () => {
+  test("streams ordinary assistant text through native Markdown", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-agent-stream-"));
     const session = createTesseraSessionMemory({ rootDirectory });
     const testModel = streamOnlyTestModel();
@@ -1078,10 +1045,7 @@ describe("Tessera Agent vNext public boundary", () => {
       ]));
       expect(JSON.stringify(chunks)).toContain("Checked the request against the available context.");
       const textDeltas = chunks.flatMap((chunk) => chunk.type === "text-delta" ? [chunk.delta] : []);
-      expect(textDeltas).toHaveLength(2);
-      expect(textDeltas.join("")).toBe("## Tessera\n\n- A **streamed** Markdown response with `inline code`.\n");
-      expect(chunks.some((chunk) => chunk.type === "data-openGenerativeSurface")).toBeFalse();
-      expect(chunks.some((chunk) => chunk.type === "data-openGenerativeFallback")).toBeFalse();
+      expect(textDeltas.join("")).toContain("A **streamed** Markdown response with `inline code`.");
       expect(testModel.calls.stream).toBe(1);
       const memory = await session.memory.getContext({
         threadId: "thread-stream-run",
@@ -1090,11 +1054,6 @@ describe("Tessera Agent vNext public boundary", () => {
       const serializedMemory = JSON.stringify(memory.messages);
       expect(serializedMemory).toContain("Remember the stream marker.");
       expect(serializedMemory).toContain("A **streamed** Markdown response with `inline code`.");
-      expect(serializedMemory).not.toContain("Presented the requested Open Generative UI.");
-      expect(serializedMemory).not.toContain("root = Text");
-      expect(serializedMemory).not.toContain("data-openGenerativeSurface");
-      expect(serializedMemory).not.toContain("state.set");
-      expect(serializedMemory).not.toContain("state.reset");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1620,23 +1579,6 @@ describe("Tessera Agent vNext public boundary", () => {
                   finishReason: "stop",
                   usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                 });
-              } else {
-                controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({
-                  type: "text-delta",
-                  id: "text-1",
-                  delta: [
-                    'root = Report("Total users", "Verified result", content)\n',
-                    'content = Stack("md", [metric])\n',
-                    'metric = Metric("Total users", @data1, "out_measure_1", "number")\n',
-                  ].join(""),
-                });
-                controller.enqueue({ type: "text-end", id: "text-1" });
-                controller.enqueue({
-                  type: "finish",
-                  finishReason: "stop",
-                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-                });
               }
               controller.close();
             },
@@ -1681,7 +1623,7 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(calls).toEqual(["search", "prepare", `execute:${analysisRef}`]);
       expect(run.message).toBe("The verified analysis is ready.");
       expect(run.evidence).toHaveLength(1);
-      expect(modelTurn).toBe(5);
+      expect(modelTurn).toBe(4);
       const memory = await session.memory.getContext({
         threadId: "thread-prepared-analysis",
         resourceId: "local-studio",
@@ -1689,11 +1631,6 @@ describe("Tessera Agent vNext public boundary", () => {
       const serializedMemory = JSON.stringify(memory.messages);
       expect(serializedMemory).toContain("execute_sql");
       expect(serializedMemory).toContain("The verified analysis is ready.");
-      expect(serializedMemory).not.toContain("Presented the requested Open Generative UI.");
-      expect(serializedMemory).not.toContain("root = Report");
-      expect(serializedMemory).not.toContain("data-openGenerativeSurface");
-      expect(serializedMemory).not.toContain("state.set");
-      expect(serializedMemory).not.toContain("state.reset");
     } finally {
       await session.close();
       rmSync(rootDirectory, { force: true, recursive: true });
@@ -1806,22 +1743,6 @@ describe("Tessera Agent vNext public boundary", () => {
                   finishReason: "stop",
                   usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                 });
-              } else {
-                controller.enqueue({ type: "text-start", id: "text-1" });
-                controller.enqueue({
-                  type: "text-delta",
-                  id: "text-1",
-                  delta: 'root = Report("Database operations", "The read completed and the change is waiting for approval.", content)\n',
-                });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'content = Stack("md", [metric, insight])\n' });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'metric = Metric("Query value", @data1, "value", "first", "number")\n' });
-                controller.enqueue({ type: "text-delta", id: "text-1", delta: 'insight = Insight(@data1, "Approval", "The database change is waiting for approval.", "warning")\n' });
-                controller.enqueue({ type: "text-end", id: "text-1" });
-                controller.enqueue({
-                  type: "finish",
-                  finishReason: "stop",
-                  usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-                });
               }
               controller.close();
             },
@@ -1867,7 +1788,7 @@ describe("Tessera Agent vNext public boundary", () => {
       });
 
       expect(run.message).toBe("The read and mutation tasks are complete.");
-      expect(modelTurn).toBe(4);
+      expect(modelTurn).toBe(3);
       expect(reads).toEqual([{
         sql: "SELECT 1 AS value",
         parameters: [],
@@ -2068,7 +1989,6 @@ describe("Tessera Agent vNext public boundary", () => {
       const resumedChunks = await readUiChunks(resumedStream);
       expect(JSON.stringify(resumedChunks)).toContain("The order was created after **approval**.");
       expect(resumedChunks.some((chunk) => chunk.type === "text-delta")).toBeTrue();
-      expect(resumedChunks.some((chunk) => chunk.type === "data-openGenerativeSurface")).toBeFalse();
       expect(resumedChunks.some((chunk) => chunk.type === "error")).toBeFalse();
       expect(calls.stream).toBe(2);
       expect(calls.approve).toBe(1);

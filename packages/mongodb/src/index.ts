@@ -95,7 +95,7 @@ export class MongoDbConnector implements DatabaseConnector {
       sampleDocuments: clampInteger(options.sampleDocuments ?? DEFAULT_SAMPLE_DOCUMENTS, 1, 1_000),
     };
     this.#client = new MongoClient(this.#options.connectionString, {
-      appName: "data-elements-studio",
+      appName: "open-tessera-studio",
       maxPoolSize: this.#options.maxConnections,
       serverSelectionTimeoutMS: this.#options.statementTimeoutMs,
     });

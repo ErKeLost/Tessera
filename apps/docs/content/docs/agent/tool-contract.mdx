@@ -4,8 +4,6 @@ description: The exact database tools Tessera Agent exposes to the model and the
 ---
 
 Tessera Agent exposes database work through a small, explicit Mastra tool set.
-The generated analysis view is **not** another tool. It is produced after
-verified data exists by the Agent's output processor.
 
 ## Model-facing tools
 
@@ -46,17 +44,6 @@ The mutation branch of `execute_sql` never treats model intent as
 authorization. The server compiles the typed action, evaluates the current
 policy, creates an approval checkpoint, and resumes the same Mastra run only
 after a valid decision. Raw write SQL is not accepted.
-
-## Generated analysis views
-
-Once `execute_sql` has published verified resources, the
-output processor may convert the final response into a Tessera analysis view.
-That processor receives only the current resource descriptors and component
-vocabulary. It does not add a presentation tool, one tool per chart, or another
-query path, and it cannot execute database work.
-
-The browser receives the result as a typed AI SDK data part. Tessera validates,
-sanitizes, checkpoints, and renders it through the Studio's built-in renderer.
 
 ## Trust boundary
 

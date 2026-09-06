@@ -10,7 +10,7 @@ must wire into their application.
 ## Agent loop
 
 Tessera constructs one Mastra `Agent` with the database tools, request-context
-processors, presentation processor, and local `Memory` instance. The same Agent
+processors, and local `Memory` instance. The same Agent
 owns every model step in a turn, including tool continuation and a resumed
 database mutation after approval.
 
@@ -58,7 +58,7 @@ not a fifth business tool and cannot carry authorization or query evidence.
 
 Mastra Memory is private model context. The browser receives a separate,
 allowlisted UI transcript containing only safe text, reasoning summaries, tool
-lifecycle summaries, and validated Tessera analysis views. AI SDK assembles
+lifecycle summaries, and validated Tessera Evidence projections. AI SDK assembles
 that UI message and Tessera checkpoints it after each completed step.
 
 This separation prevents raw SQL, credentials, provider metadata, and query

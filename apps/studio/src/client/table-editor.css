@@ -20,14 +20,12 @@
   --table-editor-shadow-whisper: var(--shadow-whisper);
   --table-editor-shadow-floating: var(--shadow-float);
   --table-editor-row-height: 36px;
-  --table-editor-sidebar-width: clamp(224px, 22vw, 252px);
   --table-editor-tab-height: 38px;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: var(--table-editor-sidebar-width) minmax(0, 1fr);
+  display: block;
   overflow: hidden;
   position: relative;
   isolation: isolate;
@@ -40,8 +38,64 @@
   font-variant-numeric: tabular-nums;
 }
 
-.table-editor[data-sidebar-collapsed] {
-  grid-template-columns: 0 minmax(0, 1fr);
+.table-editor-layout {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+.table-editor-sidebar-panel,
+.table-editor-main-panel {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 0%;
+}
+
+.table-editor-sidebar-panel {
+  background: var(--table-editor-surface);
+}
+
+.table-editor-main-panel {
+  background: var(--table-editor-background);
+}
+
+.table-editor-resize-handle {
+  width: 9px;
+  min-width: 9px;
+  border-right: 1px solid var(--table-editor-border);
+  border-left: 1px solid var(--table-editor-border);
+  background: var(--table-editor-background);
+  color: var(--table-editor-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.table-editor-resize-handle:hover:not([data-separator="disabled"]),
+.table-editor-resize-handle[data-separator="active"],
+.table-editor-resize-handle:focus-visible {
+  background: var(--table-editor-hover);
+  color: var(--table-editor-text);
+}
+
+.table-editor-resize-handle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--table-editor-focus) 36%, transparent);
+  outline-offset: -2px;
+}
+
+.table-editor-resize-grip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .72;
+  pointer-events: none;
+}
+
+.table-editor-resize-handle[data-separator="disabled"] {
+  cursor: default;
+  opacity: .45;
 }
 
 .table-editor *,
@@ -78,12 +132,12 @@
 }
 
 .table-editor-sidebar {
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-rows: 44px auto auto minmax(0, 1fr) 36px;
   overflow: hidden;
-  border-right: 1px solid var(--table-editor-border);
   background: var(--table-editor-surface);
 }
 
@@ -559,6 +613,7 @@
 }
 
 .table-editor-main {
+  height: 100%;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -2797,10 +2852,6 @@
 
 
 @container (max-width: 780px) {
-  .table-editor {
-    grid-template-columns: 198px minmax(0, 1fr);
-  }
-
   .table-editor-sidebar-controls {
     padding-inline: 8px;
   }
@@ -3228,16 +3279,35 @@
 }
 
 @container (max-width: 560px) {
-  .table-editor {
-    grid-template-columns: minmax(0, 1fr);
+  .table-editor-sidebar {
+    box-shadow: var(--shadow-float);
   }
 
-  .table-editor-sidebar {
+  .table-editor-layout > #table-editor-sidebar-panel {
     position: absolute;
-    z-index: var(--z-sticky);
     inset: 0 auto 0 0;
+    z-index: var(--z-sticky);
+    width: 0;
+    max-width: none;
+    flex: none !important;
+  }
+
+  .table-editor:not([data-sidebar-collapsed]) .table-editor-layout > #table-editor-sidebar-panel {
     width: min(280px, calc(100% - 48px));
-    box-shadow: var(--shadow-float);
+  }
+
+  .table-editor-layout > #table-editor-sidebar-panel > .table-editor-sidebar-panel {
+    width: 100%;
+    max-width: none;
+  }
+
+  .table-editor-layout > #table-editor-main-panel {
+    width: 100%;
+    flex: 1 1 auto !important;
+  }
+
+  .table-editor-layout > .table-editor-resize-handle {
+    display: none;
   }
 
   .table-editor-sidebar-header {

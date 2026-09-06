@@ -4,8 +4,7 @@ description: Start Tessera Studio, connect a database, and run your first govern
 ---
 
 Tessera Studio is the local workspace for Tessera Agent. It includes the chat
-interface, database connectors, governed tools, session history, approvals, and
-generated analysis views. There is no separate UI package to install.
+interface, database connectors, governed tools, session history, and approvals.
 
 ## Requirements
 
@@ -59,12 +58,10 @@ such as `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`.
 
 Try a question that needs connected data, for example:
 
-> Compare monthly revenue for the last six months and show the result as a chart.
+> Compare monthly revenue for the last six months and explain the result.
 
 Tessera chooses one database path, executes a bounded query, verifies the
-result, and then returns the answer. When the result matches an available
-analysis recipe, the same response includes a generated view rendered by
-Studio. You do not request a UI tool or name an internal renderer.
+result, and returns a grounded Markdown answer with tool state and Evidence.
 
 Continue with [configuration](./configuration), [database connections](./databases),
 and the [run workflow](./run-workflow).

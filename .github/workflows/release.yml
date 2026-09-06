@@ -93,7 +93,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          release_directory="$RUNNER_TEMP/open-generative-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          release_directory="$RUNNER_TEMP/open-tessera-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
           bun scripts/release-stage.ts --version "$RELEASE_VERSION" --output "$release_directory"
           echo "manifest=$release_directory/release-manifest.json" >> "$GITHUB_OUTPUT"
 

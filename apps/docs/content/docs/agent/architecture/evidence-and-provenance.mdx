@@ -1,6 +1,6 @@
 ---
 title: Evidence and Provenance
-description: Connect every analytical claim and analysis view to validated source entities, activities, and transformations.
+description: Connect every analytical claim to validated source entities, activities, and transformations.
 ---
 
 An analyst answer needs more than a footer that says “source: warehouse.” Keep
@@ -49,12 +49,11 @@ query, timestamp, duration, validations, and limitations. Cite the smallest
 useful evidence unit. A single source list for a multi-claim answer makes it
 unclear which result supports which statement.
 
-## Analysis-view provenance
+## Answer provenance
 
-Each generated view is derived from validated evidence and has a stable surface
-identity. Tessera records the view schema, resource binding, and committed
-payload hash. A cumulative update replaces the earlier UI snapshot while the
-underlying query evidence remains the authority.
+The final answer is derived from validated Evidence. Tessera records the
+source references, validation results, and committed payload hashes needed to
+reproduce the conclusion; the underlying query evidence remains authoritative.
 
 ## Privacy and retention
 

@@ -15,10 +15,13 @@ export function toMastraModelConfig(llm: TesseraAgentLlmConfig): MastraModelConf
 }
 
 /** Provider-specific reasoning options are emitted only when explicitly configured. */
-export function modelReasoningOptions(llm: TesseraAgentLlmConfig) {
+export function modelReasoningOptions(
+  llm: TesseraAgentLlmConfig,
+  effort = llm.reasoningEffort,
+) {
   return typeof llm.model === "string"
     && llm.model.startsWith("openrouter/")
-    && llm.reasoningEffort !== undefined
-    ? { providerOptions: { openrouter: { reasoning: { effort: llm.reasoningEffort } } } }
+    && effort !== undefined
+    ? { providerOptions: { openrouter: { reasoning: { effort } } } }
     : {};
 }

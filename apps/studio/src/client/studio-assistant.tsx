@@ -38,7 +38,7 @@ import {
 } from "./studio-settings";
 import { useStudioTheme } from "./studio-theme";
 import type { StudioAgentPageContext } from "./layout/studio-route-context";
-import { studioResumeApi } from "./studio-resume";
+import { isStudioResumePayload } from "./studio-resume";
 import {
   Conversation,
   ConversationContent,
@@ -69,10 +69,6 @@ import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
 import { useStudioSettingsQuery } from "./queries/studio-queries";
 import { TesseraToolFallback, tesseraStudioToolkit } from "./tessera-toolkit";
-import {
-  OpenGenerativeFallbackDataRenderer,
-  OpenGenerativeSurfaceDataRenderer,
-} from "./open-generative-surface";
 
 const tesseraStudioAssistantConfig = AuiConfig({
   tools: Tools({ toolkit: tesseraStudioToolkit }),
@@ -109,16 +105,23 @@ export function StudioAssistant({
           return globalThis.fetch(input, { ...init, headers });
         }) as typeof fetch,
         prepareSendMessagesRequest: ({ body, messageId, messages, trigger }) => {
-          const message = messages.at(-1);
-          if (!message || message.role !== "user") {
-            throw new Error("Tessera can only submit the current user message.");
-          }
-          const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
           // The server owns the tool registry. AssistantChatTransport adds an
           // empty `tools` field to the request body, but `/api/chat` never
           // consumes it and the client-side toolkit is registered above.
           const requestBody = { ...(body ?? {}) };
           delete (requestBody as { tools?: unknown }).tools;
+          if (isStudioResumePayload(requestBody)) {
+            return {
+              api: "/api/chat/resume",
+              headers: { "Content-Type": "application/json" },
+              body: requestBody,
+            };
+          }
+          const message = messages.at(-1);
+          if (!message || message.role !== "user") {
+            throw new Error("Tessera can only submit the current user message.");
+          }
+          const currentWorkspaceContext = chatWorkspaceContext(workspaceContextRef.current);
           return {
             headers: { "Content-Type": "application/json" },
             body: {
@@ -132,16 +135,15 @@ export function StudioAssistant({
             },
           };
         },
-        prepareReconnectToStreamRequest: ({ body }) => {
-          return { api: studioResumeApi(body) };
-        },
       }),
     [threadId],
   );
   const chat = useChat<TesseraUIMessage>({
     id: threadId,
     messages: [...initialMessages],
-    onFinish: () => onThreadActivity?.(),
+    onFinish: () => {
+      onThreadActivity?.();
+    },
     transport,
   });
   const settingsQuery = useStudioSettingsQuery();
@@ -186,7 +188,11 @@ export function StudioAssistant({
   }, [chat, ensureConfiguration, initialMessages.length, initialPrompt]);
   const runtime = useAISDKRuntime<TesseraUIMessage>(chat, {
     onResume: async (config) => {
-      await chat.resumeStream({ body: config.runConfig.custom });
+      // Mastra tool suspensions are a continuation of the current assistant
+      // message. Use a normal AI SDK submit so useChat keeps that message's
+      // tool invocation; resumeStream() is reserved for disconnect recovery
+      // and intentionally starts with an empty continuation message.
+      await chat.sendMessage(undefined, { body: config.runConfig.custom });
     },
   });
   transport.setRuntime(runtime);
@@ -306,7 +312,7 @@ function SuspendedApprovalDataRenderer({ data }: { data: {
     setBusy(true);
     setDecision(nextDecision);
     try {
-      runtime.thread.resumeRun({
+      await runtime.thread.resumeRun({
         parentId: null,
         sourceId: null,
         runConfig: {
@@ -370,11 +376,16 @@ function StudioMessage() {
 }
 
 function StudioAssistantMessage() {
-  const hasAssistantOutput = useAuiState((state) =>
-    state.message.parts.some((part) =>
-      part.type === "text" && part.text.trim().length > 0,
-    ),
+  const isComplete = useAuiState((state) => state.message.status?.type === "complete");
+  const hasNarration = useAuiState((state) =>
+    state.message.parts.some((part) => part.type === "text" && part.text.trim().length > 0),
   );
+  const hasAssistantOutput = useAuiState((state) =>
+    state.message.parts.some((part) => part.type === "text" && part.text.trim().length > 0),
+  );
+  // Keep execution details visible while streaming or when no final answer
+  // exists. Once a turn is complete with narration, show the compact answer.
+  const hideExecutionTrace = isComplete && hasNarration;
 
   return (
     <MessagePrimitive.Root className="tessera-message-root tessera-assistant-message">
@@ -390,24 +401,23 @@ function StudioAssistantMessage() {
             {({ children, part }) => {
               switch (part.type) {
                 case "group-chainOfThought":
+                  if (hideExecutionTrace) return null;
                   return <div className="tessera-chain-of-thought space-y-0.5">{children}</div>;
                 case "group-tool":
+                  if (hideExecutionTrace) return null;
                   return <div className="tessera-tool-group space-y-0.5">{children}</div>;
                 case "group-reasoning":
+                  if (hideExecutionTrace) return null;
                   return <StudioReasoningGroup group={part} />;
                 case "text":
                   return <MarkdownText />;
                 case "reasoning":
+                  if (hideExecutionTrace) return null;
                   return <Reasoning {...part} />;
                 case "tool-call":
+                  if (hideExecutionTrace) return null;
                   return part.toolUI ?? <TesseraToolFallback {...part} />;
                 case "data":
-                  if (part.name === "openGenerativeFallback") {
-                    return <OpenGenerativeFallbackDataRenderer data={part.data} />;
-                  }
-                  if (part.name === "openGenerativeSurface") {
-                    return <OpenGenerativeSurfaceDataRenderer data={part.data} />;
-                  }
                   return part.dataRendererUI ?? <></>;
                 case "indicator":
                   return hasAssistantOutput

@@ -4,7 +4,7 @@ description: Tessera Data Agent 的四工具架构、唯一数据执行入口、
 ---
 
 Tessera 只做数据分析和数据库操作。Bash、Python、文件系统、Web Search 和通用知识检索不属于
-Data Agent。生成式 UI 是验证结果之后的输出格式，也不是模型 Tool。
+Data Agent。
 
 ## 最终 Tool Surface
 
@@ -184,13 +184,12 @@ Turn 开始
   -> prepare_analysis（语义问题）
   -> execute_sql（唯一业务数据执行 Tool）
   -> Result Validation + Evidence
-  -> Open Generative Output Processor（可选）
+  -> 有依据的 Markdown 回答
   -> 自动增量更新稳定领域规则（满足条件时）
   -> savePerStep 持久化模型历史
 ```
 
-Open Generative Processor 只能使用已经验证的 Resource；它不调用数据库、不增加呈现 Tool，也不改变
-权限。浏览器接收的是脱敏后的 Tool 摘要和 Typed Surface，模型私有历史与 UI Transcript 分开保存。
+浏览器接收的是脱敏后的 Tool 摘要与 Markdown，模型私有历史与 UI Transcript 分开保存。
 
 ## 参考
 

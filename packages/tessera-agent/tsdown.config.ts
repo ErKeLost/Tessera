@@ -9,7 +9,6 @@ export default defineConfig({
   deps: {
     neverBundle: [
       /^@mastra\//,
-      /^@open-generative\//,
       /^@open-tessera\//,
       /^ai$/,
       /^zod$/,

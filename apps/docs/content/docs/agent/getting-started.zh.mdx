@@ -4,7 +4,7 @@ description: 启动 Tessera Studio、连接数据库，并完成第一次受治�
 ---
 
 Tessera Studio 是 Tessera Agent 的本地工作区，已经包含对话界面、数据库 Connector、受治理
-Tool、会话历史、审批与生成式分析视图，不需要再安装独立 UI Package。
+Tool、会话历史与审批，不需要再安装独立 UI Package。
 
 ## 环境要求
 
@@ -57,9 +57,8 @@ export default defineTesseraConfig({
 
 例如：
 
-> 对比最近六个月的月度收入，并用图表展示。
+> 对比最近六个月的月度收入。
 
-Tessera 会选择一条数据库路径、执行受限查询、校验结果并返回回答。当结果适合现有分析 Recipe 时，
-同一条回答会包含由 Studio 直接渲染的分析视图。用户不需要请求 UI Tool，也不需要知道内部 Renderer 名称。
+Tessera 会选择一条数据库路径、执行受限查询、校验结果并返回有依据的 Markdown 回答。
 
 接下来阅读[配置](./configuration)、[数据库连接](./databases)与[运行流程](./run-workflow)。

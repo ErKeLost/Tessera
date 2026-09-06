@@ -8,16 +8,16 @@ const internalRewriteHeader = "x-tessera-default-locale-rewrite";
 describe("documentation locale proxy", () => {
   test("rewrites the hidden default locale once without redirecting the internal request", async () => {
     const external = await proxy(
-      new NextRequest("http://localhost:3000/docs/components/generative-ui-catalog"),
+      new NextRequest("http://localhost:3000/docs/agent/getting-started"),
       event,
     );
     expect(external.headers.get("x-middleware-rewrite")).toBe(
-      "http://localhost:3000/en/docs/components/generative-ui-catalog",
+      "http://localhost:3000/en/docs/agent/getting-started",
     );
     expect(external.headers.get(`x-middleware-request-${internalRewriteHeader}`)).toBe("en");
 
     const internal = await proxy(
-      new NextRequest("http://localhost:3000/en/docs/components/generative-ui-catalog", {
+      new NextRequest("http://localhost:3000/en/docs/agent/getting-started", {
         headers: { [internalRewriteHeader]: "en" },
       }),
       event,
@@ -28,16 +28,16 @@ describe("documentation locale proxy", () => {
 
   test("keeps one canonical external URL for each language", async () => {
     const english = await proxy(
-      new NextRequest("http://localhost:3000/en/docs/components/generative-ui-catalog"),
+      new NextRequest("http://localhost:3000/en/docs/agent/getting-started"),
       event,
     );
     expect(english.status).toBe(307);
     expect(english.headers.get("location")).toBe(
-      "http://localhost:3000/docs/components/generative-ui-catalog",
+      "http://localhost:3000/docs/agent/getting-started",
     );
 
     const chinese = await proxy(
-      new NextRequest("http://localhost:3000/zh/docs/components/generative-ui-catalog"),
+      new NextRequest("http://localhost:3000/zh/docs/agent/getting-started"),
       event,
     );
     expect(chinese.headers.get("x-middleware-next")).toBe("1");

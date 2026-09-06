@@ -205,7 +205,7 @@ describe("background API handler", () => {
     });
   });
 
-  test("does not claim the text-only playground is the Generative UI proof path", async () => {
+  test("keeps the documentation playground text-only", async () => {
     const handler = createBackgroundPostHandler({
       readApiKey: () => "test-only-placeholder",
       startStream: () => textStream("data: {\"type\":\"text-end\"}\n\n"),

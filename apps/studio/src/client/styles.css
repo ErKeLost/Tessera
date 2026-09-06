@@ -1,7 +1,5 @@
 @import "tailwindcss";
 @import "tw-shimmer";
-@import "@open-generative/ui/styles.css";
-@import "@open-generative/adapter-shadcn/styles.css";
 @import "./theme.css";
 @import "./primitives.css";
 
@@ -926,14 +924,13 @@ button:disabled { cursor: not-allowed; }
   overflow: hidden;
 }
 .studio-session-entry { display: grid; width: 100%; min-height: 100%; height: 100%; place-items: center; }
-.studio-session-entry .studio-loading { width: 100%; height: 100%; }
 .studio-session-entry-error { display: flex; align-items: center; gap: 10px; color: var(--muted-foreground); font-size: var(--text-ui); overflow-wrap: anywhere; }
 
 .studio-composer-setting { display: inline-flex; flex: none; height: 32px; align-items: center; gap: 5px; padding: 0 8px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted-foreground); font-size: var(--text-sm); line-height: var(--line-tight); white-space: nowrap; transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard); }
 .studio-composer-setting:hover { background: var(--background); color: var(--foreground); }
 .studio-composer-setting:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; }
 .studio-model-picker-trigger {
-  width: fit-content;
+  width: min(calc(var(--space-32) + var(--space-8)), calc(100% - var(--space-10)));
   min-width: 0;
   max-width: min(calc(100% - var(--space-10)), calc(var(--space-32) + var(--space-8)));
   flex: 0 1 auto;
@@ -961,8 +958,19 @@ button:disabled { cursor: not-allowed; }
 .studio-model-picker-field-trigger:focus-visible { border-color: var(--ring); box-shadow: var(--shadow-focus); }
 .studio-model-picker-field-trigger:disabled,
 .studio-model-picker-trigger:disabled { cursor: not-allowed; opacity: .5; }
-.studio-model-picker-current { display: flex; min-width: 0; flex: 1 1 auto; align-items: center; gap: 5px; overflow: hidden; }
-.studio-model-picker-current > svg { flex: none; }
+.studio-model-picker-field-trigger[aria-busy="true"],
+.studio-model-picker-trigger[aria-busy="true"] { cursor: default; opacity: 1; }
+.studio-model-picker-current { position: relative; display: block; min-width: 0; height: 20px; flex: 1 1 auto; overflow: hidden; }
+.studio-model-picker-skeleton,
+.studio-model-picker-content { display: flex; position: absolute; inset: 0; min-width: 0; align-items: center; gap: 5px; }
+.studio-model-picker-skeleton { z-index: 1; opacity: 1; filter: blur(0); transition: opacity var(--motion-slow) var(--ease-standard), filter var(--motion-slow) var(--ease-standard); }
+.studio-model-picker-content { z-index: 2; opacity: 0; filter: blur(2px); transition: opacity var(--motion-slow) var(--ease-standard), filter var(--motion-slow) var(--ease-standard); }
+.studio-model-picker-current.is-revealed .studio-model-picker-skeleton { opacity: 0; filter: blur(2px); pointer-events: none; }
+.studio-model-picker-current.is-revealed .studio-model-picker-content { opacity: 1; filter: blur(0); }
+.studio-model-picker-skeleton-icon { width: 16px; height: 16px; flex: none; border-radius: var(--radius-compact); }
+.studio-model-picker-field-trigger .studio-model-picker-skeleton-icon { width: 18px; height: 18px; }
+.studio-model-picker-skeleton-label { width: var(--space-24); height: 10px; flex: none; }
+.studio-model-picker-content > svg { flex: none; }
 .studio-model-picker-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .studio-model-picker-chevron { flex: none; opacity: .5; transition: transform var(--motion-base) var(--ease-standard); }
 .studio-model-picker-field-trigger[data-state="open"] .studio-model-picker-chevron,
@@ -1019,108 +1027,6 @@ button:disabled { cursor: not-allowed; }
 .studio-model-picker-option-name { min-width: 0; flex: 1 1 auto; overflow: hidden; font-size: var(--text-ui); font-weight: var(--font-weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 .studio-model-picker-option > svg { flex: none; margin-left: auto; color: var(--muted-foreground); }
 .studio-model-picker-error { margin: 0; padding: 10px 8px; border-top: 1px solid var(--border); color: var(--destructive); font-size: var(--text-sm); line-height: var(--line-ui); overflow-wrap: anywhere; }
-.tessera-generative-surface {
-  width: var(--tessera-generative-surface-width, 90%);
-  max-width: 100%;
-  min-width: 0;
-  margin: 12px 0 2px;
-  font-family: var(--font-sans);
-}
-.tessera-generative-renderer {
-  width: 100%;
-  min-width: 0;
-}
-.tessera-generative-surface-tools {
-  display: flex;
-  min-height: 28px;
-  align-items: center;
-  justify-content: flex-end;
-  margin-bottom: 4px;
-}
-.tessera-generative-surface .og-layout-grid { grid-auto-flow: dense; }
-.tessera-generative-surface .og-chart-surface[class*="og-recipe-"] {
-  display: block;
-  min-height: 0 !important;
-  aspect-ratio: auto !important;
-  padding: var(--og-card-padding);
-}
-.tessera-generative-surface .og-chart-surface[data-og-surface="card"] {
-  border: var(--og-border-width) solid var(--og-border);
-  border-radius: var(--og-radius-card);
-  background: var(--og-card);
-  box-shadow: none;
-}
-.tessera-generative-surface .og-chart-surface[data-og-surface="embedded"] {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.tessera-generative-surface .og-chart-surface[class*="og-recipe-"] .og-chart {
-  display: block;
-  height: auto;
-  min-height: 0 !important;
-}
-.tessera-generative-surface :is(
-  .og-steps-panel,
-  .og-pipeline-panel,
-  .og-sleep-score-panel,
-  .og-revenue-scatter-panel,
-  .og-tracked-time-panel,
-  .og-visitors-radial-panel,
-  .og-visitors-radar-panel,
-  .og-activity-calendar-panel,
-  .og-selected-activity-panel,
-  .og-revenue-area-panel,
-  .og-active-users-panel,
-  .og-signup-funnel-panel,
-  .og-earned-panel,
-  .og-contributions-panel,
-  .og-combo-panel,
-  .og-devices-panel,
-  .og-stacked-area-panel,
-  .og-activity-rings-panel
-) {
-  width: 100%;
-  max-width: none;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.tessera-generative-surface :is(
-  .og-pipeline-summary-card,
-  .og-sleep-score-details,
-  .og-revenue-scatter-summary-card,
-  .og-dashboard-value-card,
-  .og-contribution-highlight
-) {
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.tessera-generative-surface .og-layout-grid > .og-insight-card {
-  grid-column: 1 / -1;
-}
-.tessera-generative-surface-error {
-  display: grid;
-  width: 100%;
-  gap: 3px;
-  margin: 14px 0 2px;
-  padding: 12px 14px;
-  border: 1px solid color-mix(in oklab, var(--destructive) 30%, var(--border));
-  border-radius: var(--radius-panel);
-  background: color-mix(in oklab, var(--destructive) 6%, var(--card));
-  color: var(--foreground);
-  font-size: var(--text-sm);
-  line-height: var(--line-ui);
-}
-.tessera-generative-surface-error strong { font-size: var(--text-ui); font-weight: var(--font-weight-semibold); }
-.tessera-generative-surface-error span { color: var(--muted-foreground); }
-
 @media (max-width: 640px) {
   .studio-model-picker-trigger { max-width: min(calc(100% - var(--space-10)), var(--space-32)); }
   .studio-minimal-header { top: var(--space-3); left: var(--space-3); right: var(--space-3); }
@@ -1137,7 +1043,6 @@ button:disabled { cursor: not-allowed; }
   .tessera-composer-dock { padding-top: var(--space-2); padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom)); }
   .tessera-composer-form { width: min(calc(100% - var(--space-6)), 680px); }
   .studio-composer { min-height: var(--space-24); }
-  .tessera-generative-surface { width: 100%; }
 }
 
 @media (hover: none) {
@@ -1146,4 +1051,6 @@ button:disabled { cursor: not-allowed; }
 
 @media (prefers-reduced-motion: reduce) {
   .studio-database-panel-content { will-change: auto; }
+  .studio-model-picker-skeleton,
+  .studio-model-picker-content { transition: none !important; }
 }

@@ -1,14 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { finalizeCatalog, type ConnectionAssessment, type DatabaseCatalog, type DatabaseConnector, type DatabaseQueryResult } from "@open-tessera/database";
-import {
-  HASH_DOMAINS,
-  OPEN_GENERATIVE_PROTOCOL_REVISION,
-  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-  hashCanonical,
-  sha256HashSchema,
-  surfaceEventEnvelopeSchema,
-  type SurfaceEventEnvelope,
-} from "@open-generative/protocol";
 import { mkdtempSync, rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
@@ -20,7 +11,6 @@ import type { TesseraUIMessageChunk } from "./protocol";
 const SAFE_SQL = "select count(*) from public.orders";
 const SAFE_TOOL_ROW = "orders-count";
 const SAFE_REASONING = "Checked SELECT count(*) FROM orders against the requested period.";
-const SURFACE_MARKDOWN = "## Visual analysis\n\n- **Verified** result";
 
 const catalog = finalizeCatalog({
   connectorId: "test-connector",
@@ -149,57 +139,6 @@ function successfulTextSourceStream(text: string): ReadableStream<TesseraUIMessa
       controller.enqueue({ type: "finish", finishReason: "stop" });
       controller.close();
     },
-  });
-}
-
-function cumulativeSurfaceSourceStream(events: readonly [SurfaceEventEnvelope, SurfaceEventEnvelope]): ReadableStream<TesseraUIMessageChunk> {
-  const surfaceSessionId = events[0].surfaceSessionId;
-  const id = `open-generative:${surfaceSessionId}`;
-  const chunks: TesseraUIMessageChunk[] = [
-    { type: "start", messageId: "provider-surface-message" },
-    { type: "text-start", id: "provider-surface-text" },
-    { type: "text-delta", id: "provider-surface-text", delta: SURFACE_MARKDOWN },
-    { type: "text-end", id: "provider-surface-text" },
-    { type: "data-openGenerativeSurface", id, data: { surfaceSessionId, events: [events[0]] } },
-    { type: "data-openGenerativeSurface", id, data: { surfaceSessionId, events: [...events] } },
-    { type: "finish", finishReason: "stop" },
-  ];
-  return new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(chunk);
-      controller.close();
-    },
-  });
-}
-
-async function cumulativeSurfaceEvent(sequence: 1 | 2): Promise<SurfaceEventEnvelope> {
-  const payload = {
-    type: "rejected" as const,
-    transactionId: `transaction-cumulative-surface-${sequence}`,
-    diagnostics: [{
-      phase: "validate" as const,
-      code: "validate.cumulative-surface",
-      severity: "error" as const,
-      recoverable: true,
-      modelCorrectable: true,
-      message: "Cumulative Surface fixture.",
-    }],
-  };
-  return surfaceEventEnvelopeSchema.parse({
-    protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-    protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
-    surfaceSessionId: "surface:cumulative-transcript",
-    streamId: "stream-cumulative-transcript",
-    epoch: 1,
-    sequence,
-    eventId: `event-cumulative-transcript-${sequence}`,
-    cursor: `cursor-cumulative-transcript-000${sequence}`,
-    committedRevisionId: "revision-cumulative-transcript",
-    audienceBindingHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
-    contractSetHash: sha256HashSchema.parse(`sha256:${"b".repeat(64)}`),
-    correlationId: "correlation-cumulative-transcript",
-    payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, payload),
-    payload,
   });
 }
 
@@ -380,70 +319,6 @@ describe("Studio chat transcript integration", () => {
       expect(transcriptText).toContain('"action":"prepare_analysis"');
       expect(transcriptText).not.toContain('"rowCount":2');
       expect(transcriptText).not.toContain("data-tessera-");
-    } finally {
-      await sessionMemory.close();
-      rmSync(rootDirectory, { force: true, recursive: true });
-    }
-  });
-
-  test("persists only the latest cumulative Surface snapshot while streaming every update", async () => {
-    const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-surface-transcript-"));
-    const sessionMemory = createTesseraSessionMemory({ rootDirectory });
-    const threadId = `thread-${randomUUID()}`;
-    const events = await Promise.all([cumulativeSurfaceEvent(1), cumulativeSurfaceEvent(2)]) as [
-      SurfaceEventEnvelope,
-      SurfaceEventEnvelope,
-    ];
-    const app = createStudioApp({
-      connector: connector(),
-      sessionMemory,
-      agent: {
-        async run() {
-          return { status: "needs_input", message: "unused" };
-        },
-        streamUI() {
-          return cumulativeSurfaceSourceStream(events);
-        },
-      },
-    });
-
-    try {
-      const response = await app.fetch(request("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: "chat-cumulative-surface",
-          threadId,
-          trigger: "submit-message",
-          messages: [{
-            id: "user-surface-message",
-            role: "user",
-            parts: [{ type: "text", text: "Show the analysis." }],
-          }],
-        }),
-      }));
-      const sse = await response.text();
-      expect(response.status).toBe(200);
-      expect(sse.match(/"type":"data-openGenerativeSurface"/g)).toHaveLength(2);
-
-      const messagesResponse = await app.fetch(request(`/api/threads/${threadId}/messages`));
-      const payload = await messagesResponse.json() as {
-        messages: Array<{
-          role: string;
-          parts: Array<{ type: string; text?: string; data?: { events?: unknown[] } }>;
-        }>;
-      };
-      const assistant = payload.messages.find((message) => message.role === "assistant");
-      expect(assistant?.parts.map((part) => part.type)).toEqual([
-        "text",
-        "data-openGenerativeSurface",
-      ]);
-      expect(assistant?.parts[0]?.text).toBe(SURFACE_MARKDOWN);
-      const surfaceParts = payload.messages.flatMap((message) => (
-        message.parts.filter((part) => part.type === "data-openGenerativeSurface")
-      ));
-      expect(surfaceParts).toHaveLength(1);
-      expect(surfaceParts[0]?.data?.events).toHaveLength(2);
     } finally {
       await sessionMemory.close();
       rmSync(rootDirectory, { force: true, recursive: true });

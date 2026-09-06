@@ -1,5 +1,5 @@
 {
-  "title": "Analysis Views",
-  "description": "The analytical views available in Tessera Agent.",
-  "pages": ["index", "generative-ui-catalog"]
+  "title": "Studio Components",
+  "description": "The interface components used by Tessera Studio.",
+  "pages": ["index"]
 }

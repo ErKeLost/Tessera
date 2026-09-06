@@ -40,7 +40,7 @@ export const modelEvidenceSchema = z.object({
       "Verified value type for the output column.",
     ),
   }).strict()).max(MAX_MODEL_EVIDENCE_COLUMNS).describe(
-    "Verified output columns available for analysis and presentation.",
+    "Verified output columns available for analysis and the final response.",
   ),
   sampleStrategy: z.enum(["all", "evenly-spaced", "none"]).describe(
     "How sampleRows were selected from the verified result.",

@@ -378,8 +378,10 @@ export function StudioSettingsDialog({
         ...jsonRequest(candidate),
         method: "PUT",
       });
-      if (!response.ok) throw new Error("settings_save_failed");
       const body = await response.json().catch(() => undefined) as unknown;
+      if (!response.ok) {
+        throw new Error(readPublicErrorMessage(body) ?? "settings_save_failed");
+      }
       const saved = readStudioSettingsSnapshot(body);
       setSettings(saved);
       // Never retain values that might have been supplied as credentials.
@@ -392,9 +394,11 @@ export function StudioSettingsDialog({
       setRequestState("success");
       setNotice(readPublicMessage(body) ?? "Settings saved.");
       onSaved?.(saved);
-    } catch {
+    } catch (error) {
       setRequestState("error");
-      setNotice("Settings could not be saved.");
+      setNotice(error instanceof Error && error.message !== "settings_save_failed"
+        ? error.message
+        : "Settings could not be saved.");
     }
   }, [candidate, onSaved]);
 
@@ -410,17 +414,21 @@ export function StudioSettingsDialog({
         },
         body: JSON.stringify(form.permissions),
       });
-      if (!response.ok) throw new Error("permissions_save_failed");
       const body = await response.json().catch(() => undefined) as unknown;
+      if (!response.ok) {
+        throw new Error(readPublicErrorMessage(body) ?? "permissions_save_failed");
+      }
       const saved = readStudioSettingsSnapshot(body);
       setSettings(saved);
       setForm((current) => ({ ...current, permissions: saved.permissions }));
       setRequestState("success");
       setNotice(readPublicMessage(body) ?? "Database permissions saved.");
       onSaved?.(saved);
-    } catch {
+    } catch (error) {
       setRequestState("error");
-      setNotice("Database permissions could not be saved.");
+      setNotice(error instanceof Error && error.message !== "permissions_save_failed"
+        ? error.message
+        : "Database permissions could not be saved.");
     }
   }, [form.permissions, onSaved]);
 
@@ -1052,7 +1060,7 @@ function readPublicMessage(value: unknown): string | undefined {
   return readShortString(root?.message);
 }
 
-function readPublicErrorMessage(value: unknown): string | undefined {
+export function readPublicErrorMessage(value: unknown): string | undefined {
   const root = asRecord(value);
   return readShortString(asRecord(root?.error)?.message);
 }

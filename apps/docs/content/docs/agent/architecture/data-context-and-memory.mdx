@@ -4,8 +4,7 @@ description: Tessera Data Agent's four-tool architecture, single data execution 
 ---
 
 Tessera is limited to data analysis and database operations. Bash, Python, file-system access, web search, and generic
-knowledge tools are outside the Data Agent. Generative UI is an output format applied after verification, not a model
-tool.
+knowledge tools are outside the Data Agent.
 
 ## Final tool surface
 
@@ -160,13 +159,12 @@ turn starts
   -> prepare_analysis for semantic work
   -> execute_sql as the only business-data execution tool
   -> result validation and evidence
-  -> optional Open Generative output processor
+  -> grounded Markdown response
   -> incremental stable-domain learning when warranted
   -> Mastra savePerStep persistence
 ```
 
-The Open Generative processor consumes only verified resources. It cannot query a database, add a presentation tool,
-or change authorization. Model-private history and the sanitized UI transcript remain separate records.
+Model-private history and the sanitized UI transcript remain separate records.
 
 ## References
 

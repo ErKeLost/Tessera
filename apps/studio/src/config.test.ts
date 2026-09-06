@@ -74,7 +74,6 @@ describe("Tessera configuration", () => {
       requireAuthentication: false,
       allowedOrigins: [],
       catalogCacheTtlMs: 60_000,
-      generativeUi: { hostMode: "demo" },
       continualHarness: {
         enabled: true,
         autoReviewInterval: 25,

@@ -2,11 +2,10 @@
 
 > **Historical, non-normative architecture input.** This document preserves an
 > earlier Tessera Agent permission and database-write design. It is not part of
-> the current Tessera Agent Generative UI proof, and it does not authorize
+> the current Tessera Agent implementation, and it does not authorize
 > changes to Agent, Studio, Workbench, or `/Users/work/data-agent`. The normative
 > current scope is defined by
-> [`open-generative-architecture.md`](./open-generative-architecture.md) and
-> [`tessera-data-agent-generative-ui-proof.md`](./tessera-data-agent-generative-ui-proof.md).
+> the current Agent and Studio source of truth.
 
 Status: historical reference (original status: proposed architecture baseline)
 Scope: Studio, Data Agent, Mastra runtime, database actions, permissions, approvals, audit  
@@ -410,8 +409,8 @@ The user-facing error should be safe and stable. Provider URLs, credentials, raw
 ## 13. Historical migration plan
 
 This plan records the original Agent/Studio proposal. It is not an active plan
-for this repository; the current implementation scope remains the Tessera Agent
-Generative UI contracts, runtime, components, renderers, fixtures, and proof.
+for this repository; the current implementation scope is the governed Tessera
+data Agent, Studio host, database tools, Evidence, and approval workflow.
 
 ### Phase 0: architecture freeze
 

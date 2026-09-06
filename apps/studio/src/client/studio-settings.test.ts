@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { readStudioSettingsSnapshot } from "./studio-settings";
+import { readPublicErrorMessage, readStudioSettingsSnapshot } from "./studio-settings";
 
 describe("Studio settings permissions", () => {
+  test("preserves a bounded server settings error for the form", () => {
+    expect(readPublicErrorMessage({
+      error: { message: "Tessera could not connect to the requested database." },
+    })).toBe("Tessera could not connect to the requested database.");
+    expect(readPublicErrorMessage({ error: { message: { unsafe: true } } })).toBeUndefined();
+  });
+
   test("reads the compact database permission policy from the redacted settings snapshot", () => {
     const settings = readStudioSettingsSnapshot({
       settings: {

@@ -14,10 +14,10 @@ Catalog、权限、执行、Evidence、持久化与最终浏览器 Projection �
 -> Mastra Agent
 -> 受治理数据库 Tool
 -> Connector Execution
--> Evidence 与 Resource Publication
--> 文字或生成式分析视图
+-> Evidence
+-> 有依据的 Markdown 回答
 -> AI SDK UI Message Stream
--> Studio Transcript 与 Renderer
+-> Studio Transcript
 ```
 
 Data Agent 只有两条明确查询路径。物理 Metadata 与 SQL 工作使用
@@ -29,7 +29,7 @@ Data Agent 只有两条明确查询路径。物理 Metadata 与 SQL 工作使用
 
 | 层 | 职责 |
 | --- | --- |
-| Studio Client | 对话、Tool 生命周期、分析视图、Approval、Settings 与刷新恢复 |
+| Studio Client | 对话、Tool 生命周期、Approval、Settings 与刷新恢复 |
 | Nitro Server | Authentication Boundary、Chat Transport、Transcript Projection、Settings 与 Runtime Lease |
 | Mastra Agent | Model Loop、Processor、Tool、逐 Step Memory 与 Durable Suspend/Resume |
 | Data Agent | Semantic Catalog Scope、Plan Validation、服务端 Compilation、Bounded Execution 与 Evidence |
@@ -42,10 +42,4 @@ Mastra Memory 在每个已完成 Step 后保存模型私有上下文。Studio �
 保存另一份 Browser-safe Transcript。两者有意不同：模型历史保留 Continuation 所需 Tool Context，
 浏览器历史只包含 Allowlist Display Data。
 
-## 生成式视图
-
-生成式分析视图是 Tessera Agent 的一种回答格式。它只消费已经由成功数据库 Tool 发布的 Resource，
-不能再次执行查询。Client 使用 Studio 内置组件渲染唯一最新、已经 Commit 的 Data Part。
-
-继续阅读 [Tool 契约](/docs/agent/tool-contract)、[运行循环](/docs/agent/architecture/run-loop)与
-[生成式分析视图](/docs/agent/architecture/generative-ui)。
+继续阅读 [Tool 契约](/docs/agent/tool-contract) 与[运行循环](/docs/agent/architecture/run-loop)。

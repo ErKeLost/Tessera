@@ -34,11 +34,6 @@ chunk assembler or compatibility protocol.
 
 ## Tessera data parts
 
-Normal text, reasoning, and tools remain native AI SDK parts. A generated
-analysis view is delivered as one typed `data-openGenerativeSurface` part
-inside the Tessera message type. The Studio renderer recognizes that data part.
-
-The server stores only an allowlisted projection. Cumulative updates for one
-analysis surface replace the earlier snapshot, and every step checkpoint
-upserts the same assistant message ID. Refreshing a thread therefore restores
-one message and one latest surface rather than replaying duplicate snapshots.
+Normal text, reasoning, and tools remain native AI SDK parts. The server stores
+only an allowlisted projection, and every step checkpoint upserts the same
+assistant message ID.

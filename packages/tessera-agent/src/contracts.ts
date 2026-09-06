@@ -1,7 +1,6 @@
 import type { MastraModelConfig } from "@mastra/core/llm";
 import type { Mastra } from "@mastra/core/mastra";
 import type { Memory } from "@mastra/memory";
-import type { OpenGenerativeHost } from "@open-generative/mastra";
 import type {
   DataAgent,
   PlanningCapability,
@@ -67,7 +66,6 @@ export type TesseraAgentErrorPhase =
   | "tool-input"
   | "tool-output"
   | "persistence"
-  | "presentation"
   | "stream"
   | "transport";
 
@@ -226,7 +224,7 @@ export type TesseraAgentContinualTurn = Readonly<{
   assistantText?: string;
 }>;
 
-/** The Agent only needs this small surface from a host-owned continual layer. */
+/** The Agent only needs this small interface from a host-owned continual layer. */
 export type TesseraAgentContinualPort = Readonly<{
   contextFor(input: Readonly<{ resourceId: string; threadId: string }>): Promise<string | undefined>;
   submitCompletedTurn(input: TesseraAgentContinualTurn): void;
@@ -248,7 +246,6 @@ export type TesseraAgentCoreOptions = Readonly<{
   databaseActions?: TesseraAgentMutationPort;
   mastra: Mastra;
   continualHarness?: TesseraAgentContinualPort;
-  openGenerativeHost?: OpenGenerativeHost | Promise<OpenGenerativeHost>;
 }>;
 
 export type TesseraSuspendedToolPayload = Readonly<{

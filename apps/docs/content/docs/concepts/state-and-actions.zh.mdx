@@ -9,8 +9,8 @@ Tessera 不会让同一条 Message Record 成为所有状态的权威来源。�
 | --- | --- | --- |
 | 模型对话 | Mastra Memory | 为后续模型 Step 与 Turn 提供上下文 |
 | 领域 Working Memory | Mastra Resource-scoped Schema Memory | 跨 Thread 保存稳定偏好与经过验证的可复用分析规则 |
-| 浏览器 Transcript | Tessera Session Store | 安全文本、Tool Lifecycle 与已提交分析视图 |
-| 本地视图状态 | React Component | Hover、Focus、打开的控件与图表可见性 |
+| 浏览器 Transcript | Tessera Session Store | 安全文本与 Tool Lifecycle |
+| 本地视图状态 | React Component | Hover、Focus 与打开的控件 |
 | 审批状态 | Mastra Workflow Snapshot | 持久化 Mutation Suspension 与 Resume |
 | 数据库状态 | 已连接数据库 | 权威业务记录 |
 
@@ -22,11 +22,6 @@ Mastra 原生 `savePerStep` 会把已经完成的模型 Step，包括 Tool Call 
 
 浏览器 Transcript 不会反过来成为数据库权限来源。原始 Credential、Provider Metadata、私有 Tool
 Payload 与不受限 Query Row 都不会保存到其中。
-
-## 分析视图状态
-
-图表 Hover、Focus 与临时可见性设置只由 Renderer 管理。已提交分析视图属于 Assistant Message；
-同一 Surface 的累积更新会覆盖之前 Snapshot。本地交互不能修改数据库，也不能虚构新的 Tool Call。
 
 ## 数据库操作
 

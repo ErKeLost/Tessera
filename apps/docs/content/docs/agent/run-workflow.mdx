@@ -1,6 +1,6 @@
 ---
 title: Run Workflow
-description: How one Tessera question becomes a grounded answer and an optional analysis view.
+description: How one Tessera question becomes a grounded answer.
 ---
 
 One Tessera turn has a single governed path from the question to the final UI:
@@ -11,7 +11,6 @@ question
 -> execute one bounded database path
 -> validate and retain evidence
 -> compose the final answer
--> optionally compile a generated analysis view
 -> stream one browser-safe AI SDK message
 ```
 
@@ -45,15 +44,8 @@ two records serve different trust boundaries and are not manually reconstructed.
 
 ## 4. Produce the response
 
-After a database tool publishes a verified dataset, Tessera's internal output
-processor can select from the available analysis recipes and compile a
-declarative view. This is response formatting, not another Agent tool and not a
-second query. If no suitable dataset exists, Tessera returns the normal text and
-tool transcript without fabricating a view.
+Tessera returns grounded Markdown based on verified evidence. The browser
+receives native AI SDK text, reasoning, and tool parts. Refreshing the thread
+restores the same sanitized message.
 
-The browser receives native AI SDK text, reasoning, and tool parts plus at most
-the latest committed analysis-view snapshot for that response. Refreshing the
-thread restores the same message instead of replaying every intermediate copy.
-
-Continue with the [tool contract](./tool-contract) and [generated analysis view
-architecture](./architecture/generative-ui).
+Continue with the [tool contract](./tool-contract).

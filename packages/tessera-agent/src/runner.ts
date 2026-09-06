@@ -1,9 +1,5 @@
 import { toAISdkStream } from "@mastra/ai-sdk";
 import type { Agent } from "@mastra/core/agent";
-import {
-  openGenerativeFallbackSchema,
-  openGenerativeSurfaceStreamSchema,
-} from "@open-generative/protocol";
 import type { FinishReason } from "ai";
 import { z } from "zod";
 import type {
@@ -26,7 +22,7 @@ import {
 } from "./mastra-agent";
 import { tesseraWorkingMemoryOptions } from "./memory";
 import { modelReasoningOptions } from "./model-config";
-import { createTesseraPresentationResourceSidecar } from "./presentation-resource-sidecar";
+import { buildCurrentDateSystemMessage } from "./prompt";
 import type {
   TesseraExecuteSqlToolOutput,
   TesseraListDatabaseToolOutput,
@@ -43,7 +39,6 @@ import {
   redactOpaqueAssistantIdentifiers,
 } from "./safety";
 
-const OPEN_GENERATIVE_FALLBACK_MESSAGE = "The generated interface could not be rendered.";
 const GENERIC_PUBLIC_STREAM_ERROR = "The Tessera Agent stream could not be processed.";
 
 export type TesseraAgentPublicError = Readonly<{
@@ -65,7 +60,7 @@ export type CreateTesseraAgentOptions = TesseraAgentCoreOptions & Readonly<{
 
 export interface TesseraAgent extends TesseraAgentRunner {
   stream: NonNullable<TesseraAgentRunner["stream"]>;
-  /** Native AI SDK v7 stream preserving Markdown, OGL, and suspension parts. */
+  /** Native AI SDK v7 stream preserving Markdown, tool, and suspension parts. */
   streamUI(input: TesseraAgentRunInput): ReadableStream<TesseraUIMessageChunk>;
 }
 
@@ -75,23 +70,17 @@ export interface TesseraAgent extends TesseraAgentRunner {
  */
 export function createTesseraAgent(options: CreateTesseraAgentOptions): TesseraAgent {
   const queue = createThreadQueue();
-  const presentationResources = createTesseraPresentationResourceSidecar();
 
   return {
     run: (input) => queue.run(threadQueueKey(options, input), async () => {
       const enriched = await withContinualContext(options, input);
-      const run = await runTesseraAgentTurn(options, enriched, presentationResources);
+      const run = await runTesseraAgentTurn(options, enriched);
       submitContinualTurn(options, enriched, run.message);
       return run;
     }),
     stream: (input, emit) => queue.run(threadQueueKey(options, input), async () => {
       const enriched = await withContinualContext(options, input);
-      const run = await streamTesseraAgentTurn(
-        options,
-        enriched,
-        presentationResources,
-        emit,
-      );
+      const run = await streamTesseraAgentTurn(options, enriched, emit);
       submitContinualTurn(options, enriched, run.message);
       return run;
     }),
@@ -99,7 +88,6 @@ export function createTesseraAgent(options: CreateTesseraAgentOptions): TesseraA
       options,
       input,
       queue,
-      presentationResources,
     ),
   };
 }
@@ -107,10 +95,9 @@ export function createTesseraAgent(options: CreateTesseraAgentOptions): TesseraA
 async function runTesseraAgentTurn(
   options: CreateTesseraAgentOptions,
   input: TesseraAgentRunInput,
-  presentationResources: ReturnType<typeof createTesseraPresentationResourceSidecar>,
 ): Promise<TesseraAgentRun> {
   const runtime = createTesseraCopilotRuntime();
-  const agent = createAgentForTurn(options, input, runtime, presentationResources);
+  const agent = createAgentForTurn(options, input, runtime);
   const output = await agent.stream(
     agentUserContent(input),
     generationOptions(options, input),
@@ -120,30 +107,25 @@ async function runTesseraAgentTurn(
       filterTesseraPublicToolParts(toPublicUIStream(options, input, output)),
     ),
   );
-  const message = safeAssistantNarration(result.response);
+  const message = safeAssistantNarration(result.response)
+    ?? assistantNarrationFromOutput(output);
   if (result.aborted || input.signal.aborted) throw createAbortError();
   if (result.failed
     || result.finishReason !== "stop"
-    || (!message && !result.hasCommittedSurface && !result.hasOpenGenerativeFallback)) {
+    || !message) {
     throw new Error("The Tessera Agent did not return a usable response.");
   }
-  return runFrom(
-    runtime,
-    message ?? (result.hasOpenGenerativeFallback
-      ? OPEN_GENERATIVE_FALLBACK_MESSAGE
-      : "Analysis complete."),
-  );
+  return runFrom(runtime, message);
 }
 
 /** Streams the Agent to simple event consumers without replaying accumulated text. */
 async function streamTesseraAgentTurn(
   options: CreateTesseraAgentOptions,
   input: TesseraAgentRunInput,
-  presentationResources: ReturnType<typeof createTesseraPresentationResourceSidecar>,
   emit: (event: TesseraAgentEvent) => void | Promise<void>,
 ): Promise<TesseraAgentRun> {
   const runtime = createTesseraCopilotRuntime();
-  const agent = createAgentForTurn(options, input, runtime, presentationResources);
+  const agent = createAgentForTurn(options, input, runtime);
   const output = await agent.stream(
     agentUserContent(input),
     generationOptions(options, input),
@@ -164,26 +146,21 @@ async function streamTesseraAgentTurn(
     await emitLegacyToolEvent(chunk, activeTools, emit);
   });
 
-  const message = safeAssistantNarration(result.response);
+  const message = safeAssistantNarration(result.response)
+    ?? assistantNarrationFromOutput(output);
   if (result.aborted || input.signal.aborted) throw createAbortError();
   if (result.failed
     || result.finishReason !== "stop"
-    || (!message && !result.hasCommittedSurface && !result.hasOpenGenerativeFallback)) {
+    || !message) {
     throw new Error("The Tessera Agent did not return a usable response.");
   }
-  const acceptedMessage = message
-    ?? (result.hasOpenGenerativeFallback
-      ? OPEN_GENERATIVE_FALLBACK_MESSAGE
-      : "Analysis complete.");
-  if (!message) await emit({ type: "text-delta", text: acceptedMessage });
-  return runFrom(runtime, acceptedMessage);
+  return runFrom(runtime, message);
 }
 
 function streamTesseraAgentTurnUI(
   options: CreateTesseraAgentOptions,
   input: TesseraAgentRunInput,
   queue: ReturnType<typeof createThreadQueue>,
-  presentationResources: ReturnType<typeof createTesseraPresentationResourceSidecar>,
 ): ReadableStream<TesseraUIMessageChunk> {
   const controller = new AbortController();
   let cancelled = false;
@@ -216,12 +193,7 @@ function streamTesseraAgentTurnUI(
             signal: controller.signal,
             allowRuntimeSuspension: true,
           });
-          const agent = createAgentForTurn(
-            options,
-            enrichedInput,
-            runtime,
-            presentationResources,
-          );
+          const agent = createAgentForTurn(options, enrichedInput, runtime);
           const resumed = input.resumeData === undefined
             ? undefined
             : await resolvePendingMutationResume(options, agent, input);
@@ -244,11 +216,7 @@ function streamTesseraAgentTurnUI(
                 generationOptions(options, executionInput),
               );
           const source = appendCopilotOutcome(
-            normalizeTesseraToolInvocationOrder(
-              filterTesseraPublicToolParts(
-                toPublicUIStream(options, input, output),
-              ),
-            ),
+            normalizeTesseraToolInvocationOrder(filterTesseraPublicToolParts(toPublicUIStream(options, input, output))),
           );
           const reader = source.getReader();
           sourceReader = reader;
@@ -477,19 +445,10 @@ export function filterTesseraPublicToolParts(
 /** Validates a terminal answer without consuming Mastra's fullStream twice. */
 export function appendCopilotOutcome(
   source: ReadableStream<TesseraUIMessageChunk>,
-  onAcceptedResponse?: (
-    message: string | undefined,
-    outcome: Readonly<{
-      hasCommittedSurface: boolean;
-      hasOpenGenerativeFallback: boolean;
-    }>,
-  ) => Promise<TesseraUIMessageChunk | undefined>,
 ): ReadableStream<TesseraUIMessageChunk> {
   let terminal = false;
   let hasVisibleText = false;
   let response = "";
-  let hasCommittedSurface = false;
-  let hasOpenGenerativeFallback = false;
   let suspended = false;
   let pendingError:
     | Extract<TesseraUIMessageChunk, { type: "error" }>
@@ -507,14 +466,6 @@ export function appendCopilotOutcome(
           suspended = true;
           controller.enqueue(chunk);
           return;
-        }
-
-        if (chunk.type === "data-openGenerativeSurface") {
-          hasCommittedSurface ||= isCommittedOpenGenerativeSurface(chunk.data);
-        }
-        if (chunk.type === "data-openGenerativeFallback") {
-          hasOpenGenerativeFallback ||=
-            openGenerativeFallbackSchema.safeParse(chunk.data).success;
         }
 
         if (chunk.type === "error") {
@@ -547,9 +498,7 @@ export function appendCopilotOutcome(
             return;
           }
 
-          if (!hasVisibleText
-            && !hasCommittedSurface
-            && !hasOpenGenerativeFallback) {
+          if (!hasVisibleText) {
             controller.enqueue(pendingError ?? {
               type: "error",
               errorText: "The Tessera Agent stopped before it returned a visible response.",
@@ -570,20 +519,6 @@ export function appendCopilotOutcome(
             return;
           }
 
-          try {
-            const presentation = await onAcceptedResponse?.(message, {
-              hasCommittedSurface,
-              hasOpenGenerativeFallback,
-            });
-            if (presentation !== undefined) controller.enqueue(presentation);
-          } catch {
-            controller.enqueue({
-              type: "error",
-              errorText: "The Tessera Agent could not save this completed response.",
-            });
-            controller.enqueue({ type: "finish", finishReason: "error" });
-            return;
-          }
         }
 
         controller.enqueue(chunk);
@@ -610,16 +545,12 @@ async function consumeCopilotUIStream(
   response: string;
   failed: boolean;
   aborted: boolean;
-  hasCommittedSurface: boolean;
-  hasOpenGenerativeFallback: boolean;
   finishReason?: FinishReason;
 }>> {
   const reader = source.getReader();
   let response = "";
   let failed = false;
   let aborted = false;
-  let hasCommittedSurface = false;
-  let hasOpenGenerativeFallback = false;
   let finishReason: FinishReason | undefined;
 
   try {
@@ -630,13 +561,6 @@ async function consumeCopilotUIStream(
       if (chunk.type === "text-delta") response += chunk.delta;
       if (chunk.type === "error") failed = true;
       if (chunk.type === "abort") aborted = true;
-      if (chunk.type === "data-openGenerativeSurface") {
-        hasCommittedSurface ||= isCommittedOpenGenerativeSurface(chunk.data);
-      }
-      if (chunk.type === "data-openGenerativeFallback") {
-        hasOpenGenerativeFallback ||=
-          openGenerativeFallbackSchema.safeParse(chunk.data).success;
-      }
       if (chunk.type === "finish") {
         finishReason = chunk.finishReason;
         if (chunk.finishReason !== undefined && chunk.finishReason !== "stop") {
@@ -653,8 +577,6 @@ async function consumeCopilotUIStream(
     response,
     failed,
     aborted,
-    hasCommittedSurface,
-    hasOpenGenerativeFallback,
     ...(finishReason === undefined ? {} : { finishReason }),
   };
 }
@@ -726,7 +648,6 @@ function createAgentForTurn(
   options: CreateTesseraAgentOptions,
   input: TesseraAgentRunInput,
   runtime: TesseraCopilotRuntime,
-  presentationResources: ReturnType<typeof createTesseraPresentationResourceSidecar>,
 ): Agent {
   return createTesseraDataCopilotAgent({
     input,
@@ -736,11 +657,7 @@ function createAgentForTurn(
     llm: options.llm,
     mastra: options.mastra,
     runtime,
-    presentationResources,
     defaultIdentity: options.defaultIdentity,
-    ...(options.resourceIdForIdentity === undefined
-      ? {}
-      : { resourceIdForIdentity: options.resourceIdForIdentity }),
     ...(options.formatError === undefined
       ? {}
       : { formatError: options.formatError }),
@@ -751,9 +668,6 @@ function createAgentForTurn(
       ? {}
       : { databaseActions: options.databaseActions }),
     databaseDialect: options.databaseDialect ?? options.dataAgent.dialect,
-    ...(options.openGenerativeHost === undefined
-      ? {}
-      : { openGenerativeHost: options.openGenerativeHost }),
   });
 }
 
@@ -773,6 +687,7 @@ function generationOptions(
   return {
     abortSignal: input.signal,
     runId: input.runId,
+    system: buildCurrentDateSystemMessage(),
     ...(input.toolCallId === undefined ? {} : { toolCallId: input.toolCallId }),
     toolCallConcurrency: 1,
     memory: memoryOptionsFor(options, input),
@@ -1062,25 +977,10 @@ export function hasVisibleCopilotOutput(value: unknown): boolean {
   if (message?.role !== "assistant" || !Array.isArray(message.parts)) return false;
   return message.parts.some((part) => {
     const record = isRecord(part) ? part : undefined;
-    if (record === undefined || typeof record.type !== "string") return false;
-    if (record.type === "text") {
-      return typeof record.text === "string"
-        && hasVisibleCopilotText(record.text);
-    }
-    if (record.type === "data-openGenerativeSurface") {
-      return isCommittedOpenGenerativeSurface(record.data);
-    }
-    return record.type === "data-openGenerativeFallback"
-      && openGenerativeFallbackSchema.safeParse(record.data).success;
+    return record?.type === "text"
+      && typeof record.text === "string"
+      && hasVisibleCopilotText(record.text);
   });
-}
-
-function isCommittedOpenGenerativeSurface(input: unknown): boolean {
-  const stream = openGenerativeSurfaceStreamSchema.safeParse(input);
-  return stream.success
-    && stream.data.events.some(
-      (event) => event.payload.type === "revision-committed",
-    );
 }
 
 /** Applies the final credential guard and redacts opaque implementation ids. */
@@ -1275,6 +1175,24 @@ function runFrom(
     message,
     evidence: runtime.analyses.map(publicEvidence),
   };
+}
+
+function assistantNarrationFromOutput(
+  output: Awaited<ReturnType<Agent["stream"]>>,
+): string | undefined {
+  const messages = output.messageList.get.all.db();
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") continue;
+    const text = message.content.parts
+      .filter((part): part is Extract<typeof part, { type: "text" }> => part.type === "text")
+      .map((part) => part.text)
+      .join("\n")
+      .trim();
+    const safe = safeAssistantNarration(text);
+    if (safe !== undefined) return safe;
+  }
+  return undefined;
 }
 
 function threadQueueKey(

@@ -124,7 +124,7 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
     this.#options = {
       connectionString: options.connectionString,
       id: this.id,
-      applicationName: options.applicationName?.trim() || "data-elements-studio",
+      applicationName: options.applicationName?.trim() || "open-tessera-studio",
       maxConnections: clampInteger(options.maxConnections ?? DEFAULT_MAX_CONNECTIONS, 1, 20),
       maxRows: clampInteger(options.maxRows ?? DEFAULT_MAX_ROWS, 1, 20_000),
       statementTimeoutMs: clampInteger(options.statementTimeoutMs ?? DEFAULT_STATEMENT_TIMEOUT_MS, 250, 120_000),

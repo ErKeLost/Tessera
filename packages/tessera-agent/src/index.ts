@@ -7,8 +7,6 @@ export * from "./model-config";
 export * from "./model-contracts";
 export * from "./model-projection";
 export * from "./planning";
-export * from "./presentation-resource-sidecar";
-export * from "./presentation";
 export * from "./prompt";
 export * from "./protocol";
 export * from "./request-context";

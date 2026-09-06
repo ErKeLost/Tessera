@@ -66,7 +66,7 @@ describe("prepared turn handoff", () => {
       repair(request) {
         calls += 1;
         expect(request.attempt).toBe(1);
-        expect(request.system).toContain("Data Elements Artifact Authoring DSL");
+    expect(request.system).toContain("Tessera analysis artifacts");
         expect(JSON.stringify(request.providerSchema)).toContain("content.text");
         expect(request.prompt).toContain("Active provider JSON Schema");
         expect(request.prompt).not.toContain("super-secret");

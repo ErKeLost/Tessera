@@ -47,15 +47,6 @@ export type {
   TesseraStudioOverrides,
 } from "./config";
 export {
-  DEFAULT_OPEN_GENERATIVE_THEME_PRESET,
-  OPEN_GENERATIVE_THEME_PRESET_IDS,
-  TESSERA_OPEN_GENERATIVE_THEME_ENVIRONMENT_VARIABLE,
-  isOpenGenerativeThemePresetId,
-  resolveOpenGenerativeThemePreset,
-  resolveOpenGenerativeThemePresetFromEnvironment,
-} from "./open-generative-theme-preset";
-export type { OpenGenerativeThemePresetId } from "./open-generative-theme-preset";
-export {
   createStudioApp,
   createDataAgentCatalogProvider,
   createStudioCatalogProvider,
@@ -75,7 +66,6 @@ export {
   TesseraSettingsRuntimeError,
   createTesseraLocalSettingsStore,
   createDefaultTesseraStudioRuntimeFactory,
-  createTesseraOpenGenerativeRuntimeBundle,
   createTesseraStudioRuntimeManager,
   createTesseraStudioSettingsSnapshot,
   normalizeTesseraStudioSettings,
@@ -103,9 +93,6 @@ export type {
 export type {
   CreateTesseraLocalSettingsStoreOptions,
   TesseraDatabaseAccessMode,
-  TesseraOpenGenerativeHostFactory,
-  TesseraOpenGenerativeHostFactoryInput,
-  TesseraOpenGenerativeRuntimeBundle,
   TesseraRuntimeManagerOptions,
   TesseraRuntimeReplaceOptions,
   TesseraSettingsConnectionSnapshot,
@@ -174,10 +161,6 @@ export type {
   TesseraStudioRuntime,
   TesseraStudioServer,
 } from "./server";
-export type {
-  OpenGenerativeInspectionRecord,
-  TesseraOpenGenerativeInspectionReader,
-} from "./generative/inspection";
 export type {
   CreateStudioConsoleLoggerOptions,
   StudioLogLevel,

@@ -3,8 +3,7 @@ title: Tool 契约
 description: Tessera Agent 实际暴露给模型的数据库 Tool，以及每个 Tool 强制执行的边界。
 ---
 
-Tessera Agent 通过一组少量、明确的 Mastra Tool 执行数据库工作。生成式分析视图**不是**额外
-Tool；它在可信数据已经产生后，由 Agent 的 Output Processor 生成。
+Tessera Agent 通过一组少量、明确的 Mastra Tool 执行数据库工作。
 
 ## 面向模型的 Tool
 
@@ -40,15 +39,6 @@ Catalog 与 Schema Result 只用于规划，只有成功的执行结果才能支
 `execute_sql` 的 Mutation 分支不会把模型意图当成授权。服务端负责编译 Typed Action、评估当前
 Policy、创建 Approval Checkpoint，并且只在收到有效决定后恢复同一个 Mastra Run。Raw Write SQL
 不被接受。
-
-## 生成式分析视图
-
-`execute_sql` 发布可信 Resource 后，Output Processor 可以把最终回答转换成
-Tessera 分析视图。这个 Processor 只能看到当前 Resource Descriptor 与组件词汇；它不会增加
-呈现 Tool、不会为每个图表增加一个 Tool，也不会创建第二条查询路径，更不能执行数据库工作。
-
-浏览器最终收到一个 Typed AI SDK Data Part。Tessera 负责校验、脱敏、逐 Step Checkpoint，
-并通过 Studio 内置 Renderer 输出。
 
 ## Trust Boundary
 

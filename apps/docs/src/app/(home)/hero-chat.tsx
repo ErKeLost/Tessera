@@ -2,12 +2,10 @@
 
 import {
   ArrowUpIcon,
-  BarChart3Icon,
   BracesIcon,
   CheckCircle2Icon,
   CircleCheckIcon,
   DatabaseIcon,
-  LineChartIcon,
   ListFilterIcon,
   PlusIcon,
   SearchIcon,
@@ -16,27 +14,14 @@ import {
   SparklesIcon,
 } from "lucide-react";
 import { useI18n } from "fumadocs-ui/contexts/i18n";
-import { useId, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
+import { useState } from "react";
+import type { FormEvent } from "react";
 import { TesseraAgentLogo } from "@/components/tessera-agent-logo";
-import { ChartRecipeDemo } from "@/components/generative-gallery";
-import type { ChartRecipeName } from "@/components/generative-gallery-model";
-
-type HeroRecipe = Extract<
-  ChartRecipeName,
-  "revenue-smooth-area" | "sessions-conversion-combo" | "activity-rings"
->;
 
 const suggestions = [
   "Show revenue by day for the last 30 days",
   "Compare activation across plans",
   "Find the largest week-over-week change",
-] as const;
-
-const views = [
-  { id: "revenue-smooth-area", label: "Revenue", icon: LineChartIcon },
-  { id: "sessions-conversion-combo", label: "Conversion", icon: BarChart3Icon },
-  { id: "activity-rings", label: "Activity", icon: CircleCheckIcon },
 ] as const;
 
 const runSteps = [
@@ -52,12 +37,6 @@ const chineseSuggestions = [
   "找出最大的周环比变化",
 ] as const;
 
-const chineseViews = {
-  "revenue-smooth-area": "收入趋势",
-  "sessions-conversion-combo": "转化表现",
-  "activity-rings": "活跃进度",
-} as const;
-
 const chineseRunSteps = [
   { label: "发现", detail: "4 个来源" },
   { label: "查询", detail: "30 行" },
@@ -71,40 +50,25 @@ export function HeroChat() {
   const localizedSuggestions = chinese ? chineseSuggestions : suggestions;
   const [input, setInput] = useState("");
   const [question, setQuestion] = useState<string>(localizedSuggestions[0]);
-  const [activeView, setActiveView] = useState<HeroRecipe>("revenue-smooth-area");
   const [showSql, setShowSql] = useState(false);
-  const tabsId = useId();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = input.trim();
     if (!next) return;
     setQuestion(next);
-    setActiveView(inferRecipe(next));
     setInput("");
   }
 
   function chooseSuggestion(suggestion: string) {
     setQuestion(suggestion);
-    setActiveView(inferRecipe(suggestion));
     setShowSql(false);
   }
 
   function startNewAnalysis() {
     setQuestion(localizedSuggestions[0]);
-    setActiveView("revenue-smooth-area");
     setInput("");
     setShowSql(false);
-  }
-
-  function moveTab(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const offset = event.key === "ArrowRight" ? 1 : -1;
-    const next = views[(index + offset + views.length) % views.length];
-    if (!next) return;
-    setActiveView(next.id);
-    document.getElementById(`${tabsId}-${next.id}-tab`)?.focus();
   }
 
   return (
@@ -177,34 +141,12 @@ export function HeroChat() {
                 ))}
               </ol>
 
-              <div className="heroChatTabs" role="tablist" aria-label={chinese ? "图表 Recipe" : "Chart recipe"}>
-                {views.map(({ id, label, icon: Icon }, index) => (
-                  <button
-                    aria-controls={`${tabsId}-${id}-panel`}
-                    aria-selected={activeView === id}
-                    className={activeView === id ? "heroChatTabActive" : undefined}
-                    id={`${tabsId}-${id}-tab`}
-                    key={id}
-                    onClick={() => setActiveView(id)}
-                    onKeyDown={(event) => moveTab(event, index)}
-                    role="tab"
-                    tabIndex={activeView === id ? 0 : -1}
-                    type="button"
-                  >
-                    <Icon aria-hidden="true" />
-                    {chinese ? chineseViews[id] : label}
-                  </button>
-                ))}
-              </div>
-
-              <div
-                aria-labelledby={`${tabsId}-${activeView}-tab`}
-                className="heroChatResult"
-                id={`${tabsId}-${activeView}-panel`}
-                key={activeView}
-                role="tabpanel"
-              >
-                <ChartRecipeDemo recipeName={activeView} />
+              <div className="heroChatResult">
+                <dl className="heroChatMetricList">
+                  <div><dt>{chinese ? "30 天变化" : "30-day change"}</dt><dd>+18.6%</dd></div>
+                  <div><dt>{chinese ? "昨日交易" : "Yesterday's volume"}</dt><dd>8.4k</dd></div>
+                  <div><dt>{chinese ? "数据完整性" : "Data completeness"}</dt><dd>99.8%</dd></div>
+                </dl>
               </div>
 
               <footer className="heroChatEvidence">
@@ -251,15 +193,4 @@ export function HeroChat() {
       </section>
     </div>
   );
-}
-
-function inferRecipe(question: string): HeroRecipe {
-  const normalized = question.toLowerCase();
-  if (normalized.includes("compare") || normalized.includes("conversion") || normalized.includes("比较") || normalized.includes("转化")) {
-    return "sessions-conversion-combo";
-  }
-  if (normalized.includes("activity") || normalized.includes("kpi") || normalized.includes("活跃") || normalized.includes("指标")) {
-    return "activity-rings";
-  }
-  return "revenue-smooth-area";
 }

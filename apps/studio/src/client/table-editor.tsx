@@ -10,6 +10,7 @@ import {
   EyeIcon,
   FilterIcon,
   FileCode2Icon,
+  GripVerticalIcon,
   KeyRoundIcon,
   LoaderCircleIcon,
   MoreHorizontalIcon,
@@ -29,6 +30,7 @@ import {
 } from "lucide-react";
 import { File as HighlightedFile } from "@pierre/diffs/react";
 import { type FormEvent, type KeyboardEvent as ReactKeyboardEvent, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Group, Panel, Separator, type PanelImperativeHandle } from "react-resizable-panels";
 import {
   approveStudioDatabaseAction,
   fetchStudioDatabaseActionCapabilities,
@@ -261,6 +263,9 @@ type TableEditorProps = {
 const PAGE_SIZE = 100;
 const MAX_TABLE_FILTERS = 32;
 const TABLE_EDITOR_STORAGE_VERSION = 2;
+const TABLE_EDITOR_SIDEBAR_DEFAULT_SIZE = "248px";
+const TABLE_EDITOR_SIDEBAR_MIN_SIZE = "200px";
+const TABLE_EDITOR_SIDEBAR_MAX_SIZE = "360px";
 
 type PersistedTableEditorState = {
   activeWorkspace: "new" | "table";
@@ -316,8 +321,14 @@ export function TableEditor({
   const [createTableOpen, setCreateTableOpen] = useState(false);
   const [pendingCreatedTableKey, setPendingCreatedTableKey] = useState<string>();
   const tabsRef = useRef<HTMLElement>(null);
+  const sidebarPanelRef = useRef<PanelImperativeHandle>(null);
   const selectedTableKey = workspace.active.kind === "table" ? workspace.active.key : undefined;
   const { openTableKeys, recentTables, sidebarCollapsed } = workspace;
+
+  useEffect(() => {
+    if (sidebarCollapsed) sidebarPanelRef.current?.collapse();
+    else sidebarPanelRef.current?.expand();
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     let current = true;
@@ -925,6 +936,23 @@ export function TableEditor({
       className="table-editor"
       data-sidebar-collapsed={sidebarCollapsed || undefined}
     >
+      <Group
+        className="table-editor-layout"
+        id="table-editor-layout"
+        orientation="horizontal"
+        resizeTargetMinimumSize={{ coarse: 28, fine: 12 }}
+      >
+      <Panel
+        className="table-editor-sidebar-panel"
+        collapsedSize="0%"
+        collapsible
+        defaultSize={TABLE_EDITOR_SIDEBAR_DEFAULT_SIZE}
+        id="table-editor-sidebar-panel"
+        maxSize={TABLE_EDITOR_SIDEBAR_MAX_SIZE}
+        minSize={TABLE_EDITOR_SIDEBAR_MIN_SIZE}
+        panelRef={sidebarPanelRef}
+        style={{ overflow: "hidden" }}
+      >
       {!sidebarCollapsed ? <aside className="table-editor-sidebar" id="table-editor-sidebar">
         <header className="table-editor-sidebar-header">
           <div className="table-editor-title-row">
@@ -1059,6 +1087,18 @@ export function TableEditor({
         </footer>
       </aside> : null}
 
+      </Panel>
+      <Separator
+        aria-label="Resize table navigation"
+        className="table-editor-resize-handle"
+        disabled={sidebarCollapsed}
+      >
+        <span aria-hidden="true" className="table-editor-resize-grip">
+          <GripVerticalIcon size={12} strokeWidth={1.8} />
+        </span>
+      </Separator>
+
+      <Panel className="table-editor-main-panel" defaultSize="100%" id="table-editor-main-panel" minSize="0%">
       <section className={cx(
         "table-editor-main",
         workspace.active.kind === "new" && "is-new-workspace",
@@ -1379,6 +1419,8 @@ export function TableEditor({
           schemas={(catalog?.schemas ?? []).map(({ name }) => name)}
         />
       </section>
+      </Panel>
+      </Group>
     </section>
   );
 }

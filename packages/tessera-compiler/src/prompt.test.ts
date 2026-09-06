@@ -101,7 +101,7 @@ describe("prompt compilation", () => {
     first.providerSchema.title = "mutated by caller";
 
     const second = compilePrompt(input);
-    expect(second.providerSchema.title).toBe("Data Elements Artifact Proposal");
+    expect(second.providerSchema.title).toBe("Tessera Analysis Artifact Proposal");
     expect(second.promptBundleHash).toBe(first.promptBundleHash);
   });
 

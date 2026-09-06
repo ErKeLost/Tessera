@@ -12,7 +12,6 @@ import {
   ShieldCheckIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { ComponentCanvas } from "@/app/(home)/component-canvas";
 import { HeroBackdrop, type PanelImageKey } from "@/app/(home)/hero-backdrop";
 import { InstallCopy } from "@/app/(home)/install-copy";
 import styles from "@/app/(home)/home.module.css";
@@ -31,9 +30,9 @@ function CanvasPanelBackdrop({ imageKey }: { imageKey: PanelImageKey }) {
 const copy = {
   en: {
     eyebrow: "Governed database analysis agent",
-    lead: "Tessera Agent turns database questions into bounded queries, verified evidence, and analysis views your team can inspect.",
+    lead: "Tessera Agent turns database questions into bounded queries and verified evidence your team can inspect.",
     getStarted: "Get started",
-    browse: "Explore analysis views",
+    browse: "Explore the architecture",
     interactivePreview: "Tessera Agent workspace",
     workspace: "Working interface",
     workspaceTitle: "See the interface after a model responds.",
@@ -43,7 +42,7 @@ const copy = {
     manifestoDetail: "Tessera scopes the catalog, executes governed tools, verifies results, persists every completed step, and renders the final answer without handing database authority to the model or browser.",
     install: "Install",
     installTitle: "Start Tessera Agent with the database you already use.",
-    installDetail: "The Studio executable includes the Agent runtime, database tools, session memory, and analysis-view renderer.",
+    installDetail: "The Studio executable includes the Agent runtime, database tools, session memory, and approvals.",
     chooseEntry: "Choose a connection",
     everything: "PostgreSQL",
     oneArtifact: "MySQL",
@@ -66,22 +65,21 @@ const copy = {
       ["Discover", "Tessera exposes only the current, bounded catalog scope."],
       ["Execute", "A registered database tool runs within permission and resource limits."],
       ["Verify", "The Agent distinguishes evidence, partial results, and actionable failures."],
-      ["Present", "The Studio renders text, tool state, and an optional generated analysis view."],
+      ["Answer", "The Studio renders grounded text, tool state, and evidence."],
     ],
     capabilities: [
       ["Catalog-scoped planning", "Only inspected schemas and relations enter the planning context"],
       ["Bounded database execution", "Reads and mutations pass separate safety and approval gates"],
       ["Per-step session memory", "Mastra saves private context after every completed model step"],
       ["Evidence-backed answers", "Claims stay connected to verified tool output"],
-      ["Generated analysis views", "Views bind only to resources Tessera already verified"],
       ["Durable approval workflow", "Suspended mutations resume from durable server state"],
     ],
   },
   zh: {
     eyebrow: "受治理的数据库分析 Agent",
-    lead: "Tessera Agent 把数据库问题转换成有上限的查询、可核验的 Evidence 与团队可以检查的分析视图。",
+    lead: "Tessera Agent 把数据库问题转换成有上限的查询与团队可以检查的 Evidence。",
     getStarted: "开始使用",
-    browse: "浏览分析视图",
+    browse: "查看架构",
     interactivePreview: "Tessera Agent 工作台",
     workspace: "工作界面",
     workspaceTitle: "查看模型回答后的真实工作界面。",
@@ -91,7 +89,7 @@ const copy = {
     manifestoDetail: "Tessera 负责限制 Catalog、执行受治理 Tool、核验结果、逐 Step 持久化，并渲染最终回答，不把数据库 Authority 交给模型或浏览器。",
     install: "安装",
     installTitle: "使用现有数据库直接启动 Tessera Agent。",
-    installDetail: "Studio 可执行程序已经包含 Agent Runtime、数据库 Tool、Session Memory 与分析视图 Renderer。",
+    installDetail: "Studio 可执行程序已经包含 Agent Runtime、数据库 Tool、Session Memory 与审批流程。",
     chooseEntry: "选择数据库连接",
     everything: "PostgreSQL",
     oneArtifact: "MySQL",
@@ -114,14 +112,13 @@ const copy = {
       ["发现", "Tessera 只暴露当前有上限的 Catalog Scope。"],
       ["执行", "已注册数据库 Tool 在权限与资源限制内运行。"],
       ["核验", "Agent 明确区分 Evidence、Partial Result 与可行动失败。"],
-      ["呈现", "Studio 渲染文字、Tool 状态与可选的生成式分析视图。"],
+      ["回答", "Studio 渲染有依据的正文、Tool 状态与 Evidence。"],
     ],
     capabilities: [
       ["限定范围的 Catalog 规划", "只有已检查的 Schema 与 Relation 进入规划上下文"],
       ["有上限的数据库执行", "Read 与 Mutation 分别经过安全与审批门槛"],
       ["逐 Step Session Memory", "Mastra 在每个已完成模型 Step 后保存私有上下文"],
       ["Evidence 支撑的回答", "结论始终连接到可信 Tool Output"],
-      ["生成式分析视图", "视图只绑定 Tessera 已核验的 Resource"],
       ["Durable Approval Workflow", "暂停的 Mutation 从服务端 Durable State 恢复"],
     ],
   },
@@ -235,16 +232,6 @@ export default async function HomePage({ params }: PageProps<"/[lang]">) {
               </Link>
             </div>
           </div>
-        </section>
-
-        <section className={`${styles.catalogSection} ${styles.canvasPanel}`} id="components">
-          <CanvasPanelBackdrop imageKey="blue" />
-          <header className={styles.centeredHeading}>
-            <p>{text.catalog}</p>
-            <h2>{text.catalogTitle}</h2>
-            <span>{text.catalogDetail}</span>
-          </header>
-          <ComponentCanvas />
         </section>
 
         <section className={`${styles.protocolSection} ${styles.canvasPanel}`}>

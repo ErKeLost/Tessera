@@ -10,8 +10,8 @@ Each kind of state has one owner and one persistence rule.
 | --- | --- | --- |
 | Model conversation | Mastra Memory | Context for later model steps and turns |
 | Domain Working Memory | Mastra resource-scoped schema memory | Stable preferences and verified reusable analysis rules across threads |
-| Browser transcript | Tessera session store | Safe text, tool lifecycle, and committed analysis views |
-| Local view state | React components | Hover, focus, open controls, and chart visibility |
+| Browser transcript | Tessera session store | Safe text and tool lifecycle |
+| Local view state | React components | Hover, focus, and open controls |
 | Approval state | Mastra workflow snapshot | Durable mutation suspension and resume |
 | Database state | Connected database | Authoritative business records |
 
@@ -26,13 +26,6 @@ copies.
 The browser transcript is not fed back as database authority. Raw credentials,
 provider metadata, private tool payloads, and unrestricted query rows are not
 stored in it.
-
-## Analysis-view state
-
-Chart hover, focus, and temporary visibility settings remain inside the
-renderer. A committed analysis view is part of the assistant message, and a
-cumulative update replaces the previous snapshot for the same surface. Local
-interaction cannot change the database or invent another tool call.
 
 ## Database actions
 

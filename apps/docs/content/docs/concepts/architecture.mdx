@@ -15,10 +15,10 @@ browser question
 -> Mastra Agent
 -> governed database tool
 -> connector execution
--> evidence and resource publication
--> text or generated analysis view
+-> evidence
+-> grounded Markdown response
 -> AI SDK UI Message Stream
--> Studio transcript and renderer
+-> Studio transcript
 ```
 
 The Data Agent uses two explicit query paths. Physical metadata and SQL work use
@@ -31,7 +31,7 @@ merely to produce more output.
 
 | Layer | Responsibility |
 | --- | --- |
-| Studio client | Conversation, tool lifecycle, analysis views, approvals, settings, and refresh restoration |
+| Studio client | Conversation, tool lifecycle, approvals, settings, and refresh restoration |
 | Nitro server | Authentication boundary, chat transport, transcript projection, settings, and runtime leases |
 | Mastra Agent | Model loop, processors, tools, per-step Memory, and durable suspend/resume |
 | Data Agent | Semantic catalog scope, plan validation, server-only compilation, bounded execution, and evidence |
@@ -46,13 +46,5 @@ two records are deliberately different: the model history can retain tool
 context needed for continuation, while the browser transcript contains only
 allowlisted display data.
 
-## Generated views
-
-Generated analysis views are one Tessera Agent response format. They consume
-only resources already published by successful database tools and cannot
-perform another query. The client renders one latest, committed data part with
-Studio's built-in components.
-
-Read the [tool contract](/docs/agent/tool-contract), [run loop](/docs/agent/architecture/run-loop),
-and [generated analysis view](/docs/agent/architecture/generative-ui) pages for
-the detailed boundaries.
+Read the [tool contract](/docs/agent/tool-contract) and [run loop](/docs/agent/architecture/run-loop)
+pages for the detailed boundaries.

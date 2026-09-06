@@ -173,7 +173,7 @@ export function createBackgroundPostHandler(
         system: [
           "You are the Tessera Agent documentation playground.",
           "Answer data-analysis questions concisely.",
-          "This route does not publish Generative UI until the trusted Surface pipeline is connected.",
+          "Return grounded text only; do not emit interface definitions.",
         ].join(" "),
       });
       performance.markCompileCompleted(performance.now() - compileStartedAt);

@@ -1,6 +1,6 @@
 ---
 title: 安全模型
-description: Tessera Agent、数据库连接、会话记忆与生成视图之间的 Trust Boundary。
+description: Tessera Agent、数据库连接、会话记忆与有依据回答之间的 Trust Boundary。
 ---
 
 Tessera 把模型输出、用户文本、Catalog 内容与数据库值都视为不可信输入。Prompt 可以改善行为，
@@ -15,19 +15,18 @@ Tessera 把模型输出、用户文本、Catalog 内容与数据库值都视为�
 - Metadata Output 只用于规划，不能证明用户请求的数据事实。
 - 数据库 Mutation 使用类型化 Action、Policy Check、持久审批与幂等恢复标识。
 
-## 模型与呈现边界
+## 模型与回答边界
 
-只有数据库 Tool 成功后，经过验证的 Dataset 才会被发布。Presentation Processor 可以引用这些
-Resource 与固定 Tessera Catalog，但不能创建 Credential、URL、SQL、Tool、React Component、HTML、
-Script、CSS、Callback 或可执行 Formula。
+只有数据库 Tool 成功后，经过验证的 Dataset 才会进入回答。回答组合只能引用这些 Resource，不能
+创建 Credential、URL、SQL、Tool、React Component、HTML、Script、CSS、Callback 或可执行 Formula。
 
-呈现输出必须经过 Parse 与 Validate 才能 Commit。未知 Recipe、无效 Binding、畸形值、陈旧 Session
-与 Payload Hash 校验失败都会被拒绝。被拒绝的视图不能执行另一条查询或 Effect。
+回答输出必须经过 Parse 与 Validate 才能 Commit。畸形值、陈旧 Session 与 Payload Hash 校验失败都会
+被拒绝。被拒绝的回答不能执行另一条查询或 Effect。
 
 ## 浏览器与 Memory 边界
 
 Mastra Memory 按已完成 Step 保存私有模型上下文。Studio 为浏览器保存另一份经过 Allowlist 的
-Transcript。浏览器只接收安全 UI Message Part 与已提交、受限的 View Projection，不会接收数据库
+Transcript。浏览器只接收安全 UI Message Part 与已提交、受限的 Evidence Projection，不会接收数据库
 Credential 或不受限的私有 Tool Payload。
 
 审批决定必须匹配持久化 Workflow Snapshot 与 Request Identity。重放、陈旧或 Identity 不匹配的

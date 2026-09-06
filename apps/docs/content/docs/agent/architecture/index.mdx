@@ -5,7 +5,7 @@ description: A production reference architecture for interruptible analysis, gov
 
 A production data analyst agent is not a chat completion with a SQL tool. It is
 an interruptible system that separates user intent, governed execution,
-validation, evidence, and presentation while preserving one owner for the
+validation, evidence, and answer composition while preserving one owner for the
 final answer.
 
 ![Data Analyst Agent reference architecture](/diagrams/data-analyst-agent-reference.svg)
@@ -21,9 +21,9 @@ The architecture has four operational planes:
 
 | Plane | Responsibility |
 | --- | --- |
-| Experience | Complete chat, assumptions, tool timeline, analysis views, sources, and follow-up composer |
+| Experience | Complete chat, assumptions, tool timeline, Evidence, sources, and follow-up composer |
 | Runtime | Run controller, context service, durable state, policy and budget engine |
-| Execution | Tool gateway, SQL safety gate, result validator, and view publisher |
+| Execution | Tool gateway, SQL safety gate, result validator, and Evidence publisher |
 | Context and data | Semantic definitions, warehouse metadata, scoped memory, approved data systems |
 
 An evidence ledger and trace store span every plane. They connect claims to
@@ -32,14 +32,14 @@ reasoning.
 
 ## Non-negotiable contracts
 
-- Data access and presentation are separate stages. Presentation never silently
+- Data access and answer composition are separate stages. Answer composition never silently
   queries a database or adds another Agent tool.
 - Permissions pass through from the user and workspace. The model cannot grant
   itself access.
 - SQL execution is read-only by default, scoped, bounded, and observable.
 - The final answer cites claim-level evidence, not only a list of sources.
-- Every generated view is declarative data validated against a strict schema.
-  It contains no JSX, HTML, scripts, or executable formulas.
+- Every browser-visible result is an allowlisted projection of text, tool state,
+  and Evidence. It contains no credentials, raw SQL, or executable content.
 - Runs persist state before risky or long operations so they can pause, resume,
   retry, and accept human approval.
 

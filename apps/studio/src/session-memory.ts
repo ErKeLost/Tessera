@@ -13,10 +13,6 @@ import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  openGenerativeFallbackSchema,
-  openGenerativeSurfaceStreamSchema,
-} from "@open-generative/protocol";
-import {
   tesseraWorkingMemoryOptions,
   tesseraWorkingMemorySchema,
   type TesseraWorkingMemory,
@@ -39,11 +35,21 @@ const MAX_THREAD_TITLE_LENGTH = 120;
 const MAX_UI_MESSAGES = 64;
 const MAX_UI_PARTS_PER_MESSAGE = 32;
 const MAX_UI_TRANSCRIPT_BYTES = 512 * 1024;
-const MAX_STORED_GENERATIVE_SURFACE_BYTES = 256 * 1024;
 const MAX_USER_TEXT_LENGTH = 12_000;
 const MAX_ASSISTANT_TEXT_LENGTH = 30_000;
 const MAX_REASONING_TEXT_LENGTH = 30_000;
 const HISTORY_TOOL_FAILURE = "This governed tool call did not complete.";
+const suspendedToolPayloadSchema = z.object({
+  requestId: z.string().trim().min(1).max(512),
+  checkpointId: z.string().trim().min(1).max(512),
+  operation: z.string().trim().min(1).max(128),
+  target: z.string().trim().min(1).max(512),
+  purpose: z.string().trim().min(1).max(1_000),
+  compiled: z.object({
+    sql: z.string().max(100_000),
+    parameters: z.array(z.unknown()).max(256),
+  }).optional(),
+}).passthrough();
 
 /** Stable principal for a loopback Studio without a host identity provider. */
 export const LOCAL_STUDIO_IDENTITY = Object.freeze({
@@ -318,41 +324,74 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
   let remainingText = maximumText;
   let remainingReasoning = MAX_REASONING_TEXT_LENGTH;
   const parts: TesseraUIMessage["parts"] = [];
-  const surfacePartIndexes = new Map<string, number>();
+  const suspendedSqlApprovals = new Map<string, z.output<typeof suspendedToolPayloadSchema>>();
+  const suspendedSqlApprovalList: Array<z.output<typeof suspendedToolPayloadSchema>> = [];
+  const usedSuspendedSqlApprovals = new Set<string>();
+  const sourceExecuteSqlCallIds = new Set<string>();
+
+  for (const sourcePart of source.parts) {
+    const part = asRecord(sourcePart);
+    if (!part || typeof part.type !== "string") continue;
+    if (part.type === "tool-execute_sql" && typeof part.toolCallId === "string") {
+      sourceExecuteSqlCallIds.add(part.toolCallId);
+      continue;
+    }
+    if (part.type !== "data-tool-call-suspended") continue;
+    const data = asRecord(part.data);
+    if (data?.toolName !== "execute_sql" || typeof data.toolCallId !== "string") continue;
+    const payload = suspendedToolPayloadSchema.safeParse(data.suspendPayload);
+    if (payload.success) {
+      suspendedSqlApprovals.set(data.toolCallId, payload.data);
+      suspendedSqlApprovalList.push(payload.data);
+    }
+  }
+
+  const approvalKey = (approval: z.output<typeof suspendedToolPayloadSchema>) => (
+    `${approval.requestId}\u001f${approval.checkpointId}`
+  );
+  const suspendedApprovalForTool = (part: Record<string, unknown>) => {
+    const exact = typeof part.toolCallId === "string"
+      ? suspendedSqlApprovals.get(part.toolCallId)
+      : undefined;
+    if (exact !== undefined && !usedSuspendedSqlApprovals.has(approvalKey(exact))) {
+      usedSuspendedSqlApprovals.add(approvalKey(exact));
+      return exact;
+    }
+    if (part.state === "output-available") return undefined;
+    const fallback = suspendedSqlApprovalList.find((approval) => (
+      !usedSuspendedSqlApprovals.has(approvalKey(approval))
+    ));
+    if (fallback !== undefined) usedSuspendedSqlApprovals.add(approvalKey(fallback));
+    return fallback;
+  };
 
   for (const sourcePart of source.parts) {
     const part = asRecord(sourcePart);
     if (!part || typeof part.type !== "string") continue;
 
-    if (source.role === "assistant" && part.type === "data-openGenerativeSurface") {
-      const stream = openGenerativeSurfaceStreamSchema.safeParse(part.data);
-      if (!stream.success || jsonByteLength(stream.data) > MAX_STORED_GENERATIVE_SURFACE_BYTES) continue;
-      const sanitizedPart = {
-        type: "data-openGenerativeSurface" as const,
-        id: typeof part.id === "string"
-          ? part.id
-          : `open-generative:${stream.data.surfaceSessionId}`,
-        data: stream.data,
-      };
-      const existingIndex = surfacePartIndexes.get(stream.data.surfaceSessionId);
-      if (existingIndex === undefined) {
-        if (parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
-        surfacePartIndexes.set(stream.data.surfaceSessionId, parts.length);
-        parts.push(sanitizedPart);
-      } else {
-        parts[existingIndex] = sanitizedPart;
+    if (source.role === "assistant" && part.type === "data-tool-call-suspended") {
+      const data = asRecord(part.data);
+      if (data?.toolName === "execute_sql"
+        && typeof data.toolCallId === "string"
+        && sourceExecuteSqlCallIds.size === 0) {
+        const approval = suspendedSqlApprovals.get(data.toolCallId);
+        if (approval !== undefined && parts.length < MAX_UI_PARTS_PER_MESSAGE) {
+          parts.push({
+            type: "tool-execute_sql",
+            toolCallId: `${messageId}-tool-${parts.length + 1}`,
+            state: "output-available",
+            input: { action: "execute_sql" },
+            output: {
+              status: "approval_required",
+              mode: "mutation",
+              requestId: approval.requestId,
+              checkpointId: approval.checkpointId,
+            },
+            providerExecuted: true,
+            title: "Execute SQL",
+          });
+        }
       }
-      continue;
-    }
-
-    if (source.role === "assistant" && part.type === "data-openGenerativeFallback") {
-      const fallback = openGenerativeFallbackSchema.safeParse(part.data);
-      if (!fallback.success || parts.length >= MAX_UI_PARTS_PER_MESSAGE) continue;
-      parts.push({
-        type: "data-openGenerativeFallback" as const,
-        id: typeof part.id === "string" ? part.id : `open-generative-fallback:${messageId}`,
-        data: fallback.data,
-      });
       continue;
     }
 
@@ -388,7 +427,12 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
       continue;
     }
     if (part.type === "tool-execute_sql") {
-      parts.push(sanitizeExecuteSqlToolPart(part, context, parts.length));
+      parts.push(sanitizeExecuteSqlToolPart(
+        part,
+        context,
+        parts.length,
+        suspendedApprovalForTool(part),
+      ));
       continue;
     }
     if (part.type === "tool-prepare_analysis") {
@@ -521,9 +565,26 @@ function sanitizeExecuteSqlToolPart(
   part: Record<string, unknown>,
   context: SanitizationContext,
   index: number,
+  suspendedApproval?: z.output<typeof suspendedToolPayloadSchema>,
 ): TesseraUIMessage["parts"][number] {
   const input = { action: "execute_sql" as const };
   const output = asRecord(part.output);
+  if (part.state !== "output-available" && suspendedApproval !== undefined) {
+    return {
+      type: "tool-execute_sql",
+      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      state: "output-available",
+      input,
+      output: {
+        status: "approval_required",
+        mode: "mutation",
+        requestId: suspendedApproval.requestId,
+        checkpointId: suspendedApproval.checkpointId,
+      },
+      providerExecuted: true,
+      title: "Execute SQL",
+    };
+  }
   const status = output?.status === "approval_required" ? "approval_required" : sanitizedToolStatus(output?.status);
   if (part.state !== "output-available") {
     return {

@@ -21,13 +21,11 @@
   "scripts": {
     "build": "tsdown",
     "lint": "tsc --noEmit",
-    "test": "bun test src",
+    "test": "bun test --pass-with-no-tests src",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@mastra/ai-sdk": "1.9.1",
-    "@open-generative/mastra": "0.4.0",
-    "@open-generative/protocol": "0.4.0",
     "@open-tessera/data-agent": "workspace:*",
     "@open-tessera/database": "workspace:*",
     "ai": "7.0.77",

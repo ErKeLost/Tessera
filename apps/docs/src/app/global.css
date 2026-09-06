@@ -4,7 +4,6 @@
 @import "@fontsource/dm-mono/500.css";
 @import "fumadocs-ui/css/shadcn.css";
 @import "fumadocs-ui/css/preset.css";
-@import "@open-generative/ui/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 

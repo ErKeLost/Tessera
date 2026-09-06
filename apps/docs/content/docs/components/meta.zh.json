@@ -1,5 +1,5 @@
 {
-  "title": "分析视图",
-  "description": "Tessera Agent 当前提供的分析结果视图。",
-  "pages": ["index", "generative-ui-catalog"]
+  "title": "Studio 组件",
+  "description": "Tessera Studio 使用的界面组件。",
+  "pages": ["index"]
 }

@@ -32,9 +32,5 @@ AI SDK 对 `onStepEnd` 的正式定义就是在 Multi-step Agent Run 中持久�
 
 ## Tessera Data Part
 
-普通 Text、Reasoning 与 Tool 都保持 AI SDK 原生 Part。生成式分析视图通过 Tessera Message
-Type 中唯一的 `data-openGenerativeSurface` Typed Data Part 传输，由 Studio 内置 Renderer 识别。
-
-服务端只保存经过 Allowlist 的 Projection。同一个分析 Surface 的累积更新会覆盖旧 Snapshot，
-每个 Step Checkpoint 也只 Upsert 同一个 Assistant Message ID。刷新 Thread 后恢复的是一条消息
-和一个最新 Surface，而不是重复回放多份 Snapshot。
+普通 Text、Reasoning 与 Tool 都保持 AI SDK 原生 Part。服务端只保存经过 Allowlist 的 Projection，
+每个 Step Checkpoint 也只 Upsert 同一个 Assistant Message ID。

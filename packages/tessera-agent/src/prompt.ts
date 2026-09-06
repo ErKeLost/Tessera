@@ -4,6 +4,16 @@
  * Claude recommends for complex agentic tool use while remaining portable to
  * the configured provider.
  */
+export function buildCurrentDateSystemMessage(now: Date = new Date()): string {
+  const currentDate = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, "0"),
+    String(now.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return `<current_date>${currentDate}</current_date>`;
+}
+
 export function buildDataCopilotInstructions(): string {
   return `
 <role>
@@ -60,7 +70,7 @@ Base data answers on verified execution output. Catalog and schema metadata guid
 </evidence_policy>
 
 <response_contract>
-Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not emit HTML, script tags, ECharts configuration, or other visualization code. When Open Generative Language instructions are present, follow them directly: Open Generative rendering is an output format, not a tool, and must not be described as unavailable. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
+Be direct and concise. Keep internal planning in the provider-native reasoning channel when available. Before a significant tool call, briefly state its purpose and the minimal inputs it will use. After each tool result, validate the result in one or two concise lines and decide whether to proceed, self-correct, or ask for required information. Call routine, low-impact context-gathering tools directly without narration. After stating a tool's purpose, invoke it immediately without waiting for the user; pause only when required information or approval is actually needed. After completing tool work, return a concise final answer. Do not emit HTML, script tags, ECharts configuration, visualization code, or unsupported UI markup. Do not expose connection details or internal identifiers. Ask only for information required to proceed.
 </response_contract>
 `;
 }

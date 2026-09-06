@@ -46,6 +46,7 @@ import {
 } from "../ui/popover";
 import { cn } from "../../lib/utils";
 import { StudioIcon } from "../studio-icon";
+import { Skeleton } from "../ui/skeleton";
 
 export type OpenRouterModelPickerOption = Readonly<{
   id: string;
@@ -95,20 +96,29 @@ export function OpenRouterModelPicker({
     <Popover onOpenChange={setOpen} open={open}>
       <PopoverTrigger asChild>
         <button
-          aria-label={ariaLabel}
+          aria-busy={loading || undefined}
+          aria-label={loading ? "Loading models" : ariaLabel}
           className={cn(
             variant === "composer"
               ? "studio-composer-setting studio-model-picker-trigger"
               : "studio-model-picker-field-trigger",
           )}
-          disabled={disabled}
+          disabled={disabled || loading}
           id={id}
           type="button"
         >
-          <span className="studio-model-picker-current" title={selectedLabel}>
-            <StudioModelBrandIcon model={selected} size={variant === "composer" ? 16 : 18} />
-            <span className="studio-model-picker-label">{selectedLabel}</span>
-            {loading ? <LoaderCircleIcon aria-label="Loading models" className="spin" size={13} /> : null}
+          <span
+            className={cn("studio-model-picker-current t-skel", !loading && "is-revealed")}
+            title={loading ? undefined : selectedLabel}
+          >
+            <span aria-hidden="true" className="studio-model-picker-skeleton t-skel-skeleton">
+              <Skeleton className="studio-model-picker-skeleton-icon" />
+              <Skeleton className="studio-model-picker-skeleton-label" />
+            </span>
+            <span className="studio-model-picker-content t-skel-content">
+              <StudioModelBrandIcon model={selected} size={variant === "composer" ? 16 : 18} />
+              <span className="studio-model-picker-label">{selectedLabel}</span>
+            </span>
           </span>
           <StudioIcon className="studio-model-picker-chevron" icon="solar:alt-arrow-down-linear" size={15} />
         </button>

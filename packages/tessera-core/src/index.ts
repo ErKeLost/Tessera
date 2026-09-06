@@ -629,7 +629,7 @@ export class ArtifactCatalog<TArtifact extends ArtifactLike = never> {
     });
     return {
       $schema: "https://json-schema.org/draft/2020-12/schema",
-      title: "Data Elements artifact",
+      title: "Tessera analysis artifact",
       description: "A declarative artifact selected from the active, versioned catalog.",
       oneOf,
     };

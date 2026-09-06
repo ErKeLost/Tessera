@@ -17,7 +17,7 @@ outcome at multiple layers.
 | Validation | detection of empty, stale, inconsistent, or unreconciled results |
 | Answer | factuality, completeness, calibrated language, useful limitations |
 | Evidence | citation completeness, entailment, source quality, provenance continuity |
-| Analysis view | correct recipe selection, schema validity, accessibility, responsive layout |
+| Answer projection | Markdown correctness, Evidence links, and safe browser projection |
 | Outcome | task completion, analyst correction rate, decision usefulness, time saved |
 
 Use deterministic checks wherever possible, human review for nuanced analytical
@@ -49,9 +49,9 @@ than relying on one average.
 ## Current repository status
 
 The repository includes deterministic tests for tool schemas, database
-boundaries, step persistence, stream restoration, generated-view compilation,
-all 17 chart fixtures, and renderer registration. These tests can run without
-production credentials and are the local release baseline.
+boundaries, step persistence, stream restoration, Evidence projection, and
+browser-safe transcript filtering. These tests can run without production
+credentials and are the local release baseline.
 
 No production canary or live provider/model matrix has been run from this
 repository. The repaired-validity gate requires at least 4,000 eligible

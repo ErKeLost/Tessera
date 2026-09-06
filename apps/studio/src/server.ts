@@ -33,11 +33,6 @@ import { createMySqlConnector } from "@open-tessera/mysql";
 import { createPostgresConnector } from "@open-tessera/postgres";
 import { createSqliteConnector } from "@open-tessera/sqlite";
 import { createTursoConnector } from "@open-tessera/turso";
-import type { OpenGenerativeAuthority } from "@open-generative/mastra";
-import {
-  hostCommandEnvelopeSchema,
-  surfaceSessionIdSchema,
-} from "@open-generative/protocol";
 import {
   consumeStream,
   createUIMessageStream,
@@ -79,23 +74,15 @@ import {
 } from "./session-memory";
 import { createTesseraContinualHarness, type TesseraContinualHarness } from "./continual-harness";
 import {
-  assertTesseraOpenGenerativeRuntimeDeployment,
-  createTesseraOpenGenerativeRuntimeBundle,
   createTesseraLocalSettingsStore,
   createTesseraStudioRuntimeManager,
   parseTesseraStudioSettingsCandidate,
   TesseraSettingsRuntimeError,
   type TesseraDatabaseAccessMode,
   type TesseraDatabasePermissionSettings,
-  type TesseraOpenGenerativeHostFactory,
-  type TesseraOpenGenerativeRuntimeBundle,
   type TesseraStudioRuntimeManager,
   type TesseraStudioRuntimeLease,
 } from "./settings-runtime";
-import type {
-  OpenGenerativeInspectionRecord,
-  TesseraOpenGenerativeInspectionReader,
-} from "./generative/inspection";
 import {
   createTesseraDatabaseActionService,
   type TesseraDatabaseActionEffect,
@@ -120,12 +107,6 @@ import {
   type StudioStreamOutcome,
 } from "./studio-logger";
 import { StudioHttpApp, type StudioHttpContext } from "./studio-http";
-import {
-  resolveOpenGenerativeThemePreset,
-  resolveOpenGenerativeThemePresetFromEnvironment,
-  type OpenGenerativeThemePresetId,
-} from "./open-generative-theme-preset";
-import { createTesseraPresentationAuthority } from "./generative/presentation";
 
 export type { StudioLogEvent, StudioLogger } from "./studio-logger";
 
@@ -360,10 +341,6 @@ export type StudioAppDependencies = Readonly<{
   modelCatalog?: OpenRouterModelCatalogProvider;
   /** Supports dynamic runtimes where an LLM can be configured after startup. */
   agentAvailable?: () => Promise<boolean>;
-  /** Public presentation-only preset. It never enters Agent or memory state. */
-  openGenerativeThemePreset?: OpenGenerativeThemePresetId;
-  /** Same-generation Host and Inspector side channel. */
-  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   allowedOrigins?: readonly string[];
   authenticate?: StudioAuthenticator;
   requireAuthentication?: boolean;
@@ -383,7 +360,6 @@ type StudioRouteRuntime = Readonly<{
   connector: DatabaseConnector;
   dataAgent: DataAgent;
   catalogProvider: StudioCatalogProvider;
-  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   agent?: StudioAgent;
   sessionMemory?: TesseraSessionMemory;
   databaseActions?: TesseraDatabaseActionService;
@@ -401,7 +377,7 @@ export type CreateStudioCatalogProviderOptions = Readonly<{
 
 export type CreateTesseraStudioRuntimeOptions = Omit<
   StudioAppDependencies,
-  "connector" | "catalogProvider" | "openGenerativeRuntime" | "allowedOrigins" | "requireAuthentication"
+  "connector" | "catalogProvider" | "allowedOrigins" | "requireAuthentication"
 > & Readonly<{
   connector?: DatabaseConnector;
   catalogProvider?: StudioCatalogProvider;
@@ -411,8 +387,6 @@ export type CreateTesseraStudioRuntimeOptions = Omit<
   databaseState?: DurableStateStorePort;
   /** Static runtimes expose mutation actions only when the embedding host opts in. */
   accessMode?: TesseraDatabaseAccessMode;
-  /** Creates one owned Host/Inspector generation. */
-  openGenerativeHostFactory?: TesseraOpenGenerativeHostFactory;
   /** False disables continual refinement; an instance lets embedded hosts own it. */
   continualHarness?: TesseraContinualHarness | false;
 }>;
@@ -421,7 +395,6 @@ export type TesseraStudioRuntime = Readonly<{
   app: StudioApp;
   connector: DatabaseConnector;
   dataAgent: DataAgent;
-  openGenerativeRuntime?: TesseraOpenGenerativeRuntimeBundle;
   databaseActions?: TesseraDatabaseActionService;
   close(): Promise<void>;
 }>;
@@ -440,25 +413,16 @@ export type TesseraStudioServer = Readonly<{
  * no provider credentials, model construction, or direct SQL route.
  */
 export function createStudioApp(dependencies: StudioAppDependencies): StudioApp {
-  if (dependencies.settingsRuntime !== undefined && dependencies.openGenerativeRuntime !== undefined) {
-    throw new TypeError("A managed Studio must source Open Generative runtime capabilities from its leased generation.");
-  }
   const app = new StudioHttpApp<StudioEnv["Variables"]>();
   const logger = dependencies.logger ?? silentStudioLogger;
   const chatRetries = createStudioChatRetryRegistry();
   const modelCatalog = dependencies.modelCatalog ?? createOpenRouterModelCatalogProvider();
-  const openGenerativeThemePreset = dependencies.openGenerativeThemePreset === undefined
-    ? resolveOpenGenerativeThemePresetFromEnvironment(process.env)
-    : resolveOpenGenerativeThemePreset(dependencies.openGenerativeThemePreset);
   const dataAgent = dependencies.dataAgent ?? createDataAgent({ connector: dependencies.connector });
   const catalogProvider = dependencies.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const staticRuntime: StudioRouteRuntime = Object.freeze({
     connector: dependencies.connector,
     dataAgent,
     catalogProvider,
-    ...(dependencies.openGenerativeRuntime === undefined
-      ? {}
-      : { openGenerativeRuntime: dependencies.openGenerativeRuntime }),
     ...(dependencies.agent === undefined ? {} : { agent: dependencies.agent }),
     ...(dependencies.sessionMemory === undefined ? {} : { sessionMemory: dependencies.sessionMemory }),
     ...(dependencies.databaseActions === undefined ? {} : { databaseActions: dependencies.databaseActions }),
@@ -553,89 +517,13 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   /** Secret-free runtime handshake. It intentionally does not disclose model or database configuration. */
   app.get("/api/meta", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
     const agentAvailable = runtime.agent !== undefined || await dependencies.agentAvailable?.() === true;
-    const hostDeployment = runtime.openGenerativeRuntime === undefined
-      ? null
-      : runtime.openGenerativeRuntime.host.deployment;
     return context.json({
       protocolVersion: 1,
       capabilities: {
         chat: agentAvailable,
       },
-      generativeUi: {
-        themePreset: openGenerativeThemePreset,
-        inspectorEnabled: runtime.openGenerativeRuntime?.inspectionReader !== undefined,
-        hostDeployment,
-      },
     });
   }));
-
-  app.get("/api/open-generative/inspections/:surfaceSessionId", async (context) => (
-    withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-      const reader = runtime.openGenerativeRuntime?.inspectionReader;
-      if (reader === undefined) throw inspectionNotFoundError();
-
-      const parsedSurfaceSessionId = surfaceSessionIdSchema.safeParse(context.req.param("surfaceSessionId"));
-      if (!parsedSurfaceSessionId.success) {
-        throw new StudioHttpError(
-          400,
-          "invalid_surface_session_id",
-          "The Surface session identifier is invalid.",
-        );
-      }
-      const identity = context.get("identity");
-      if (!identity) {
-        throw new StudioHttpError(
-          401,
-          "authentication_required",
-          "An authenticated session is required.",
-        );
-      }
-
-      const authority = createTesseraPresentationAuthority(identity);
-      const record = await reader.read({
-        surfaceSessionId: parsedSurfaceSessionId.data,
-        authority,
-      });
-      if (!isInspectionRecordInScope(record, parsedSurfaceSessionId.data, authority)) {
-        throw inspectionNotFoundError();
-      }
-      return context.json(record);
-    })
-  ));
-
-  app.post("/api/open-generative/commands", async (context) => (
-    withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-      if (runtime.openGenerativeRuntime === undefined) {
-        throw new StudioHttpError(
-          503,
-          "generative_ui_unavailable",
-          "Interactive generative UI is not enabled for this Studio runtime.",
-        );
-      }
-      const identity = context.get("identity");
-      if (!identity) {
-        throw new StudioHttpError(401, "authentication_required", "A Surface command requires an authenticated session.");
-      }
-      const command = hostCommandEnvelopeSchema.safeParse(await readJsonBody(context.req.raw));
-      if (!command.success) {
-        throw new StudioHttpError(400, "invalid_surface_command", "The Surface command is invalid.");
-      }
-      try {
-        const host = runtime.openGenerativeRuntime.host;
-        return context.json(await host.handleCommand(
-          command.data,
-          createTesseraPresentationAuthority(identity),
-          {
-            operationScope: "tessera.surface.command",
-            locale: "en-US",
-            timezone: "Asia/Shanghai",
-          },
-        ));
-      } catch (error) {
-        throw surfaceCommandHttpError(error);
-      }
-    })
-  ));
 
   /**
    * Settings run only against the server-side runtime manager. Responses are
@@ -1290,9 +1178,18 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           });
         },
         onEnd: async ({ responseMessage, isAborted, finishReason }) => {
-          // Mastra owns the durable run snapshot for suspended tools. The UI
-          // transcript is only a browser-safe projection of completed steps.
-          if (hasSuspendedToolCall(responseMessage)) return;
+          // Mastra owns the executable snapshot. Keep its browser-safe UI
+          // projection too, because an AI SDK resume applies the later tool
+          // result to this existing tool part.
+          if (hasSuspendedToolCall(responseMessage)) {
+            await checkpointStudioUiMessage(runtime.sessionMemory, {
+              id: threadId,
+              resourceId: sessionResourceId,
+              checkpointId: runId,
+              message: responseMessage,
+            });
+            return;
+          }
           if (isAborted || finishReason !== "stop" || !hasVisibleCopilotOutput(responseMessage)) {
             chatRetries.mark({
               resourceId: sessionResourceId,
@@ -1373,6 +1270,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         .join("\n")
         .trim();
       if (!message) throw new StudioHttpError(400, "invalid_chat_resume", "The suspended user request is no longer available.");
+      const originalMessages = resumeOriginalUiMessages(messages ?? [], parsed.data);
 
       const streamDiagnostics = createStudioStreamDiagnosticCollector();
       const source = runtime.agent.streamUI({
@@ -1390,6 +1288,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       });
       const durableSource = createUIMessageStream<TesseraUIMessage>({
+        originalMessages,
         execute: ({ writer }) => writer.merge(source),
         onError: () => "The Tessera Agent stream could not be processed.",
         onStepEnd: async ({ responseMessage }) => {
@@ -1446,29 +1345,6 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     }
   });
 
-  // AI SDK's reconnect transport uses GET. Keep the decision payload in the
-  // query string and route it through the same guarded POST implementation.
-  app.get("/api/chat/resume", async (context) => {
-    const query = context.req.query();
-    const payload = {
-      threadId: query.threadId,
-      runId: query.runId,
-      toolCallId: query.toolCallId,
-      decision: query.decision,
-      requestId: query.requestId,
-      checkpointId: query.checkpointId,
-    };
-    const headers = new Headers(context.req.raw.headers);
-    headers.set("Content-Type", "application/json");
-    headers.delete("Content-Length");
-    const request = new Request(context.req.raw.url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
-    return app.fetch(request);
-  });
-
   app.notFound((context) => {
     logStudioError(context, logger, 404, "not_found");
     return errorResponse(context, 404, "not_found", "The requested Studio endpoint was not found.");
@@ -1516,9 +1392,6 @@ function acquireStudioRouteRuntime(
       dataAgent: lease.runtime.dataAgent,
       catalogProvider: createDataAgentCatalogProvider(lease.runtime.dataAgent),
       ...(lease.runtime.agent === undefined ? {} : { agent: lease.runtime.agent }),
-      ...(lease.runtime.openGenerativeRuntime === undefined
-        ? {}
-        : { openGenerativeRuntime: lease.runtime.openGenerativeRuntime }),
       ...(lease.runtime.sessionMemory === undefined ? {} : { sessionMemory: lease.runtime.sessionMemory }),
       ...(lease.runtime.accessMode !== "read-write" || lease.runtime.databaseActions === undefined
         ? {}
@@ -1700,15 +1573,11 @@ export async function createTesseraStudioRuntime(
       "A Tessera Studio with studio.requireAuthentication enabled requires a host-provided authenticate adapter.",
     );
   }
-  if (options.settingsRuntime !== undefined && options.openGenerativeHostFactory !== undefined) {
-    throw new TypeError("A managed Studio owns its Open Generative Host factory through the runtime manager.");
-  }
 
   if (options.settingsRuntime) {
     const lease = options.settingsRuntime.acquire();
     try {
       const runtime = lease.runtime;
-      assertTesseraOpenGenerativeRuntimeDeployment(config, runtime.openGenerativeRuntime);
       const app = createStudioApp({
         connector: runtime.connector,
         dataAgent: runtime.dataAgent,
@@ -1720,9 +1589,6 @@ export async function createTesseraStudioRuntime(
           : { databaseActions: runtime.databaseActions }),
         settingsRuntime: options.settingsRuntime,
         agentAvailable: options.agentAvailable,
-        ...(options.openGenerativeThemePreset === undefined
-          ? {}
-          : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
         allowedOrigins: config.studio.allowedOrigins,
         authenticate: options.authenticate,
         requireAuthentication: config.studio.requireAuthentication,
@@ -1754,7 +1620,6 @@ export async function createTesseraStudioRuntime(
     throw new TypeError("The injected Tessera database connector does not match the configured dialect.");
   }
   let sessionMemory: TesseraSessionMemory | undefined;
-  let openGenerativeRuntime: TesseraOpenGenerativeRuntimeBundle | undefined;
   let continualHarness: TesseraContinualHarness | undefined;
   try {
     const dataAgent = options.dataAgent ?? createDataAgent({
@@ -1776,21 +1641,6 @@ export async function createTesseraStudioRuntime(
     sessionMemory = createTesseraSessionMemory();
     const llm = isTesseraLlmConfigured(config) ? resolveTesseraLlmConfig(config) : undefined;
     const accessMode = options.accessMode ?? "read-only";
-    if (
-      options.openGenerativeHostFactory !== undefined
-      || llm !== undefined
-      || config.studio.generativeUi.hostMode === "production"
-    ) {
-      openGenerativeRuntime = await createTesseraOpenGenerativeRuntimeBundle({
-        config,
-        connector,
-        dataAgent,
-        accessMode,
-        ...(options.databaseState === undefined ? {} : { databaseState: options.databaseState }),
-      }, options.openGenerativeHostFactory);
-    }
-    assertTesseraOpenGenerativeRuntimeDeployment(config, openGenerativeRuntime);
-
     continualHarness = options.continualHarness === false
       ? undefined
       : options.continualHarness ?? (options.agent !== undefined || llm === undefined || !config.studio.continualHarness.enabled
@@ -1823,9 +1673,6 @@ export async function createTesseraStudioRuntime(
         databaseDialect: config.database.dialect,
         memory: sessionMemory.memory,
         llm,
-        ...(openGenerativeRuntime === undefined
-          ? {}
-          : { openGenerativeHost: openGenerativeRuntime.host }),
         ...(continualHarness === undefined ? {} : { continualHarness }),
         ...(databaseActions === undefined ? {} : { databaseActions }),
         permissionContext: {
@@ -1840,11 +1687,7 @@ export async function createTesseraStudioRuntime(
       catalogProvider,
       ...(agent === undefined ? {} : { agent }),
       sessionMemory,
-      ...(openGenerativeRuntime === undefined ? {} : { openGenerativeRuntime }),
       ...(databaseActions === undefined ? {} : { databaseActions }),
-      ...(options.openGenerativeThemePreset === undefined
-        ? {}
-        : { openGenerativeThemePreset: options.openGenerativeThemePreset }),
       allowedOrigins: config.studio.allowedOrigins,
       authenticate: options.authenticate,
       requireAuthentication: config.studio.requireAuthentication,
@@ -1858,12 +1701,10 @@ export async function createTesseraStudioRuntime(
       app,
       connector,
       dataAgent,
-      ...(openGenerativeRuntime === undefined ? {} : { openGenerativeRuntime }),
       ...(databaseActions === undefined ? {} : { databaseActions }),
       close() {
         closeTask ??= Promise.allSettled([
           agent?.continualHarness?.close(),
-          openGenerativeRuntime?.close(),
           sessionMemory?.close(),
           ownsConnector ? connector.close() : undefined,
         ]).then(() => undefined);
@@ -1873,7 +1714,6 @@ export async function createTesseraStudioRuntime(
   } catch (error) {
     await Promise.allSettled([
       continualHarness?.close(),
-      openGenerativeRuntime?.close(),
       sessionMemory?.close(),
       ownsConnector ? connector.close() : undefined,
     ]);
@@ -1923,9 +1763,6 @@ export async function createTesseraStudioService(
   config: TesseraConfig,
   options: CreateTesseraStudioRuntimeOptions = {},
 ): Promise<TesseraStudioRuntime> {
-  if (options.settingsRuntime !== undefined && options.openGenerativeHostFactory !== undefined) {
-    throw new TypeError("Specify either a managed Studio runtime or its Open Generative Host factory, not both.");
-  }
   let settingsRuntime = options.settingsRuntime;
   let durableState: TesseraDurableStateStore | undefined;
   let runtime: TesseraStudioRuntime | undefined;
@@ -1937,14 +1774,9 @@ export async function createTesseraStudioService(
         initiallyUnconfigured: isTesseraStudioUnconfigured(config),
         store: createTesseraLocalSettingsStore(),
         databaseState: durableState.state,
-        ...(options.openGenerativeHostFactory === undefined
-          ? {}
-          : { openGenerativeHostFactory: options.openGenerativeHostFactory }),
       });
     }
-    const { openGenerativeHostFactory: _managedFactory, ...runtimeOptions } = options;
-    void _managedFactory;
-    runtime = await createTesseraStudioRuntime(config, { ...runtimeOptions, settingsRuntime });
+    runtime = await createTesseraStudioRuntime(config, { ...options, settingsRuntime });
   } catch (error) {
     await runtime?.close().catch(() => undefined);
     if (!runtime && options.settingsRuntime === undefined) {
@@ -2200,15 +2032,12 @@ function createStudioApiRequestLog(context: StudioContext): StudioApiRequestLog 
 
 function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/catalog") return "catalog";
-  if (path === "/api/chat") return "chat";
+  if (path === "/api/chat" || path === "/api/chat/resume") return "chat";
   if (path === "/api/connection") return "connection";
   if (path === "/api/meta") return "meta";
   if (path === "/api/runs") return "runs";
   if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
   if (path.startsWith("/api/database-actions")) return "database_actions";
-  if (path === "/api/open-generative/commands" || path.startsWith("/api/open-generative/inspections/")) {
-    return "generative_ui";
-  }
   if (path === "/api/threads" || path.startsWith("/api/threads/")) return "threads";
   if (path.startsWith("/api/data/")) return "data_preview";
   return "unknown";
@@ -2282,6 +2111,77 @@ async function checkpointStudioUiMessage(
 
 function hasSuspendedToolCall(message: TesseraUIMessage): boolean {
   return message.parts.some((part) => part.type === "data-tool-call-suspended");
+}
+
+/**
+ * AI SDK resumes a tool result by continuing the existing assistant message.
+ * The persisted UI transcript redacts provider tool ids, so bind the
+ * server-validated suspended id to its matching safe approval part.
+ */
+function resumeOriginalUiMessages(
+  messages: readonly TesseraUIMessage[],
+  input: z.output<typeof chatResumeRequestSchema>,
+): TesseraUIMessage[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const candidate = messages[index];
+    if (candidate?.role !== "assistant") continue;
+    let restored = false;
+    const parts = candidate.parts.flatMap((part): TesseraUIMessage["parts"] => {
+      if (part.type === "data-tool-call-suspended") return [];
+      if (part.type !== "tool-execute_sql"
+        || part.state !== "output-available"
+        || part.output.status !== "approval_required"
+        || part.output.requestId !== input.requestId
+        || part.output.checkpointId !== input.checkpointId) {
+        return [part];
+      }
+      restored = true;
+      // AI SDK applies the resumed `tool-output-available` to an existing
+      // invocation. A persisted approval is a browser-safe result projection,
+      // but for continuation it must be rehydrated as a pending invocation.
+      return [{
+        type: "tool-execute_sql",
+        toolCallId: input.toolCallId,
+        state: "input-available",
+        input: part.input,
+        providerExecuted: part.providerExecuted,
+        title: part.title,
+      } as TesseraUIMessage["parts"][number]];
+    });
+    if (restored) {
+      return [
+        ...messages.slice(0, index),
+        { ...candidate, parts },
+      ];
+    }
+  }
+  // The UI transcript is a browser-safe projection and may have been
+  // checkpointed before the suspension event arrived. Mastra remains the
+  // authority for the pending run, so an absent display part must not block
+  // resume. Restore a pending invocation so AI SDK can merge the resumed
+  // `tool-output-available` into it.
+  const assistantIndex = messages.findLastIndex((message) => message.role === "assistant");
+  if (assistantIndex === -1) return [...messages];
+  const assistant = messages[assistantIndex]!;
+  const restoredPart = {
+    type: "tool-execute_sql",
+    toolCallId: input.toolCallId,
+    state: "input-available",
+    input: { action: "execute_sql" },
+    providerExecuted: true,
+    title: "Execute SQL",
+  } as TesseraUIMessage["parts"][number];
+  return [
+    ...messages.slice(0, assistantIndex),
+    {
+      ...assistant,
+      parts: [
+        ...assistant.parts,
+        restoredPart,
+      ],
+    },
+    ...messages.slice(assistantIndex + 1),
+  ];
 }
 
 function elapsedMilliseconds(startedAt: number): number {
@@ -2852,39 +2752,6 @@ function requireDatabaseActionService(value: TesseraDatabaseActionService | unde
     throw new StudioHttpError(503, "database_actions_unavailable", "Database actions are not enabled for this Studio runtime.");
   }
   return value;
-}
-
-function inspectionNotFoundError(): StudioHttpError {
-  return new StudioHttpError(404, "not_found", "The requested Studio endpoint was not found.");
-}
-
-function isInspectionRecordInScope(
-  record: OpenGenerativeInspectionRecord | undefined,
-  surfaceSessionId: string,
-  authority: OpenGenerativeAuthority,
-): record is OpenGenerativeInspectionRecord {
-  return record !== undefined
-    && record.snapshot?.surfaceSessionId === surfaceSessionId
-    && record.authority?.actorBindingHash === authority.actorBindingHash
-    && record.authority?.tenantBindingHash === authority.tenantBindingHash
-    && record.authority?.authorityPolicyRevision === authority.authorityPolicyRevision;
-}
-
-/** Exposes a stable Host rejection code without leaking adapter or database details. */
-function surfaceCommandHttpError(error: unknown): StudioHttpError {
-  if (error instanceof StudioHttpError) return error;
-  const candidate = typeof error === "object" && error !== null && "code" in error
-    ? String(error.code)
-    : "";
-  const code = /^(?:action|host|intent|interaction|policy|resource|state|surface|transaction|transport|validate)\.[a-z0-9.-]{1,192}$/u.test(candidate)
-    ? candidate
-    : "surface.command-rejected";
-  const status: StudioErrorStatus = code.startsWith("policy.") || code.includes("denied")
-    ? 403
-    : code.includes("conflict") || code.includes("stale")
-      ? 409
-      : 400;
-  return new StudioHttpError(status, code, `The Surface command was rejected (${code}).`);
 }
 
 function databaseActionActor(context: StudioContext): {

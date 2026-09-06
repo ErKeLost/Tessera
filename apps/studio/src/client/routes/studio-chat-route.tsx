@@ -1,12 +1,11 @@
 import { Navigate, useLocation, useNavigate, useParams } from "react-router";
 import { useCallback, useEffect, useRef } from "react";
 import { Button } from "../components/motion/button";
-import { StudioLoading } from "../components/studio-loading";
 import { publicError } from "../api/studio-api";
 import { useStudioRouteContext } from "../layout/studio-route-context";
 import { useStudioThreadMessagesQuery, useStudioThreadMutations } from "../queries/studio-queries";
 import { StudioAssistant } from "../studio-assistant";
-import { RouteError, RouteLoading } from "./route-state";
+import { RouteError } from "./route-state";
 import { StudioIcon } from "../components/studio-icon";
 
 export function StudioChatRoute() {
@@ -29,7 +28,9 @@ export function StudioChatRoute() {
   if (!threadId || (activeThreadId && activeThreadId !== threadId)) {
     return <Navigate replace to="/" />;
   }
-  if (messages.isLoading) return <RouteLoading label="Loading analysis session" />;
+  if (messages.isLoading) {
+    return <section aria-busy="true" aria-label="Data analysis conversation" className="studio-chat-route" />;
+  }
   if (messages.error) return <RouteError message={publicError(messages.error)} />;
 
   return (
@@ -78,9 +79,7 @@ export function StudioChatEntryRoute() {
             <StudioIcon icon="solar:refresh-linear" size={15} />Try again
           </Button>
         </div>
-      ) : (
-        <StudioLoading className="studio-session-entry-loading" label="Opening chat" />
-      )}
+      ) : null}
     </section>
   );
 }

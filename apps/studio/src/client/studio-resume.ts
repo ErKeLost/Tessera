@@ -1,14 +1,11 @@
-const resumeFields = ["threadId", "runId", "toolCallId", "decision", "requestId", "checkpointId"] as const;
-
-/** Builds the AI SDK reconnect URL from the current direct resume payload. */
-export function studioResumeApi(body: unknown): string {
-  const values = body && typeof body === "object" ? body as Record<string, unknown> : undefined;
-  const params = new URLSearchParams();
-  if (values !== undefined) {
-    for (const key of resumeFields) {
-      if (typeof values[key] === "string") params.set(key, values[key]);
-    }
-  }
-  const query = params.toString();
-  return query ? `/api/chat/resume?${query}` : "/api/chat/resume";
+/** Identifies a Mastra tool continuation sent through the normal chat POST. */
+export function isStudioResumePayload(value: unknown): value is Record<string, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  const body = value as Record<string, unknown>;
+  return (body.decision === "approve" || body.decision === "reject")
+    && typeof body.threadId === "string"
+    && typeof body.runId === "string"
+    && typeof body.toolCallId === "string"
+    && typeof body.requestId === "string"
+    && typeof body.checkpointId === "string";
 }

@@ -89,9 +89,6 @@ const studioConfigSchema = z.object({
   requireAuthentication: z.boolean().optional(),
   allowedOrigins: z.array(originSchema).max(50).optional(),
   catalogCacheTtlMs: z.number().int().min(0).max(10 * 60_000).optional(),
-  generativeUi: z.object({
-    hostMode: z.enum(["demo", "production"]).optional(),
-  }).strict().optional(),
   continualHarness: z.object({
     enabled: z.boolean().optional(),
     autoReviewInterval: z.number().int().min(1).max(10_000).optional(),
@@ -182,9 +179,6 @@ export type TesseraStudioConfig = Readonly<{
   requireAuthentication: boolean;
   allowedOrigins: readonly string[];
   catalogCacheTtlMs: number;
-  generativeUi: Readonly<{
-    hostMode: "demo" | "production";
-  }>;
   continualHarness: Readonly<{
     enabled: boolean;
     autoReviewInterval: number;
@@ -298,9 +292,6 @@ export function defineTesseraConfig(input: TesseraConfigInput): TesseraConfig {
       requireAuthentication,
       allowedOrigins,
       catalogCacheTtlMs: configuredStudio.catalogCacheTtlMs ?? DEFAULT_CATALOG_CACHE_TTL_MS,
-      generativeUi: {
-        hostMode: configuredStudio.generativeUi?.hostMode ?? "demo",
-      },
       continualHarness: {
         enabled: configuredStudio.continualHarness?.enabled ?? DEFAULT_TESSERA_CONTINUAL_HARNESS_ENABLED,
         autoReviewInterval: configuredStudio.continualHarness?.autoReviewInterval

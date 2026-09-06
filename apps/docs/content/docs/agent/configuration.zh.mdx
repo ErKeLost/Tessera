@@ -4,7 +4,7 @@ description: 配置 Tessera Studio、数据库安全边界与模型运行时。
 ---
 
 Tessera 读取一份只在服务端使用的 `tessera.config.ts`。它负责数据库连接、语义定义、模型设置与
-Studio 网络边界。生成式分析视图已经内置在 Studio 中，没有独立安装步骤或公开配置块。
+Studio 网络边界。Studio Client 只渲染脱敏后的正文与 Tool Transcript，不需要独立呈现运行时。
 
 ```ts
 import { defineTesseraConfig } from "@open-tessera/studio";

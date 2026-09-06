@@ -8,7 +8,7 @@ export default defineConfig({
   format: ["esm"],
   sourcemap: true,
   deps: {
-    neverBundle: [/^@open-generative\//, /^react(?:\/|$)/, /^react-dom(?:\/|$)/, /^recharts(?:\/|$)/],
+    neverBundle: [/^react(?:\/|$)/, /^react-dom(?:\/|$)/, /^recharts(?:\/|$)/],
     dts: { neverBundle: true },
   },
 });

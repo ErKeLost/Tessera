@@ -1,13 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Agent } from "@mastra/core/agent";
-import {
-  HASH_DOMAINS,
-  OPEN_GENERATIVE_PROTOCOL_REVISION,
-  OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-  hashCanonical,
-  sha256HashSchema,
-  surfaceEventEnvelopeSchema,
-} from "@open-generative/protocol";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -432,129 +424,6 @@ describe("Tessera Studio UI transcript memory", () => {
     }
   });
 
-  test("restores a validated Open Generative surface while discarding arbitrary custom data", async () => {
-    const rootDirectory = temporaryRoot();
-    const sessions = createTesseraSessionMemory({ rootDirectory });
-    const payload = {
-      type: "rejected" as const,
-      transactionId: "transaction-session-surface",
-      diagnostics: [{
-        phase: "validate" as const,
-        code: "validate.fixture",
-        severity: "error" as const,
-        recoverable: true,
-        modelCorrectable: true,
-        message: "Fixture rejection.",
-      }],
-    };
-    const event = surfaceEventEnvelopeSchema.parse({
-      protocol: OPEN_GENERATIVE_SURFACE_STREAM_PROTOCOL,
-      protocolRevision: OPEN_GENERATIVE_PROTOCOL_REVISION,
-      surfaceSessionId: "surface-session-memory",
-      streamId: "stream-session-memory",
-      epoch: 1,
-      sequence: 1,
-      eventId: "event-session-memory-1",
-      cursor: "cursor-session-memory-0001",
-      committedRevisionId: "revision-session-memory",
-      audienceBindingHash: sha256HashSchema.parse(`sha256:${"a".repeat(64)}`),
-      contractSetHash: sha256HashSchema.parse(`sha256:${"b".repeat(64)}`),
-      correlationId: "correlation-session-memory",
-      payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, payload),
-      payload,
-    });
-    const nextPayload = {
-      ...payload,
-      transactionId: "transaction-session-surface-next",
-    };
-    const nextEvent = surfaceEventEnvelopeSchema.parse({
-      ...event,
-      sequence: 2,
-      eventId: "event-session-memory-2",
-      cursor: "cursor-session-memory-0002",
-      payloadHash: await hashCanonical(HASH_DOMAINS.surfaceEventPayload, nextPayload),
-      payload: nextPayload,
-    });
-
-    try {
-      await sessions.createThread({ id: "thread-surface", resourceId: "resource-surface" });
-      await sessions.appendUiMessages({
-        id: "thread-surface",
-        resourceId: "resource-surface",
-        messages: [{
-          id: "message-surface",
-          role: "assistant",
-          parts: [{ type: "text", text: "The analysis is complete." }, {
-            type: "data-openGenerativeSurface",
-            id: `open-generative:${event.surfaceSessionId}`,
-            data: {
-              surfaceSessionId: event.surfaceSessionId,
-              events: [event],
-            },
-          }, {
-            type: "data-openGenerativeSurface",
-            id: `open-generative:${event.surfaceSessionId}`,
-            data: {
-              surfaceSessionId: event.surfaceSessionId,
-              events: [event, nextEvent],
-            },
-          }, {
-            type: "data-untrusted-custom-part",
-            data: { secret: "discard-me" },
-          }],
-        }],
-      });
-
-      const messages = await sessions.readMessages({ id: "thread-surface", resourceId: "resource-surface" });
-      expect(messages?.[0]?.parts).toContainEqual({
-        type: "data-openGenerativeSurface",
-        id: `open-generative:${event.surfaceSessionId}`,
-        data: {
-          surfaceSessionId: event.surfaceSessionId,
-          events: [event, nextEvent],
-        },
-      });
-      expect(messages?.[0]?.parts.filter((part) => part.type === "data-openGenerativeSurface")).toHaveLength(1);
-      expect(JSON.stringify(messages)).not.toContain("discard-me");
-    } finally {
-      await sessions.close();
-    }
-  });
-
-  test("persists the bounded Open Generative fallback without compiler diagnostics", async () => {
-    const rootDirectory = temporaryRoot();
-    const sessions = createTesseraSessionMemory({ rootDirectory });
-    try {
-      await sessions.createThread({ id: "thread-generative-fallback", resourceId: "resource-generative-fallback" });
-      await sessions.appendUiMessages({
-        id: "thread-generative-fallback",
-        resourceId: "resource-generative-fallback",
-        messages: [{
-          id: "message-generative-fallback",
-          role: "assistant",
-          parts: [{
-            type: "data-openGenerativeFallback",
-            id: "open-generative-fallback:surface-rejected",
-            data: { state: "discarded", reason: "invalid-presentation" },
-          }],
-        }],
-      });
-
-      const messages = await sessions.readMessages({
-        id: "thread-generative-fallback",
-        resourceId: "resource-generative-fallback",
-      });
-      expect(messages?.[0]?.parts).toEqual([{
-        type: "data-openGenerativeFallback",
-        id: "open-generative-fallback:surface-rejected",
-        data: { state: "discarded", reason: "invalid-presentation" },
-      }]);
-      expect(JSON.stringify(messages)).not.toContain("diagnostic");
-    } finally {
-      await sessions.close();
-    }
-  });
-
   test("preserves list_database lookup and availability states without turning them into failures", async () => {
     const rootDirectory = mkdtempSync(join(tmpdir(), "tessera-session-list-database-status-"));
     const sessions = createTesseraSessionMemory({ rootDirectory });
@@ -589,6 +458,62 @@ describe("Tessera Studio UI transcript memory", () => {
           reason: "relation_not_found",
         }),
       })]);
+    } finally {
+      await sessions.close();
+      rmSync(rootDirectory, { force: true, recursive: true });
+    }
+  });
+
+  test("keeps a suspended SQL approval when provider and UI call ids differ", async () => {
+    const rootDirectory = temporaryRoot();
+    const sessions = createTesseraSessionMemory({ rootDirectory });
+    try {
+      await sessions.createThread({ id: "thread-suspended-id", resourceId: "resource-suspended-id" });
+      await sessions.checkpointUiMessage({
+        id: "thread-suspended-id",
+        resourceId: "resource-suspended-id",
+        checkpointId: "run-suspended-id",
+        message: {
+          id: "provider-suspended-id",
+          role: "assistant",
+          parts: [{
+            type: "tool-execute_sql",
+            toolCallId: "ui-tool-1",
+            state: "output-error",
+            input: { action: "execute_sql" },
+            errorText: "This governed tool call did not complete.",
+          }, {
+            type: "data-tool-call-suspended",
+            id: "provider-tool-1",
+            data: {
+              state: "data-tool-call-suspended",
+              runId: "run-suspended-id",
+              toolCallId: "provider-tool-1",
+              toolName: "execute_sql",
+              suspendPayload: {
+                requestId: "database-action-request-suspended",
+                checkpointId: "approval-suspended",
+                operation: "delete",
+                target: "public.user_roles",
+                purpose: "Remove the user's role mapping",
+              },
+            },
+          },
+          ],
+        },
+      });
+
+      const messages = await sessions.readMessages({ id: "thread-suspended-id", resourceId: "resource-suspended-id" });
+      expect(messages?.[0]?.parts).toContainEqual(expect.objectContaining({
+        type: "tool-execute_sql",
+        state: "output-available",
+        output: {
+          status: "approval_required",
+          mode: "mutation",
+          requestId: "database-action-request-suspended",
+          checkpointId: "approval-suspended",
+        },
+      }));
     } finally {
       await sessions.close();
       rmSync(rootDirectory, { force: true, recursive: true });

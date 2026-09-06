@@ -539,7 +539,6 @@ export function createTesseraDataCopilotTools(
     execute: async (input, toolContext): Promise<ExecuteSqlToolOutput | void> => {
       const signal = toolContext.abortSignal ?? context.input.signal;
       if (input.analysisRef !== undefined) {
-        context.runtime.presentationDataAttempted = true;
         if (context.permissionContext?.sqlStatements.read !== "allow") {
           return {
             status: "blocked",
@@ -600,7 +599,6 @@ export function createTesseraDataCopilotTools(
       }
 
       if (input.sql !== undefined) {
-        context.runtime.presentationDataAttempted = true;
         if (context.permissionContext?.sqlStatements.read !== "allow") {
           return {
             status: "blocked",
@@ -618,7 +616,6 @@ export function createTesseraDataCopilotTools(
               : { parameters: input.parameters }),
             purpose: input.purpose!,
           }, signal);
-          context.runtime.queries.push({ result, title: input.purpose! });
           return {
             status: "completed",
             mode: "read",

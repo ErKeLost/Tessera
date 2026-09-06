@@ -423,7 +423,7 @@ export function createProviderSchema(
   const schema: JSONSchema = {
     $schema: "https://json-schema.org/draft/2020-12/schema",
     $id: `urn:data-elements:authoring:${slice.sliceHash}`,
-    title: "Data Elements Artifact Proposal",
+    title: "Tessera Analysis Artifact Proposal",
     description: "Nested authoring input. The trusted compiler normalizes and validates it before rendering.",
     type: "object",
     properties: {
@@ -532,7 +532,7 @@ function buildSystem(input: {
   summaries: readonly DocumentSummary[];
 }): string {
   const sections = [
-    "You produce Data Elements Artifact Authoring DSL only through the renderArtifact tool.",
+    "You produce Tessera analysis artifacts only through the renderArtifact tool.",
     "Never emit JSX, JavaScript, HTML, CSS, SQL, executable formulas, credentials, endpoints, or arbitrary component names.",
     `Protocol 2.0; codec ${input.codec}; profile ${input.profile}; preset ${input.preset}; render mode ${input.renderMode}; locale ${input.locale}.`,
     `Limits: at most ${input.limits.maxNodes} nodes, depth ${input.limits.maxDepth}, ${input.limits.maxDocumentBytes} UTF-8 bytes, and ${input.limits.maxTotalValues} values.`,
@@ -653,7 +653,7 @@ export function compilePrompt(input: PromptCompileInput): Readonly<PromptBundle>
     providerSchema,
     tool: {
       name: "renderArtifact",
-      description: "Submit one validated, declarative Data Elements artifact proposal.",
+      description: "Submit one validated, declarative Tessera analysis artifact proposal.",
       inputSchema: providerSchema,
     },
     catalogSlice,

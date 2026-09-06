@@ -76,27 +76,5 @@ async function sourceFiles(directory: string): Promise<string[]> {
   return nested.flat();
 }
 
-for (const definition of packageGraph.filter(({ name, directory }) => name.startsWith("@open-tessera/") && directory !== "apps/studio")) {
-  for (const path of await sourceFiles(join(root, definition.directory, "src"))) {
-    if ((await readFile(path, "utf8")).includes("@open-generative/ui")) {
-      issues.push(`${definition.name} source cannot import @open-generative/ui (${path.slice(root.length + 1)}).`);
-    }
-  }
-}
-
-const appEntries = await readdir(join(root, "apps"), { withFileTypes: true });
-for (const entry of appEntries.filter((candidate) => candidate.isDirectory())) {
-  const directory = `apps/${entry.name}`;
-  let manifest: Manifest;
-  try {
-    manifest = JSON.parse(await readFile(join(root, directory, "package.json"), "utf8")) as Manifest;
-  } catch {
-    continue;
-  }
-  if (directory !== "apps/docs" && directory !== "apps/studio" && manifest.dependencies?.["@open-generative/ui"] !== undefined) {
-    issues.push(`${manifest.name ?? directory} cannot depend on @open-generative/ui; only renderer host apps may depend on it.`);
-  }
-}
-
 if (issues.length > 0) throw new Error(["Package boundary check failed:", ...issues].join("\n"));
 console.log(`Verified the acyclic boundaries of ${packageGraph.length} Tessera packages.`);

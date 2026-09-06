@@ -10,16 +10,11 @@ npx @open-tessera/studio@latest postgresql://readonly:password@127.0.0.1:5432/wa
 
 ## What Studio does
 
-- Chat with a database assistant using text and generated analysis views.
+- Chat with a database assistant using grounded text, tool state, and Evidence.
 - Inspect the available catalog and run governed, read-only analysis.
 - Show compact execution progress and query evidence alongside the response.
-- Render the latest committed analysis view from verified query resources.
 - Accept image attachments in a chat message, including pasted images.
 - Keep local chat sessions in the Studio SQLite store.
-
-Generated views are part of the Studio response pipeline. They are produced
-after a successful database tool step and cannot perform another query or
-execute model-authored code.
 
 The Studio server and its local session store run on Node.js 24 or later and
 Bun 1.3 or later. A project can keep the connection string and model-provider settings in a server-only
@@ -84,18 +79,3 @@ Automatic changes remain isolated to the current thread. Cross-session memory
 requires an explicit Host promotion through the exported continual-harness API.
 See [the architecture guide](../../docs/architecture/tessera-agent-continual-harness.md)
 for the state machine, validation policy, rollback flow, and Sandbox boundary.
-
-## Open Generative theme
-
-Tessera resolves the generated UI theme on the server and exposes only its
-allowlisted preset ID to the browser. Configure the shadcn Lyra/Taupe preset in
-the project `.env` or deployment environment:
-
-```bash
-TESSERA_OPEN_GENERATIVE_THEME=b7VWPDLHc
-```
-
-Theme configuration affects presentation only. It is not added to Agent
-prompts, request context, conversation memory, or model calls. Arbitrary theme
-JSON and CSS are rejected; each accepted preset must be compiled into Studio's
-local theme registry first.

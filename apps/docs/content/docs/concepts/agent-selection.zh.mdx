@@ -1,10 +1,10 @@
 ---
 title: 分析选择
-description: Tessera 如何选择数据库 Tool 与最终分析视图，同时不增加 UI Tool。
+description: Tessera 如何选择数据库 Tool 并生成有依据的最终回答。
 ---
 
-处理数据问题时，Tessera 会分别决定如何取得可信数据，以及如何呈现已经完成的结果。呈现过程没有
-数据库权限，也不能改变之前选择的查询路径。
+处理数据问题时，Tessera 只做一个权威决定：如何取得可信数据。回答组合没有数据库权限，也不能
+改变之前选择的查询路径。
 
 ## 数据库路径选择
 
@@ -17,23 +17,7 @@ Agent Instruction 与类型化 Tool Schema 会引导模型从两条路径中选�
 
 Tool Output 提供受限证据与稳定列元数据。无效 Tool 参数会得到结构化拒绝，不能被解释为“数据不存在”。
 
-## 视图选择
+## 回答组合
 
-当成功查询返回可渲染行数据时，内部 Presentation Processor 会在最终模型 Step 中加入一套受限
-呈现语言。模型只能使用当前 Dataset Binding、获准布局 Contract 与 Tessera 已实现的 17 个图表 Recipe。
-
-最终模型输出会被增量解析，并在提交视图前完成校验。它不能包含 React 名称、JSX、CSS、任意颜色、
-Callback、URL、SQL 或新 Tool。呈现语法无效时可以执行一次受限 Processor Retry；Repair Step 中
-Business Tool 会被关闭。
-
-## 当前图表意图
-
-| 需求 | Recipe 示例 |
-| --- | --- |
-| 有序进度 | Steps Bars、Pipeline Stage Bars、Sign-up Funnel |
-| 趋势与比较 | Revenue Smooth Area、Visitors Stacked Area、Sessions + Conversion Combo |
-| 分布与关系 | Revenue per Account Scatter、Tracked Time Sankey |
-| 周期与强度 | Activity Calendar、Active Users Heatmap、Contributions Heatmap |
-| 紧凑状态 | Sleep Score、Visitors Radial、Visitors Radar、Devices Bars、Activity Rings |
-
-Recipe 只是对现有 Dataset 的受校验呈现选择，不是组件 Package API，也不能再次执行数据库操作。
+最终模型 Step 只接收解释回答所需的已验证 Tool Output 与 Evidence。输出会在存储或发送到浏览器前
+完成 Parse 和 Validate，不能包含 Credential、Raw SQL、任意 Tool Definition 或可执行内容。
