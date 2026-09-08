@@ -390,6 +390,21 @@ describe("Tessera Studio Settings routes", () => {
     }
   });
 
+  test("rejects read=ask without rotating the runtime", async () => {
+    const { app, manager, tracker } = await createManagedApp();
+    try {
+      const response = await app.fetch(jsonRequest("/api/settings/permissions", "PUT", {
+        profile: "normal",
+        sqlStatements: { read: "ask", write: "ask", destructive: "ask", unknown: "deny" },
+      }));
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({ error: { code: "invalid_settings" } });
+      expect(tracker.builds).toHaveLength(1);
+    } finally {
+      await manager.close();
+    }
+  });
+
   test("returns the OpenRouter text model catalog and rejects unsupported reasoning efforts", async () => {
     const { app, manager, tracker } = await createManagedApp();
     try {

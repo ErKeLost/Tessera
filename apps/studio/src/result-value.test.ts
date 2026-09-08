@@ -22,10 +22,10 @@ describe("normalized database result values", () => {
     );
   });
 
-  test("redacts sensitive structured keys and sensitive message text", () => {
+  test("preserves result keys and values without keyword filtering", () => {
     expect(normalizeResultValue({ metadata: { apiKey: "secret-value" }, status: "ok" }, 1_000)).toBe(
-      '{"metadata":{"apiKey":"[redacted]"},"status":"ok"}',
+      '{"metadata":{"apiKey":"secret-value"},"status":"ok"}',
     );
-    expect(normalizeResultValue({ text: "token: secret-value" }, 1_000)).toBe("[redacted]");
+    expect(normalizeResultValue({ text: "token: secret-value" }, 1_000)).toBe("token: secret-value");
   });
 });

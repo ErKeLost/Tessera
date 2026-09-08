@@ -16,6 +16,7 @@ import {
   formatDatabaseSchemaInventory,
   type DatabaseSchemaInventory,
 } from "./schema-context";
+import { resolveAgentPermissions } from "./permissions";
 
 export type SchemaCatalogReader = Readonly<{
   inspectCatalog(input?: { refresh?: boolean }, signal?: AbortSignal): Promise<Readonly<{
@@ -163,16 +164,7 @@ export function formatDatabasePermissionContext(
     ].join("\n");
   }
 
-  const mutationAvailable = context.accessMode === "read-write"
-    && context.databaseActionsAvailable;
-  const effective = mutationAvailable
-    ? context.sqlStatements
-    : {
-        ...context.sqlStatements,
-        write: "deny" as const,
-        destructive: "deny" as const,
-        unknown: "deny" as const,
-      };
+  const { mutationsAvailable: mutationAvailable, sqlStatements: effective, readApprovalUnsupported } = resolveAgentPermissions(context);
   const permissionLabel = (value: DatabasePermissionLevel): string => value === "allow"
     ? "allowed"
     : value === "ask"
@@ -183,6 +175,8 @@ export function formatDatabasePermissionContext(
     `Database access mode: ${context.accessMode}.`,
     `Database mutation actions are ${mutationAvailable ? "available" : "unavailable"}.`,
     `SQL permissions: read=${permissionLabel(effective.read)}, write=${permissionLabel(effective.write)}, destructive=${permissionLabel(effective.destructive)}, unknown=${permissionLabel(effective.unknown)}.`,
+    "Mutation permissions are class-level limits; the host also evaluates action scope and approval grants.",
+    ...(readApprovalUnsupported ? ["read_approval_supported=false; configured_read=ask; effective_read=denied"] : []),
     "</authorization_context>",
   ].join("\n");
 }

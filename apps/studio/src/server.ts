@@ -1482,7 +1482,7 @@ function readDatabasePermissionSettings(value: unknown): TesseraDatabasePermissi
   const parsed = z.object({
     profile: z.enum(["normal", "auto", "dangerous"]),
     sqlStatements: z.object({
-      read: z.enum(["allow", "ask", "deny"]),
+      read: z.enum(["allow", "deny"]),
       write: z.enum(["allow", "ask", "deny"]),
       destructive: z.enum(["allow", "ask", "deny"]),
       unknown: z.enum(["allow", "ask", "deny"]),

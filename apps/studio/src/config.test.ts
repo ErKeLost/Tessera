@@ -32,6 +32,14 @@ import { parseStudioCommandLine, resolveStudioConfig } from "./main";
 const database = { dialect: "postgres" as const, url: "postgresql://readonly:secret@localhost/warehouse" };
 
 describe("Tessera configuration", () => {
+  test("rejects unsupported read approvals instead of silently disabling queries", () => {
+    expect(() => defineTesseraConfig({
+      database: { ...database, permissions: { sqlStatements: { read: "ask" } } },
+    })).toThrow(TesseraConfigError);
+    expect(defineTesseraConfig({
+      database: { ...database, permissions: { sqlStatements: { read: "deny" } } },
+    }).database.permissions.sqlStatements.read).toBe("deny");
+  });
   test("uses documented provider API roots only when no custom base URL is configured", () => {
     expect(getTesseraProviderBaseUrl("OpenRouter")).toBe("https://openrouter.ai/api/v1");
     expect(getTesseraProviderBaseUrl("openai")).toBe("https://api.openai.com/v1");

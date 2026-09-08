@@ -119,7 +119,7 @@ export const tesseraStudioSettingsCandidateSchema = z.object({
   permissions: z.object({
     profile: databasePermissionProfileSchema,
     sqlStatements: z.object({
-      read: databasePermissionLevelSchema,
+      read: databasePermissionLevelSchema.refine((value): boolean => value !== "ask", "Read approval is not supported. Configure read as allow or deny."),
       write: databasePermissionLevelSchema,
       destructive: databasePermissionLevelSchema,
       unknown: databasePermissionLevelSchema,

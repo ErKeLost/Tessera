@@ -16,14 +16,13 @@ import {
   type DiscoveryBlocked,
   type PrepareAnalysisRejected,
 } from "./model-contracts";
-import { containsRawSqlStatement, containsSensitiveText } from "./safety";
 
 export type PlanningCatalogScope = Readonly<{
   capability: PlanningCapability;
   catalog: SemanticCatalog;
-  /** The source determines whether candidate discovery is complete enough. */
+  /** Discovery source retained for catalog provenance. */
   discovery?: "context" | "inspect" | "describe";
-  /** A partial scope cannot authorize a final plan on its own. */
+  /** Whether the catalog response omitted entries; available identifiers remain usable. */
   truncated?: boolean;
   omitted?: Readonly<{
     entities: number;
@@ -32,10 +31,6 @@ export type PlanningCatalogScope = Readonly<{
     relationships: number;
   }>;
 }>;
-
-export type InvalidAnalysisInputState = {
-  rejectedInvalidAnalysisInputs: number;
-};
 
 export type DiscoveryScopeState = Readonly<{
   planningScopes: readonly PlanningCatalogScope[];
@@ -159,74 +154,11 @@ export async function planningCapabilityForEntityIds(
   return planningCapabilityForRequirements(dataAgent, scopes, required, signal);
 }
 
-/**
- * Global omission is normal for a large database. Require expansion only when
- * the current inspect slice still contains an ungrounded candidate entity.
- */
-export function planningScopesRequireDiscovery(
-  scopes: readonly PlanningCatalogScope[],
-  draft: AnalysisDraft,
-): boolean {
-  if (scopes.length === 0 || scopes.every((scope) => scope.discovery === "describe")) {
-    return false;
-  }
-  const candidateEntityIds = new Set(
-    scopes.flatMap((scope) => scope.catalog.entities.map((entity) => entity.id)),
-  );
-  if (candidateEntityIds.size <= 1) return false;
-
-  const required = planningIdentifierRequirements(draft);
-  const groundedEntityIds = new Set(required.entityIds);
-  for (const scope of scopes) {
-    for (const entity of scope.catalog.entities) {
-      if (entity.fields.some((field) => required.fieldIds.has(field.id))
-        || entity.metrics.some((metric) => required.metricIds.has(metric.id))) {
-        groundedEntityIds.add(entity.id);
-      }
-    }
-    for (const relationship of scope.catalog.relationships) {
-      if (required.relationshipIds.has(relationship.id)) {
-        groundedEntityIds.add(relationship.fromEntityId);
-        groundedEntityIds.add(relationship.toEntityId);
-      }
-    }
-  }
-  for (const entityId of candidateEntityIds) {
-    if (!groundedEntityIds.has(entityId)) return true;
-  }
-  return false;
-}
-
-export function analysisPlanFingerprint(draft: AnalysisDraft): string {
-  // Zod parsing produces deterministic key order. This fingerprint is only
-  // used inside one turn to reject exact plan replays.
-  return JSON.stringify(draft);
-}
-
-export function invalidAnalysisInputRejection(
-  state: InvalidAnalysisInputState,
-): PrepareAnalysisRejected {
-  state.rejectedInvalidAnalysisInputs += 1;
-  return state.rejectedInvalidAnalysisInputs === 1
-    ? {
-        status: "rejected",
-        reason: "invalid_plan",
-        message: "The analysis input did not match the tool schema. Provide a complete semantic draft using identifiers copied from a completed search_data_context result.",
-        nextAction: "revise_plan",
-      }
-    : {
-        status: "rejected",
-        reason: "duplicate_plan",
-        message: "The same invalid analysis input was already rejected in this turn. Do not replay it unchanged.",
-        nextAction: "respond",
-      };
-}
-
 export function incompleteCatalogRejection(): PrepareAnalysisRejected {
   return {
     status: "rejected",
     reason: "catalog_incomplete",
-    message: "The current catalog scope contains multiple plausible entities, so the analysis cannot be authorized without expanding the catalog or clarifying which entity the user means.",
+    message: "The current catalog does not contain all identifiers required by this plan. Retrieve the missing identifiers or revise the plan.",
     nextAction: "describe_or_clarify",
   };
 }
@@ -283,7 +215,7 @@ export function analysisToolRejection(error: unknown): PrepareAnalysisRejected {
 }
 
 export function discoveryToolRejection(error: unknown): DiscoveryBlocked {
-  const message = safeToolResultMessage(error);
+  const message = toolResultMessage(error);
   const code = readDataAgentErrorCode(error);
   if (code !== undefined) {
     if (code === "catalog_stale") {
@@ -517,7 +449,7 @@ const dataAgentErrorCodes = new Set<DataAgentErrorCode>([
 ]);
 
 function analysisDiagnostic(error: unknown, fallback: string): string {
-  const message = safeToolResultMessage(error);
+  const message = toolResultMessage(error);
   return GENERIC_ANALYSIS_ERROR_MESSAGES.has(message) ? fallback : message;
 }
 
@@ -533,7 +465,7 @@ function readDataAgentErrorCode(error: unknown): DataAgentErrorCode | undefined 
     : undefined;
 }
 
-function safeToolResultMessage(error: unknown): string {
+function toolResultMessage(error: unknown): string {
   const raw = error instanceof Error
     ? error.message
     : typeof error === "string"
@@ -543,7 +475,7 @@ function safeToolResultMessage(error: unknown): string {
         ? (error as { message: string }).message
         : "The operation failed without an Error message.";
   const message = raw.replace(/[\u0000-\u001f\u007f]/gu, " ").trim();
-  if (!message || containsSensitiveText(message) || containsRawSqlStatement(message)) {
+  if (!message) {
     return "The operation failed without an Error message.";
   }
   return Array.from(message).slice(0, 2_000).join("");

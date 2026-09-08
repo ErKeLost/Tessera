@@ -30,19 +30,14 @@ export type { PlanningCatalogScope } from "./planning";
 
 export type TesseraPreparedAnalysis = Readonly<{
   draft: AnalysisDraft;
-  planFingerprint: string;
   title: string;
 }>;
 
 /** Mutable state whose lifetime is exactly one Agent turn. */
 export type TesseraCopilotRuntime = {
   analyses: CompletedAnalysis[];
-  completedAnalysisPlans: Set<string>;
   preparedAnalyses: Map<string, TesseraPreparedAnalysis>;
-  preparedAnalysisPlans: Set<string>;
   planningScopes: PlanningCatalogScope[];
-  rejectedAnalysisPlans: Set<string>;
-  rejectedInvalidAnalysisInputs: number;
   currentContextInspected: boolean;
   physicalCatalog?: DatabaseCatalog;
   schemaInventory?: DatabaseSchemaInventory;
@@ -68,12 +63,8 @@ export type TesseraDataCopilotAgentOptions = Readonly<{
 export function createTesseraCopilotRuntime(): TesseraCopilotRuntime {
   return {
     analyses: [],
-    completedAnalysisPlans: new Set(),
     preparedAnalyses: new Map(),
-    preparedAnalysisPlans: new Set(),
     planningScopes: [],
-    rejectedAnalysisPlans: new Set(),
-    rejectedInvalidAnalysisInputs: 0,
     currentContextInspected: false,
     schemaRefreshAttempted: false,
   };

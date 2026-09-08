@@ -135,6 +135,7 @@ export interface TesseraAgentRunner {
 export type TesseraAgentPermissionContext = Readonly<{
   accessMode: "read-only" | "read-write";
   databaseActionsAvailable: boolean;
+  /** Read=ask is unsupported and fails closed. Mutation classes are host policy ceilings. */
   sqlStatements: Readonly<Record<"read" | "write" | "destructive" | "unknown", DatabasePermissionLevel>>;
 }>;
 

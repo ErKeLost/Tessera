@@ -31,13 +31,6 @@ import type {
   TesseraUIMessageChunk,
 } from "./protocol";
 import { createTesseraRequestContext } from "./request-context";
-import {
-  assistantReasoningHoldbackStart,
-  assistantTextHoldbackStart,
-  isSafeAssistantReasoningFragment,
-  isSafeAssistantTextFragment,
-  redactOpaqueAssistantIdentifiers,
-} from "./safety";
 
 const GENERIC_PUBLIC_STREAM_ERROR = "The Tessera Agent stream could not be processed.";
 
@@ -745,127 +738,7 @@ function toPublicUIStream(
     version: "v7",
     onError: (error) => reportPublicStreamError(options, input, error).message,
   }) as ReadableStream<TesseraUIMessageChunk>;
-  return protectPublicAssistantStream(source, input);
-}
-
-/**
- * Holds ambiguous suffixes until they can be classified. This prevents a
- * credential, SQL statement, or opaque identifier split across provider
- * deltas from crossing the public stream before terminal validation runs.
- */
-function protectPublicAssistantStream(
-  source: ReadableStream<TesseraUIMessageChunk>,
-  input: TesseraAgentRunInput,
-): ReadableStream<TesseraUIMessageChunk> {
-  const textBuffers = new Map<string, string>();
-  const reasoningBuffers = new Map<string, string>();
-
-  return source.pipeThrough(new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
-    transform(chunk, controller) {
-      if (chunk.type === "text-delta") {
-        emitProtectedDelta({
-          chunk,
-          buffers: textBuffers,
-          holdbackStart: assistantTextHoldbackStart,
-          isSafe: isSafeAssistantTextFragment,
-          controller,
-          input,
-          reason: "unsafe_assistant_text",
-        });
-        return;
-      }
-      if (chunk.type === "reasoning-delta") {
-        emitProtectedDelta({
-          chunk,
-          buffers: reasoningBuffers,
-          holdbackStart: assistantReasoningHoldbackStart,
-          isSafe: isSafeAssistantReasoningFragment,
-          controller,
-          input,
-          reason: "unsafe_assistant_reasoning",
-        });
-        return;
-      }
-      if (chunk.type === "text-end") {
-        flushProtectedBuffer(textBuffers, chunk.id, chunk, controller, input);
-        return;
-      }
-      if (chunk.type === "reasoning-end") {
-        flushProtectedBuffer(reasoningBuffers, chunk.id, chunk, controller, input);
-        return;
-      }
-      controller.enqueue(chunk);
-    },
-  }));
-}
-
-type DeltaChunk = Extract<
-  TesseraUIMessageChunk,
-  { type: "text-delta" | "reasoning-delta" }
->;
-
-function emitProtectedDelta(input: Readonly<{
-  chunk: DeltaChunk;
-  buffers: Map<string, string>;
-  holdbackStart: (value: string) => number | undefined;
-  isSafe: (value: string) => boolean;
-  controller: TransformStreamDefaultController<TesseraUIMessageChunk>;
-  input: TesseraAgentRunInput;
-  reason: "unsafe_assistant_text" | "unsafe_assistant_reasoning";
-}>): void {
-  const combined = `${input.buffers.get(input.chunk.id) ?? ""}${input.chunk.delta}`;
-  if (!input.isSafe(combined)) {
-    rejectUnsafeAssistantOutput(input.input, input.reason);
-  }
-  const holdback = input.holdbackStart(combined);
-  const visible = holdback === undefined ? combined : combined.slice(0, holdback);
-  const pending = holdback === undefined ? "" : combined.slice(holdback);
-  if (pending) input.buffers.set(input.chunk.id, pending);
-  else input.buffers.delete(input.chunk.id);
-  if (visible) {
-    input.controller.enqueue({
-      ...input.chunk,
-      delta: redactOpaqueAssistantIdentifiers(visible),
-    });
-  }
-}
-
-function flushProtectedBuffer(
-  buffers: Map<string, string>,
-  id: string,
-  terminal: Extract<TesseraUIMessageChunk, { type: "text-end" | "reasoning-end" }>,
-  controller: TransformStreamDefaultController<TesseraUIMessageChunk>,
-  input: TesseraAgentRunInput,
-): void {
-  const pending = buffers.get(id);
-  buffers.delete(id);
-  if (pending) {
-    const isReasoning = terminal.type === "reasoning-end";
-    const isSafe = isReasoning
-      ? isSafeAssistantReasoningFragment(pending)
-      : isSafeAssistantTextFragment(pending);
-    if (!isSafe) {
-      rejectUnsafeAssistantOutput(
-        input,
-        isReasoning ? "unsafe_assistant_reasoning" : "unsafe_assistant_text",
-      );
-    }
-    controller.enqueue({
-      type: isReasoning ? "reasoning-delta" : "text-delta",
-      id,
-      delta: redactOpaqueAssistantIdentifiers(pending),
-    } as TesseraUIMessageChunk);
-  }
-  controller.enqueue(terminal);
-}
-
-function rejectUnsafeAssistantOutput(
-  input: TesseraAgentRunInput,
-  reason: "unsafe_assistant_text" | "unsafe_assistant_reasoning",
-): never {
-  const error = new Error("The model returned content that cannot cross the public Agent boundary.");
-  reportDiagnostic(input, { phase: "stream", reason, error });
-  throw error;
+  return source;
 }
 
 function reportPublicStreamError(
@@ -983,13 +856,11 @@ export function hasVisibleCopilotOutput(value: unknown): boolean {
   });
 }
 
-/** Applies the final credential guard and redacts opaque implementation ids. */
+/** Normalize empty answers while preserving the model's Markdown verbatim. */
 export function safeAssistantNarration(
   value: string | undefined,
 ): string | undefined {
-  const text = boundedDisplayText(value, 30_000);
-  if (!text || !isSafeAssistantTextFragment(text)) return undefined;
-  return redactOpaqueAssistantIdentifiers(text);
+  return value?.trim() || undefined;
 }
 
 export function publicToolOutput(

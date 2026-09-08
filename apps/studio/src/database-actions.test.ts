@@ -7,11 +7,74 @@ import {
   type DatabaseMutationExecutor,
 } from "@open-tessera/database";
 import { InMemoryDurableStateStore } from "@open-tessera/runtime";
+import { createDataAgent } from "@open-tessera/data-agent";
+import { createTesseraCopilotRuntime, createTesseraDataCopilotTools } from "@open-tessera/agent";
 import { createTesseraDatabaseActionService } from "./database-actions";
 
 const ACTOR = { tenantRef: "tenant-a", actorRef: "alice", roleRefs: ["analyst"] } as const;
 
 describe("Tessera database action service", () => {
+  test.each([
+    ["normal", "insert", "approval_required"],
+    ["auto", "insert", "completed"],
+    ["auto", "update", "approval_required"],
+    ["dangerous", "update", "completed"],
+  ] as const)("Agent honors %s policy for %s", async (profile, operation, status) => {
+    const { connector, catalog, mutations } = createConnector();
+    const policy = createDatabaseScopedPermissionPolicy({ profile });
+    const service = createTesseraDatabaseActionService({
+      connector,
+      state: new InMemoryDurableStateStore(),
+      policy,
+      idFactory: deterministicIds(),
+    });
+    const tools = createTesseraDataCopilotTools({
+      input: { runId: "policy-run", threadId: "policy-thread", message: "Change order", signal: new AbortController().signal },
+      dataAgent: createDataAgent({ connector }),
+      runtime: createTesseraCopilotRuntime(),
+      defaultIdentity: { subject: ACTOR.actorRef, tenantId: ACTOR.tenantRef, roles: ACTOR.roleRefs },
+      permissionContext: { accessMode: "read-write", databaseActionsAvailable: true, sqlStatements: policy.sqlStatements },
+      databaseActions: service,
+    });
+    const { version, connectionRef, databaseRef, catalogFingerprint, ...mutation } = operation === "insert" ? insertAction(catalog) : updateAction(catalog);
+    const input = { mutation, purpose: "Change order" };
+    const result = await tools.execute_sql.execute!(input, {} as never);
+    expect(result).toMatchObject({ status, mode: "mutation" });
+    expect(mutations).toHaveLength(status === "completed" ? 1 : 0);
+    if (result && "status" in result && result.status === "approval_required") {
+      const resumed = await tools.execute_sql.execute!(input, {
+        agent: { resumeData: { decision: "approve", requestId: result.requestId, checkpointId: result.checkpointId } },
+      } as never);
+      expect(resumed).toMatchObject({ status: "completed" });
+      expect(mutations).toHaveLength(1);
+    }
+  });
+
+  test("Agent uses the destructive policy for UPDATE and rechecks it on resume", async () => {
+    const { connector, catalog, mutations } = createConnector();
+    let approvals = 0;
+    let submissions = 0;
+    const tools = createTesseraDataCopilotTools({
+      input: { runId: "denied-run", threadId: "denied-thread", message: "Update order", signal: new AbortController().signal },
+      dataAgent: createDataAgent({ connector }),
+      runtime: createTesseraCopilotRuntime(),
+      defaultIdentity: { subject: "alice", tenantId: "tenant-a" },
+      permissionContext: { accessMode: "read-write", databaseActionsAvailable: true, sqlStatements: { read: "allow", write: "allow", destructive: "deny", unknown: "deny" } },
+      databaseActions: {
+        async submit() { submissions++; throw new Error("Denied mutation reached submit"); },
+        async approve() { approvals++; throw new Error("Denied mutation reached approve"); },
+        async reject() { throw new Error("Unexpected reject"); },
+      },
+    });
+    const { version, connectionRef, databaseRef, catalogFingerprint, ...mutation } = updateAction(catalog);
+    for (const toolContext of [{}, { agent: { resumeData: { decision: "approve", requestId: "request", checkpointId: "checkpoint" } } }]) {
+      expect(await tools.execute_sql.execute!({ mutation, purpose: "Update order" }, toolContext as never))
+        .toMatchObject({ status: "blocked", reason: "mutation_not_authorized" });
+    }
+    expect(submissions).toBe(0);
+    expect(approvals).toBe(0);
+    expect(mutations).toHaveLength(0);
+  });
   test("executes a catalog-bound typed insert and durably returns its narrow result", async () => {
     const { connector, catalog, mutations } = createConnector();
     const service = createTesseraDatabaseActionService({

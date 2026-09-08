@@ -868,7 +868,7 @@ export const discoveryBlockedSchema = z.object({
     "respond",
   ]),
   message: toolResultMessageSchema.describe(
-    "A sanitized diagnostic when discovery failed. It is not query evidence.",
+    "A concrete diagnostic when discovery failed. It is not query evidence.",
   ),
 }).strict();
 
@@ -957,7 +957,7 @@ export const searchDataContextOutputSchema = z.union([
       "respond",
     ]),
     message: toolResultMessageSchema.describe(
-      "A sanitized diagnostic when discovery failed. It is not query evidence.",
+      "A concrete diagnostic when discovery failed. It is not query evidence.",
     ),
   }).strict(),
 ]);
@@ -1201,18 +1201,17 @@ export const prepareAnalysisRejectedSchema = z.object({
     "catalog_changed",
     "catalog_incomplete",
     "invalid_plan",
-    "duplicate_plan",
     "data_unavailable",
   ]).describe("Stable rejection reason."),
   message: toolResultMessageSchema.describe(
-    "Concrete sanitized diagnostic explaining why execution did not occur. This is not query evidence and may include a driver error, but never credentials, SQL, or provider payloads.",
+    "Concrete diagnostic explaining why execution did not occur. This is not query evidence and may include the SQL or driver error needed to correct the request.",
   ),
   nextAction: z.enum([
     "search_data_context",
     "describe_or_clarify",
     "revise_plan",
     "respond",
-  ]).describe("Exact next step; do not repeat the rejected plan unchanged."),
+  ]).describe("Suggested recovery action based on the current validation or execution failure."),
 }).strict().describe(
   "Rejected analysis result. Do not treat it as query evidence or create a chart from it.",
 );

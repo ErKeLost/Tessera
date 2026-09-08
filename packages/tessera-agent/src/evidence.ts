@@ -203,7 +203,7 @@ function publicDataType(value: string | undefined): ModelEvidence["columns"][num
 }
 
 function modelEvidenceValue(value: unknown): z.infer<typeof modelEvidenceValueSchema> {
-  // Preserve selected cells while retaining credential redaction and safe
+  // Preserve selected cells while retaining bounded normalization and
   // structured-value normalization. Row and column counts are bounded above.
   return normalizeResultValue(value, Number.POSITIVE_INFINITY);
 }

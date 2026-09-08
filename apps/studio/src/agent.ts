@@ -22,7 +22,6 @@ import {
 } from "./session-memory";
 import {
   publicStudioStreamError,
-  safeStudioErrorDetails,
 } from "./studio-logger";
 
 export type TesseraStudioAgentOptions = Readonly<{
@@ -67,7 +66,6 @@ export function createTesseraStudioAgent(
     mastra,
     defaultIdentity: LOCAL_STUDIO_IDENTITY,
     resourceIdForIdentity: tesseraSessionResourceId,
-    formatError: (error) => safeStudioErrorDetails(error).errorMessage.slice(0, 2_000),
     mapPublicError: ({ error, model }) => publicStudioStreamError(error, model),
     ...(options.permissionContext === undefined
       ? {}

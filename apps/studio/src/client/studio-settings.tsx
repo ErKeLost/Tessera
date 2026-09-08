@@ -905,7 +905,7 @@ function PermissionSettingsFields({
             >
               <SelectTrigger className="w-full" id={`settings-permission-${statementClass}`}><SelectValue /></SelectTrigger>
               <SelectContent>
-                {PERMISSION_LEVELS.map(([permission, permissionLabel]) => (
+                {PERMISSION_LEVELS.filter(([permission]) => statementClass !== "read" || permission !== "ask").map(([permission, permissionLabel]) => (
                   <SelectItem key={permission} value={permission}>{permissionLabel}</SelectItem>
                 ))}
               </SelectContent>

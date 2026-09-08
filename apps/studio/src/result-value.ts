@@ -1,9 +1,6 @@
-import { containsSensitiveText } from "./public-text";
-
 export type NormalizedResultValue = string | number | boolean | null;
 
 const EMBEDDED_TEXT_KEYS = ["text", "parts", "content", "message", "body"] as const;
-const SENSITIVE_KEY_PATTERN = /(?:^|[_-])(?:password|passwd|secret|token|api[_-]?key|authorization|credential)(?:$|[_-])/iu;
 const MAX_STRUCTURED_DEPTH = 6;
 const MAX_STRUCTURED_ITEMS = 64;
 
@@ -13,12 +10,12 @@ export function normalizeResultValue(value: unknown, maximumBytes: number): Norm
   if (typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   if (typeof value === "bigint") return truncateUtf8(value.toString(), maximumBytes);
-  if (value instanceof Date) return sanitizeText(value.toISOString(), maximumBytes);
+  if (value instanceof Date) return truncateUtf8(value.toISOString(), maximumBytes);
 
   if (typeof value === "string") {
     const parsed = parseStructuredString(value);
     if (parsed !== undefined) return normalizeStructuredResult(parsed, maximumBytes);
-    return sanitizeText(value, maximumBytes);
+    return truncateUtf8(value, maximumBytes);
   }
 
   return normalizeStructuredResult(value, maximumBytes);
@@ -26,7 +23,7 @@ export function normalizeResultValue(value: unknown, maximumBytes: number): Norm
 
 function normalizeStructuredResult(value: object, maximumBytes: number): string {
   const text = extractEmbeddedText(value);
-  if (text !== undefined) return sanitizeText(text, maximumBytes);
+  if (text !== undefined) return truncateUtf8(text, maximumBytes);
 
   let serialized = "[structured value unavailable]";
   try {
@@ -35,7 +32,7 @@ function normalizeStructuredResult(value: object, maximumBytes: number): string 
     // Keep the bounded fallback rather than allowing an unserializable driver
     // value to break the complete analysis result.
   }
-  return sanitizeText(serialized, maximumBytes);
+  return truncateUtf8(serialized, maximumBytes);
 }
 
 function extractEmbeddedText(
@@ -110,9 +107,7 @@ function normalizeStructuredValue(value: unknown, seen: WeakSet<object>, depth: 
       break;
     }
     inspected += 1;
-    normalized[key] = SENSITIVE_KEY_PATTERN.test(key)
-      ? "[redacted]"
-      : normalizeStructuredValue(item, seen, depth + 1);
+    normalized[key] = normalizeStructuredValue(item, seen, depth + 1);
   }
   return normalized;
 }
@@ -126,11 +121,6 @@ function parseStructuredString(value: string): object | undefined {
   } catch {
     return undefined;
   }
-}
-
-function sanitizeText(value: string, maximumBytes: number): string {
-  if (containsSensitiveText(value)) return "[redacted]";
-  return truncateUtf8(value, maximumBytes);
 }
 
 function truncateUtf8(value: string, maximumBytes: number): string {

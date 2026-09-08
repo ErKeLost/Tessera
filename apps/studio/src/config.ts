@@ -76,7 +76,10 @@ const explicitDatabaseDialect = Symbol("tessera.explicitDatabaseDialect");
  * subject/resource scopes and ordered rules provide the durable boundary for
  * governed database actions.
  */
-const databasePermissionsConfigSchema = databaseScopedPermissionPolicyInputSchema;
+const databasePermissionsConfigSchema = databaseScopedPermissionPolicyInputSchema.refine(
+  (policy) => policy.sqlStatements?.read !== "ask",
+  { path: ["sqlStatements", "read"], message: "Read approval is not supported. Configure read as allow or deny." },
+);
 const originSchema = z.string().trim().min(1).max(2_048).refine(
   (value) => normalizeOrigin(value) !== undefined,
   "Expected an HTTP or HTTPS origin without a path, query, or hash.",
