@@ -98,7 +98,7 @@ describe("Tessera Studio UI transcript memory", () => {
     }).success).toBe(false);
   });
 
-  test("upserts one assistant message across step checkpoints", async () => {
+  test("merges tool and text parts across step checkpoints", async () => {
     const rootDirectory = temporaryRoot();
     const sessions = createTesseraSessionMemory({ rootDirectory });
 
@@ -141,13 +141,7 @@ describe("Tessera Studio UI transcript memory", () => {
         message: {
           id: "provider-checkpoint",
           role: "assistant",
-          parts: [{ type: "reasoning", text: "Inspecting the available relations." }, {
-            type: "tool-list_database",
-            toolCallId: "provider-tool-checkpoint",
-            state: "output-available",
-            input: { operation: "list_relations" },
-            output: { status: "completed", operation: "list_relations", relationCount: 3 },
-          }, { type: "text", text: "Three relations are available." }],
+          parts: [{ type: "text", text: "Three relations are available." }],
         },
       });
 
@@ -155,8 +149,9 @@ describe("Tessera Studio UI transcript memory", () => {
       expect(completed?.map((message) => message.role)).toEqual(["user", "assistant"]);
       expect(completed?.[1]?.id).toBe(assistantId);
       expect(JSON.stringify(completed)).toContain("Three relations are available.");
+      expect(JSON.stringify(completed)).toContain("tool-list_database");
+      expect(JSON.stringify(completed)).toContain("provider-tool-checkpoint");
       expect(JSON.stringify(completed)).not.toContain("provider-checkpoint");
-      expect(JSON.stringify(completed)).not.toContain("provider-tool-checkpoint");
     } finally {
       await sessions.close();
     }
@@ -614,7 +609,7 @@ describe("Tessera Studio UI transcript memory", () => {
       expect(serialized).toContain("[REDACTED_SQL]");
       expect(serialized).not.toContain("sk-or-private-error-key-123456");
       expect(serialized).not.toContain("SELECT missing_total");
-      expect(serialized).not.toContain("private-tool-call-id");
+      expect(serialized).toContain("private-tool-call-id");
     } finally {
       await sessions.close();
       rmSync(rootDirectory, { force: true, recursive: true });

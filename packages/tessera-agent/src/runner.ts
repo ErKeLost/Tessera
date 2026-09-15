@@ -96,9 +96,7 @@ async function runTesseraAgentTurn(
     generationOptions(options, input),
   );
   const result = await consumeCopilotUIStream(
-    appendCopilotOutcome(
-      filterTesseraPublicToolParts(toPublicUIStream(options, input, output)),
-    ),
+    appendCopilotOutcome(toPublicUIStream(options, input, output)),
   );
   const message = safeAssistantNarration(result.response)
     ?? assistantNarrationFromOutput(output);
@@ -124,7 +122,7 @@ async function streamTesseraAgentTurn(
     generationOptions(options, input),
   );
   const source = appendCopilotOutcome(
-    filterTesseraPublicToolParts(toPublicUIStream(options, input, output)),
+    toPublicUIStream(options, input, output),
   );
   const activeTools = new Map<string, TesseraAgentToolName>();
   const result = await consumeCopilotUIStream(source, async (chunk) => {
@@ -209,7 +207,7 @@ function streamTesseraAgentTurnUI(
                 generationOptions(options, executionInput),
               );
           const source = appendCopilotOutcome(
-            normalizeTesseraToolInvocationOrder(filterTesseraPublicToolParts(toPublicUIStream(options, input, output))),
+            normalizeTesseraToolInvocationOrder(toPublicUIStream(options, input, output)),
           );
           const reader = source.getReader();
           sourceReader = reader;
@@ -391,42 +389,6 @@ export function normalizeTesseraToolInvocationOrder(
             startedTools.set(toolCallId, toolName);
             publishInput(toolCallId, toolName);
           }
-        }
-
-        controller.enqueue(chunk);
-      },
-    }),
-  );
-}
-
-/** Keeps Mastra's memory-management tools private to the Agent runtime. */
-export function filterTesseraPublicToolParts(
-  source: ReadableStream<TesseraUIMessageChunk>,
-): ReadableStream<TesseraUIMessageChunk> {
-  const internalToolCalls = new Set<string>();
-
-  return source.pipeThrough(
-    new TransformStream<TesseraUIMessageChunk, TesseraUIMessageChunk>({
-      transform(chunk, controller) {
-        if (chunk.type === "tool-input-start"
-          || chunk.type === "tool-input-available") {
-          if (asTesseraToolName(chunk.toolName) === undefined) {
-            internalToolCalls.add(chunk.toolCallId);
-            return;
-          }
-        }
-
-        if ((chunk.type === "tool-input-delta"
-          || chunk.type === "tool-input-error"
-          || chunk.type === "tool-output-available"
-          || chunk.type === "tool-output-error")
-          && internalToolCalls.has(chunk.toolCallId)) {
-          if (chunk.type === "tool-input-error"
-            || chunk.type === "tool-output-available"
-            || chunk.type === "tool-output-error") {
-            internalToolCalls.delete(chunk.toolCallId);
-          }
-          return;
         }
 
         controller.enqueue(chunk);

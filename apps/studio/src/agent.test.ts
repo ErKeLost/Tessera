@@ -15,7 +15,6 @@ import {
   DATABASE_SCHEMA_INSPECTION_LIMITS,
   DATABASE_SCHEMA_INVENTORY_LIMITS,
   formatDatabaseSchemaInventory,
-  filterTesseraPublicToolParts,
   inspectDatabaseSchema,
   executeSqlInputSchema,
   executeSqlOutputSchema,
@@ -162,38 +161,6 @@ function latestUserOperationsDraft(): Extract<AnalysisDraft, { mode: "records" }
 }
 
 describe("Tessera Agent vNext public boundary", () => {
-  test("keeps Mastra working-memory tool parts out of the public AI SDK stream", async () => {
-    const chunks = await readUiChunks(filterTesseraPublicToolParts(new ReadableStream<TesseraUIMessageChunk>({
-      start(controller) {
-        controller.enqueue({ type: "tool-input-start", toolCallId: "memory-1", toolName: "updateWorkingMemory" });
-        controller.enqueue({ type: "tool-input-delta", toolCallId: "memory-1", inputTextDelta: "{}" });
-        controller.enqueue({
-          type: "tool-input-available",
-          toolCallId: "memory-1",
-          toolName: "updateWorkingMemory",
-          input: {},
-        });
-        controller.enqueue({ type: "tool-output-available", toolCallId: "memory-1", output: { success: true } });
-        controller.enqueue({ type: "tool-input-start", toolCallId: "database-1", toolName: "list_database" });
-        controller.enqueue({
-          type: "tool-input-available",
-          toolCallId: "database-1",
-          toolName: "list_database",
-          input: { operation: "list_relations" },
-        });
-        controller.enqueue({ type: "tool-output-available", toolCallId: "database-1", output: { status: "completed" } });
-        controller.close();
-      },
-    })));
-
-    expect(JSON.stringify(chunks)).not.toContain("updateWorkingMemory");
-    expect(chunks.map((chunk) => chunk.type)).toEqual([
-      "tool-input-start",
-      "tool-input-available",
-      "tool-output-available",
-    ]);
-  });
-
   test("uses the expanded schema discovery budgets", () => {
     expect(DATABASE_SCHEMA_INVENTORY_LIMITS).toEqual({
       maxSchemas: 128,

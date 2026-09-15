@@ -246,8 +246,10 @@ describe("Studio chat transcript integration", () => {
       const assistant = payload.messages[1];
       expect(assistant?.parts.filter((part) => part.type === "reasoning")).toHaveLength(2);
       expect(assistant?.parts.filter((part) => part.type === "text")).toHaveLength(2);
+      expect(assistant?.parts.filter((part) => part.type === "tool-list_database")).toHaveLength(1);
       expect(JSON.stringify(assistant)).toContain("Checking the database.");
       expect(JSON.stringify(assistant)).toContain("Done.");
+      expect(JSON.stringify(assistant)).toContain("tool-1");
     } finally {
       await sessionMemory.close();
       rmSync(rootDirectory, { force: true, recursive: true });

@@ -253,7 +253,7 @@ export function createTesseraSessionMemory(
         const messages = [...existing.messages];
         const existingIndex = messages.findIndex((message) => message.id === checkpointMessageId);
         if (existingIndex === -1) messages.push(sanitized);
-        else messages[existingIndex] = sanitized;
+        else messages[existingIndex] = mergeCheckpointMessage(messages[existingIndex]!, sanitized);
 
         await memory.updateThread({
           id: input.id,
@@ -378,7 +378,7 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
         if (approval !== undefined && parts.length < MAX_UI_PARTS_PER_MESSAGE) {
           parts.push({
             type: "tool-execute_sql",
-            toolCallId: `${messageId}-tool-${parts.length + 1}`,
+            toolCallId: storedPartId(data.toolCallId, `${messageId}-tool-${parts.length + 1}`),
             state: "output-available",
             input: { action: "execute_sql" },
             output: {
@@ -445,6 +445,60 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
   return { id: messageId, role: source.role, parts };
 }
 
+/**
+ * Step callbacks are not guaranteed to contain every earlier part of the run.
+ * Merge by Mastra's stable part identifiers so a final text-only step cannot
+ * overwrite tool calls already checkpointed for the same assistant message.
+ */
+function mergeCheckpointMessage(
+  previous: TesseraSessionMessage,
+  incoming: TesseraSessionMessage,
+): TesseraSessionMessage {
+  if (previous.role !== "assistant" || incoming.role !== "assistant") return incoming;
+
+  const parts = [...previous.parts];
+  const partIndices = new Map<string, number>();
+  for (const [index, part] of parts.entries()) {
+    const key = checkpointPartKey(part);
+    if (key !== undefined) partIndices.set(key, index);
+  }
+
+  for (const part of incoming.parts) {
+    const key = checkpointPartKey(part);
+    const existingIndex = key === undefined ? undefined : partIndices.get(key);
+    if (existingIndex === undefined) {
+      parts.push(part);
+      if (key !== undefined) partIndices.set(key, parts.length - 1);
+    } else {
+      parts[existingIndex] = part;
+    }
+  }
+
+  return { ...incoming, id: previous.id, parts };
+}
+
+function checkpointPartKey(part: TesseraUIMessage["parts"][number]): string | undefined {
+  const record = asRecord(part);
+  if (record?.type === "reasoning" && typeof record.id === "string") {
+    return `reasoning:${record.id}`;
+  }
+  if (typeof record?.type === "string"
+    && record.type.startsWith("tool-")
+    && typeof record.toolCallId === "string") {
+    return `tool:${record.toolCallId}`;
+  }
+  if (record?.type === "text" && typeof record.text === "string") {
+    return `text:${record.text}`;
+  }
+  return undefined;
+}
+
+function storedPartId(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.length > 0 && value.length <= 512
+    ? value
+    : fallback;
+}
+
 function uiCheckpointMessageId(checkpointId: string): string {
   const digest = createHash("sha256").update(checkpointId).digest("hex");
   return `tessera-ui-${digest}`;
@@ -466,7 +520,7 @@ function sanitizeListDatabaseToolPart(
   if (part.state !== "output-available") {
     return {
       type: "tool-list_database",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
       state: "output-error",
       input,
       errorText: historyToolFailure(part),
@@ -493,7 +547,7 @@ function sanitizeListDatabaseToolPart(
   const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-list_database",
-    toolCallId: `${context.messageId}-tool-${index + 1}`,
+    toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
     state: "output-available",
     input,
     output: {
@@ -531,7 +585,7 @@ function sanitizeSearchDataContextToolPart(
   if (part.state !== "output-available") {
     return {
       type: "tool-search_data_context",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
       state: "output-error",
       input,
       errorText: historyToolFailure(part),
@@ -545,7 +599,7 @@ function sanitizeSearchDataContextToolPart(
   const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-search_data_context",
-    toolCallId: `${context.messageId}-tool-${index + 1}`,
+    toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
     state: "output-available",
     input,
     output: {
@@ -572,7 +626,7 @@ function sanitizeExecuteSqlToolPart(
   if (part.state !== "output-available" && suspendedApproval !== undefined) {
     return {
       type: "tool-execute_sql",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
       state: "output-available",
       input,
       output: {
@@ -589,7 +643,7 @@ function sanitizeExecuteSqlToolPart(
   if (part.state !== "output-available") {
     return {
       type: "tool-execute_sql",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
       state: "output-error",
       input,
       errorText: historyToolFailure(part),
@@ -607,7 +661,7 @@ function sanitizeExecuteSqlToolPart(
   const nextAction = sanitizeDisplayText(output?.nextAction, 64);
   return {
     type: "tool-execute_sql",
-    toolCallId: `${context.messageId}-tool-${index + 1}`,
+    toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
     state: "output-available",
     input,
     output: {
@@ -656,7 +710,7 @@ function sanitizeAnalysisToolPart(
   if (part.state !== "output-available") {
     return {
       type: "tool-prepare_analysis",
-      toolCallId: `${context.messageId}-tool-${index + 1}`,
+      toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
       state: "output-error",
       input,
       errorText: historyToolFailure(part),
@@ -668,7 +722,7 @@ function sanitizeAnalysisToolPart(
   const message = sanitizeDisplayText(output?.message, 500);
   return {
     type: "tool-prepare_analysis",
-    toolCallId: `${context.messageId}-tool-${index + 1}`,
+    toolCallId: storedPartId(part.toolCallId, `${context.messageId}-tool-${index + 1}`),
     state: "output-available",
     input,
     output: {
