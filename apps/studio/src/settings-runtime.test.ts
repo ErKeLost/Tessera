@@ -176,6 +176,72 @@ describe("Tessera Studio settings runtime", () => {
     }
   });
 
+  test("keeps a custom OpenAI-compatible gateway and the typed model id", () => {
+    const next = normalizeTesseraStudioSettings(baseConfig, candidate({
+      llm: {
+        provider: "custom",
+        model: "grok-4.6",
+        apiKey: "custom-gateway-secret",
+        baseUrl: "https://tare.example.test/v1/chat/completions",
+      },
+    }));
+    expect(next.config.llm?.model).toBe("custom/grok-4.6");
+    expect(next.config.llm?.baseUrl).toBe("https://tare.example.test/v1");
+    expect(next.config.llm?.apiKey).toBe("custom-gateway-secret");
+    expect(createTesseraStudioSettingsSnapshot(next.config, next.accessMode).llm).toMatchObject({
+      provider: "custom",
+      model: "grok-4.6",
+      baseUrl: "https://tare.example.test/v1",
+    });
+  });
+
+  test("rejects a custom gateway without a base URL", () => {
+    expect(() => normalizeTesseraStudioSettings(baseConfig, candidate({
+      llm: { provider: "custom", model: "grok-4.6", apiKey: "custom-gateway-secret" },
+    }))).toThrow("invalid");
+  });
+
+  test("tests a custom OpenAI-compatible gateway without changing the active runtime", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body: unknown }> = [];
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        requests.push({
+          url: new URL(request.url).pathname,
+          authorization: request.headers.get("authorization"),
+          body: await request.json(),
+        });
+        return Response.json({ choices: [{ message: { role: "assistant", content: "OK" } }] });
+      },
+    });
+    const tracker: BuildTracker = { closed: 0, records: [] };
+    const manager = await createTesseraStudioRuntimeManager({ config: baseConfig, factory: createFactory(tracker) });
+    try {
+      const result = await manager.testModel(candidate({
+        llm: {
+          provider: "custom",
+          model: "grok-4.6",
+          apiKey: "custom-test-key",
+          baseUrl: `http://127.0.0.1:${gateway.port}/v1`,
+        },
+      }));
+      expect(result.model).toEqual({ connected: true, provider: "custom" });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({
+        url: "/v1/chat/completions",
+        authorization: "Bearer custom-test-key",
+        body: { model: "grok-4.6" },
+      });
+      expect(JSON.stringify(result)).not.toContain("custom-test-key");
+      expect(manager.getSnapshot().llm.provider).toBe("openrouter");
+      expect(tracker.records).toHaveLength(1);
+    } finally {
+      await manager.close();
+      await gateway.stop(true);
+    }
+  });
+
   test("does not publish database mutations from a read-only generation", async () => {
     const manager = await createTesseraStudioRuntimeManager({
       config: baseConfig,

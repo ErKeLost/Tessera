@@ -679,6 +679,7 @@ function normalizeLlmBaseUrl(value: string): string | undefined {
       || url.origin === "null") {
       return undefined;
     }
+    url.pathname = url.pathname.replace(/\/chat\/completions\/?$/iu, "") || "/";
     return url.href.endsWith("/") ? url.href.slice(0, -1) : url.href;
   } catch {
     return undefined;

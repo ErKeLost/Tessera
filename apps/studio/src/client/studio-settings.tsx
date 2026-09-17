@@ -191,6 +191,8 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
 };
 
 const PROVIDERS = ["openrouter", "vercel", "openai", "anthropic", "google", "custom"] as const;
+const GATEWAY_MODEL_PROVIDERS = new Set<string>(["openrouter", "vercel"]);
+const OPENAI_COMPATIBLE_TEST_PROVIDERS = new Set<string>(["openrouter", "vercel", "openai", "custom"]);
 const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string | undefined>> = {
   openrouter: "https://openrouter.ai/api/v1",
   openai: "https://api.openai.com/v1",
@@ -288,7 +290,7 @@ export function StudioSettingsDialog({
   ), [form.provider]);
 
   const modelOptions = useMemo(() => {
-    if (!["openrouter", "vercel"].includes(form.provider)) return [];
+    if (!GATEWAY_MODEL_PROVIDERS.has(form.provider)) return [];
     const currentModel = form.model.trim();
     if (!currentModel || modelCatalog.models.some((model) => model.id === currentModel)) return modelCatalog.models;
     return [{ id: currentModel, name: currentModel, family: "Current" }, ...modelCatalog.models];
@@ -496,7 +498,7 @@ export function StudioSettingsDialog({
   const canTest = Boolean(candidate) && (testTarget === "database"
     ? Boolean(form.databaseUrl.trim() || settings.database.urlConfigured)
     : testTarget === "model"
-      ? ["openrouter", "vercel"].includes(form.provider) && Boolean(form.apiKey.trim() || form.provider !== settings.llm.provider || settings.llm.apiKeyConfigured)
+      ? canTestGatewayModel(form, settings)
       : false);
   const settingsForm = (
     <form
@@ -609,7 +611,7 @@ export function StudioSettingsDialog({
                 </Field>
                 <Field>
                   <Label htmlFor="settings-model"><StudioIcon icon="solar:cpu-linear" size={14} />Model</Label>
-                  {["openrouter", "vercel"].includes(form.provider) ? (
+                  {GATEWAY_MODEL_PROVIDERS.has(form.provider) ? (
                     <OpenRouterModelPicker
                       ariaLabel={`Choose a ${studioProviderLabel(form.provider)} text model`}
                       disabled={busy || modelOptions.length === 0}
@@ -626,7 +628,7 @@ export function StudioSettingsDialog({
                       id="settings-model"
                       name="model"
                       onChange={(event) => updateForm("model", event.target.value)}
-                      placeholder="provider/model"
+                      placeholder={form.provider === "custom" ? "model-id" : "provider/model"}
                       value={form.model}
                     />
                   )}
@@ -683,6 +685,11 @@ export function StudioSettingsDialog({
                   {form.provider === "vercel" ? (
                     <p className="text-xs leading-5 text-muted-foreground">
                       Leave blank for Vercel AI Gateway. Use a provider/model ID and enter your gateway key above, or set AI_GATEWAY_API_KEY on the server. A custom URL must support OpenAI-compatible chat completions.
+                    </p>
+                  ) : null}
+                  {form.provider === "custom" ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Use the OpenAI-compatible /v1 root, for example https://api.example.com/v1. Do not include /chat/completions — Tessera appends that path.
                     </p>
                   ) : null}
                 </Field>
@@ -970,6 +977,18 @@ function toForm(settings: StudioSettingsSnapshot): SettingsForm {
   };
 }
 
+function canTestGatewayModel(form: SettingsForm, settings: StudioSettingsSnapshot): boolean {
+  if (!OPENAI_COMPATIBLE_TEST_PROVIDERS.has(form.provider)) return false;
+  const hasCredential = Boolean(
+    form.apiKey.trim()
+    || form.provider !== settings.llm.provider
+    || settings.llm.apiKeyConfigured,
+  );
+  if (!hasCredential) return false;
+  if (form.provider !== "custom") return true;
+  return Boolean(form.baseUrl.trim() || (form.provider === settings.llm.provider && settings.llm.baseUrl));
+}
+
 function buildCandidate(form: SettingsForm): StudioSettingsCandidate | undefined {
   const maxRows = readBoundedInteger(form.maxRows, 1, 20_000);
   const timeoutMs = readBoundedInteger(form.timeoutMs, 250, 120_000);
@@ -985,6 +1004,7 @@ function buildCandidate(form: SettingsForm): StudioSettingsCandidate | undefined
   // The server remains authoritative, but reject obviously unsafe or malformed
   // provider endpoints before including them in a request.
   if (baseUrl && !readSafeUrl(baseUrl)) return undefined;
+  if (provider === "custom" && !baseUrl) return undefined;
   return {
     database: {
       dialect: form.dialect,
@@ -1185,6 +1205,7 @@ function readSafeUrl(value: unknown): string | undefined {
     const url = new URL(candidate);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
     if (!url.hostname || url.username || url.password || url.search || url.hash) return undefined;
+    url.pathname = url.pathname.replace(/\/chat\/completions\/?$/iu, "") || "/";
     return url.toString().replace(/\/$/, "");
   } catch {
     return undefined;

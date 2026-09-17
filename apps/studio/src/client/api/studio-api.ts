@@ -73,6 +73,7 @@ export type StudioSettingsStatus = Readonly<{
   database: Readonly<{ urlConfigured: boolean }>;
   llm: Readonly<{
     provider: string;
+    model: string;
     apiKeyConfigured: boolean;
     apiKeySource: "explicit" | "environment" | "none";
   }>;
@@ -294,11 +295,14 @@ export async function fetchStudioSettingsStatus(signal?: AbortSignal): Promise<S
   const llm = asRecord(settings?.llm);
   const databaseConfigured = database?.urlConfigured;
   const provider = llm?.provider;
+  const model = llm?.model;
   const apiKeyConfigured = llm?.apiKeyConfigured;
   const apiKeySource = readApiKeySource(llm?.apiKeySource);
   if (
     typeof databaseConfigured !== "boolean"
     || typeof provider !== "string"
+    || typeof model !== "string"
+    || model.trim().length === 0
     || typeof apiKeyConfigured !== "boolean"
     || apiKeySource === undefined
   ) {
@@ -306,7 +310,7 @@ export async function fetchStudioSettingsStatus(signal?: AbortSignal): Promise<S
   }
   return {
     database: { urlConfigured: databaseConfigured },
-    llm: { provider, apiKeyConfigured, apiKeySource },
+    llm: { provider, model, apiKeyConfigured, apiKeySource },
   };
 }
 

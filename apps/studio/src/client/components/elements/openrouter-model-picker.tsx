@@ -195,6 +195,7 @@ export function StudioModelBrandIcon({
   size: number;
 }) {
   const provider = model?.id.split("/", 1)[0]?.replace(/^~/u, "").toLocaleLowerCase("en-US") ?? "";
+  const haystack = `${model?.id ?? ""} ${model?.name ?? ""}`.toLocaleLowerCase("en-US");
   if (provider === "openai") return <OpenAI size={size} />;
   if (provider === "anthropic") return <Anthropic size={size} />;
   if (provider === "google") return <Gemini.Color size={size} />;
@@ -203,7 +204,7 @@ export function StudioModelBrandIcon({
   if (provider === "deepseek") return <DeepSeek.Color size={size} />;
   if (provider === "qwen") return <Qwen.Color size={size} />;
   if (provider === "moonshotai") return <Kimi.Color size={size} />;
-  if (provider === "x-ai" || provider === "xai") return <Grok size={size} />;
+  if (provider === "x-ai" || provider === "xai" || haystack.includes("grok")) return <Grok size={size} />;
   if (provider === "z-ai" || provider === "zai") return <ZAI size={size} />;
   if (provider === "cohere") return <Cohere.Color size={size} />;
   if (provider === "nvidia") return <Nvidia.Color size={size} />;

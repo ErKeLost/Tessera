@@ -271,6 +271,9 @@ export function normalizeTesseraStudioSettings(
   // explicitly when that is intended.
   const apiKey = candidate.llm.apiKey ?? (providerUnchanged ? current.llm?.apiKey : undefined);
   const baseUrl = candidate.llm.baseUrl ?? (providerUnchanged ? current.llm?.baseUrl : undefined);
+  if (candidate.llm.provider === "custom" && baseUrl === undefined) {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "Tessera Studio settings are invalid.");
+  }
   let config: TesseraConfig;
   try {
     config = defineTesseraConfig({
@@ -408,7 +411,7 @@ export type TesseraSettingsValidationResult = Readonly<{
 
 export type TesseraSettingsModelValidationResult = Readonly<{
   settings: TesseraStudioSettingsSnapshot;
-  model: Readonly<{ connected: true; provider: "openrouter" | "vercel" }>;
+  model: Readonly<{ connected: true; provider: string }>;
 }>;
 
 export type TesseraRuntimeManagerOptions = Readonly<{
@@ -1035,18 +1038,27 @@ async function assessRuntime(connector: DatabaseConnector, signal?: AbortSignal)
   }
 }
 
-async function assessGatewayModel(config: TesseraConfig, signal?: AbortSignal): Promise<"openrouter" | "vercel"> {
+const OPENAI_COMPATIBLE_TEST_PROVIDERS = new Set(["openrouter", "vercel", "openai", "custom"]);
+const VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+
+async function assessGatewayModel(config: TesseraConfig, signal?: AbortSignal): Promise<string> {
   const llm = resolveTesseraLlmConfig(config);
   const [provider, ...modelSegments] = llm.model.split("/");
-  if ((provider !== "openrouter" && provider !== "vercel") || modelSegments.length < 2) {
-    throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenRouter and Vercel AI Gateway models can be tested here.");
+  const modelId = modelSegments.join("/");
+  if (!provider || !OPENAI_COMPATIBLE_TEST_PROVIDERS.has(provider) || !modelId) {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenAI-compatible gateway models can be tested here.");
   }
   const apiKey = resolveTesseraLlmApiKey(llm);
   if (!apiKey) {
     throw new TesseraSettingsRuntimeError("model_unavailable", "A gateway API key is required to test this model.");
   }
 
-  const baseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider) ?? "https://ai-gateway.vercel.sh/v1";
+  const baseUrl = llm.baseUrl
+    ?? getTesseraProviderBaseUrl(provider)
+    ?? (provider === "vercel" ? VERCEL_AI_GATEWAY_BASE_URL : undefined);
+  if (!baseUrl) {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "A provider base URL is required to test this model.");
+  }
   let response: Response;
   try {
     response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
@@ -1054,7 +1066,7 @@ async function assessGatewayModel(config: TesseraConfig, signal?: AbortSignal): 
         ...(llm.providerOptions === undefined ? {} : { providerOptions: llm.providerOptions }),
         max_tokens: 16,
         messages: [{ content: "Reply with OK.", role: "user" }],
-        model: modelSegments.join("/"),
+        model: modelId,
         stream: false,
         temperature: 0,
       }),
@@ -1181,6 +1193,7 @@ function normalizeBaseUrl(value: string): string | undefined {
       || url.origin === "null") {
       return undefined;
     }
+    url.pathname = url.pathname.replace(/\/chat\/completions\/?$/iu, "") || "/";
     return url.href.endsWith("/") ? url.href.slice(0, -1) : url.href;
   } catch {
     return undefined;

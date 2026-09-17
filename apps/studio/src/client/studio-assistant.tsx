@@ -63,7 +63,7 @@ import {
 import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button";
 import { AgentActivity } from "./components/agent-activity";
 import { ErrorState } from "./components/elements/error-state";
-import { OpenRouterModelPicker } from "./components/elements/openrouter-model-picker";
+import { OpenRouterModelPicker, StudioModelBrandIcon } from "./components/elements/openrouter-model-picker";
 import { ReasoningPanel } from "./components/elements/reasoning-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
@@ -697,18 +697,31 @@ type OpenRouterModelOption = Readonly<{
 }>;
 
 function StudioModelPicker() {
+  const settingsQuery = useStudioSettingsQuery();
+  const provider = settingsQuery.data?.llm.provider;
+  const selectedModel = settingsQuery.data?.llm.model;
+  const gatewayPicker = provider === "openrouter" || provider === "vercel";
   const [models, setModels] = useState<readonly OpenRouterModelOption[]>([]);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<StudioSettingsSnapshot>();
-  const [loading, setLoading] = useState(true);
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [savingModel, setSavingModel] = useState<string>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
+    if (!gatewayPicker || !provider) {
+      setModels([]);
+      setLoadingCatalog(false);
+      return;
+    }
     const controller = new AbortController();
+    setLoadingCatalog(true);
     void Promise.all([
       fetch("/api/settings", { headers: { Accept: "application/json" }, signal: controller.signal }),
-      fetch("/api/settings/models", { headers: { Accept: "application/json" }, signal: controller.signal }),
+      fetch(`/api/settings/models?provider=${encodeURIComponent(provider)}`, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      }),
     ])
       .then(async ([settingsResponse, modelsResponse]) => {
         if (!settingsResponse.ok || !modelsResponse.ok) throw new Error("model_picker_request_failed");
@@ -722,12 +735,16 @@ function StudioModelPicker() {
         if (!controller.signal.aborted) setError("Models could not be loaded.");
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) setLoadingCatalog(false);
       });
     return () => controller.abort();
-  }, []);
+  }, [gatewayPicker, provider, settingsQuery.dataUpdatedAt]);
 
-  const selectedModel = settings?.llm.model;
+  const pickerModels = useMemo(() => {
+    if (!selectedModel) return models;
+    if (models.some((model) => model.id === selectedModel)) return models;
+    return [{ id: selectedModel, name: selectedModel, family: provider ?? "" }, ...models];
+  }, [models, provider, selectedModel]);
 
   const selectModel = async (model: OpenRouterModelOption) => {
     if (!settings || savingModel) return;
@@ -754,6 +771,7 @@ function StudioModelPicker() {
       if (!response.ok) throw new Error("model_picker_save_failed");
       setSettings(readStudioSettingsSnapshot(await response.json()));
       setOpen(false);
+      await settingsQuery.refetch();
     } catch {
       setError("The model was not changed. Check workspace settings and try again.");
       setOpen(true);
@@ -762,17 +780,42 @@ function StudioModelPicker() {
     }
   };
 
+  if (!provider && settingsQuery.isLoading) {
+    return (
+      <OpenRouterModelPicker
+        ariaLabel="Choose a gateway model"
+        disabled
+        loading
+        models={[]}
+        onValueChange={() => undefined}
+        variant="composer"
+      />
+    );
+  }
+
+  if (!gatewayPicker) {
+    const option = selectedModel
+      ? { id: selectedModel, name: selectedModel, family: provider ?? "" }
+      : undefined;
+    return (
+      <span className="studio-composer-setting studio-model-picker-trigger" title={selectedModel}>
+        <StudioModelBrandIcon model={option} size={16} />
+        <span className="studio-model-picker-label">{selectedModel ?? "No model selected"}</span>
+      </span>
+    );
+  }
+
   return (
     <OpenRouterModelPicker
       ariaLabel="Choose a gateway model"
       busyValue={savingModel}
-      disabled={Boolean(savingModel) || !["openrouter", "vercel"].includes(settings?.llm.provider ?? "")}
+      disabled={Boolean(savingModel)}
       error={error}
-      loading={loading}
-      models={models.length ? models : selectedModel ? [{ id: selectedModel, name: selectedModel, family: settings?.llm.provider ?? "" }] : []}
+      loading={loadingCatalog}
+      models={pickerModels}
       onOpenChange={setOpen}
       onValueChange={(modelId) => {
-        const model = models.find((candidate) => candidate.id === modelId);
+        const model = pickerModels.find((candidate) => candidate.id === modelId);
         if (model) void selectModel(model);
       }}
       open={open}
