@@ -1,7 +1,7 @@
 # Tessera Agent
 
 
-![Tessera 产品图](https://x.com/Adny56908922543/status/2100548661289877719/photo/1)
+![Tessera 产品图](https://pbs.twimg.com/media/HSaltBdbAAAQBEE?format=jpg&name=4096x4096)
 
 Tessera Agent is a local-first database analysis agent. It connects natural
 language questions to governed database tools, verified evidence, and durable
