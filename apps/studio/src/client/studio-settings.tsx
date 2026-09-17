@@ -15,6 +15,8 @@ import {
   useState,
 } from "react";
 import { Button } from "./components/ui/button";
+import { JevEvaluationPanel } from "./components/elements/jev-evaluation-panel";
+import { StudioProviderIcon, studioProviderLabel } from "./components/elements/provider-icon";
 import { OpenRouterModelPicker } from "./components/elements/openrouter-model-picker";
 import {
   Dialog,
@@ -188,7 +190,7 @@ const DEFAULT_SETTINGS: StudioSettingsSnapshot = {
   },
 };
 
-const PROVIDERS = ["openrouter", "openai", "anthropic", "google", "custom"] as const;
+const PROVIDERS = ["openrouter", "vercel", "openai", "anthropic", "google", "custom"] as const;
 const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string | undefined>> = {
   openrouter: "https://openrouter.ai/api/v1",
   openai: "https://api.openai.com/v1",
@@ -246,7 +248,7 @@ export function StudioSettingsDialog({
     const controller = new AbortController();
     modelCatalogAbortRef.current = controller;
     try {
-      const response = await fetch("/api/settings/models", {
+      const response = await fetch(`/api/settings/models?provider=${encodeURIComponent(form.provider)}`, {
         headers: { Accept: "application/json" },
         signal: controller.signal,
       });
@@ -256,7 +258,7 @@ export function StudioSettingsDialog({
     } catch {
       if (!controller.signal.aborted) setModelCatalog(EMPTY_MODEL_CATALOG);
     }
-  }, []);
+  }, [form.provider]);
 
   const visible = open;
 
@@ -267,12 +269,17 @@ export function StudioSettingsDialog({
   useEffect(() => {
     if (!visible) return;
     void loadSettings();
-    void loadModelCatalog();
     return () => {
       loadAbortRef.current?.abort();
-      modelCatalogAbortRef.current?.abort();
     };
-  }, [loadModelCatalog, loadSettings, visible]);
+  }, [loadSettings, visible]);
+
+  useEffect(() => {
+    if (!visible) return;
+    setModelCatalog(EMPTY_MODEL_CATALOG);
+    void loadModelCatalog();
+    return () => modelCatalogAbortRef.current?.abort();
+  }, [loadModelCatalog, visible]);
 
   const providerOptions = useMemo(() => (
     PROVIDERS.includes(form.provider as (typeof PROVIDERS)[number])
@@ -281,7 +288,7 @@ export function StudioSettingsDialog({
   ), [form.provider]);
 
   const modelOptions = useMemo(() => {
-    if (form.provider !== "openrouter") return [];
+    if (!["openrouter", "vercel"].includes(form.provider)) return [];
     const currentModel = form.model.trim();
     if (!currentModel || modelCatalog.models.some((model) => model.id === currentModel)) return modelCatalog.models;
     return [{ id: currentModel, name: currentModel, family: "Current" }, ...modelCatalog.models];
@@ -312,20 +319,19 @@ export function StudioSettingsDialog({
     setForm((current) => ({
       ...current,
       provider,
-      baseUrl: current.baseUrl === (DEFAULT_PROVIDER_BASE_URLS[current.provider] ?? "")
-        ? (DEFAULT_PROVIDER_BASE_URLS[provider] ?? "")
-        : current.baseUrl,
+      apiKey: "",
+      model: provider === "vercel" ? "openai/gpt-4.1-mini" : current.model,
+      baseUrl: DEFAULT_PROVIDER_BASE_URLS[provider] ?? "",
       ...(provider === "openrouter" ? {} : { reasoningEffort: "default" as const }),
     }));
     setNotice(undefined);
     if (requestState === "success" || requestState === "error") setRequestState("idle");
   }, [requestState]);
 
-  const updateOpenRouterModel = useCallback((model: string) => {
+  const updateGatewayModel = useCallback((model: string) => {
     const selected = modelOptions.find((candidate) => candidate.id === model);
     setForm((current) => ({
       ...current,
-      provider: "openrouter",
       model,
       reasoningEffort: preferredReasoningSelection(selected?.reasoning, current.reasoningEffort),
     }));
@@ -353,7 +359,7 @@ export function StudioSettingsDialog({
       }
       const result = await response.json().catch(() => undefined) as unknown;
       const message = readPublicMessage(result) ?? (target === "model"
-        ? "OpenRouter returned a valid model response."
+        ? "The gateway returned a valid model response."
         : "Database connection verified.");
       setRequestState("success");
       setNotice(message);
@@ -490,7 +496,7 @@ export function StudioSettingsDialog({
   const canTest = Boolean(candidate) && (testTarget === "database"
     ? Boolean(form.databaseUrl.trim() || settings.database.urlConfigured)
     : testTarget === "model"
-      ? form.provider === "openrouter" && Boolean(form.apiKey.trim() || settings.llm.apiKeyConfigured)
+      ? ["openrouter", "vercel"].includes(form.provider) && Boolean(form.apiKey.trim() || form.provider !== settings.llm.provider || settings.llm.apiKeyConfigured)
       : false);
   const settingsForm = (
     <form
@@ -594,20 +600,22 @@ export function StudioSettingsDialog({
                     <SelectTrigger className="w-full" id="settings-provider"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {providerOptions.map((provider) => (
-                        <SelectItem key={provider} value={provider}>{provider}</SelectItem>
+                        <SelectItem key={provider} value={provider}>
+                          <span className="inline-flex items-center gap-2"><StudioProviderIcon provider={provider} size={18} />{studioProviderLabel(provider)}</span>
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </Field>
                 <Field>
                   <Label htmlFor="settings-model"><StudioIcon icon="solar:cpu-linear" size={14} />Model</Label>
-                  {form.provider === "openrouter" ? (
+                  {["openrouter", "vercel"].includes(form.provider) ? (
                     <OpenRouterModelPicker
-                      ariaLabel="Choose the OpenRouter text model"
+                      ariaLabel={`Choose a ${studioProviderLabel(form.provider)} text model`}
                       disabled={busy || modelOptions.length === 0}
                       id="settings-model"
                       models={modelOptions}
-                      onValueChange={updateOpenRouterModel}
+                      onValueChange={updateGatewayModel}
                       value={form.model}
                       variant="field"
                     />
@@ -644,9 +652,9 @@ export function StudioSettingsDialog({
                 <Field>
                   <Label htmlFor="settings-api-key"><StudioIcon icon="solar:key-linear" size={14} />API key</Label>
                   <SecretInput
-                    configured={settings.llm.apiKeySource === "explicit"}
+                    configured={form.provider === settings.llm.provider && settings.llm.apiKeySource === "explicit"}
                     disabled={busy}
-                    emptyPlaceholder={settings.llm.apiKeySource === "environment"
+                    emptyPlaceholder={form.provider === settings.llm.provider && settings.llm.apiKeySource === "environment"
                       ? "Using server environment credential"
                       : "Optional provider key"}
                     id="settings-api-key"
@@ -654,7 +662,7 @@ export function StudioSettingsDialog({
                     onChange={(event) => updateForm("apiKey", event.target.value)}
                     value={form.apiKey}
                   />
-                  {settings.llm.apiKeySource === "environment" && !form.apiKey ? (
+                  {form.provider === settings.llm.provider && settings.llm.apiKeySource === "environment" && !form.apiKey ? (
                     <p className="text-xs leading-5 text-muted-foreground">
                       Using the server environment credential. Enter a key here to save a local override.
                     </p>
@@ -668,11 +676,17 @@ export function StudioSettingsDialog({
                     id="settings-base-url"
                     name="baseUrl"
                     onChange={(event) => updateForm("baseUrl", event.target.value)}
-                    placeholder={DEFAULT_PROVIDER_BASE_URLS[form.provider] ?? "https://api.example.com/v1"}
+                    placeholder={form.provider === "vercel" ? "Automatic — Vercel AI Gateway" : DEFAULT_PROVIDER_BASE_URLS[form.provider] ?? "https://api.example.com/v1"}
                     type="url"
                     value={form.baseUrl}
                   />
+                  {form.provider === "vercel" ? (
+                    <p className="text-xs leading-5 text-muted-foreground">
+                      Leave blank for Vercel AI Gateway. Use a provider/model ID and enter your gateway key above, or set AI_GATEWAY_API_KEY on the server. A custom URL must support OpenAI-compatible chat completions.
+                    </p>
+                  ) : null}
                 </Field>
+                {form.provider === "vercel" ? <JevEvaluationPanel settings={candidate} disabled={busy} /> : null}
               </FieldGroup>
             </TabsContent>
 

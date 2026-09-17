@@ -36,6 +36,7 @@ export const TESSERA_PROVIDER_BASE_URLS = Object.freeze({
 } as const);
 const TESSERA_PROVIDER_API_KEY_ENVIRONMENT_VARIABLES = Object.freeze({
   openrouter: ["OPENROUTER_API_KEY"],
+  vercel: ["AI_GATEWAY_API_KEY"],
   openai: ["OPENAI_API_KEY"],
   anthropic: ["ANTHROPIC_API_KEY"],
   google: ["GOOGLE_GENERATIVE_AI_API_KEY", "GOOGLE_API_KEY"],
@@ -147,6 +148,8 @@ const llmConfigSchema = z.object({
   /** Enables any OpenAI-compatible gateway while preserving Mastra provider routing otherwise. */
   baseUrl: llmBaseUrlSchema.optional(),
   headers: llmHeadersSchema.optional(),
+  /** Server-only AI SDK provider options, including Vercel gateway routing. */
+  providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
   /** Optional provider reasoning control. It is only applied where supported. */
   reasoningEffort: z.enum(TESSERA_OPENROUTER_REASONING_EFFORTS).optional(),
   temperature: z.number().min(0).max(2).optional(),
@@ -194,6 +197,7 @@ export type TesseraLlmConfig = Readonly<{
   apiKey?: string;
   baseUrl?: string;
   headers: Readonly<Record<string, string>>;
+  providerOptions?: Record<string, Record<string, z.infer<ReturnType<typeof z.json>>>>;
   reasoningEffort?: TesseraReasoningEffort;
   temperature: number;
   maxOutputTokens: number;
@@ -652,6 +656,7 @@ function normalizeTesseraLlmConfig(value: z.output<typeof llmConfigSchema>): Tes
   }
   return {
     model: value.model,
+    ...(value.providerOptions === undefined ? {} : { providerOptions: value.providerOptions }),
     ...(value.apiKey === undefined ? {} : { apiKey: value.apiKey }),
     ...(baseUrl === undefined ? {} : { baseUrl }),
     headers: Object.fromEntries(Object.entries(value.headers ?? {}).sort(([left], [right]) => left.localeCompare(right))),

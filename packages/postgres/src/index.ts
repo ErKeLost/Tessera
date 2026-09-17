@@ -110,6 +110,24 @@ export function createPostgresConnector(options: PostgresConnectorOptions): Post
   return new PostgresConnector(options);
 }
 
+type NormalizedPgConnection = {
+  connectionString: string;
+  ssl?: { rejectUnauthorized: boolean };
+};
+
+/**
+ * node-postgres currently treats sslmode=require like verify-full. Preserve
+ * libpq's require semantics for provider URLs that intentionally omit a CA:
+ * encrypt the connection, but do not reject a provider's private CA chain.
+ */
+export function normalizePostgresConnection(connectionString: string): NormalizedPgConnection {
+  const url = validatePostgresUrl(connectionString);
+  const sslmode = url.searchParams.get("sslmode")?.toLowerCase();
+  if (sslmode !== "require") return { connectionString };
+  url.searchParams.delete("sslmode");
+  return { connectionString: url.toString(), ssl: { rejectUnauthorized: false } };
+}
+
 export class PostgresConnector implements DatabaseConnector, DatabaseMutationExecutor {
   readonly dialect = "postgres" as const;
   readonly id: string;
@@ -133,9 +151,10 @@ export class PostgresConnector implements DatabaseConnector, DatabaseMutationExe
       ...(options.schemas?.length ? { schemas: normalizeSchemas(options.schemas) } : {}),
       allowedFunctions: [...new Set((options.allowedFunctions ?? []).map(normalizeIdentifier))],
     };
+    const connection = normalizePostgresConnection(this.#options.connectionString);
     this.#pool = new Pool({
       application_name: this.#options.applicationName,
-      connectionString: this.#options.connectionString,
+      ...connection,
       connectionTimeoutMillis: this.#options.statementTimeoutMs,
       idleTimeoutMillis: 30_000,
       max: this.#options.maxConnections,

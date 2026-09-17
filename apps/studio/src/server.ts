@@ -1,3 +1,4 @@
+import { createVercelModelCatalogProvider } from "./vercel-model-catalog";
 import {
   catalogStats,
   type CatalogIntrospectionOptions,
@@ -339,6 +340,7 @@ export type StudioAppDependencies = Readonly<{
   settingsRuntime?: TesseraStudioRuntimeManager;
   /** Public model metadata used to validate and render the OpenRouter picker. */
   modelCatalog?: OpenRouterModelCatalogProvider;
+  vercelModelCatalog?: ReturnType<typeof createVercelModelCatalogProvider>;
   /** Supports dynamic runtimes where an LLM can be configured after startup. */
   agentAvailable?: () => Promise<boolean>;
   allowedOrigins?: readonly string[];
@@ -417,6 +419,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   const logger = dependencies.logger ?? silentStudioLogger;
   const chatRetries = createStudioChatRetryRegistry();
   const modelCatalog = dependencies.modelCatalog ?? createOpenRouterModelCatalogProvider();
+  const vercelModelCatalog = dependencies.vercelModelCatalog ?? createVercelModelCatalogProvider();
   const dataAgent = dependencies.dataAgent ?? createDataAgent({ connector: dependencies.connector });
   const catalogProvider = dependencies.catalogProvider ?? createDataAgentCatalogProvider(dataAgent);
   const staticRuntime: StudioRouteRuntime = Object.freeze({
@@ -537,7 +540,10 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   app.get("/api/settings/models", async (context) => {
     const runtime = requireSettingsRuntime(dependencies.settingsRuntime);
     const settings = runtime.getSnapshot();
-    const currentModel = settings.llm.provider === "openrouter" ? settings.llm.model : undefined;
+    const provider = context.req.query("provider") ?? settings.llm.provider;
+    if (provider === "vercel") return context.json(await vercelModelCatalog.list());
+    if (provider !== "openrouter") return context.json({ models: [] });
+    const currentModel = settings.llm.provider === provider ? settings.llm.model : undefined;
     return context.json(await modelCatalog.list({ currentModel }));
   });
 
@@ -550,6 +556,17 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         settings,
         message: "Local settings reset. Database data was not changed.",
       });
+    } catch (error) {
+      throw settingsRuntimeHttpError(error);
+    }
+  });
+
+  app.post("/api/settings/evaluate", async (context) => {
+    const runtime = requireSettingsRuntime(dependencies.settingsRuntime);
+    try {
+      await authorizeSettingsChange(context, dependencies, "test");
+      const body = await readJsonBody(context.req.raw) as { settings?: unknown; evaluation?: unknown } | null;
+      return context.json(await runtime.evaluateJev(body?.settings, body?.evaluation, context.req.raw.signal));
     } catch (error) {
       throw settingsRuntimeHttpError(error);
     }
@@ -568,7 +585,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         return context.json({
           settings: result.settings,
           model: result.model,
-          message: "OpenRouter returned a valid model response.",
+          message: "The gateway returned a valid model response.",
         });
       }
       const result = await runtime.test(parsedCandidate, { signal: context.req.raw.signal });
@@ -2036,7 +2053,7 @@ function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/connection") return "connection";
   if (path === "/api/meta") return "meta";
   if (path === "/api/runs") return "runs";
-  if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
+  if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/evaluate" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
   if (path.startsWith("/api/database-actions")) return "database_actions";
   if (path === "/api/threads" || path.startsWith("/api/threads/")) return "threads";
   if (path.startsWith("/api/data/")) return "data_preview";

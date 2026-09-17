@@ -719,7 +719,7 @@ function StudioModelPicker() {
         setError(undefined);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setError("OpenRouter models could not be loaded.");
+        if (!controller.signal.aborted) setError("Models could not be loaded.");
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -740,7 +740,7 @@ function StudioModelPicker() {
       },
       llm: {
         model: model.id,
-        provider: "openrouter",
+        provider: settings.llm.provider,
         reasoningEffort: modelReasoningEffort(model, settings.llm.reasoningEffort),
       },
       limits: settings.limits,
@@ -764,11 +764,12 @@ function StudioModelPicker() {
 
   return (
     <OpenRouterModelPicker
+      ariaLabel="Choose a gateway model"
       busyValue={savingModel}
-      disabled={Boolean(savingModel)}
+      disabled={Boolean(savingModel) || !["openrouter", "vercel"].includes(settings?.llm.provider ?? "")}
       error={error}
       loading={loading}
-      models={models}
+      models={models.length ? models : selectedModel ? [{ id: selectedModel, name: selectedModel, family: settings?.llm.provider ?? "" }] : []}
       onOpenChange={setOpen}
       onValueChange={(modelId) => {
         const model = models.find((candidate) => candidate.id === modelId);

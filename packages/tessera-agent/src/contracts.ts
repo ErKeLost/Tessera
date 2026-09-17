@@ -154,6 +154,8 @@ export type TesseraAgentLlmConfig = Readonly<{
   apiKey?: string;
   baseUrl?: string;
   headers: Readonly<Record<string, string>>;
+  /** Host-owned AI SDK provider options; never exposed in the browser snapshot. */
+  providerOptions?: Record<string, Record<string, z.infer<ReturnType<typeof z.json>>>>;
   reasoningEffort?: TesseraAgentReasoningEffort;
   temperature: number;
   maxOutputTokens: number;

@@ -31,6 +31,41 @@ npx @open-tessera/studio@latest file:/absolute/path/to/warehouse.db
 TURSO_AUTH_TOKEN=... npx @open-tessera/studio@latest libsql://warehouse-org.turso.io
 ```
 
+## Vercel AI Gateway
+
+In Settings → Model, choose **Vercel AI Gateway**, select a model, and enter a
+Gateway API key (or set `AI_GATEWAY_API_KEY` on the server). Leave Base URL empty
+for Mastra's native Vercel integration. The settings and chat model pickers load
+Vercel's public catalog of text models with tool support.
+
+For a project configuration:
+
+```ts
+import { defineTesseraConfig } from "@open-tessera/studio";
+
+export default defineTesseraConfig({
+  database: { url: process.env.DATABASE_URL! },
+  llm: { model: "vercel/openai/gpt-4.1-mini" },
+});
+```
+
+OpenRouter remains the initial default. Switching gateways does not carry API
+keys or custom endpoints between providers. A custom Base URL uses the
+OpenAI-compatible chat completions protocol.
+
+### Jev evaluation
+
+The Vercel model settings also include a **Jev evaluation** panel. It calls
+`typesafe-ai/jev` through AI SDK `experimental_evaluate`, independently of the
+chat model. Enter text or JSON state and a JSON object of `boolean`, `choice`, or
+`score` questions, then click **Run Jev evaluation**. Answers and token usage are
+shown inline. The evaluation always uses Vercel's native gateway endpoint and
+never saves or replaces the active chat configuration.
+
+The same server-side `AI_GATEWAY_API_KEY` or Vercel key entered in the form is
+used for both modes. If needed, create a key with
+`vercel ai-gateway api-keys create --name tessera`, then configure it locally.
+
 ## Local development
 
 From this directory:

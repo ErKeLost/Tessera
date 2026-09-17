@@ -137,6 +137,45 @@ function createFakeConnector(
 }
 
 describe("Tessera Studio settings runtime", () => {
+  test("switches to native Vercel routing without carrying OpenRouter credentials", () => {
+    const next = normalizeTesseraStudioSettings(baseConfig, candidate({
+      llm: { provider: "vercel", model: "openai/gpt-4.1-mini" },
+    }));
+    expect(next.config.llm?.model).toBe("vercel/openai/gpt-4.1-mini");
+    expect(next.config.llm?.apiKey).toBeUndefined();
+    expect(next.config.llm?.baseUrl).toBeUndefined();
+    expect(next.config.llm?.headers).toEqual({});
+  });
+
+  test("tests Vercel using the selected key and model without changing the active runtime", async () => {
+    const requests: Array<{ url: string; authorization: string | null; body: unknown }> = [];
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(request) {
+        requests.push({ url: new URL(request.url).pathname, authorization: request.headers.get("authorization"), body: await request.json() });
+        return Response.json({ choices: [{ message: { role: "assistant", content: "OK" } }] });
+      },
+    });
+    const tracker: BuildTracker = { closed: 0, records: [] };
+    const manager = await createTesseraStudioRuntimeManager({ config: baseConfig, factory: createFactory(tracker) });
+    try {
+      const result = await manager.testModel(candidate({ llm: {
+        provider: "vercel", model: "openai/gpt-4.1-mini", apiKey: "vercel-test-key",
+        baseUrl: `http://127.0.0.1:${gateway.port}/v1`,
+      } }));
+      expect(result.model).toEqual({ connected: true, provider: "vercel" });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatchObject({ url: "/v1/chat/completions", authorization: "Bearer vercel-test-key", body: { model: "openai/gpt-4.1-mini" } });
+      expect(JSON.stringify(result)).not.toContain("vercel-test-key");
+      expect(manager.getSnapshot().llm.provider).toBe("openrouter");
+      expect(tracker.records).toHaveLength(1);
+    } finally {
+      await manager.close();
+      await gateway.stop(true);
+    }
+  });
+
   test("does not publish database mutations from a read-only generation", async () => {
     const manager = await createTesseraStudioRuntimeManager({
       config: baseConfig,

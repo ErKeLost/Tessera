@@ -14,14 +14,17 @@ export function toMastraModelConfig(llm: TesseraAgentLlmConfig): MastraModelConf
   };
 }
 
-/** Provider-specific reasoning options are emitted only when explicitly configured. */
+/** Forward host-owned provider options and apply the explicit OpenRouter reasoning selection. */
 export function modelReasoningOptions(
   llm: TesseraAgentLlmConfig,
   effort = llm.reasoningEffort,
 ) {
-  return typeof llm.model === "string"
-    && llm.model.startsWith("openrouter/")
-    && effort !== undefined
-    ? { providerOptions: { openrouter: { reasoning: { effort } } } }
-    : {};
+  const providerOptions = { ...llm.providerOptions };
+  if (typeof llm.model === "string" && llm.model.startsWith("openrouter/") && effort !== undefined) {
+    providerOptions.openrouter = {
+      ...providerOptions.openrouter,
+      reasoning: { effort },
+    };
+  }
+  return Object.keys(providerOptions).length ? { providerOptions } : {};
 }

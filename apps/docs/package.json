@@ -1,6 +1,6 @@
 {
   "name": "@open-tessera/docs",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "private": true,
   "scripts": {
     "build": "next build",
@@ -27,7 +27,7 @@
     "@streamdown/mermaid": "1.0.2",
     "@upstash/ratelimit": "2.0.8",
     "@upstash/redis": "1.36.1",
-    "ai": "7.0.77",
+    "ai": "7.0.105",
     "class-variance-authority": "^0.7.1",
     "cmdk": "^1.1.1",
     "cnfast": "0.1.0",

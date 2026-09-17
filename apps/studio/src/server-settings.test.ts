@@ -207,7 +207,7 @@ function jsonRequest(path: string, method: "POST" | "PUT", body: unknown): Reque
 }
 
 type ManagedAppOptions = Pick<StudioAppDependencies,
-  "authenticate" | "requireAuthentication" | "authorizeSettingsChange"
+  "authenticate" | "requireAuthentication" | "authorizeSettingsChange" | "vercelModelCatalog"
 >;
 
 async function createManagedApp(options: ManagedAppOptions = {}) {
@@ -229,6 +229,45 @@ async function createManagedApp(options: ManagedAppOptions = {}) {
 }
 
 describe("Tessera Studio Settings routes", () => {
+  test("selects the Vercel catalog explicitly and keeps it after saving the gateway", async () => {
+    const catalog = { models: [{ id: "openai/gpt-4.1-mini", name: "GPT 4.1 Mini", family: "OpenAI" }] };
+    const { app, manager } = await createManagedApp({ vercelModelCatalog: { async list() { return catalog; } } });
+    try {
+      expect(await (await app.fetch(request("/api/settings/models?provider=vercel"))).json()).toEqual(catalog);
+      const saved = await app.fetch(jsonRequest("/api/settings", "PUT", settingsCandidate({ llm: {
+        provider: "vercel", model: "openai/gpt-4.1-mini", apiKey: "vercel-test-key",
+      } })));
+      expect(saved.status).toBe(200);
+      expect(await saved.json()).toMatchObject({ settings: { llm: { provider: "vercel", model: "openai/gpt-4.1-mini" } } });
+      expect(await (await app.fetch(request("/api/settings/models"))).json()).toEqual(catalog);
+    } finally { await manager.close(); }
+  });
+
+  test("Jev evaluation enforces settings authorization before validating or calling the model", async () => {
+    const { app, manager } = await createManagedApp({
+      authenticate: () => IDENTITY,
+      authorizeSettingsChange: () => false,
+    });
+    try {
+      const result = await app.fetch(jsonRequest("/api/settings/evaluate", "POST", {}));
+      expect(result.status).toBe(403);
+    } finally { await manager.close(); }
+  });
+
+  test("Jev rejects invalid evaluation input without replacing the chat runtime", async () => {
+    const { app, manager, tracker } = await createManagedApp();
+    try {
+      const result = await app.fetch(jsonRequest("/api/settings/evaluate", "POST", {
+        settings: settingsCandidate({ llm: { provider: "vercel", model: "openai/gpt-4.1-mini", apiKey: "jev-secret" } }),
+        evaluation: { state: "Refund issued", questions: {} },
+      }));
+      expect(result.status).toBe(400);
+      expect(await result.text()).not.toContain("jev-secret");
+      expect(tracker.builds).toHaveLength(1);
+      expect(manager.getSnapshot().llm.provider).toBe("openrouter");
+    } finally { await manager.close(); }
+  });
+
   test("returns redacted settings and test results without credentials or database URLs", async () => {
     const { app, manager } = await createManagedApp();
     try {

@@ -133,7 +133,7 @@ export function OpenRouterModelPicker({
           <CommandInput autoFocus placeholder="Search text models..." />
           <CommandList className="studio-model-picker-list" onWheel={scrollModelList}>
             <CommandEmpty>
-              {loading ? "Loading OpenRouter models..." : "No matching text models."}
+              {loading ? "Loading models..." : "No matching text models."}
             </CommandEmpty>
             <CommandGroup>
               {models.map((model) => {
@@ -203,8 +203,8 @@ export function StudioModelBrandIcon({
   if (provider === "deepseek") return <DeepSeek.Color size={size} />;
   if (provider === "qwen") return <Qwen.Color size={size} />;
   if (provider === "moonshotai") return <Kimi.Color size={size} />;
-  if (provider === "x-ai") return <Grok size={size} />;
-  if (provider === "z-ai") return <ZAI size={size} />;
+  if (provider === "x-ai" || provider === "xai") return <Grok size={size} />;
+  if (provider === "z-ai" || provider === "zai") return <ZAI size={size} />;
   if (provider === "cohere") return <Cohere.Color size={size} />;
   if (provider === "nvidia") return <Nvidia.Color size={size} />;
   if (provider === "perplexity") return <Perplexity.Color size={size} />;

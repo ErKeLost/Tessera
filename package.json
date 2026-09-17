@@ -1,6 +1,6 @@
 {
   "name": "open-tessera",
-  "version": "0.3.23",
+  "version": "0.3.24",
   "private": true,
   "description": "Database agent runtime, adapters, tools, and Tessera Studio.",
   "type": "module",
@@ -11,9 +11,10 @@
   ],
   "overrides": {
     "@ai-sdk/react": "4.0.80",
-    "ai": "7.0.77"
+    "ai": "7.0.105"
   },
   "scripts": {
+    "dev": "turbo run dev",
     "build": "turbo run build",
     "build:docs": "turbo run build --filter=@open-tessera/docs",
     "build:packages": "turbo run build --filter='./packages/*' && bun run check:source",

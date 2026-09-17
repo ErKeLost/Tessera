@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDatabaseMutationPlan } from "@open-tessera/database";
-import { createPostgresConnector } from "./index";
+import { createPostgresConnector, normalizePostgresConnection } from "./index";
 
 describe("PostgresConnector", () => {
   test("rejects a non-PostgreSQL URL before opening a connection", () => {
@@ -16,6 +16,16 @@ describe("PostgresConnector", () => {
     expect(typeof connector.mutate).toBe("function");
     expect(typeof connector.inspectExtensions).toBe("function");
     expect(typeof connector.inspectRlsPolicies).toBe("function");
+  });
+
+  test("preserves libpq sslmode=require semantics for private provider CAs", () => {
+    expect(normalizePostgresConnection("postgresql://root:p%23ss@db.example/howone?sslmode=require")).toEqual({
+      connectionString: "postgresql://root:p%23ss@db.example/howone",
+      ssl: { rejectUnauthorized: false },
+    });
+    expect(normalizePostgresConnection("postgresql://root:p%23ss@db.example/howone?sslmode=verify-full")).toEqual({
+      connectionString: "postgresql://root:p%23ss@db.example/howone?sslmode=verify-full",
+    });
   });
 
   test("rejects a plan for another connection before opening a database session", async () => {

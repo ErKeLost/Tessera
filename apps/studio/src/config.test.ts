@@ -27,11 +27,21 @@ import {
   withTesseraDatabaseUrl,
   withTesseraStudioOverrides,
 } from "./config";
+import { modelReasoningOptions, toMastraModelConfig } from "@open-tessera/agent";
 import { parseStudioCommandLine, resolveStudioConfig } from "./main";
 
 const database = { dialect: "postgres" as const, url: "postgresql://readonly:secret@localhost/warehouse" };
 
 describe("Tessera configuration", () => {
+  test("preserves server-side Vercel provider options through normalization and the Agent request", () => {
+    const providerOptions = { gateway: { order: ["openai"], models: ["google/gemini-2.5-flash"], caching: "auto" } };
+    const config = defineTesseraConfig({ database, llm: { model: "vercel/openai/gpt-4.1-mini", providerOptions } });
+    const llm = resolveTesseraLlmConfig(config);
+    expect(llm.providerOptions).toEqual(providerOptions);
+    expect(toMastraModelConfig(llm)).toBe("vercel/openai/gpt-4.1-mini");
+    expect(modelReasoningOptions(llm)).toEqual({ providerOptions });
+  });
+
   test("rejects unsupported read approvals instead of silently disabling queries", () => {
     expect(() => defineTesseraConfig({
       database: { ...database, permissions: { sqlStatements: { read: "ask" } } },
@@ -52,11 +62,13 @@ describe("Tessera configuration", () => {
     const environment = {
       OPENROUTER_API_KEY: "  environment-provider-secret  ",
       OPENAI_API_KEY: "openai-provider-secret",
+      AI_GATEWAY_API_KEY: " vercel-gateway-secret ",
       UNRELATED_SECRET: "unrelated-secret",
     };
 
     expect(getTesseraProviderEnvironmentApiKey("OpenRouter", environment)).toBe("environment-provider-secret");
     expect(getTesseraProviderEnvironmentApiKey("openai", environment)).toBe("openai-provider-secret");
+    expect(getTesseraProviderEnvironmentApiKey("vercel", environment)).toBe("vercel-gateway-secret");
     expect(getTesseraProviderEnvironmentApiKey("custom", environment)).toBeUndefined();
   });
 

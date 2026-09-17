@@ -1,3 +1,4 @@
+import { evaluateJev, jevEvaluationInputSchema } from "./jev-evaluation";
 /**
  * Server-only settings and runtime rotation for Tessera Studio.
  *
@@ -294,6 +295,7 @@ export function normalizeTesseraStudioSettings(
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(baseUrl === undefined ? {} : { baseUrl }),
         headers: providerUnchanged ? { ...existingLlm.headers } : {},
+        ...(providerUnchanged && existingLlm.providerOptions !== undefined ? { providerOptions: existingLlm.providerOptions } : {}),
         ...(candidate.llm.reasoningEffort === "default" ? {} : { reasoningEffort: candidate.llm.reasoningEffort }),
         temperature: existingLlm.temperature,
         maxOutputTokens: existingLlm.maxOutputTokens,
@@ -406,7 +408,7 @@ export type TesseraSettingsValidationResult = Readonly<{
 
 export type TesseraSettingsModelValidationResult = Readonly<{
   settings: TesseraStudioSettingsSnapshot;
-  model: Readonly<{ connected: true; provider: "openrouter" }>;
+  model: Readonly<{ connected: true; provider: "openrouter" | "vercel" }>;
 }>;
 
 export type TesseraRuntimeManagerOptions = Readonly<{
@@ -764,6 +766,23 @@ export class TesseraStudioRuntimeManager {
     }
   }
 
+  async evaluateJev(candidateInput: unknown, evaluationInput: unknown, signal?: AbortSignal) {
+    if (this.#closed) throw new TesseraSettingsRuntimeError("runtime_closed", "Tessera Studio is shutting down.");
+    const state = normalizeTesseraStudioSettings(this.#current.config, candidateInput);
+    const input = jevEvaluationInputSchema.safeParse(evaluationInput);
+    const llm = resolveTesseraLlmConfig(state.config);
+    if (!input.success || !llm.model.startsWith("vercel/")) {
+      throw new TesseraSettingsRuntimeError("invalid_settings", "Select Vercel AI Gateway and provide valid evaluation state and questions.");
+    }
+    const apiKey = resolveTesseraLlmApiKey(llm);
+    if (!apiKey) throw new TesseraSettingsRuntimeError("model_unavailable", "Enter a Vercel Gateway key or set AI_GATEWAY_API_KEY on the server.");
+    try {
+      return await evaluateJev(input.data, { apiKey, signal });
+    } catch {
+      throw new TesseraSettingsRuntimeError("model_unavailable", "Jev evaluation failed. Check your Vercel Gateway key, model access and input, then try again.");
+    }
+  }
+
   /** Sends a minimal request to the selected provider without rotating the active runtime. */
   async testModel(
     candidateInput: unknown,
@@ -773,10 +792,10 @@ export class TesseraStudioRuntimeManager {
       throw new TesseraSettingsRuntimeError("runtime_closed", "Tessera Studio is shutting down.");
     }
     const state = normalizeTesseraStudioSettings(this.#current.config, candidateInput);
-    await assessOpenRouterModel(state.config, options.signal);
+    const provider = await assessGatewayModel(state.config, options.signal);
     return Object.freeze({
       settings: createTesseraStudioSettingsSnapshot(state.config, state.accessMode),
-      model: Object.freeze({ connected: true, provider: "openrouter" as const }),
+      model: Object.freeze({ connected: true, provider }),
     });
   }
 
@@ -1016,22 +1035,23 @@ async function assessRuntime(connector: DatabaseConnector, signal?: AbortSignal)
   }
 }
 
-async function assessOpenRouterModel(config: TesseraConfig, signal?: AbortSignal): Promise<void> {
+async function assessGatewayModel(config: TesseraConfig, signal?: AbortSignal): Promise<"openrouter" | "vercel"> {
   const llm = resolveTesseraLlmConfig(config);
   const [provider, ...modelSegments] = llm.model.split("/");
-  if (provider !== "openrouter" || modelSegments.length < 2) {
-    throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenRouter models can be tested here.");
+  if ((provider !== "openrouter" && provider !== "vercel") || modelSegments.length < 2) {
+    throw new TesseraSettingsRuntimeError("invalid_settings", "Only OpenRouter and Vercel AI Gateway models can be tested here.");
   }
   const apiKey = resolveTesseraLlmApiKey(llm);
   if (!apiKey) {
-    throw new TesseraSettingsRuntimeError("model_unavailable", "An OpenRouter API key is required to test this model.");
+    throw new TesseraSettingsRuntimeError("model_unavailable", "A gateway API key is required to test this model.");
   }
 
-  const baseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider) ?? "https://openrouter.ai/api/v1";
+  const baseUrl = llm.baseUrl ?? getTesseraProviderBaseUrl(provider) ?? "https://ai-gateway.vercel.sh/v1";
   let response: Response;
   try {
     response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, {
       body: JSON.stringify({
+        ...(llm.providerOptions === undefined ? {} : { providerOptions: llm.providerOptions }),
         max_tokens: 16,
         messages: [{ content: "Reply with OK.", role: "user" }],
         model: modelSegments.join("/"),
@@ -1048,16 +1068,17 @@ async function assessOpenRouterModel(config: TesseraConfig, signal?: AbortSignal
       signal,
     });
   } catch {
-    throw new TesseraSettingsRuntimeError("model_unavailable", "Tessera could not reach the selected OpenRouter model.");
+    throw new TesseraSettingsRuntimeError("model_unavailable", "Tessera could not reach the selected gateway model.");
   }
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected OpenRouter model rejected the test request.");
+    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected gateway model rejected the test request.");
   }
   const body = await response.json().catch(() => undefined) as { choices?: unknown[] } | undefined;
   if (!Array.isArray(body?.choices) || body.choices.length === 0) {
-    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected OpenRouter model returned an invalid response.");
+    throw new TesseraSettingsRuntimeError("model_unavailable", "The selected gateway model returned an invalid response.");
   }
+  return provider;
 }
 
 function redactConnectionAssessment(assessment: ConnectionAssessment): TesseraSettingsConnectionSnapshot {
