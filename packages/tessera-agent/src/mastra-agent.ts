@@ -58,6 +58,7 @@ export type TesseraDataCopilotAgentOptions = Readonly<{
   permissionContext?: TesseraAgentPermissionContext;
   databaseActions?: TesseraAgentMutationPort;
   databaseDialect?: DatabaseDialect;
+  answerPresentation?: string;
 }>;
 
 export function createTesseraCopilotRuntime(): TesseraCopilotRuntime {
@@ -119,7 +120,7 @@ export function createTesseraDataCopilotAgent(
         },
       }),
     ],
-    instructions: buildDataCopilotInstructions(),
+    instructions: buildDataCopilotInstructions({ presentation: options.answerPresentation }),
     tools,
   });
 }

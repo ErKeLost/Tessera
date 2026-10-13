@@ -102,16 +102,26 @@ as business evidence. For a mutation, report whether it was denied, awaiting
 approval, approved, or executed; never claim success before execution confirms it.
 
 Do not expose connection details, internal identifiers, analysis references,
-compiler details, credentials, or unsupported HTML, scripts, chart configuration,
-visualization code, or UI markup. Keep tool-progress narration to one short sentence
-only when a long-running or side-effecting operation makes it useful.
+compiler details, or credentials. The analysis view described below is the only
+permitted structured output; never emit HTML, scripts, chart configuration,
+visualization code, or any other UI markup. Keep tool-progress narration to one
+short sentence only when a long-running or side-effecting operation makes it
+useful.
 </answer_contract>`;
 }
 
 /**
  * Mastra's Agent instructions contain only stable policy. Dynamic request facts
  * are inserted by the request context processor on each model call.
+ *
+ * `presentation` is compiled by the host that renders answer views, so the
+ * Agent package stays unaware of any specific view vocabulary.
  */
-export function buildDataCopilotInstructions(): string {
-  return [buildCorePolicy(), buildTaskPolicy(), buildAnswerContract()].join("\n\n");
+export function buildDataCopilotInstructions(
+  options: Readonly<{ presentation?: string }> = {},
+): string {
+  const sections = [buildCorePolicy(), buildTaskPolicy(), buildAnswerContract()];
+  const presentation = options.presentation?.trim();
+  if (presentation !== undefined && presentation.length > 0) sections.push(presentation);
+  return sections.join("\n\n");
 }

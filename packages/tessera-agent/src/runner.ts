@@ -622,6 +622,9 @@ function createAgentForTurn(
     ...(options.databaseActions === undefined
       ? {}
       : { databaseActions: options.databaseActions }),
+    ...(options.answerPresentation === undefined
+      ? {}
+      : { answerPresentation: options.answerPresentation }),
     databaseDialect: options.databaseDialect ?? options.dataAgent.dialect,
   });
 }

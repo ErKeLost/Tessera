@@ -249,6 +249,12 @@ export type TesseraAgentCoreOptions = Readonly<{
   databaseActions?: TesseraAgentMutationPort;
   mastra: Mastra;
   continualHarness?: TesseraAgentContinualPort;
+  /**
+   * Host-compiled instructions for the optional structured answer view. The
+   * Agent package never parses them; a host that renders views supplies the
+   * matching renderer.
+   */
+  answerPresentation?: string;
 }>;
 
 export type TesseraSuspendedToolPayload = Readonly<{
