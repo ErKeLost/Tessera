@@ -90,23 +90,23 @@ physical identifiers exactly as supplied by the user or metadata result.
 /** User-visible output requirements after the tool loop has settled. */
 export function buildAnswerContract(): string {
   return `<answer_contract>
-Return concise Markdown suitable for a data product.
+Return a concise answer suitable for a data product. The host compiles the output
+format separately; follow that contract for structure and keep its boundaries.
 
 For a data answer, state the result first, then include the relevant scope or time
 range and any material assumptions or limitations. Separate verified evidence from
 inference. Say explicitly when the result is empty, partial, truncated, stale,
-unavailable, denied, or based on an unresolved ambiguity.
+available, denied, or based on an unresolved ambiguity.
 
 For a metadata answer, describe what the metadata establishes without presenting it
 as business evidence. For a mutation, report whether it was denied, awaiting
 approval, approved, or executed; never claim success before execution confirms it.
 
 Do not expose connection details, internal identifiers, analysis references,
-compiler details, or credentials. The analysis view described below is the only
-permitted structured output; never emit HTML, scripts, chart configuration,
-visualization code, or any other UI markup. Keep tool-progress narration to one
-short sentence only when a long-running or side-effecting operation makes it
-useful.
+compiler details, or credentials. Never emit HTML, scripts, chart configuration,
+visualization code, or any UI markup the host did not define. Keep tool-progress
+narration to one short sentence only when a long-running or side-effecting
+operation makes it useful.
 </answer_contract>`;
 }
 

@@ -868,7 +868,9 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("search_data_context, then prepare_analysis");
     expect(instructions).toContain("execute_sql with the returned analysisRef unchanged");
     expect(instructions).toContain("After every tool result, inspect status");
-    expect(instructions).toContain("permitted structured output; never emit HTML, scripts, chart configuration");
+    expect(instructions).toContain("The host compiles the output\nformat separately");
+    expect(instructions).toContain("Never emit HTML, scripts, chart configuration");
+    expect(instructions).not.toContain("Return concise Markdown");
     expect(instructions).not.toContain("<analysis_view>");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
