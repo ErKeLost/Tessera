@@ -36,14 +36,16 @@ const AnalysisFallback = memo(({ text }: { text: string }) => (
  * on screen while a new one streams in, so a partial answer never blanks out.
  */
 const AnalysisViewImpl = ({ response, isStreaming }: AnalysisViewProps) => {
-  const [hasRoot, setHasRoot] = useState(false);
+  // "unknown" until the first parse result arrives, so a restored message never
+  // flashes the fallback before its program has been read.
+  const [parseState, setParseState] = useState<"unknown" | "rooted" | "rootless">("unknown");
 
   const handleParseResult = useCallback((result: ParseResult | null) => {
-    const next = result?.root !== null && result?.root !== undefined;
-    setHasRoot((current) => (current === next ? current : next));
+    const next = result?.root === null || result?.root === undefined ? "rootless" : "rooted";
+    setParseState((current) => (current === next ? current : next));
   }, []);
 
-  const failed = !isStreaming && !hasRoot;
+  const failed = !isStreaming && parseState === "rootless";
 
   return (
     <div className="tessera-analysis" data-streaming={isStreaming ? "true" : undefined}>
