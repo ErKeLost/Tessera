@@ -20,6 +20,7 @@ import {
   LOCAL_STUDIO_IDENTITY,
   tesseraSessionResourceId,
 } from "./session-memory";
+import { buildAnalysisPresentationPrompt } from "./generative/analysis-library";
 import {
   publicStudioStreamError,
 } from "./studio-logger";
@@ -66,6 +67,7 @@ export function createTesseraStudioAgent(
     mastra,
     defaultIdentity: LOCAL_STUDIO_IDENTITY,
     resourceIdForIdentity: tesseraSessionResourceId,
+    answerPresentation: buildAnalysisPresentationPrompt(),
     mapPublicError: ({ error, model }) => publicStudioStreamError(error, model),
     ...(options.permissionContext === undefined
       ? {}

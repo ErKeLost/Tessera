@@ -1068,3 +1068,106 @@ button:disabled { cursor: not-allowed; }
   .studio-model-picker-skeleton,
   .studio-model-picker-content { transition: none !important; }
 }
+
+/* ------------------------------------------------------------------------- *
+ * Analysis view
+ *
+ * Presentation of verified tool results emitted by the Agent as openui-lang.
+ * Every value is drawn from the program; no renderer here reads the database
+ * or invents a number. Colors come from the theme tokens only.
+ * ------------------------------------------------------------------------- */
+
+.aui-md-stack { display: flex; flex-direction: column; gap: var(--space-3); }
+
+.tessera-analysis { font-size: var(--text-ui); line-height: var(--line-ui); }
+.tessera-analysis-stack { display: flex; flex-direction: column; }
+.tessera-analysis-stack.is-tight { gap: var(--space-2); }
+.tessera-analysis-stack.is-normal { gap: var(--space-3); }
+.tessera-analysis-stack.is-loose { gap: var(--space-6); }
+.tessera-analysis-block { min-width: 0; }
+
+.tessera-analysis-grid {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(var(--tessera-analysis-columns, 2), minmax(0, 1fr));
+}
+
+.tessera-analysis-section { display: flex; flex-direction: column; gap: var(--space-3); }
+.tessera-analysis-section-header { display: flex; flex-direction: column; gap: var(--space-1); }
+.tessera-analysis-section-title { margin: 0; font-size: var(--text-heading); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.tessera-analysis-section-description { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+
+.tessera-analysis-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+  color: var(--card-foreground);
+}
+.tessera-analysis-metric-label { margin: 0; font-size: var(--text-micro); color: var(--muted-foreground); }
+.tessera-analysis-metric-value { margin: 0; font-size: var(--text-title); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
+.tessera-analysis-metric-delta { display: flex; margin: 0; align-items: center; gap: var(--space-1); font-size: var(--text-sm); color: var(--muted-foreground); }
+.tessera-analysis-metric-hint { margin: 0; font-size: var(--text-micro); color: var(--text-muted); }
+.tessera-analysis-metric[data-tone="positive"] .tessera-analysis-metric-value { color: var(--success); }
+.tessera-analysis-metric[data-tone="positive"] .tessera-analysis-metric-delta { color: var(--success); }
+.tessera-analysis-metric[data-tone="warning"] .tessera-analysis-metric-value { color: var(--warning); }
+.tessera-analysis-metric[data-tone="critical"] .tessera-analysis-metric-value { color: var(--destructive); }
+
+.tessera-analysis-figure { display: flex; margin: 0; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--card); color: var(--card-foreground); }
+.tessera-analysis-figure-title { font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--muted-foreground); }
+.tessera-analysis-note { margin: 0; font-size: var(--text-micro); color: var(--text-muted); }
+.tessera-analysis-invalid { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+
+.tessera-analysis-table-scroll { overflow-x: auto; }
+.tessera-analysis-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.tessera-analysis-table th,
+.tessera-analysis-table td { padding: var(--space-2); text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.tessera-analysis-table th { font-size: var(--text-micro); font-weight: var(--font-weight-medium); color: var(--muted-foreground); }
+.tessera-analysis-table td { font-size: var(--text-sm); }
+.tessera-analysis-table tbody tr:last-child td { border-bottom: 0; }
+
+.tessera-analysis-bars { display: flex; height: var(--space-32); gap: var(--space-2); }
+.tessera-analysis-bar-column { display: flex; min-width: 0; flex: 1 1 0; flex-direction: column; align-items: center; gap: var(--space-1); }
+.tessera-analysis-bar-value { font-size: var(--text-micro); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.tessera-analysis-bar-track { display: flex; width: 100%; flex: 1 1 auto; align-items: flex-end; }
+.tessera-analysis-bar { width: 100%; border-radius: var(--radius-compact); background: var(--chart-1); transition: height var(--motion-base) var(--ease-standard); }
+.tessera-analysis-bar-label { max-width: 100%; overflow: hidden; font-size: var(--text-micro); color: var(--muted-foreground); text-overflow: ellipsis; white-space: nowrap; }
+
+.tessera-analysis-line { width: 100%; height: var(--space-24); }
+.tessera-analysis-line-path { fill: none; stroke: var(--chart-1); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
+.tessera-analysis-line-axis { display: flex; gap: var(--space-2); }
+.tessera-analysis-line-axis > * { flex: 1 1 0; text-align: center; }
+
+.tessera-analysis-ranking { display: flex; margin: 0; padding: 0; flex-direction: column; gap: var(--space-2); list-style: none; }
+.tessera-analysis-ranking-item { display: grid; align-items: center; gap: var(--space-2); grid-template-columns: minmax(0, 1fr) var(--space-16) auto; }
+.tessera-analysis-ranking-label { overflow: hidden; font-size: var(--text-sm); text-overflow: ellipsis; white-space: nowrap; }
+.tessera-analysis-ranking-track { height: var(--space-1); border-radius: var(--radius-full); background: var(--muted); }
+.tessera-analysis-ranking-bar { display: block; height: 100%; border-radius: var(--radius-full); background: var(--chart-2); }
+.tessera-analysis-ranking-value { font-size: var(--text-sm); color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+
+.tessera-analysis-insight { display: flex; flex-direction: column; gap: var(--space-1); padding-left: var(--space-3); border-left: 2px solid var(--chart-3); }
+.tessera-analysis-insight-title { margin: 0; font-size: var(--text-sm); font-weight: var(--font-weight-semibold); }
+.tessera-analysis-insight-summary { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.tessera-analysis-insight-points { margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); color: var(--muted-foreground); }
+
+.tessera-analysis-callout { display: flex; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--muted); }
+.tessera-analysis-callout-icon { display: flex; flex: none; align-items: center; color: var(--muted-foreground); }
+.tessera-analysis-callout-title { margin: 0; font-size: var(--text-sm); font-weight: var(--font-weight-medium); }
+.tessera-analysis-callout-body { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.tessera-analysis-callout[data-tone="positive"] { border-color: var(--success); }
+.tessera-analysis-callout[data-tone="positive"] .tessera-analysis-callout-icon { color: var(--success); }
+.tessera-analysis-callout[data-tone="warning"] { border-color: var(--warning); }
+.tessera-analysis-callout[data-tone="warning"] .tessera-analysis-callout-icon { color: var(--warning); }
+.tessera-analysis-callout[data-tone="critical"] { border-color: var(--destructive); }
+.tessera-analysis-callout[data-tone="critical"] .tessera-analysis-callout-icon { color: var(--destructive); }
+
+@media (max-width: 640px) {
+  .tessera-analysis-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tessera-analysis-bar { transition: none !important; }
+}

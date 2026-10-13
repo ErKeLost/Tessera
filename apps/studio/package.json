@@ -75,6 +75,8 @@
     "@open-tessera/schema": "workspace:*",
     "@open-tessera/sqlite": "workspace:*",
     "@open-tessera/turso": "workspace:*",
+    "@openuidev/lang-core": "1.0.0",
+    "@openuidev/react-lang": "1.0.0",
     "@paper-design/shaders-react": "0.0.80",
     "@pierre/diffs": "1.3.5",
     "@radix-ui/react-use-controllable-state": "^1.2.6",
