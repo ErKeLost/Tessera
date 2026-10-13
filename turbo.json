@@ -1,9 +1,15 @@
 {
   "$schema": "https://turborepo.com/schema.json",
+  "concurrency": "24",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
+    },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
     },
     "@open-tessera/docs#build": {
       "dependsOn": ["^build"],
