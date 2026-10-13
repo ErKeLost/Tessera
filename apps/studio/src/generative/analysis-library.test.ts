@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { analysisLeafSpecs } from "./analysis-components";
+import { analysisBlockSpecs, analysisContentSpecs } from "./analysis-components";
 import {
+  ANALYSIS_ROOT,
+  ANALYSIS_TEXT_COMPONENTS,
   analysisPresentationExamples,
   analysisPresentationRules,
-  analysisViewSyntax,
   buildAnalysisPresentationPrompt,
 } from "./analysis-library";
 
@@ -13,11 +14,11 @@ describe("buildAnalysisPresentationPrompt", () => {
   test("wraps the generated contract in one agent-instruction section", () => {
     expect(prompt.startsWith("<analysis_view>")).toBe(true);
     expect(prompt.trimEnd().endsWith("</analysis_view>")).toBe(true);
-    expect(analysisViewSyntax).toEqual({ fence: "openui-lang", root: "Stack" });
+    expect(ANALYSIS_ROOT).toBe("Stack");
   });
 
   test("teaches every component that the renderer implements", () => {
-    for (const spec of analysisLeafSpecs) {
+    for (const spec of analysisBlockSpecs) {
       expect(prompt).toContain(`${spec.name}(`);
     }
     expect(prompt).toContain("Stack(children");
@@ -25,10 +26,20 @@ describe("buildAnalysisPresentationPrompt", () => {
     expect(prompt).toContain("Section(title");
   });
 
-  test("states the positional-argument and root rules the parser enforces", () => {
+  test("makes the whole response a program rather than prose with a fence", () => {
+    // The official OpenUI shape: the model's entire reply is openui-lang.
+    expect(prompt).toContain("Your ENTIRE response must be valid openui-lang code");
+    expect(prompt).not.toContain("You are in inline mode");
     expect(prompt).toContain("root = Stack(...)");
     expect(prompt).toContain("POSITIONAL");
-    expect(prompt).toContain("openui-lang");
+  });
+
+  test("always gives the model a way to write the answer itself", () => {
+    expect(ANALYSIS_TEXT_COMPONENTS).toEqual(["Heading", "Text", "Bullets"]);
+    for (const name of ANALYSIS_TEXT_COMPONENTS) {
+      expect(analysisContentSpecs.some((spec) => spec.name === name)).toBe(true);
+      expect(prompt).toContain(`${name}(`);
+    }
   });
 
   test("keeps every Tessera presentation boundary", () => {

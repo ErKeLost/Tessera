@@ -9,12 +9,13 @@
  * and refuses to infer anything a tool did not return.
  */
 import { createLibrary, defineComponent, type ComponentRenderer } from "@openuidev/react-lang";
+import { Markdown } from "@lobehub/ui";
 import { AlertTriangleIcon, InfoIcon, ShieldAlertIcon, TrendingUpIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { z } from "zod";
 import {
   ANALYSIS_ROOT_COMPONENT,
-  analysisLeafSpecs,
+  analysisBlockSpecs,
   analysisTones,
   buildAnalysisLayoutSpecs,
   type AnalysisTone,
@@ -108,6 +109,46 @@ const Section: ComponentRenderer<{ title: string; children?: unknown; descriptio
         ))}
       </div>
     </section>
+  );
+};
+
+const Heading: ComponentRenderer<{ title: string; subtitle?: string }> = ({ props }) => {
+  const subtitle = optionalText(props.subtitle);
+  return (
+    <header className="tessera-analysis-heading">
+      <h3 className="tessera-analysis-heading-title">{props.title}</h3>
+      {subtitle === undefined ? null : <p className="tessera-analysis-heading-subtitle">{subtitle}</p>}
+    </header>
+  );
+};
+
+/**
+ * The answer itself. Inline Markdown is rendered through the same surface the
+ * chat used before, so emphasis, `code`, and links keep working inside a
+ * generated interface.
+ */
+const Text: ComponentRenderer<{ body: string }> = ({ props }) => (
+  <Markdown
+    className="aui-md lobehub-markdown tessera-analysis-text"
+    fullFeaturedCodeBlock={false}
+    variant="chat"
+  >
+    {props.body}
+  </Markdown>
+);
+
+const Bullets: ComponentRenderer<{ items?: unknown; title?: string }> = ({ props }) => {
+  const items = optionalList<string>(props.items)
+    .filter((item) => typeof item === "string" && item.trim().length > 0);
+  const title = optionalText(props.title);
+  if (items.length === 0) return null;
+  return (
+    <div className="tessera-analysis-bullets">
+      {title === undefined ? null : <p className="tessera-analysis-bullets-title">{title}</p>}
+      <ul className="tessera-analysis-bullets-list">
+        {items.map((item, index) => <li key={index}>{item}</li>)}
+      </ul>
+    </div>
   );
 };
 
@@ -322,6 +363,9 @@ const Callout: ComponentRenderer<{ tone?: AnalysisTone; title: string; body: str
 
 const renderers: Record<string, ComponentRenderer<never>> = {
   Stack: Stack as ComponentRenderer<never>,
+  Heading: Heading as ComponentRenderer<never>,
+  Text: Text as ComponentRenderer<never>,
+  Bullets: Bullets as ComponentRenderer<never>,
   Grid: Grid as ComponentRenderer<never>,
   Section: Section as ComponentRenderer<never>,
   Metric: Metric as ComponentRenderer<never>,
@@ -334,7 +378,7 @@ const renderers: Record<string, ComponentRenderer<never>> = {
 };
 
 function buildAnalysisLibrary() {
-  const leaves = analysisLeafSpecs.map((spec) => defineComponent({
+  const leaves = analysisBlockSpecs.map((spec) => defineComponent({
     name: spec.name,
     props: spec.props,
     description: spec.description,
@@ -355,6 +399,7 @@ function buildAnalysisLibrary() {
     components: [...layouts, ...leaves],
     componentGroups: [
       { name: "Layout", components: ["Stack", "Grid", "Section"] },
+      { name: "Text", components: ["Heading", "Text", "Bullets"] },
       { name: "Data", components: ["Metric", "Table", "Ranking", "BarChart", "LineChart"] },
       { name: "Narrative", components: ["Insight", "Callout"] },
     ],

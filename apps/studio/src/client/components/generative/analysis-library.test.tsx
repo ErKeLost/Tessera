@@ -10,7 +10,10 @@ function render(program: string) {
 }
 
 const PROGRAM = [
-  "root = Stack([headline, grid, trend, breakdown, ranking, note])",
+  "root = Stack([title, summary, points, headline, grid, trend, breakdown, ranking, note])",
+  'title = Heading("Revenue by region", "Last quarter")',
+  'summary = Text("Revenue rose in all three reporting regions, led by **AMER**.")',
+  'points = Bullets(["AMER grew fastest", "APAC was flat"], "Findings")',
   'headline = Metric("Total revenue", "$1.24M", "+8.3% vs Q1", "Paid invoices only")',
   "grid = Grid([amer, emea], 2)",
   'amer = Metric("AMER revenue", "$440K", "+2.1% vs Q1", "Paid invoices only", "positive")',
@@ -22,7 +25,18 @@ const PROGRAM = [
 ].join("\n");
 
 describe("tesseraAnalysisLibrary", () => {
-  test("renders every block of a committed program", () => {
+  test("renders the answer text as part of the view", () => {
+    const html = render(PROGRAM);
+
+    expect(html).toContain("Revenue by region");
+    expect(html).toContain("Last quarter");
+    expect(html).toContain("tessera-analysis-text");
+    expect(html).toContain("<strong>AMER</strong>");
+    expect(html).toContain("tessera-analysis-bullets");
+    expect(html).toContain("AMER grew fastest");
+  });
+
+  test("renders every data block of a committed program", () => {
     const html = render(PROGRAM);
 
     expect(html).toContain("Total revenue");

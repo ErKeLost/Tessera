@@ -61,6 +61,36 @@ export function buildAnalysisLayoutSpecs(block: z.ZodType): readonly AnalysisCom
 }
 
 /** Leaf blocks. Order here is the order shown in the generated model contract. */
+export const analysisContentSpecs = [
+  {
+    name: "Heading",
+    description:
+      "The title of the answer, or of one major part of it. Use once at the top of most answers; use Section instead for grouping inside the answer.",
+    props: z.object({
+      title: z.string().describe("Short, specific, and taken from the user's own wording where possible."),
+      subtitle: z.string().optional().describe("One line of scope, time range, or count that frames the title."),
+    }),
+  },
+  {
+    name: "Text",
+    description:
+      "A paragraph of explanation. This is where the answer itself lives. Inline Markdown is supported for emphasis, `code`, and [links](url). Use one Text per idea rather than one long block.",
+    props: z.object({
+      body: z.string().describe("The paragraph. Markdown inline formatting only: no headings, lists, or code fences."),
+    }),
+  },
+  {
+    name: "Bullets",
+    description:
+      "A short list of parallel items: steps, findings, or options. Use for three or more items that share one shape.",
+    props: z.object({
+      items: z.array(z.string()).describe("One item per entry, each a complete thought."),
+      title: z.string().optional().describe("Optional label shown above the list."),
+    }),
+  },
+] as const satisfies readonly AnalysisComponentSpec[];
+
+/** Leaf blocks. Order here is the order shown in the generated model contract. */
 export const analysisLeafSpecs = [
   {
     name: "Metric",
@@ -147,6 +177,7 @@ export const analysisLeafSpecs = [
 /** Order shown in the generated model contract. */
 export const analysisComponentGroups = [
   { name: "Layout", components: ["Stack", "Grid", "Section"] },
+  { name: "Text", components: ["Heading", "Text", "Bullets"] },
   { name: "Data", components: ["Metric", "Table", "Ranking", "BarChart", "LineChart"] },
   { name: "Narrative", components: ["Insight", "Callout"] },
 ] as const;
@@ -154,5 +185,11 @@ export const analysisComponentGroups = [
 /** Root component of every generated analysis view. */
 export const ANALYSIS_ROOT_COMPONENT = "Stack";
 
+/** Every block the renderer and the model contract must agree on. */
+export const analysisBlockSpecs: readonly AnalysisComponentSpec[] = [
+  ...analysisContentSpecs,
+  ...analysisLeafSpecs,
+];
+
 export const analysisComponentSpec = (name: string): AnalysisComponentSpec | undefined =>
-  analysisLeafSpecs.find((spec) => spec.name === name);
+  analysisBlockSpecs.find((spec) => spec.name === name);

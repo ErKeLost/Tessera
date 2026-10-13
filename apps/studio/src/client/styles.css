@@ -1171,3 +1171,16 @@ button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) {
   .tessera-analysis-bar { transition: none !important; }
 }
+
+/* Prose blocks. The answer's sentences are model output too, so they need the
+ * same treatment as the data blocks around them. */
+.tessera-analysis-heading { display: flex; flex-direction: column; gap: var(--space-1); }
+.tessera-analysis-heading-title { margin: 0; font-size: var(--text-heading); font-weight: var(--font-weight-semibold); color: var(--foreground); }
+.tessera-analysis-heading-subtitle { margin: 0; font-size: var(--text-sm); color: var(--muted-foreground); }
+.tessera-analysis-text { margin: 0; }
+.tessera-analysis-text > * { margin-block: 0 !important; }
+.tessera-analysis-bullets { display: flex; flex-direction: column; gap: var(--space-1); }
+.tessera-analysis-bullets-title { margin: 0; font-size: var(--text-sm); font-weight: var(--font-weight-medium); }
+.tessera-analysis-bullets-list { margin: 0; padding-left: var(--space-4); font-size: var(--text-sm); color: var(--muted-foreground); }
+.tessera-analysis-fallback { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--radius-card); }
+.tessera-analysis-fallback-note { margin: 0; font-size: var(--text-micro); color: var(--text-muted); }
