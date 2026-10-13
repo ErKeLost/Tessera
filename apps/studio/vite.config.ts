@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath, URL } from "node:url";
 import { nitro } from "nitro/vite";
 import { defineConfig } from "vite";
@@ -16,7 +17,33 @@ const studioPackage = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8"),
 ) as { version: string };
 
-export default defineConfig({
+/**
+ * In dev, resolve every Tessera workspace package to its TypeScript source.
+ *
+ * Packages are consumed through `dist`, so a package edit used to need a
+ * manual `build:packages` before Studio saw it — and a forgotten build silently
+ * ran stale code. Aliasing to source makes the dev server watch the real files
+ * and removes that failure mode. Production builds keep resolving `dist`.
+ *
+ * The browser never imports these packages at runtime (see
+ * `src/protocol.ts`), so only the Nitro server pays for this.
+ */
+function workspaceSourceAliases() {
+  const packagesRoot = fileURLToPath(new URL("../../packages", import.meta.url));
+  return readdirSync(packagesRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .flatMap((entry) => {
+      const packageDirectory = join(packagesRoot, entry.name);
+      const manifestPath = join(packageDirectory, "package.json");
+      const sourcePath = join(packageDirectory, "src/index.ts");
+      if (!existsSync(manifestPath) || !existsSync(sourcePath)) return [];
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown };
+      if (typeof manifest.name !== "string" || !manifest.name.startsWith("@open-tessera/")) return [];
+      return [{ find: manifest.name, replacement: sourcePath }];
+    });
+}
+
+export default defineConfig(({ command }) => ({
   root: clientRoot,
   publicDir: publicDirectory,
   plugins: [
@@ -44,6 +71,7 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [
+      ...(command === "serve" ? workspaceSourceAliases() : []),
       { find: "@", replacement: clientRoot },
     ],
   },
@@ -62,4 +90,4 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
   },
-});
+}));
