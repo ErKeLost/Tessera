@@ -18,28 +18,29 @@ const studioPackage = JSON.parse(
 ) as { version: string };
 
 /**
- * In dev, resolve every Tessera workspace package to its TypeScript source.
+ * During `vite serve`, point every Tessera workspace package at its build
+ * output inside `packages/` instead of the copy under `node_modules`.
  *
- * Packages are consumed through `dist`, so a package edit used to need a
- * manual `build:packages` before Studio saw it — and a forgotten build silently
- * ran stale code. Aliasing to source makes the dev server watch the real files
- * and removes that failure mode. Production builds keep resolving `dist`.
+ * Package dev scripts rebuild `dist` in place, but Vite ignores module paths
+ * under `node_modules`, so the running Nitro server never saw a rebuilt
+ * package. Resolving to the real dist file under `packages/` puts those files
+ * back in the module graph, and a package rebuild reloads the server.
  *
- * The browser never imports these packages at runtime (see
- * `src/protocol.ts`), so only the Nitro server pays for this.
+ * The `^build` dependency of the `dev` task guarantees that dist exists before
+ * Vite reads this config, so a missing dist is left to fail loudly instead of
+ * silently falling back to `node_modules`.
  */
-function workspaceSourceAliases() {
+function workspaceBuildAliases() {
   const packagesRoot = fileURLToPath(new URL("../../packages", import.meta.url));
   return readdirSync(packagesRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .flatMap((entry) => {
       const packageDirectory = join(packagesRoot, entry.name);
       const manifestPath = join(packageDirectory, "package.json");
-      const sourcePath = join(packageDirectory, "src/index.ts");
-      if (!existsSync(manifestPath) || !existsSync(sourcePath)) return [];
+      if (!existsSync(manifestPath)) return [];
       const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as { name?: unknown };
       if (typeof manifest.name !== "string" || !manifest.name.startsWith("@open-tessera/")) return [];
-      return [{ find: manifest.name, replacement: sourcePath }];
+      return [{ find: manifest.name, replacement: join(packageDirectory, "dist/index.mjs") }];
     });
 }
 
@@ -71,7 +72,7 @@ export default defineConfig(({ command }) => ({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: [
-      ...(command === "serve" ? workspaceSourceAliases() : []),
+      ...(command === "serve" ? workspaceBuildAliases() : []),
       { find: "@", replacement: clientRoot },
     ],
   },
