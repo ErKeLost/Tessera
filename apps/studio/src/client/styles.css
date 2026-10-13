@@ -1024,6 +1024,20 @@ button:disabled { cursor: not-allowed; }
   place-items: center;
 }
 .studio-model-picker-option-icon > svg { display: block; }
+.studio-model-brand-fallback {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--secondary);
+  color: var(--secondary-foreground);
+  font-weight: 600;
+  line-height: 1;
+  text-transform: uppercase;
+  user-select: none;
+}
 .studio-model-picker-option-name { min-width: 0; flex: 1 1 auto; overflow: hidden; font-size: var(--text-ui); font-weight: var(--font-weight-medium); text-overflow: ellipsis; white-space: nowrap; }
 .studio-model-picker-option > svg { flex: none; margin-left: auto; color: var(--muted-foreground); }
 .studio-model-picker-error { margin: 0; padding: 10px 8px; border-top: 1px solid var(--border); color: var(--destructive); font-size: var(--text-sm); line-height: var(--line-ui); overflow-wrap: anywhere; }

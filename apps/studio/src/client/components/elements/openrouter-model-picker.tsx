@@ -1,32 +1,6 @@
 "use client";
 
 import {
-  Alibaba,
-  Anthropic,
-  Baichuan,
-  Bedrock,
-  Cohere,
-  DeepSeek,
-  Gemini,
-  Grok,
-  InternLM,
-  Kimi,
-  Meta,
-  Microsoft,
-  Minimax,
-  Mistral,
-  NousResearch,
-  Nvidia,
-  OpenAI,
-  Perplexity,
-  Qwen,
-  Stepfun,
-  Tencent,
-  Yi,
-  ZAI,
-} from "@lobehub/icons";
-import {
-  BotIcon,
   CheckIcon,
   LoaderCircleIcon,
 } from "lucide-react";
@@ -47,6 +21,9 @@ import {
 import { cn } from "../../lib/utils";
 import { StudioIcon } from "../studio-icon";
 import { Skeleton } from "../ui/skeleton";
+import { StudioModelBrandIcon } from "./model-brand-icon";
+
+export { StudioModelBrandIcon };
 
 export type OpenRouterModelPickerOption = Readonly<{
   id: string;
@@ -187,37 +164,3 @@ function scrollModelList(event: WheelEvent<HTMLDivElement>) {
   event.stopPropagation();
 }
 
-export function StudioModelBrandIcon({
-  model,
-  size,
-}: {
-  model?: OpenRouterModelPickerOption;
-  size: number;
-}) {
-  const provider = model?.id.split("/", 1)[0]?.replace(/^~/u, "").toLocaleLowerCase("en-US") ?? "";
-  const haystack = `${model?.id ?? ""} ${model?.name ?? ""}`.toLocaleLowerCase("en-US");
-  if (provider === "openai") return <OpenAI size={size} />;
-  if (provider === "anthropic") return <Anthropic size={size} />;
-  if (provider === "google") return <Gemini.Color size={size} />;
-  if (provider === "meta-llama" || provider === "meta") return <Meta.Color size={size} />;
-  if (provider === "mistralai" || provider === "mistral") return <Mistral.Color size={size} />;
-  if (provider === "deepseek") return <DeepSeek.Color size={size} />;
-  if (provider === "qwen") return <Qwen.Color size={size} />;
-  if (provider === "moonshotai") return <Kimi.Color size={size} />;
-  if (provider === "x-ai" || provider === "xai" || haystack.includes("grok")) return <Grok size={size} />;
-  if (provider === "z-ai" || provider === "zai") return <ZAI size={size} />;
-  if (provider === "cohere") return <Cohere.Color size={size} />;
-  if (provider === "nvidia") return <Nvidia.Color size={size} />;
-  if (provider === "perplexity") return <Perplexity.Color size={size} />;
-  if (provider === "microsoft") return <Microsoft.Color size={size} />;
-  if (provider === "amazon" || provider === "amazon-bedrock") return <Bedrock.Color size={size} />;
-  if (provider === "minimax") return <Minimax.Color size={size} />;
-  if (provider === "01-ai") return <Yi.Color size={size} />;
-  if (provider === "baichuan") return <Baichuan.Color size={size} />;
-  if (provider === "stepfun") return <Stepfun size={size} />;
-  if (provider === "internlm") return <InternLM.Color size={size} />;
-  if (provider === "nousresearch") return <NousResearch size={size} />;
-  if (provider === "alibaba") return <Alibaba.Color size={size} />;
-  if (provider === "tencent") return <Tencent.Color size={size} />;
-  return <BotIcon size={size} strokeWidth={1.8} />;
-}
