@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { ChevronDownIcon } from "lucide-react";
 import {
   Collapsible,
@@ -37,6 +38,55 @@ export function ReasoningPanel({
   className,
 }: ReasoningPanelProps) {
   const shown = take(steps, visibleSteps);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLOListElement>(null);
+
+  // The body keeps a fixed reading height: once the steps outgrow it the panel
+  // scrolls instead of pushing the rest of the transcript off screen. While
+  // thinking streams the newest step stays pinned in view, unless the reader
+  // scrolled up to re-read an earlier step.
+  useEffect(() => {
+    const scrollEl = scrollRef.current;
+    const contentEl = contentRef.current;
+    if (!scrollEl || !contentEl) return undefined;
+
+    let pinned = true;
+    let lastScrollTop = scrollEl.scrollTop;
+    let lastScrollHeight = scrollEl.scrollHeight;
+    const isAtBottom = () =>
+      Math.abs(
+        scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight,
+      ) <= 1 || scrollEl.scrollHeight <= scrollEl.clientHeight;
+
+    const pin = () => {
+      if (!pinned) return;
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    };
+    // A pin's own scroll event can arrive after new content grew the scroll
+    // height and read as "not at bottom"; only an upward move at unchanged
+    // scroll height is user intent.
+    const onScroll = () => {
+      if (isAtBottom()) {
+        pinned = true;
+      } else if (
+        scrollEl.scrollTop < lastScrollTop &&
+        scrollEl.scrollHeight === lastScrollHeight
+      ) {
+        pinned = false;
+      }
+      lastScrollTop = scrollEl.scrollTop;
+      lastScrollHeight = scrollEl.scrollHeight;
+    };
+
+    pin();
+    scrollEl.addEventListener("scroll", onScroll);
+    const observer = new ResizeObserver(pin);
+    observer.observe(contentEl);
+    return () => {
+      scrollEl.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+    };
+  }, [streaming, open]);
 
   return (
     <Collapsible
@@ -62,38 +112,44 @@ export function ReasoningPanel({
           </>
           <>{restingLabel}</>
         </SwapLabel>
-        <ChevronDownIcon className="size-3.5 shrink-0 opacity-60 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-open/trigger:rotate-180 group-data-panel-open/trigger:rotate-180 motion-reduce:transition-none" />
+        <ChevronDownIcon className="size-3.5 shrink-0 opacity-60 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[state=open]/trigger:rotate-180 motion-reduce:transition-none" />
       </CollapsibleTrigger>
       <CollapsibleContent className={cn(collapsePanel, "outline-none")}>
-        <ol className="flex flex-col gap-4 pt-3 pb-1">
-          {shown.map((step, i) => {
-            const active = streaming && i === shown.length - 1;
-            return (
-              <li
-                key={step.title}
-                className="fade-in slide-in-from-bottom-1 animate-in fill-mode-both flex gap-3 duration-300"
-              >
-                <span
-                  aria-hidden
-                  className={cn(
-                    "mt-[7px] size-[5px] shrink-0 rounded-full transition-colors duration-300",
-                    active
-                      ? "bg-link animate-pulse"
-                      : "bg-foreground/20",
-                  )}
-                />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <p className="text-foreground/90 text-[13.5px] font-medium">
-                    {step.title}
-                  </p>
-                  <p className="text-foreground/50 mt-0.5 text-[13px] leading-relaxed break-words">
-                    {step.body}
-                  </p>
-                </span>
-              </li>
-            );
-          })}
-        </ol>
+        <div
+          ref={scrollRef}
+          data-slot="reasoning-panel-scroll"
+          className="max-h-64 overflow-y-auto overscroll-contain"
+        >
+          <ol ref={contentRef} className="flex flex-col gap-4 pt-3 pb-1">
+            {shown.map((step, i) => {
+              const active = streaming && i === shown.length - 1;
+              return (
+                <li
+                  key={step.title}
+                  className="animate-reveal flex gap-3 motion-reduce:animate-none"
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "mt-[7px] size-[5px] shrink-0 rounded-full transition-colors duration-300",
+                      active
+                        ? "bg-link animate-pulse"
+                        : "bg-foreground/20",
+                    )}
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <p className="text-foreground/90 text-[13.5px] font-medium">
+                      {step.title}
+                    </p>
+                    <p className="text-foreground/50 mt-0.5 text-[13px] leading-relaxed break-words">
+                      {step.body}
+                    </p>
+                  </span>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
       </CollapsibleContent>
     </Collapsible>
   );

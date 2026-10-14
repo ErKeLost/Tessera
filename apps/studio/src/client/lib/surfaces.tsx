@@ -39,8 +39,17 @@ export const labelSwapIn = "opacity-100 blur-none";
 export const labelSwapOut =
   "pointer-events-none select-none opacity-0 blur-[2px]";
 
+/**
+ * Expand/collapse surface for the Radix collapsibles in the chat.
+ *
+ * Radix drives this primitive with `data-state="open|closed"` and exposes
+ * `--radix-collapsible-content-height`; the matching keyframes live in
+ * `theme.css`. The panel content is unmounted while closed, so an
+ * opacity/transform class could never play — the height animation is the
+ * entrance.
+ */
 export const collapsePanel =
-  "h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] data-[ending-style]:h-0 data-[starting-style]:h-0 motion-reduce:transition-none";
+  "overflow-hidden data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up motion-reduce:animate-none";
 
 export const mono = "font-mono text-[11px] tracking-normal";
 

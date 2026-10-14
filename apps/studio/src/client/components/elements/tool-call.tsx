@@ -48,7 +48,7 @@ export function ToolCall({
       className={cn("w-full max-w-sm", className)}
     >
       <CollapsibleTrigger className="group/trigger text-foreground/55 hover:text-foreground/90 flex min-w-0 items-center gap-2 rounded-md py-1 text-[13.5px] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
-        <ChevronRightIcon className="size-3.5 shrink-0 opacity-60 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-open/trigger:rotate-90 group-data-panel-open/trigger:rotate-90 motion-reduce:transition-none" />
+        <ChevronRightIcon className="size-3.5 shrink-0 opacity-60 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[state=open]/trigger:rotate-90 motion-reduce:transition-none" />
         <SwapLabel active={running ? 0 : 1} className="text-start">
           <ShimmerLabel
             active={running}
@@ -68,8 +68,8 @@ export function ToolCall({
         </span>
         <span className="ms-auto flex w-4 items-center justify-end">
           {!running && (failed
-            ? <XCircleIcon className="fade-in zoom-in-90 animate-in size-3.5 text-destructive duration-200" />
-            : <CheckIcon className="text-success fade-in zoom-in-90 animate-in size-3.5 duration-200" />)}
+            ? <XCircleIcon className="animate-reveal size-3.5 text-destructive motion-reduce:animate-none" />
+            : <CheckIcon className="animate-reveal text-success size-3.5 motion-reduce:animate-none" />)}
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent className={cn(collapsePanel, "outline-none")}>
