@@ -1,15 +1,24 @@
 "use client";
 
-import { Renderer, createParser } from "@openuidev/react-lang";
-import { Markdown } from "@lobehub/ui";
+import {
+  Renderer,
+  createParser,
+  type ActionEvent,
+} from "@openuidev/react-lang";
 import { memo, useMemo } from "react";
-import { tesseraAnalysisLibrary } from "./analysis-library";
+import { MarkdownRenderer } from "./shadcn-genui/components/markdown-renderer";
+import { shadcnChatLibrary } from "./shadcn-genui";
 
 export type AnalysisViewProps = Readonly<{
   /** The whole assistant response. In OpenUI mode this is an openui-lang program. */
   response: string;
   /** True while the answer is still streaming, so interactions stay disabled. */
   isStreaming: boolean;
+  /**
+   * Receives the actions interactive blocks emit. The message layer owns what
+   * they mean, so this view stays free of the chat runtime.
+   */
+  onAction?: (event: ActionEvent) => void;
 }>;
 
 /**
@@ -17,43 +26,53 @@ export type AnalysisViewProps = Readonly<{
  * on every chunk.
  */
 const analysisParser = createParser(
-  tesseraAnalysisLibrary.toJSONSchema(),
-  tesseraAnalysisLibrary.root,
+  shadcnChatLibrary.toJSONSchema(),
+  shadcnChatLibrary.root,
 );
 
 /**
- * Renders one Tessera analysis view.
+ * Renders one streamed answer with the shadcn/ui component library.
  *
- * Whether the response can be rendered is decided here rather than in an
- * `onParseResult` callback: unmounting the Renderer to show a fallback would
- * stop the callbacks that could bring it back. A response with no root is
- * shown as prose instead, so the message is never blank.
+ * While tokens arrive the Renderer owns the output, because a partial program is
+ * expected to be incomplete. Only once the stream settles is the response
+ * classified: a real program that the library cannot render (an unknown
+ * component) is reported as a failure, a prose answer keeps rendering as prose,
+ * and neither case dumps openui-lang source at the reader.
  */
-const AnalysisViewImpl = ({ response, isStreaming }: AnalysisViewProps) => {
-  const rooted = useMemo(() => analysisParser.parse(response).root !== null, [response]);
+const AnalysisViewImpl = ({ response, isStreaming, onAction }: AnalysisViewProps) => {
+  const parsed = useMemo(() => analysisParser.parse(response), [response]);
+  const renders = parsed.root !== null;
+  const empty = response.trim().length === 0;
 
-  if (!rooted) {
-    return response.trim().length === 0 ? null : (
+  if (!isStreaming && !renders) {
+    if (empty) return null;
+    // The parser saw program statements but produced no renderable root, so the
+    // answer is a program this library cannot draw — not prose.
+    if (parsed.meta.statementCount > 0) {
+      return (
+        <div className="tessera-analysis" data-slot="openui-fallback">
+          <p className="tessera-analysis-fallback" role="alert">
+            This answer could not be rendered.
+          </p>
+        </div>
+      );
+    }
+    return (
       <div className="tessera-analysis">
-        <Markdown
-          animated={isStreaming}
-          className="aui-md lobehub-markdown"
-          enableStream
-          fullFeaturedCodeBlock={false}
-          variant="chat"
-        >
-          {response}
-        </Markdown>
+        <MarkdownRenderer text={response} />
       </div>
     );
   }
+
+  if (empty) return null;
 
   return (
     <div className="tessera-analysis" data-streaming={isStreaming ? "true" : undefined}>
       <Renderer
         isStreaming={isStreaming}
-        library={tesseraAnalysisLibrary}
+        library={shadcnChatLibrary}
         response={response}
+        {...(onAction !== undefined && { onAction })}
       />
     </div>
   );

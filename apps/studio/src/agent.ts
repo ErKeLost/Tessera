@@ -20,7 +20,7 @@ import {
   LOCAL_STUDIO_IDENTITY,
   tesseraSessionResourceId,
 } from "./session-memory";
-import { buildAnalysisPresentationPrompt } from "./generative/analysis-library";
+import { buildAnalysisPresentationPrompt } from "./generative/openui-presentation";
 import {
   publicStudioStreamError,
 } from "./studio-logger";

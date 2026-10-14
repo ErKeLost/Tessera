@@ -3,6 +3,7 @@
 import { useMessagePartText } from "@assistant-ui/react";
 import { memo } from "react";
 import { AnalysisView } from "../generative/analysis-view";
+import { useAnswerAction } from "../generative/use-answer-action";
 
 /**
  * Renders an assistant text part as an OpenUI program.
@@ -13,8 +14,15 @@ import { AnalysisView } from "../generative/analysis-view";
  */
 const MarkdownTextImpl = () => {
   const { text, status } = useMessagePartText();
+  const onAction = useAnswerAction();
 
-  return <AnalysisView isStreaming={status.type === "running"} response={text} />;
+  return (
+    <AnalysisView
+      isStreaming={status.type === "running"}
+      onAction={onAction}
+      response={text}
+    />
+  );
 };
 
 export const MarkdownText = memo(MarkdownTextImpl);
