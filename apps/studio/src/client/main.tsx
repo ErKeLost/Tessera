@@ -7,6 +7,7 @@ import "goey-toast/styles.css";
 import "./gooey-toast-theme.css";
 import "./styles.css";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { StudioApp } from "./studio-app";
 import { StudioThemeProvider } from "./studio-theme";
 
@@ -30,6 +31,8 @@ createRoot(root).render(
       <StudioThemeProvider>
         <TooltipProvider>
           <StudioApp />
+          {/* Sonner needs the theme provider above it and one mount for the whole app. */}
+          <Toaster />
         </TooltipProvider>
       </StudioThemeProvider>
     </BrowserRouter>

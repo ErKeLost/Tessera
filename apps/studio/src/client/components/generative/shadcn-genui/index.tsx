@@ -70,6 +70,42 @@ import { DrawerBlock } from "./components/drawer-block";
 import { PaginationBlock } from "./components/pagination-block";
 import { Blockquote, Heading, InlineCode } from "./components/typography";
 
+import {
+  CollapsibleBlock,
+  Combobox,
+  CommandBlock,
+  CommandDialogBlock,
+  DropdownMenuBlock,
+  HoverCardBlock,
+  NativeSelect,
+  PopoverBlock,
+  TooltipBlock,
+} from "./groups/selection";
+
+import {
+  feedbackComponentGroup,
+  feedbackComponents,
+  feedbackExamples,
+  feedbackRules,
+} from "./groups/feedback";
+import {
+  chatComponentGroup,
+  chatComponents,
+  chatExamples,
+  chatRules,
+} from "./groups/chat";
+import {
+  AspectRatioBlock,
+  BreadcrumbBlock,
+  ContextMenuBlock,
+  MenubarBlock,
+  NavigationMenuBlock,
+  ResizableBlock,
+  ScrollAreaBlock,
+  SheetBlock,
+  SidebarBlock,
+} from "./groups/layout";
+
 import { ChatContentChildUnion } from "./unions";
 
 const ChatCardChildUnion = z.union([...ChatContentChildUnion.options, Tabs.ref, Carousel.ref]);
@@ -91,6 +127,27 @@ const ChatCard = defineComponent({
 // ── Component Groups ──
 
 export const shadcnComponentGroups: ComponentGroup[] = [
+  feedbackComponentGroup,
+  chatComponentGroup,
+  {
+    name: "Layout & Overlays",
+    components: [
+      "SheetBlock",
+      "SidebarBlock",
+      "BreadcrumbBlock",
+      "NavigationMenuBlock",
+      "MenubarBlock",
+      "ContextMenuBlock",
+      "ResizableBlock",
+      "ScrollAreaBlock",
+      "AspectRatioBlock",
+    ],
+    notes: [
+      "- SheetBlock/SidebarBlock hold a whole sub-view behind a trigger; keep the answer itself in the Card.",
+      "- BreadcrumbBlock, MenubarBlock and NavigationMenuBlock describe where the reader is or what else exists; their entries send their own text when pressed.",
+      "- ResizableBlock needs exactly two panes to be draggable, ScrollAreaBlock needs at least two lines, and AspectRatioBlock only reserves space when there is nothing better to show.",
+    ],
+  },
   {
     name: "Content",
     components: [
@@ -153,6 +210,25 @@ export const shadcnComponentGroups: ComponentGroup[] = [
   {
     name: "Buttons",
     components: ["Button", "Buttons"],
+  },
+  {
+    name: "Selection",
+    components: [
+      "CommandBlock",
+      "CommandDialogBlock",
+      "Combobox",
+      "NativeSelect",
+      "PopoverBlock",
+      "DropdownMenuBlock",
+      "TooltipBlock",
+      "HoverCardBlock",
+      "CollapsibleBlock",
+    ],
+    notes: [
+      "- CommandBlock is the shadcn command palette: a searchable list of named actions. Use it instead of a plain list when the reader picks one action to run.",
+      "- Combobox/Cassette selects and every menu item send their chosen text to the assistant, so write each entry as a complete request.",
+      "- TooltipBlock/HoverCardBlock/PopoverBlock/CollapsibleBlock hold optional detail; never put the answer itself inside them.",
+    ],
   },
   {
     name: "Follow-ups",
@@ -340,8 +416,8 @@ export const shadcnAdditionalRules: string[] = [
 ];
 
 export const shadcnPromptOptions: PromptOptions = {
-  examples: shadcnExamples,
-  additionalRules: shadcnAdditionalRules,
+  examples: [...shadcnExamples, ...feedbackExamples, ...chatExamples],
+  additionalRules: [...shadcnAdditionalRules, ...feedbackRules, ...chatRules],
 };
 
 // ── Library ──
@@ -400,6 +476,30 @@ export const shadcnChatLibrary = createLibrary({
     // Buttons
     Button,
     Buttons,
+    // Feedback, form detail and small widgets
+    ...feedbackComponents,
+    // Chat-shaped nodes: status lines, artifacts and message containers
+    ...chatComponents,
+    // Layout, navigation and overlays
+    SheetBlock,
+    SidebarBlock,
+    BreadcrumbBlock,
+    NavigationMenuBlock,
+    MenubarBlock,
+    ContextMenuBlock,
+    ResizableBlock,
+    ScrollAreaBlock,
+    AspectRatioBlock,
+    // Selection and overlays
+    CommandBlock,
+    CommandDialogBlock,
+    Combobox,
+    NativeSelect,
+    PopoverBlock,
+    DropdownMenuBlock,
+    TooltipBlock,
+    HoverCardBlock,
+    CollapsibleBlock,
     // Follow-ups
     FollowUpBlock,
     FollowUpItem,
