@@ -868,7 +868,9 @@ describe("Tessera Agent vNext public boundary", () => {
     expect(instructions).toContain("search_data_context, then prepare_analysis");
     expect(instructions).toContain("execute_sql with the returned analysisRef unchanged");
     expect(instructions).toContain("After every tool result, inspect status");
-    expect(instructions).toContain("permitted structured output; never emit HTML, scripts, chart configuration");
+    expect(instructions).toContain("The host compiles the output\nformat separately");
+    expect(instructions).toContain("Never emit HTML, scripts, chart configuration");
+    expect(instructions).not.toContain("Return concise Markdown");
     expect(instructions).not.toContain("<analysis_view>");
     expect(instructions).not.toContain("Do not emit progress narration as answer text before tool calls");
     expect(instructions).not.toContain("<probe_data>");
@@ -878,7 +880,7 @@ describe("Tessera Agent vNext public boundary", () => {
   });
 
   test("appends a host-compiled analysis view contract without touching static policy", () => {
-    const presentation = "<analysis_view>root = Stack([a])</analysis_view>";
+    const presentation = "<analysis_view>root = Card([a])</analysis_view>";
     const instructions = buildDataCopilotInstructions({ presentation });
 
     expect(instructions).toContain(presentation);
@@ -1162,7 +1164,7 @@ describe("Tessera Agent vNext public boundary", () => {
       expect(prompts[0]).toContain("<database_schema_inventory>");
       expect(prompts[0]).toContain("orders");
       expect(prompts[0]).toContain("<analysis_view>");
-      expect(prompts[0]).toContain("root = Stack(...)");
+      expect(prompts[0]).toContain("root = Card(...)");
       expect(prompts[1]).toContain("created_at");
       expect(prompts[1]).toContain("<database_schema_inventory>");
       expect(memoryBeforeFinalStep).toContain("Describe the orders schema.");

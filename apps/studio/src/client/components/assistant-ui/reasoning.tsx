@@ -214,8 +214,7 @@ function ReasoningTrigger({
           "aui-reasoning-trigger-chevron mt-0.5 size-4 shrink-0",
           "transition-transform duration-(--animation-duration) ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none",
           "-rotate-90",
-          "group-data-open/trigger:rotate-0",
-          "group-data-panel-open/trigger:rotate-0",
+          "group-data-[state=open]/trigger:rotate-0",
         )}
       />
     </CollapsibleTrigger>
@@ -235,12 +234,12 @@ function ReasoningContent({
       className={cn(
         "aui-reasoning-content text-muted-foreground relative overflow-hidden text-sm outline-none",
         "group/collapsible-content ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:animate-none",
-        "data-closed:animate-collapsible-up",
-        "data-open:animate-collapsible-down",
-        "data-closed:fill-mode-forwards",
-        "data-closed:pointer-events-none",
-        "data-open:duration-(--animation-duration)",
-        "data-closed:duration-(--animation-duration)",
+        "data-[state=closed]:animate-collapsible-up",
+        "data-[state=open]:animate-collapsible-down",
+        
+        "data-[state=closed]:pointer-events-none",
+        
+        
         className,
       )}
       {...props}
@@ -311,18 +310,8 @@ function ReasoningText({
       data-slot="reasoning-text"
       className={cn(
         "aui-reasoning-text relative z-0 max-h-64 overflow-y-auto ps-6 pt-2 pb-2 leading-relaxed text-pretty",
-        "transform-gpu transition-[transform,opacity] ease-[cubic-bezier(0.32,0.72,0,1)]",
+        "group-data-[state=open]/collapsible-content:animate-reveal",
         "motion-reduce:animate-none",
-        "group-data-open/collapsible-content:animate-in",
-        "group-data-closed/collapsible-content:animate-out",
-        "group-data-open/collapsible-content:fade-in-0",
-        "group-data-closed/collapsible-content:fade-out-0",
-        "group-data-open/collapsible-content:slide-in-from-top-4",
-        "group-data-closed/collapsible-content:slide-out-to-top-4",
-        "group-data-open/collapsible-content:blur-in-[2px]",
-        "group-data-closed/collapsible-content:blur-out-[2px]",
-        "group-data-open/collapsible-content:duration-(--animation-duration)",
-        "group-data-closed/collapsible-content:duration-(--animation-duration)",
         className,
       )}
       {...props}

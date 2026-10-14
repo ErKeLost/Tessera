@@ -65,6 +65,7 @@ import { AgentActivity } from "./components/agent-activity";
 import { ErrorState } from "./components/elements/error-state";
 import { OpenRouterModelPicker, StudioModelBrandIcon } from "./components/elements/openrouter-model-picker";
 import { ReasoningPanel } from "./components/elements/reasoning-panel";
+import { WorkPanel } from "./components/elements/work-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
 import { useStudioSettingsQuery } from "./queries/studio-queries";
@@ -376,16 +377,9 @@ function StudioMessage() {
 }
 
 function StudioAssistantMessage() {
-  const isComplete = useAuiState((state) => state.message.status?.type === "complete");
-  const hasNarration = useAuiState((state) =>
-    state.message.parts.some((part) => part.type === "text" && part.text.trim().length > 0),
-  );
   const hasAssistantOutput = useAuiState((state) =>
     state.message.parts.some((part) => part.type === "text" && part.text.trim().length > 0),
   );
-  // Keep execution details visible while streaming or when no final answer
-  // exists. Once a turn is complete with narration, show the compact answer.
-  const hideExecutionTrace = isComplete && hasNarration;
 
   return (
     <MessagePrimitive.Root className="tessera-message-root tessera-assistant-message">
@@ -401,21 +395,16 @@ function StudioAssistantMessage() {
             {({ children, part }) => {
               switch (part.type) {
                 case "group-chainOfThought":
-                  if (hideExecutionTrace) return null;
-                  return <div className="tessera-chain-of-thought space-y-0.5">{children}</div>;
+                  return <StudioTraceGroup group={part}>{children}</StudioTraceGroup>;
                 case "group-tool":
-                  if (hideExecutionTrace) return null;
                   return <div className="tessera-tool-group space-y-0.5">{children}</div>;
                 case "group-reasoning":
-                  if (hideExecutionTrace) return null;
                   return <StudioReasoningGroup group={part} />;
                 case "text":
                   return <MarkdownText />;
                 case "reasoning":
-                  if (hideExecutionTrace) return null;
                   return <Reasoning {...part} />;
                 case "tool-call":
-                  if (hideExecutionTrace) return null;
                   return part.toolUI ?? <TesseraToolFallback {...part} />;
                 case "data":
                   return part.dataRendererUI ?? <></>;
@@ -442,9 +431,40 @@ function StudioAssistantMessage() {
 
 type StudioReasoningGroupPart = MessagePrimitive.GroupedParts.GroupPart;
 
-function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
-  const messageParts = useAuiState((state) => state.message.parts);
+/**
+ * One run of agent work: every reasoning block and tool call between two
+ * answers, collapsed behind a single `Working` / `Worked for 2m 35s` row.
+ * The nested reasoning and tool rows keep their own disclosures inside it.
+ */
+function StudioTraceGroup({
+  children,
+  group,
+}: {
+  children: React.ReactNode;
+  group: StudioReasoningGroupPart;
+}) {
   const streaming = group.status.type === "running";
+  const { open, setOpen, elapsedMs } = useStreamSpan(streaming);
+  const count = group.indices.length;
+
+  return (
+    <WorkPanel
+      streaming={streaming}
+      open={open}
+      onOpenChange={setOpen}
+      elapsed={elapsedMs > 0 ? formatElapsed(elapsedMs) : undefined}
+      detail={`${count} ${count === 1 ? "step" : "steps"}`}
+    >
+      <div className="tessera-chain-of-thought space-y-0.5">{children}</div>
+    </WorkPanel>
+  );
+}
+
+/**
+ * Times one streaming span and holds its disclosure open while it runs, then
+ * settles it closed and keeps the final wall clock for the resting label.
+ */
+function useStreamSpan(streaming: boolean) {
   const [open, setOpen] = useState(streaming);
   const [elapsedMs, setElapsedMs] = useState(0);
   const startedAtRef = useRef<number | null>(streaming ? Date.now() : null);
@@ -474,6 +494,14 @@ function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
     return () => window.clearInterval(interval);
   }, [streaming]);
 
+  return { open, setOpen, elapsedMs };
+}
+
+function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
+  const messageParts = useAuiState((state) => state.message.parts);
+  const streaming = group.status.type === "running";
+  const { open, setOpen, elapsedMs } = useStreamSpan(streaming);
+
   const steps = group.indices.flatMap((index) => {
     const part = messageParts[index];
     if (part?.type !== "reasoning") return [];
@@ -484,7 +512,7 @@ function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
       body,
     }];
   });
-  const elapsed = formatReasoningElapsed(elapsedMs);
+  const elapsed = formatElapsed(elapsedMs);
 
   return (
     <ReasoningPanel
@@ -499,8 +527,12 @@ function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
   );
 }
 
-function formatReasoningElapsed(elapsedMs: number): string {
-  return `${Math.max(1, Math.round(elapsedMs / 1_000))}s`;
+function formatElapsed(elapsedMs: number): string {
+  const totalSeconds = Math.max(1, Math.round(elapsedMs / 1_000));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
 }
 
 function StudioUserMessage() {
