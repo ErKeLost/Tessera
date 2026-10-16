@@ -1,23 +1,15 @@
-import { BuiltinActionType } from "@openuidev/react-lang";
+import { action } from "@openuidev/react-lang";
 import { z } from "zod";
 
-const continueConversationAction = z.object({
-  type: z.literal(BuiltinActionType.ContinueConversation),
-  context: z.string().optional(),
-});
-
-const openUrlAction = z.object({
-  type: z.literal(BuiltinActionType.OpenUrl),
-  url: z.string(),
-});
-
-const customAction = z.object({
-  type: z.string(),
-  params: z.record(z.string(), z.any()).optional(),
-});
-
-export const actionSchema = z
-  .union([openUrlAction, continueConversationAction, customAction])
-  .optional();
+/**
+ * The action prop for interactive blocks.
+ *
+ * `action()` tags the schema as an `ActionExpression`, so the generated system
+ * prompt teaches the OpenUI 1.0 step syntax instead of the legacy object shape:
+ * one bare step such as `@ToAssistant("Tell me more")`, or `Action([...])` when
+ * a click runs several steps. The legacy `{ type, params }` objects still parse
+ * and render unchanged, so older stored answers keep working.
+ */
+export const actionSchema = action().optional();
 
 export type ActionSchema = z.infer<typeof actionSchema>;

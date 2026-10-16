@@ -8,6 +8,8 @@ import {
 import { memo, useMemo } from "react";
 import { MarkdownRenderer } from "./shadcn-genui/components/markdown-renderer";
 import { shadcnChatLibrary } from "./shadcn-genui";
+import { AnswerApprovalDialog } from "./answer-approval-dialog";
+import { useAnswerToolProvider } from "./use-answer-tool-provider";
 
 export type AnalysisViewProps = Readonly<{
   /** The whole assistant response. In OpenUI mode this is an openui-lang program. */
@@ -38,10 +40,18 @@ const analysisParser = createParser(
  * classified: a real program that the library cannot render (an unknown
  * component) is reported as a failure, a prose answer keeps rendering as prose,
  * and neither case dumps openui-lang source at the reader.
+ *
+ * The answer can also carry `Query()` / `Mutation("database_action", ...)`
+ * calls. Reads and writes both go through the server, which stays authoritative
+ * over the catalog, policy, and approval; this view only supplies the provider
+ * and the permission-driven approval surface.
  */
 const AnalysisViewImpl = ({ response, isStreaming, onAction }: AnalysisViewProps) => {
   const parsed = useMemo(() => analysisParser.parse(response), [response]);
-  const renders = parsed.root !== null;
+  const actions = useAnswerToolProvider();
+  // OpenUI 1.0 also accepts a runtime entry (`root = $flag ? A : B`), which
+  // lands on `rootExpression` with `root` left null until it is evaluated.
+  const renders = parsed.root !== null || parsed.rootExpression !== undefined;
   const empty = response.trim().length === 0;
 
   if (!isStreaming && !renders) {
@@ -68,12 +78,26 @@ const AnalysisViewImpl = ({ response, isStreaming, onAction }: AnalysisViewProps
 
   return (
     <div className="tessera-analysis" data-streaming={isStreaming ? "true" : undefined}>
-      <Renderer
+      <Renderer.Root
         isStreaming={isStreaming}
         library={shadcnChatLibrary}
         response={response}
+        toolProvider={actions.toolProvider}
         {...(onAction !== undefined && { onAction })}
-      />
+      >
+        <div className="tessera-analysis-relative">
+          <Renderer.Content />
+          <Renderer.QueryError>
+            <p className="tessera-analysis-fallback" role="alert">
+              This answer could not load its live data.
+            </p>
+            <Renderer.Retry>Try again</Renderer.Retry>
+          </Renderer.QueryError>
+        </div>
+      </Renderer.Root>
+      {actions.pending !== undefined ? (
+        <AnswerApprovalDialog onDecide={actions.decide} prompt={actions.pending} />
+      ) : null}
     </div>
   );
 };

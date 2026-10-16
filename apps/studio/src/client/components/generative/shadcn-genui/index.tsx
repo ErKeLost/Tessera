@@ -107,6 +107,8 @@ import {
 } from "./groups/layout";
 
 import { ChatContentChildUnion } from "./unions";
+import { answerActions } from "./actions";
+import { answerFunctions } from "./functions";
 
 const ChatCardChildUnion = z.union([...ChatContentChildUnion.options, Tabs.ref, Carousel.ref]);
 
@@ -305,7 +307,7 @@ form = Form("contact", btns, [nameField, emailField, msgField])
 nameField = FormControl("Name", Input("name", "Your name", "text", { required: true, minLength: 2 }))
 emailField = FormControl("Email", Input("email", "you@example.com", "email", { required: true, email: true }))
 msgField = FormControl("Message", TextArea("message", "Tell us more...", 4, { required: true, minLength: 10 }))
-btns = Buttons([Button("Submit", { type: "continue_conversation" }, "default")])`,
+btns = Buttons([Button("Submit", @ToAssistant("Submitted the contact form"), "default")])`,
 
   `Example 3 — Alert variants:
 root = Card([info, success, warning, danger])
@@ -327,12 +329,12 @@ followUps = FollowUpBlock([FollowUpItem("Show as line chart"), FollowUpItem("Add
 root = Card([title, btns])
 title = TextContent("Button Styles", "large-heavy")
 btns = Buttons([b1, b2, b3, b4, b5, b6])
-b1 = Button("Default", { type: "continue_conversation" }, "default")
-b2 = Button("Secondary", { type: "continue_conversation" }, "secondary")
-b3 = Button("Outline", { type: "continue_conversation" }, "outline")
-b4 = Button("Ghost", { type: "continue_conversation" }, "ghost")
-b5 = Button("Link", { type: "continue_conversation" }, "link")
-b6 = Button("Destructive", { type: "continue_conversation" }, "destructive")`,
+b1 = Button("Default", @ToAssistant("Show me the default button style"), "default")
+b2 = Button("Secondary", @ToAssistant("Show me the secondary button style"), "secondary")
+b3 = Button("Outline", @ToAssistant("Show me the outline button style"), "outline")
+b4 = Button("Ghost", @ToAssistant("Show me the ghost button style"), "ghost")
+b5 = Button("Link", @ToAssistant("Show me the link button style"), "link")
+b6 = Button("Destructive", @ToAssistant("Show me the destructive button style"), "destructive")`,
 
   `Example 6 — Tabs with charts:
 root = Card([header, tabs])
@@ -387,6 +389,15 @@ root = Card([title, desc, cal])
 title = TextContent("Select Travel Dates", "large-heavy")
 desc = TextContent("Choose your check-in and check-out dates.", "small")
 cal = CalendarBlock("range", "2025-06-01", 2)`,
+
+  `Example 13 — Computed metrics and a copy button:
+root = Card([header, tbl, actions])
+header = CardHeader("Revenue by region", "Share of the 1,000,000 total")
+tbl = Table(cols, rows)
+cols = [Col("Region", "string"), Col("Revenue", "number"), Col("Share", "string"), Col("Change", "string")]
+rows = [["AMER", 440000, @Percent(440000, 1000000), @Delta(440000, 400000)], ["EMEA", 320000, @Percent(320000, 1000000), @Delta(320000, 360000)]]
+actions = Buttons([copyBtn], "row")
+copyBtn = Button("Copy SQL", @CopyText("SELECT region, SUM(revenue) FROM orders GROUP BY region"), "outline")`,
 ];
 
 export const shadcnAdditionalRules: string[] = [
@@ -413,6 +424,9 @@ export const shadcnAdditionalRules: string[] = [
   "Use DrawerBlock for bottom panels with additional content. Good for details/reports.",
   "Use PaginationBlock for paginated data. currentPage/totalPages are required.",
   'Use CalendarBlock for standalone calendar display. mode: "single" (pick one date), "multiple" (pick many), "range" (date range). Use numberOfMonths to show side-by-side months.',
+  'For computed numbers, call @Percent(part, total) for a share of a total, @Delta(current, previous) for a period-over-period change, or @FormatNumber(value) for thousands separators — do NOT do the arithmetic yourself.',
+  'A button action is one @step, e.g. @ToAssistant("...") or @OpenUrl("..."); use Action([...]) only when one click must run several steps.',
+  'When the answer contains something the reader will reuse — a SQL statement, an id or a value — add a Button with @CopyText(...) so it can be copied without another model turn.',
 ];
 
 export const shadcnPromptOptions: PromptOptions = {
@@ -424,6 +438,8 @@ export const shadcnPromptOptions: PromptOptions = {
 
 export const shadcnChatLibrary = createLibrary({
   root: "Card",
+  functions: answerFunctions,
+  actions: answerActions,
   componentGroups: shadcnComponentGroups,
   components: [
     // Root

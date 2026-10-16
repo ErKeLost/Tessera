@@ -54,6 +54,34 @@ describe("AnalysisView", () => {
     expect(html).not.toContain("totalMetric");
   });
 
+  test("renders a runtime entry (`root = $flag ? A : B`) instead of calling it unrenderable", () => {
+    const html = renderToStaticMarkup(
+      <AnalysisView
+        isStreaming={false}
+        response={'root = $flag ? Card([a]) : Card([b])\n$flag = true\na = TextContent("chosen")\nb = TextContent("fallback")'}
+      />,
+    );
+
+    expect(html).toContain('data-slot="card"');
+    expect(html).not.toContain("could not be rendered");
+  });
+
+  test("renders a program that reads live data instead of the fallback", () => {
+    const html = renderToStaticMarkup(
+      <AnalysisView
+        isStreaming={false}
+        response={[
+          "root = Card([t])",
+          'data = Query("relation_preview", { schema: "public", table: "orders" }, { columns: [], rows: [] })',
+          't = TextContent("Rows: " + @Count(data.rows))',
+        ].join("\n")}
+      />,
+    );
+
+    expect(html).toContain('data-slot="card"');
+    expect(html).not.toContain("could not be rendered");
+  });
+
   test("keeps rendering partial programs while the answer streams", () => {
     const html = renderToStaticMarkup(
       <AnalysisView isStreaming response={'root = Card([a])\na = TextContent("Coun'} />,

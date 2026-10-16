@@ -89,6 +89,18 @@ import {
   type TesseraDatabaseActionEffect,
   type TesseraDatabaseActionService,
 } from "./database-actions";
+import {
+  AnswerDataError,
+  answerActionRequestSchema,
+  answerQueryRequestSchema,
+  executeRelationMetrics,
+  executeRelationPreview,
+  submitAnswerDatabaseAction,
+} from "./answer-data";
+import {
+  ANSWER_RELATION_METRICS_TOOL,
+  ANSWER_RELATION_PREVIEW_TOOL,
+} from "./generative/openui-actions";
 import { createTesseraDurableStateStore, type TesseraDurableStateStore } from "./durable-state";
 import type { DurableStateStorePort } from "@open-tessera/runtime";
 import {
@@ -730,6 +742,68 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ...(parsed.data.cancelRequestId === undefined ? {} : { cancelRequestId: parsed.data.cancelRequestId }),
       });
       return context.json(receipt);
+    } catch (error) {
+      throw databaseActionHttpError(error);
+    }
+  }));
+
+  /**
+   * OpenUI answers read live data through this route. A read takes catalog
+   * coordinates (and, for metrics, a bounded aggregate description) only: the
+   * server derives the columns, the SQL, and the row bound from the live
+   * catalog, so no SQL, filter expression, or caller limit crosses the wire.
+   */
+  app.post("/api/answer-data/query", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const parsed = answerQueryRequestSchema.safeParse(await readJsonBody(context.req.raw));
+    if (!parsed.success) throw new StudioHttpError(400, "invalid_answer_data_request", "The answer data request is invalid.");
+    const signal = context.req.raw.signal;
+    try {
+      if (parsed.data.tool === ANSWER_RELATION_PREVIEW_TOOL) {
+        return context.json(await executeRelationPreview({
+          dataAgent: runtime.dataAgent,
+          request: parsed.data.args,
+          signal,
+        }));
+      }
+      if (parsed.data.tool === ANSWER_RELATION_METRICS_TOOL) {
+        return context.json(await executeRelationMetrics({
+          dataAgent: runtime.dataAgent,
+          connector: runtime.connector,
+          request: parsed.data.args,
+          signal,
+        }));
+      }
+      throw new StudioHttpError(400, "unknown_answer_tool", "The requested answer data tool is not available.");
+    } catch (error) {
+      throw answerDataHttpError(error);
+    }
+  }));
+
+  /**
+   * OpenUI answers trigger typed mutations from the browser. The body is the
+   * model-facing mutation shape, never SQL and never a catalog fingerprint:
+   * the server composes the envelope from the live catalog, then the governed
+   * service binds it against policy and may return an approval checkpoint.
+   */
+  app.post("/api/answer-data/action", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const service = runtime.databaseActions;
+    if (service === undefined) {
+      throw new StudioHttpError(403, "database_actions_unavailable", "Database changes are not enabled for this Studio.");
+    }
+    const parsed = answerActionRequestSchema.safeParse(await readJsonBody(context.req.raw));
+    if (!parsed.success) throw new StudioHttpError(400, "invalid_database_action", "The database action request is invalid.");
+    try {
+      const catalog = await runtime.dataAgent.inspectCatalog({ refresh: true }, context.req.raw.signal);
+      const effect = await submitAnswerDatabaseAction({
+        actor: databaseActionActor(context),
+        service,
+        catalog: {
+          ...(catalog.catalog.databaseName === undefined ? {} : { databaseName: catalog.catalog.databaseName }),
+          fingerprint: catalog.catalog.fingerprint,
+        },
+        request: parsed.data,
+      });
+      return databaseActionEffectResponse(context, effect);
     } catch (error) {
       throw databaseActionHttpError(error);
     }
@@ -2055,6 +2129,7 @@ function studioApiOperation(path: string): StudioApiOperation {
   if (path === "/api/runs") return "runs";
   if (path === "/api/settings" || path === "/api/settings/test" || path === "/api/settings/evaluate" || path === "/api/settings/models" || path === "/api/settings/permissions") return "settings";
   if (path.startsWith("/api/database-actions")) return "database_actions";
+  if (path.startsWith("/api/answer-data")) return "database_actions";
   if (path === "/api/threads" || path.startsWith("/api/threads/")) return "threads";
   if (path.startsWith("/api/data/")) return "data_preview";
   return "unknown";
@@ -2818,6 +2893,20 @@ function databaseActionHttpError(error: unknown): StudioHttpError {
     return new StudioHttpError(404, "database_action_not_found", "The database action request is not available.");
   }
   return new StudioHttpError(502, "database_action_failed", "The database action could not be completed.");
+}
+
+/** Maps answer-read failures to a fixed, credential-free HTTP vocabulary. */
+function answerDataHttpError(error: unknown): StudioHttpError {
+  if (error instanceof StudioHttpError) return error;
+  if (error instanceof AnswerDataError) {
+    if (error.code === "query_unavailable") return new StudioHttpError(503, error.code, error.message);
+    if (error.code === "relation_not_found") return new StudioHttpError(404, error.code, error.message);
+    if (error.code === "relation_not_previewable" || error.code === "metrics_unsupported") {
+      return new StudioHttpError(422, error.code, error.message);
+    }
+    return new StudioHttpError(400, error.code, error.message);
+  }
+  return new StudioHttpError(503, "query_unavailable", "Tessera could not read the requested relation.");
 }
 
 function errorResponse(

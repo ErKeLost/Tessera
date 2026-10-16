@@ -67,7 +67,9 @@ export function createTesseraStudioAgent(
     mastra,
     defaultIdentity: LOCAL_STUDIO_IDENTITY,
     resourceIdForIdentity: tesseraSessionResourceId,
-    answerPresentation: buildAnalysisPresentationPrompt(),
+    answerPresentation: buildAnalysisPresentationPrompt({
+      databaseActions: options.databaseActions !== undefined,
+    }),
     mapPublicError: ({ error, model }) => publicStudioStreamError(error, model),
     ...(options.permissionContext === undefined
       ? {}

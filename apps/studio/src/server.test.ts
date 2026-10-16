@@ -133,6 +133,73 @@ describe("Tessera Studio Nitro app", () => {
     expect(await response.json()).toEqual({ status: "ok", service: "tessera-studio", readiness: "ready" });
   });
 
+  test("refuses an answer read whose tool is not in the closed set", async () => {
+    const app = createStudioApp({ connector: createConnector() });
+    const response = await app.fetch(request("/api/answer-data/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "raw_sql", args: { sql: "SELECT 1" } }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).not.toContain("SELECT 1");
+  });
+
+  test("runs a bounded answer metrics aggregate through the connector", async () => {
+    const requests: DatabaseQueryRequest[] = [];
+    const app = createStudioApp({
+      connector: createConnector({
+        query: async (query) => {
+          requests.push(query);
+          return {
+            queryId: "metrics-secret-id",
+            columns: [{ name: "count" }],
+            rows: [{ count: 42 }],
+            rowCount: 1,
+            truncated: false,
+            durationMs: 1,
+          };
+        },
+      }),
+    });
+
+    const response = await app.fetch(request("/api/answer-data/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool: "relation_metrics",
+        args: { schema: "public", table: "orders", metrics: [{ fn: "count", alias: "count" }] },
+      }),
+    }));
+    const body = await response.json() as { rows: unknown; columns: unknown };
+
+    expect(response.status).toBe(200);
+    expect(body.rows).toEqual([{ count: 42 }]);
+    const metricsRequest = requests.find((entry) => entry.purpose === "Tessera answer metrics");
+    expect(metricsRequest?.sql).toContain('SELECT COUNT(*) AS "count"');
+    expect(metricsRequest?.maxRows).toBe(1_000);
+  });
+
+  test("refuses answer database actions when the Studio cannot make changes", async () => {
+    const app = createStudioApp({ connector: createConnector() });
+    const response = await app.fetch(request("/api/answer-data/action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mutation: {
+          kind: "data.delete",
+          relation: { schema: "public", table: "orders" },
+          where: { kind: "comparison", column: "id", op: "eq", value: "1" },
+          maxAffectedRows: 10,
+        },
+        purpose: "Remove one order",
+      }),
+    }));
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toContain("database_actions_unavailable");
+  });
+
   test("returns connection status without connector ids, hosts, warnings, or credentials", async () => {
     const app = createStudioApp({ connector: createConnector() });
     const response = await app.fetch(request("/api/connection"));

@@ -167,6 +167,55 @@ export function submitStudioDatabaseAction(
   }, { acceptedStatuses: [202] });
 }
 
+export type StudioAnswerDatabaseActionInput = Readonly<{
+  /** The model-facing mutation (no catalog envelope; the server injects it). */
+  mutation: unknown;
+  purpose: string;
+}>;
+
+/**
+ * Submits one typed mutation authored inside an OpenUI answer. The server
+ * composes the catalog envelope from the live catalog, so the browser never
+ * supplies a fingerprint, connection reference, or SQL. A 202 means the action
+ * is waiting for approval and the response carries the checkpoint.
+ */
+export function submitStudioAnswerDatabaseAction(
+  input: StudioAnswerDatabaseActionInput,
+  signal?: AbortSignal,
+): Promise<StudioDatabaseActionEffect> {
+  return requestJson<StudioDatabaseActionEffect>("/api/answer-data/action", {
+    body: JSON.stringify(input),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  }, { acceptedStatuses: [202] });
+}
+
+export type StudioAnswerQueryResult = Readonly<{
+  columns: string[];
+  rows: Array<Record<string, string | number | boolean | null>>;
+  rowCount: number;
+  truncated: boolean;
+}>;
+
+/**
+ * Runs one read tool for an OpenUI answer. The body carries catalog coordinates
+ * only; the server derives the columns and the row bound, so no SQL or filter
+ * is ever sent.
+ */
+export function fetchStudioAnswerQuery(
+  tool: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<StudioAnswerQueryResult> {
+  return requestJson<StudioAnswerQueryResult>("/api/answer-data/query", {
+    body: JSON.stringify({ tool, args }),
+    headers: { "Content-Type": "application/json" },
+    method: "POST",
+    signal,
+  });
+}
+
 export function fetchStudioDatabaseAction(
   requestId: string,
   signal?: AbortSignal,

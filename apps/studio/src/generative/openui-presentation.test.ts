@@ -1,8 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { generateSystemPrompt } from "@openuidev/lang-core";
-import { shadcnChatLibrary, shadcnPromptOptions } from "../client/components/generative/shadcn-genui";
+import { shadcnChatLibrary } from "../client/components/generative/shadcn-genui";
+import { compileAnswerPrompts } from "./openui-answer-prompt";
 import { ANALYSIS_ROOT, buildAnalysisPresentationPrompt } from "./openui-presentation";
-import { OPENUI_SYSTEM_PROMPT } from "./openui-system-prompt.generated";
+import {
+  OPENUI_ACTION_SYSTEM_PROMPT,
+  OPENUI_SYSTEM_PROMPT,
+} from "./openui-system-prompt.generated";
 
 describe("buildAnalysisPresentationPrompt", () => {
   const prompt = buildAnalysisPresentationPrompt();
@@ -22,20 +25,36 @@ describe("buildAnalysisPresentationPrompt", () => {
     expect(prompt).toContain("Table(columns");
   });
 
-  test("does not enable the tool or form workflows Tessera does not expose", () => {
-    expect(OPENUI_SYSTEM_PROMPT).not.toContain("Mutation(");
-    expect(OPENUI_SYSTEM_PROMPT).not.toContain("@Set(");
-    expect(OPENUI_SYSTEM_PROMPT).not.toContain("Query(");
+  test("teaches live reads to every Studio but never a write to a read-only one", () => {
+    expect(OPENUI_SYSTEM_PROMPT).toContain("relation_preview");
+    expect(OPENUI_SYSTEM_PROMPT).toContain("relation_metrics");
+    expect(OPENUI_SYSTEM_PROMPT).toContain("Query(");
+    expect(OPENUI_SYSTEM_PROMPT).toContain("This Studio is read-only");
+    expect(OPENUI_SYSTEM_PROMPT).not.toContain("database_action");
   });
 
-  test("stays in sync with the component library", () => {
-    // Regenerating here catches a library change that was not recompiled, the
-    // same way the official example regenerates its prompt before dev/build.
-    const regenerated = generateSystemPrompt({
-      library: shadcnChatLibrary.toSpec(),
-      promptOptions: shadcnPromptOptions,
-    });
+  test("teaches the governed action tool only when changes are available", () => {
+    const readOnly = buildAnalysisPresentationPrompt({ databaseActions: false });
+    const readWrite = buildAnalysisPresentationPrompt({ databaseActions: true });
 
-    expect(regenerated).toBe(OPENUI_SYSTEM_PROMPT);
+    expect(readOnly).toBe(prompt);
+    expect(readOnly).not.toContain("database_action");
+    expect(readWrite).toContain("database_action");
+    expect(readWrite).toContain("relation_preview");
+    expect(readWrite).toContain("relation_metrics");
+    expect(readWrite).toContain("Mutation(");
+    expect(readWrite).toContain("@Run(");
+    expect(readWrite).not.toContain("This Studio is read-only");
+    expect(readWrite).toContain(OPENUI_ACTION_SYSTEM_PROMPT);
+  });
+
+  test("keeps both contracts in sync with the library and tool specs", () => {
+    // Regenerating here catches a library or tool change that was not
+    // recompiled, the same way the official example regenerates before dev/build.
+    const regenerated = compileAnswerPrompts();
+
+    expect(regenerated.base).toBe(OPENUI_SYSTEM_PROMPT);
+    expect(regenerated.actions).toBe(OPENUI_ACTION_SYSTEM_PROMPT);
+    expect(shadcnChatLibrary.root).toBe(ANALYSIS_ROOT);
   });
 });
