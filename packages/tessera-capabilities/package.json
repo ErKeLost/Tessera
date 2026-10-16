@@ -33,7 +33,7 @@
   },
   "dependencies": {
     "@open-tessera/runtime": "workspace:*",
-    "zod": "4.4.3"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "tsdown": "0.22.14",
