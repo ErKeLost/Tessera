@@ -1,0 +1,79 @@
+/*
+ * Tessera — design tokens.
+ *
+ * The app's palette, stated once: one deep indigo ground, one near-white ink with
+ * three steps of dimming, hairlines instead of borders, and a pastel accent ramp
+ * taken from the mascot's sky. Anything a component needs to know about colour,
+ * rhythm or type lives here — components use the variables and never a raw hex.
+ */
+
+:root {
+  /* ink ---------------------------------------------------------------- */
+  --ink: #241d3f;
+  --ink-70: rgb(36 29 63 / 0.76);
+  --ink-55: rgb(36 29 63 / 0.62);
+  --ink-40: rgb(36 29 63 / 0.48);
+  --ink-24: rgb(36 29 63 / 0.3);
+  --ink-12: rgb(36 29 63 / 0.16);
+
+  /* ground ------------------------------------------------------------- */
+  --bg: #f4efff;
+  --bg-lift: #faf7ff;
+  --panel: rgb(36 29 63 / 0.04);
+  --panel-hover: rgb(36 29 63 / 0.06);
+  --hair: rgb(36 29 63 / 0.14);
+  --hair-soft: rgb(36 29 63 / 0.08);
+  --hair-bright: rgb(36 29 63 / 0.24);
+
+  /* accents (the mascot's sky) ---------------------------------------- */
+  --iris: #6244e8;
+  --violet: #7a56e8;
+  --blush: #d24fb0;
+  --mint: #2f9a78;
+  --peach: #c98a2e;
+  --accent-line: linear-gradient(100deg, #6244e8 0%, #b44fc4 42%, #dd5f9d 68%, #c98a2e 100%);
+  --accent-wash: radial-gradient(60% 60% at 50% 0%, rgb(143 128 255 / 0.16), transparent 70%);
+
+  /* type --------------------------------------------------------------- */
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+
+  --step--1: 12.5px;
+  --step-0: 16px;
+  --step-1: 18px;
+  --step-2: clamp(20px, 1.6vw, 22px);
+  --step-3: clamp(26px, 3.4vw, 38px);
+  --step-4: clamp(32px, 4.6vw, 54px);
+  --step-5: clamp(42px, 7.2vw, 92px);
+
+  /* space -------------------------------------------------------------- */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 24px;
+  --s-6: 32px;
+  --s-7: 48px;
+  --s-8: 64px;
+  --s-9: 96px;
+  --s-10: 128px;
+
+  /* shape -------------------------------------------------------------- */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 18px;
+  --r-xl: 26px;
+  --r-pill: 999px;
+  --wrap: 1180px;
+  --wrap-narrow: 780px;
+
+  --shadow-win: 0 80px 160px -70px rgb(72 44 150 / 0.45), 0 40px 80px -40px rgb(143 128 255 / 0.35),
+    inset 0 1px 0 #fff;
+  --shadow-float: 0 24px 60px -30px rgb(72 44 150 / 0.35);
+
+  --ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-1: 160ms;
+  --dur-2: 260ms;
+  --dur-3: 640ms;
+}

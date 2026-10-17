@@ -1,0 +1,401 @@
+/*
+ * One screen.
+ *
+ * A title card inside a sky: three rows — a thin bar, the centred copy, the
+ * "works with" strip — and the ASCII sky behind them. Every size is a function of
+ * the viewport so the composition holds from 1440×900 down to a phone without
+ * scrolling.
+ *
+ * This file is the Orbit site's stage, kept in step with it: the same geometry,
+ * the same hairlines, the same two-button row. Tessera only changes what the
+ * primary button says and what the floor lists.
+ */
+
+/* ==========================================================================
+   Shared vocabulary
+   ========================================================================== */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  height: 46px;
+  padding: 0 22px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  font-size: 14.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    transform var(--dur-1) var(--ease),
+    background var(--dur-2) var(--ease),
+    border-color var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+}
+
+.btn:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.btn svg {
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+}
+
+.btn--primary {
+  color: #180d33;
+  background: linear-gradient(135deg, #ece2ff 0%, #ffd9ec 52%, #ffe3c9 100%);
+  /* On a light plate the pill needs a rim and a soft drop to sit above the grid. */
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.8),
+    0 12px 30px -18px rgb(78 48 160 / 0.55);
+  /* No outer glow: a halo makes the button read as taller than the one beside it.
+     The light stays inside the silhouette. */
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.8);
+}
+
+.btn--primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 0 0 1px rgb(255 255 255 / 0.45),
+    0 10px 26px -16px rgb(78 48 160 / 0.55);
+}
+
+.btn--ghost {
+  border-color: rgb(36 29 63 / 0.16);
+  background: rgb(255 255 255 / 0.62);
+  color: var(--ink);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 10px 26px -20px rgb(78 48 160 / 0.4);
+  backdrop-filter: blur(14px);
+}
+
+.btn--ghost:hover {
+  background: rgb(255 255 255 / 0.86);
+  border-color: rgb(36 29 63 / 0.26);
+}
+
+/* The one dark-glass control, exactly as Orbit draws it: on a light plate it is
+   the only place the ink inverts, which is what makes it read as the second
+   action rather than a second primary. */
+.btn--ghost {
+  border-color: rgb(245 242 255 / 0.22);
+  background: rgb(12 10 36 / 0.72);
+  color: #f5f2ff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.06);
+}
+
+.btn--ghost:hover {
+  background: rgb(20 17 52 / 0.8);
+  border-color: rgb(245 242 255 / 0.32);
+}
+
+.btn--ghost:hover {
+  background: rgb(20 17 52 / 0.8);
+  border-color: rgb(245 242 255 / 0.32);
+}
+
+/* The command is the label, so it is set in the mono face at the button's own
+   optical size rather than the body's. It shrinks before the pill can overflow
+   on a 320px screen. */
+.install__cmd {
+  font-family: var(--mono);
+  font-size: clamp(11px, 1.05vw, 13.5px);
+  letter-spacing: -0.01em;
+  font-variant-ligatures: none;
+}
+
+.lang {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.5);
+  backdrop-filter: blur(8px);
+}
+
+.lang button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-40);
+  cursor: pointer;
+  transition:
+    color var(--dur-1) var(--ease),
+    background var(--dur-2) var(--ease);
+}
+
+.lang button[aria-pressed="true"] {
+  background: #fff;
+  color: var(--ink);
+  box-shadow: 0 2px 8px -4px rgb(74 56 150 / 0.45);
+}
+
+/* ==========================================================================
+   The plate
+   ========================================================================== */
+
+.stage {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100svh;
+  min-height: 600px;
+  padding: clamp(16px, 2.6vh, 26px) clamp(18px, 4vw, 52px) clamp(22px, 3.6vh, 36px);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* ---- bar ----------------------------------------------------------------- */
+
+.stage__top {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+}
+
+.stage__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  text-shadow: 0 1px 16px rgb(250 248 255 / 0.95);
+}
+
+/* Centre the wordmark on wide screens by centring the brand in the middle grid
+   cell; on phones it belongs at the left with the actions right. */
+@media (min-width: 861px) {
+  .stage__top {
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  .stage__brand {
+    grid-column: 2;
+  }
+
+  .stage__top-end.is-actions {
+    grid-column: 3;
+  }
+}
+
+.stage__brand img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 14px rgb(120 90 220 / 0.35));
+}
+
+.stage__top-end {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stage__top-end.is-actions {
+  justify-self: end;
+}
+
+.stage__icon-link {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--hair-soft);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 0.56);
+  color: var(--ink-55);
+  backdrop-filter: blur(10px);
+  transition:
+    color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    background var(--dur-1) var(--ease);
+}
+
+.stage__icon-link svg {
+  width: 16px;
+  height: 16px;
+}
+
+.stage__icon-link:hover {
+  color: var(--ink);
+  border-color: var(--hair-bright);
+  background: rgb(255 255 255 / 0.85);
+}
+
+/* ---- copy ---------------------------------------------------------------- */
+
+.stage__copy {
+  position: relative;
+  z-index: 2;
+  align-self: center;
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  width: min(940px, 100%);
+  padding-block: clamp(8px, 2vh, 24px);
+}
+
+.stage__title {
+  font-size: clamp(44px, 7vw, 104px);
+  line-height: 0.96;
+  letter-spacing: -0.045em;
+  font-weight: 600;
+}
+
+.stage__title span {
+  display: block;
+  animation: rise 900ms var(--ease) both;
+}
+
+.stage__title span:first-child {
+  animation-delay: 60ms;
+}
+
+.stage__title span:last-child {
+  animation-delay: 140ms;
+}
+
+.stage__lede {
+  max-width: 58ch;
+  margin-top: clamp(16px, 2.4vh, 26px);
+  color: var(--ink-70);
+  font-size: clamp(14.5px, 1.15vw, 17px);
+  line-height: 1.6;
+  text-wrap: balance;
+  animation: rise 900ms var(--ease) 220ms both;
+}
+
+.stage__cta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: clamp(22px, 3.2vh, 34px);
+  animation: rise 900ms var(--ease) 300ms both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+}
+
+/* ---- floor --------------------------------------------------------------- */
+
+/* Flat, like a spec line: a label over the row, no chrome of its own. */
+.stage__foot {
+  position: relative;
+  z-index: 2;
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 2px;
+}
+
+.stage__foot-label {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink-40);
+  text-shadow: 0 1px 16px rgb(250 248 255 / 1);
+}
+
+.stage__platforms {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px clamp(16px, 2.4vw, 30px);
+}
+
+.stage__platforms li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  letter-spacing: 0;
+  color: var(--ink-70);
+  white-space: nowrap;
+  text-shadow: 0 1px 16px rgb(250 248 255 / 1);
+}
+
+/* A database has no mark that survives 6px, so the row uses the same pastel
+   palette the sky is made of instead of borrowing five logos. */
+.stage__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.85);
+}
+
+/* ==========================================================================
+   Smaller and shorter screens
+   ========================================================================== */
+
+@media (max-width: 860px) {
+  .stage {
+    height: auto;
+    min-height: 100svh;
+    padding-bottom: 18px;
+  }
+
+  .stage__title {
+    font-size: clamp(40px, 10.5vw, 64px);
+  }
+
+  .stage__lede {
+    max-width: 44ch;
+  }
+
+  .stage__foot {
+    gap: 8px;
+  }
+
+  .stage__platforms {
+    gap: 6px 16px;
+  }
+}
+
+@media (max-width: 620px) {
+  .stage__cta {
+    width: 100%;
+  }
+
+  .stage__cta .btn {
+    flex: 1 1 100%;
+  }
+}
+
+@media (max-height: 720px) and (min-width: 861px) {
+  .stage__title {
+    font-size: clamp(38px, 5.4vw, 76px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stage__title span,
+  .stage__lede,
+  .stage__cta {
+    animation: none;
+  }
+}

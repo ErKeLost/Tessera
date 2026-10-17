@@ -1,0 +1,37 @@
+# Netlify configuration for the landing page.
+#
+# Static, one page, no functions: `dist/` is the whole deployment. Set the
+# project's base directory to `website` (or deploy with `--dir`), so this file
+# is picked up and the monorepo root stays untouched.
+
+[build]
+  # Same Bun version as the workspace, fetched through npx so Netlify's build
+  # image does not have to ship it.
+  command = "npx --yes bun@1.4.0 install && npx --yes bun@1.4.0 run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "22"
+
+# Hashed bundles never change; HTML always revalidates.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    cache-control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    cache-control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    x-content-type-options = "nosniff"
+    referrer-policy = "strict-origin-when-cross-origin"
+
+# The page is one document; a stray path should still land on it.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
