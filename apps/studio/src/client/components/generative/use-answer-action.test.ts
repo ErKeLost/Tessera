@@ -26,6 +26,14 @@ describe("resolveAnswerAction", () => {
 
     expect(outcome).toEqual({ kind: "ignore" });
   });
+  test("carries submitted form values and explicit action context into the next turn", () => {
+    const outcome = resolveAnswerAction(event({ type: "continue_conversation", humanFriendlyMessage: "Analyze", formState: { filters: { status: { value: "paid", componentType: "Select" } } }, params: { context: { relation: "orders" } } }));
+    expect(outcome.kind).toBe("assistant");
+    if (outcome.kind === "assistant") {
+      expect(outcome.text).toContain('"value":"paid"');
+      expect(outcome.text).toContain('"relation":"orders"');
+    }
+  });
 
   test("routes CopyText to the clipboard without a model turn", () => {
     const outcome = resolveAnswerAction(

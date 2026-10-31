@@ -20,6 +20,7 @@
   },
   "registries": {
     "@assistant-ui": "https://r.assistant-ui.com/styles/{style}/{name}.json",
-    "@beui": "https://beui.dev/r/{name}.json"
+    "@beui": "https://beui.dev/r/{name}.json",
+    "@evilcharts": "https://evilcharts.com/r/{name}.json"
   }
 }

@@ -109,6 +109,13 @@ export type {
 } from "./settings-runtime";
 export { createTesseraStudioAgent } from "./agent";
 export type { TesseraStudioAgentOptions } from "./agent";
+export { createTesseraStudioFeishuAgent } from "./feishu-agent";
+export type {
+  TesseraStudioFeishuAgent,
+  TesseraStudioFeishuAgentOptions,
+} from "./feishu-agent";
+export { FeishuConnectionService, FeishuConnectionError, FEISHU_CALLBACK_PATH } from "./feishu-connections";
+export type { FeishuConnectionStatus } from "./feishu-connections";
 export {
   createTesseraContinualHarness,
   sanitizeHarnessTrajectory,
@@ -144,6 +151,7 @@ export type {
   CreateStudioCatalogProviderOptions,
   CreateTesseraStudioRuntimeOptions,
   StudioAgent,
+  StudioAgentType,
   StudioAgentRun,
   StudioAgentRunInput,
   StudioAppDependencies,

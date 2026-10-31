@@ -42,6 +42,24 @@ describe("Tessera configuration", () => {
     expect(modelReasoningOptions(llm)).toEqual({ providerOptions });
   });
 
+  test("routes reasoning effort through OpenAI-compatible providers", () => {
+    const custom = resolveTesseraLlmConfig(defineTesseraConfig({
+      database,
+      llm: { model: "custom/deepseek-flash", reasoningEffort: "high" },
+    }));
+    const openai = resolveTesseraLlmConfig(defineTesseraConfig({
+      database,
+      llm: { model: "openai/o3", reasoningEffort: "medium" },
+    }));
+
+    expect(modelReasoningOptions(custom)).toEqual({
+      providerOptions: { custom: { reasoningEffort: "high" } },
+    });
+    expect(modelReasoningOptions(openai)).toEqual({
+      providerOptions: { openai: { reasoningEffort: "medium" } },
+    });
+  });
+
   test("rejects unsupported read approvals instead of silently disabling queries", () => {
     expect(() => defineTesseraConfig({
       database: { ...database, permissions: { sqlStatements: { read: "ask" } } },

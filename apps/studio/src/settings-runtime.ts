@@ -37,6 +37,8 @@ import { createPostgresConnector } from "@open-tessera/postgres";
 import { createSqliteConnector } from "@open-tessera/sqlite";
 import { createTursoConnector } from "@open-tessera/turso";
 import { createTesseraStudioAgent, toMastraModelConfig } from "./agent";
+import { createTesseraStudioFeishuAgent } from "./feishu-agent";
+import type { FeishuConnectionService } from "./feishu-connections";
 import type { StudioAgent } from "./server";
 import {
   LOCAL_STUDIO_IDENTITY,
@@ -44,6 +46,7 @@ import {
   type TesseraSessionMemory,
 } from "./session-memory";
 import { createTesseraContinualHarness } from "./continual-harness";
+import { fetchStudioProviderModelCatalog } from "./provider-model-catalog";
 import {
   defineTesseraConfig,
   getTesseraProviderBaseUrl,
@@ -54,6 +57,7 @@ import {
   resolveTesseraLlmConfig,
   TESSERA_OPENROUTER_REASONING_EFFORTS,
   type TesseraConfig,
+  type TesseraLlmConfig,
   type TesseraDatabaseDialect,
 } from "./config";
 import { createTesseraDatabaseActionService, type TesseraDatabaseActionService } from "./database-actions";
@@ -368,6 +372,7 @@ export type TesseraStudioRuntimeBuild = Readonly<{
   sessionMemory?: TesseraSessionMemory;
   /** Undefined only when no provider credential source has been configured. */
   agent?: StudioAgent;
+  feishuAgent?: StudioAgent;
   databaseActions?: TesseraDatabaseActionService;
   close(): Promise<void>;
 }>;
@@ -387,6 +392,7 @@ export type TesseraStudioRuntimeGeneration = Readonly<{
   dataAgent: DataAgent;
   sessionMemory?: TesseraSessionMemory;
   agent?: StudioAgent;
+  feishuAgent?: StudioAgent;
   databaseActions?: TesseraDatabaseActionService;
 }>;
 
@@ -450,14 +456,18 @@ type RuntimeRecord = {
  * as Studio's static runtime. The current Data Agent remains the only SQL
  * execution boundary, so a `read-write` UI setting cannot widen Agent SQL.
  */
-export function createDefaultTesseraStudioRuntimeFactory(): TesseraStudioRuntimeFactory {
+export function createDefaultTesseraStudioRuntimeFactory(host: Readonly<{
+  feishuConnections?: FeishuConnectionService;
+  createSessionMemory?: () => TesseraSessionMemory;
+  createFeishuAgent?: (input: Readonly<{ memory: TesseraSessionMemory; llm: TesseraLlmConfig }>) => StudioAgent;
+}> = {}): TesseraStudioRuntimeFactory {
   return Object.freeze({
     async create(config, options) {
       const connector = createManagedConnector(config);
       let sessionMemory: TesseraSessionMemory | undefined;
       let continualHarness: ReturnType<typeof createTesseraContinualHarness> | undefined;
       try {
-        sessionMemory = createTesseraSessionMemory();
+        sessionMemory = host.createSessionMemory?.() ?? createTesseraSessionMemory();
         const dataAgent = createDataAgent({
           connector,
           ...(config.semantic === undefined ? {} : { semantic: config.semantic }),
@@ -509,12 +519,18 @@ export function createDefaultTesseraStudioRuntimeFactory(): TesseraStudioRuntime
               sqlStatements: config.database.permissions.sqlStatements,
             },
           });
+        const feishuAgent = llm === undefined ? undefined : host.createFeishuAgent?.({ memory: sessionMemory, llm })
+          ?? (host.feishuConnections ? createTesseraStudioFeishuAgent({
+            reader: host.feishuConnections.reader, memory: sessionMemory.memory, llm,
+            model: toMastraModelConfig(llm), defaultIdentity: LOCAL_STUDIO_IDENTITY,
+          }) : undefined);
         let closeTask: Promise<void> | undefined;
         return Object.freeze({
           connector,
           dataAgent,
           sessionMemory,
           ...(agent === undefined ? {} : { agent }),
+          ...(feishuAgent === undefined ? {} : { feishuAgent }),
           ...(databaseActions === undefined ? {} : { databaseActions }),
           close() {
             closeTask ??= Promise.allSettled([
@@ -786,6 +802,35 @@ export class TesseraStudioRuntimeManager {
     }
   }
 
+  /** Lists models through the active provider using server-held credentials. */
+  async listModels(
+    candidateInput?: unknown,
+    options: Readonly<{ signal?: AbortSignal }> = {},
+  ) {
+    if (this.#closed) throw new TesseraSettingsRuntimeError("runtime_closed", "Tessera Studio is shutting down.");
+    const snapshot = this.getSnapshot();
+    const candidate = candidateInput ?? {
+      database: {
+        dialect: snapshot.database.dialect,
+        accessMode: snapshot.database.accessMode,
+      },
+      llm: {
+        provider: snapshot.llm.provider,
+        model: snapshot.llm.model,
+        reasoningEffort: snapshot.llm.reasoningEffort,
+        ...(snapshot.llm.baseUrl === undefined ? {} : { baseUrl: snapshot.llm.baseUrl }),
+      },
+      limits: snapshot.limits,
+      permissions: snapshot.permissions,
+    };
+    const state = normalizeTesseraStudioSettings(this.#current.config, candidate);
+    try {
+      return await fetchStudioProviderModelCatalog(resolveTesseraLlmConfig(state.config), options);
+    } catch {
+      throw new TesseraSettingsRuntimeError("model_unavailable", "Tessera could not load models from the selected provider.");
+    }
+  }
+
   /** Sends a minimal request to the selected provider without rotating the active runtime. */
   async testModel(
     candidateInput: unknown,
@@ -1004,6 +1049,7 @@ async function buildRuntimeRecord(
       dataAgent: build.dataAgent,
       ...(build.sessionMemory === undefined ? {} : { sessionMemory: build.sessionMemory }),
       ...(build.agent === undefined ? {} : { agent: build.agent }),
+      ...(build.feishuAgent === undefined ? {} : { feishuAgent: build.feishuAgent }),
       // Factories are injectable, so enforce the access-mode boundary here as
       // well as in the default factory. A read-only generation must never
       // expose a mutation service to Studio routes. The injected build is

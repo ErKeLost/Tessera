@@ -13,12 +13,13 @@ export const packageGraph: readonly PackageDefinition[] = [
   { directory: "packages/database", name: "@open-tessera/database", dependencies: [] },
   { directory: "packages/data-agent", name: "@open-tessera/data-agent", dependencies: ["@open-tessera/database"] },
   { directory: "packages/tessera-agent", name: "@open-tessera/agent", dependencies: ["@open-tessera/data-agent", "@open-tessera/database"] },
+  { directory: "packages/feishu", name: "@open-tessera/feishu", dependencies: ["@open-tessera/agent"] },
   { directory: "packages/mongodb", name: "@open-tessera/mongodb", dependencies: ["@open-tessera/database"] },
   { directory: "packages/mysql", name: "@open-tessera/mysql", dependencies: ["@open-tessera/database"] },
   { directory: "packages/postgres", name: "@open-tessera/postgres", dependencies: ["@open-tessera/database"] },
   { directory: "packages/sqlite", name: "@open-tessera/sqlite", dependencies: ["@open-tessera/database"] },
   { directory: "packages/turso", name: "@open-tessera/turso", dependencies: ["@open-tessera/sqlite"] },
-  { directory: "apps/studio", name: "@open-tessera/studio", dependencies: ["@open-tessera/agent", "@open-tessera/capabilities", "@open-tessera/compiler", "@open-tessera/data-agent", "@open-tessera/database", "@open-tessera/mongodb", "@open-tessera/mysql", "@open-tessera/postgres", "@open-tessera/runtime", "@open-tessera/schema", "@open-tessera/sqlite", "@open-tessera/turso"] },
+  { directory: "apps/studio", name: "@open-tessera/studio", dependencies: ["@open-tessera/agent", "@open-tessera/capabilities", "@open-tessera/compiler", "@open-tessera/data-agent", "@open-tessera/database", "@open-tessera/feishu", "@open-tessera/mongodb", "@open-tessera/mysql", "@open-tessera/postgres", "@open-tessera/runtime", "@open-tessera/schema", "@open-tessera/sqlite", "@open-tessera/turso"] },
 ];
 
 export const packageByName = new Map(packageGraph.map((definition) => [definition.name, definition]));

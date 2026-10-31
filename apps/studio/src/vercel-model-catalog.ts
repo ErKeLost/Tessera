@@ -39,7 +39,12 @@ export function parseVercelModelCatalog(value: unknown): OpenRouterModelCatalog 
   ));
   return {
     models: parseOpenRouterModelRecords({ data: languageModels })
-      .map(({ id, name }) => ({ id, name, family: id.split("/")[0] ?? "Vercel" }))
+      .map(({ id, name, contextWindow }) => ({
+        id,
+        name,
+        family: id.split("/")[0] ?? "Vercel",
+        ...(contextWindow === undefined ? {} : { contextWindow }),
+      }))
       .sort((a, b) => a.family.localeCompare(b.family) || a.name.localeCompare(b.name)),
   };
 }

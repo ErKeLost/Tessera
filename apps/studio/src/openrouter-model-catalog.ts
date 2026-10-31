@@ -23,6 +23,7 @@ export type OpenRouterModelOption = Readonly<{
   id: string;
   name: string;
   family: string;
+  contextWindow?: number;
   reasoning?: OpenRouterReasoningCapability;
 }>;
 
@@ -39,6 +40,7 @@ export type OpenRouterModelRecord = Readonly<{
   id: string;
   name: string;
   created: number;
+  contextWindow?: number;
   reasoning?: OpenRouterReasoningCapability;
 }>;
 
@@ -163,11 +165,13 @@ function parseOpenRouterModelRecord(value: unknown): OpenRouterModelRecord | und
   if (id === undefined || !supportsTextOutput(record)) return undefined;
   const name = readText(record?.name, MAX_MODEL_NAME_LENGTH) ?? id;
   const created = readTimestamp(record?.created);
+  const contextWindow = readPositiveInteger(record?.context_length);
   const reasoning = parseReasoningCapability(record?.reasoning);
   return Object.freeze({
     id,
     name,
     created,
+    ...(contextWindow === undefined ? {} : { contextWindow }),
     ...(reasoning === undefined ? {} : { reasoning }),
   });
 }
@@ -196,6 +200,7 @@ function toModelOption(model: OpenRouterModelRecord): OpenRouterModelOption {
     id: model.id,
     name: model.name,
     family: formatModelFamily(modelProvider(model.id)),
+    ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
     ...(model.reasoning === undefined ? {} : { reasoning: model.reasoning }),
   });
 }
@@ -253,6 +258,10 @@ function readText(value: unknown, maximumLength: number): string | undefined {
 
 function readTimestamp(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+function readPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

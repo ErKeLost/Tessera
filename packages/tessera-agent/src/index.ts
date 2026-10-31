@@ -1,5 +1,6 @@
 export * from "./contracts";
 export * from "./evidence";
+export * from "./feishu";
 export * from "./identity";
 export * from "./mastra-agent";
 export * from "./memory";

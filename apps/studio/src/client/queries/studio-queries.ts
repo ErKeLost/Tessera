@@ -14,6 +14,7 @@ import {
   fetchStudioThreadMessages,
   fetchStudioThreads,
   renameStudioThread,
+  requestJson,
 } from "../api/studio-api";
 
 export const studioQueryKeys = {
@@ -25,14 +26,16 @@ export const studioQueryKeys = {
   threads: ["studio", "threads"] as const,
 };
 
-export function useStudioWorkspaceQueries() {
+export function useStudioWorkspaceQueries(databaseEnabled = true) {
   return {
     catalog: useQuery({
+      enabled: databaseEnabled,
       queryKey: studioQueryKeys.catalog,
       queryFn: ({ signal }) => fetchStudioCatalog({ signal }),
       staleTime: 30_000,
     }),
     connection: useQuery({
+      enabled: databaseEnabled,
       queryKey: studioQueryKeys.connection,
       queryFn: ({ signal }) => fetchStudioConnection(signal),
       refetchInterval: 60_000,
@@ -44,6 +47,12 @@ export function useStudioWorkspaceQueries() {
       staleTime: Infinity,
     }),
   };
+}
+
+export type StudioFeishuStatus = { available: boolean; configured: boolean; connected: boolean; appId?: string; expiresAt?: string; callbackPath: string };
+
+export function useStudioFeishuQuery(enabled: boolean) {
+  return useQuery({ queryKey: ["studio", "feishu"], queryFn: ({ signal }) => requestJson<StudioFeishuStatus>("/api/feishu", { signal }), enabled, staleTime: 5_000, refetchOnWindowFocus: true });
 }
 
 export function useStudioSettingsQuery() {
@@ -77,7 +86,7 @@ export function useStudioThreadMutations() {
 
   return {
     create: useMutation({
-      mutationFn: () => createStudioThread(),
+      mutationFn: (agentType: "database" | "feishu" = "database") => createStudioThread(agentType),
       onSuccess: () => invalidateThreads(),
     }),
     clear: useMutation({

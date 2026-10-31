@@ -13,8 +13,8 @@ export function StudioChatRoute() {
   const location = useLocation();
   const navigate = useNavigate();
   const threadId = rawThreadId ? decodeURIComponent(rawThreadId) : undefined;
-  const { activeThreadId, agentPageContext, openSettings } = useStudioRouteContext();
-  const messages = useStudioThreadMessagesQuery(threadId);
+  const { activeThread, activeThreadId, threadsLoading, agentPageContext, agentType, isFeishu, openFeishuAuthorization, openSettings } = useStudioRouteContext();
+  const messages = useStudioThreadMessagesQuery(activeThread?.agentType === agentType ? threadId : undefined);
   const initialPromptRef = useRef(
     (location.state as { initialPrompt?: string } | null)?.initialPrompt,
   );
@@ -25,9 +25,10 @@ export function StudioChatRoute() {
     }
   }, [location.pathname, location.state, navigate]);
 
-  if (!threadId || (activeThreadId && activeThreadId !== threadId)) {
-    return <Navigate replace to="/" />;
+  if (!threadId || (activeThreadId && activeThreadId !== threadId) || (activeThread && activeThread.agentType !== agentType)) {
+    return <Navigate replace to={isFeishu ? "/feishu" : "/"} />;
   }
+  if (!activeThread) return threadsLoading ? <section aria-busy="true" className="studio-chat-route" /> : <Navigate replace to={isFeishu ? "/feishu" : "/"} />;
   if (messages.isLoading) {
     return <section aria-busy="true" aria-label="Data analysis conversation" className="studio-chat-route" />;
   }
@@ -42,6 +43,8 @@ export function StudioChatRoute() {
         onOpenSettings={openSettings}
         onThreadActivity={() => { void messages.refetch(); }}
         threadId={threadId}
+        agentType={agentType}
+        onOpenFeishuAuthorization={openFeishuAuthorization}
         workspaceContext={agentPageContext}
       />
     </section>
@@ -51,6 +54,7 @@ export function StudioChatRoute() {
 /** Root and /chat are both entry points into the sole Chat surface. */
 export function StudioChatEntryRoute() {
   const navigate = useNavigate();
+  const { agentType, chatPath } = useStudioRouteContext();
   const createMutation = useStudioThreadMutations().create;
   const requested = useRef(false);
 
@@ -58,12 +62,12 @@ export function StudioChatEntryRoute() {
     if (requested.current || createMutation.isPending) return;
     requested.current = true;
     try {
-      const created = await createMutation.mutateAsync();
-      navigate(`/chat/${encodeURIComponent(created.id)}`, { replace: true });
+      const created = await createMutation.mutateAsync(agentType);
+      navigate(chatPath(created.id), { replace: true });
     } catch {
       requested.current = false;
     }
-  }, [createMutation, navigate]);
+  }, [agentType, chatPath, createMutation, navigate]);
 
   useEffect(() => {
     void openConversation();

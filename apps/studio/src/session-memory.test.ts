@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { Agent } from "@mastra/core/agent";
-import { mkdtempSync, rmSync } from "node:fs";
+import { LibSQLStore } from "@mastra/libsql";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   createTesseraSessionMemory,
+  tesseraSessionResourceId,
   tesseraWorkingMemoryOptions,
   tesseraWorkingMemorySchema,
 } from "./session-memory";
@@ -68,6 +70,22 @@ function streamingTestModel() {
 }
 
 describe("Tessera Studio UI transcript memory", () => {
+  test("uses host storage without creating a local database or closing the shared store", async () => {
+    const rootDirectory = temporaryRoot();
+    const storage = new LibSQLStore({ id: "injected-storage", url: ":memory:" });
+    const sessions = createTesseraSessionMemory({ storage, closeStorage: false, rootDirectory });
+    try {
+      await sessions.createThread({ id: "cloud-thread", resourceId: "cloud-resource", agentType: "feishu" });
+      await sessions.close();
+      expect(existsSync(join(rootDirectory, ".tessera"))).toBe(false);
+      const reopened = createTesseraSessionMemory({ storage, closeStorage: false, rootDirectory });
+      try {
+        expect(await reopened.getThread({ id: "cloud-thread", resourceId: "cloud-resource" }))
+          .toMatchObject({ id: "cloud-thread", agentType: "feishu" });
+      } finally { await reopened.close(); }
+    } finally { await storage.close(); }
+  });
+
   test("uses resource-scoped schema working memory with keyed incremental domain rules", () => {
     expect(tesseraWorkingMemoryOptions).toMatchObject({
       enabled: true,
@@ -710,5 +728,20 @@ describe("Tessera Studio UI transcript memory", () => {
     } finally {
       await sessions.close();
     }
+  });
+});
+
+describe("Tessera Studio session resource owner", () => {
+  test("keeps the local identity on the stable local resource", () => {
+    expect(tesseraSessionResourceId()).toBe("local-studio");
+    expect(tesseraSessionResourceId({ tenantId: "local-studio", subject: "local-user" })).toBe("local-studio");
+  });
+
+  // Mastra forwards this value as the `x-resource-id` model request header, and
+  // a control character makes strict provider gateways answer with an empty 400.
+  test("stays header-safe for a remote identity", () => {
+    const resourceId = tesseraSessionResourceId({ tenantId: "acme-prod", subject: "user@example.com" });
+    expect(resourceId).toMatch(/^[\u0020-\u007e]+$/u);
+    expect(resourceId).toBe("tenant:acme-prod:subject:user%40example.com");
   });
 });

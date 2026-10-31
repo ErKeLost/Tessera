@@ -92,6 +92,70 @@ application and Studio runtime as the Nitro deployment.
 The package exports the server factory and the `./main` command entry for
 integrations that embed Tessera Studio.
 
+## Source-specific Agents
+
+Local Studio uses `.tessera/memory.db` for Mastra sessions and
+`.tessera/actions.db` for action state. The Netlify runtime uses PostgreSQL
+when `TESSERA_CLOUD=true`: configure `TESSERA_STORAGE_DATABASE_URL` as a
+server-side secret and keep `TESSERA_ACCESS_KEY` stable for login and encrypted
+settings. `DATABASE_URL` continues to mean the database being analysed; the
+cloud storage URL is a separate connection. Cloud session tables are initialized
+automatically through `@mastra/pg`. The local CLI continues using SQLite.
+
+Studio keeps the database Agent as the default and can host a parallel Feishu
+Agent through the same Mastra and Chat UI boundary. The Feishu implementation
+uses only `search_feishu_documents` and `read_feishu_document`; it receives a
+host-owned `TesseraFeishuReader`, so Feishu user access tokens and permission
+checks stay server-side.
+
+```ts
+import { createTesseraStudioFeishuAgent } from "@open-tessera/studio";
+import { createFeishuApiReader } from "@open-tessera/feishu";
+
+const feishuAgent = createTesseraStudioFeishuAgent({
+  reader: createFeishuApiReader({ tokenProvider }),
+  memory,
+  llm,
+  model,
+  mastra,
+  defaultIdentity,
+});
+
+await createTesseraStudioRuntime(config, { feishuAgent });
+```
+
+The ordinary `/` entry uses the database Agent and displays no Feishu controls.
+The `/feishu` entry, Feishu client user agent, or a Feishu workspace referrer
+selects the Feishu experience. That experience displays no database explorer,
+database settings, or database permissions. Threads keep their source type;
+history is filtered by the current experience, and the server rejects switching
+an existing thread to a different Agent type. Environment detection controls
+presentation; OAuth and the downstream API remain the authorization boundary.
+
+## Connecting Feishu
+
+1. Create an enterprise app in the [Feishu developer console](https://open.feishu.cn/app).
+2. Enable the user scopes `docx:document:readonly`, `wiki:wiki:readonly`,
+   `docs:doc:readonly`, and `offline_access`. Publish the app version and make
+   your account part of its available user range.
+3. Set the app homepage to `https://YOUR_STUDIO_DOMAIN/feishu` and add
+   `https://YOUR_STUDIO_DOMAIN/api/feishu/callback` to its redirect URL list.
+4. Open the Feishu entry. Its authorization dialog accepts App ID and App
+   Secret and starts the OAuth consent flow. App credentials and user tokens
+   are encrypted in PostgreSQL on Netlify or in the local SQLite action store.
+5. Configure the model in Settings, then paste a docx/Wiki URL or ask the Agent
+   to search documents. Tokens refresh automatically; reconnect through the
+   same dialog to renew or disconnect consent.
+
+The current single-owner workspace shares its Feishu connection with everyone
+who can sign in to that workspace. Reads are performed with that authorized
+Feishu user's access token, never with an application-wide tenant token.
+The current reader supports newer cloud documents and Wiki nodes containing
+cloud documents, including paginated text. Sheets, Bitable, and attachments need
+their own content adapters; a search result of one of those types does not imply
+its contents were read. Feishu's document search also has a bounded result window
+and must not be presented as a full tenant inventory.
+
 ## Continual harness
 
 Studio uses an independent Reviewer/Planner harness to turn evidence-backed

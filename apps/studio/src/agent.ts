@@ -41,6 +41,7 @@ export type TesseraStudioAgentOptions = Readonly<{
 }>;
 
 export type TesseraStudioAgent = TesseraAgent & Readonly<{
+  agentType: "database";
   catalogLoading: "data-agent";
   continualHarness?: TesseraContinualHarness;
 }>;
@@ -83,6 +84,7 @@ export function createTesseraStudioAgent(
   });
 
   return {
+    agentType: "database",
     ...agent,
     catalogLoading: "data-agent",
     ...(options.continualHarness === undefined

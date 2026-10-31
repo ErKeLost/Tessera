@@ -10,6 +10,7 @@ import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { StudioApp } from "./studio-app";
 import { StudioThemeProvider } from "./studio-theme";
+import { HeroToastHost } from "./components/generative/heroui-genui/native-catalog";
 
 console.info(`[Tessera Studio] v${__TESSERA_STUDIO_VERSION__}`);
 
@@ -33,6 +34,7 @@ createRoot(root).render(
           <StudioApp />
           {/* Sonner needs the theme provider above it and one mount for the whole app. */}
           <Toaster />
+          <HeroToastHost />
         </TooltipProvider>
       </StudioThemeProvider>
     </BrowserRouter>

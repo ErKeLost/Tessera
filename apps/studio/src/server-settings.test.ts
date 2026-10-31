@@ -243,6 +243,71 @@ describe("Tessera Studio Settings routes", () => {
     } finally { await manager.close(); }
   });
 
+  test("lists custom gateway models through the active runtime without exposing its key", async () => {
+    const requestAuthorizations: string[] = [];
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        requestAuthorizations.push(request.headers.get("authorization") ?? "");
+        return Response.json({ data: [{ id: "deepseek-flash", name: "DeepSeek Flash", context_length: 64_000 }] });
+      },
+    });
+    const { app, manager } = await createManagedApp();
+    try {
+      const saved = await app.fetch(jsonRequest("/api/settings", "PUT", settingsCandidate({ llm: {
+        provider: "custom",
+        model: "deepseek-flash",
+        apiKey: "custom-catalog-secret",
+        baseUrl: `http://127.0.0.1:${gateway.port}/v1`,
+      } })));
+      expect(saved.status).toBe(200);
+
+      const response = await app.fetch(request("/api/settings/models?provider=custom"));
+      const catalog = await response.json();
+      expect(response.status).toBe(200);
+      expect(catalog).toMatchObject({ models: [{ id: "deepseek-flash", name: "DeepSeek Flash", contextWindow: 64_000 }] });
+      expect(requestAuthorizations).toEqual(["Bearer custom-catalog-secret"]);
+      expect(JSON.stringify(catalog)).not.toContain("custom-catalog-secret");
+      expect(manager.getSnapshot().llm.provider).toBe("custom");
+    } finally {
+      await manager.close();
+      await gateway.stop(true);
+    }
+  });
+
+  test("requires settings-test authorization before querying a configured custom provider", async () => {
+    let requests = 0;
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch() {
+        requests += 1;
+        return Response.json({ data: [{ id: "model" }] });
+      },
+    });
+    const { app, manager } = await createManagedApp({
+      authenticate: () => IDENTITY,
+      authorizeSettingsChange: () => false,
+    });
+    try {
+      await manager.replace(settingsCandidate({ llm: {
+        provider: "custom",
+        model: "model",
+        apiKey: "custom-catalog-secret",
+        baseUrl: `http://127.0.0.1:${gateway.port}/v1`,
+      } }));
+
+      const response = await app.fetch(request("/api/settings/models?provider=custom"));
+      expect(response.status).toBe(403);
+      expect(await response.json()).toMatchObject({ error: { code: "settings_change_denied" } });
+      expect(requests).toBe(0);
+    } finally {
+      await manager.close();
+      await gateway.stop(true);
+    }
+  });
+
   test("Jev evaluation enforces settings authorization before validating or calling the model", async () => {
     const { app, manager } = await createManagedApp({
       authenticate: () => IDENTITY,

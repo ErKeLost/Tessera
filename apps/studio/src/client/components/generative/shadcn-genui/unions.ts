@@ -16,16 +16,6 @@ import { Separator } from "./components/separator";
 import { TextContent } from "./components/text-content";
 import { Blockquote, Heading, InlineCode } from "./components/typography";
 
-import {
-  AreaChartCondensed,
-  BarChartCondensed,
-  LineChartCondensed,
-  PieChartComponent,
-  RadarChartComponent,
-  RadialChartComponent,
-  ScatterChartComponent,
-} from "./components/charts";
-
 import { Table } from "./components/table";
 import { TagBlock } from "./components/tag";
 
@@ -89,13 +79,6 @@ export const ContentChildUnion = z.union([
   ImageBlock.ref,
   Progress.ref,
   Separator.ref,
-  BarChartCondensed.ref,
-  LineChartCondensed.ref,
-  AreaChartCondensed.ref,
-  PieChartComponent.ref,
-  RadarChartComponent.ref,
-  RadialChartComponent.ref,
-  ScatterChartComponent.ref,
   Table.ref,
   TagBlock.ref,
   Form.ref,

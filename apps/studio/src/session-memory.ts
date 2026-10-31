@@ -8,11 +8,13 @@
 import { LibSQLStore } from "@mastra/libsql";
 import { Memory } from "@mastra/memory";
 import type { StorageThreadType } from "@mastra/core/memory";
+import type { MastraCompositeStore } from "@mastra/core/storage";
 import { createHash, randomUUID } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
+  tesseraAgentResourceId,
   tesseraWorkingMemoryOptions,
   tesseraWorkingMemorySchema,
   type TesseraWorkingMemory,
@@ -20,6 +22,7 @@ import {
 import { z } from "zod";
 import type { TesseraUIMessage } from "./protocol";
 import { sanitizeStudioErrorText } from "./studio-logger";
+import { isAnswerState, type AnswerState } from "./generative/answer-state";
 
 export {
   tesseraWorkingMemoryOptions,
@@ -30,6 +33,9 @@ export {
 const SESSION_DIRECTORY = ".tessera";
 const SESSION_DATABASE_FILE = "memory.db";
 const UI_TRANSCRIPT_METADATA_KEY = "tesseraUiTranscriptV1";
+const AGENT_TYPE_METADATA_KEY = "tesseraAgentTypeV1";
+const ANSWER_STATE_METADATA_KEY = "tesseraAnswerStateV1";
+const ANSWER_SOURCE_IDS_METADATA_KEY = "tesseraAnswerSourceIdsV1";
 const DEFAULT_HISTORY_MESSAGE_LIMIT = 32;
 const MAX_THREAD_TITLE_LENGTH = 120;
 const MAX_UI_MESSAGES = 64;
@@ -62,6 +68,7 @@ export type TesseraSessionThread = Readonly<{
   title: string;
   createdAt: string;
   updatedAt: string;
+  agentType: "database" | "feishu";
 }>;
 
 /** A browser-safe AI SDK message, never a Mastra memory message. */
@@ -69,7 +76,7 @@ export type TesseraSessionMessage = TesseraUIMessage;
 
 export type TesseraSessionMemory = Readonly<{
   memory: Memory;
-  createThread(input: Readonly<{ id: string; resourceId: string; title?: string }>): Promise<TesseraSessionThread>;
+  createThread(input: Readonly<{ id: string; resourceId: string; title?: string; agentType?: "database" | "feishu" }>): Promise<TesseraSessionThread>;
   getThread(input: Readonly<{ id: string; resourceId: string }>): Promise<TesseraSessionThread | undefined>;
   listThreads(input: Readonly<{ resourceId: string; limit?: number }>): Promise<readonly TesseraSessionThread[]>;
   renameThread(input: Readonly<{ id: string; resourceId: string; title: string }>): Promise<TesseraSessionThread | undefined>;
@@ -87,10 +94,15 @@ export type TesseraSessionMemory = Readonly<{
     message: unknown;
   }>): Promise<void>;
   readMessages(input: Readonly<{ id: string; resourceId: string }>): Promise<readonly TesseraSessionMessage[] | undefined>;
+  /** Optional for embedding hosts that do not persist interactive answers. */
+  answerState?(input: Readonly<{ id: string; resourceId: string; messageId: string; contentHash: string; state?: AnswerState }>): Promise<AnswerState | undefined>;
   close(): Promise<void>;
 }>;
 
 export type CreateTesseraSessionMemoryOptions = Readonly<{
+  /** Cloud hosts provide durable storage instead of opening a local SQLite file. */
+  storage?: MastraCompositeStore & { close(): Promise<void> };
+  closeStorage?: boolean;
   /** Defaults to the current project directory, not the analysed database. */
   rootDirectory?: string;
   databaseFileName?: string;
@@ -121,9 +133,9 @@ export function createTesseraSessionMemory(
   }
 
   const directory = join(rootDirectory, SESSION_DIRECTORY);
-  ensurePrivateDirectory(directory);
+  if (!options.storage) ensurePrivateDirectory(directory);
   const databasePath = join(directory, databaseFileName);
-  const storage = new LibSQLStore({
+  const storage = options.storage ?? new LibSQLStore({
     id: "tessera-studio-memory",
     url: pathToFileURL(databasePath).href,
   });
@@ -181,6 +193,7 @@ export function createTesseraSessionMemory(
         threadId: input.id,
         resourceId: input.resourceId,
         ...(input.title === undefined ? {} : { title: normalizeThreadTitle(input.title) }),
+        metadata: { [AGENT_TYPE_METADATA_KEY]: input.agentType ?? "database" },
       });
       return publicThread(thread);
     },
@@ -257,7 +270,15 @@ export function createTesseraSessionMemory(
 
         await memory.updateThread({
           id: input.id,
-          metadata: { [UI_TRANSCRIPT_METADATA_KEY]: boundedTranscript(messages) },
+          metadata: {
+            [UI_TRANSCRIPT_METADATA_KEY]: boundedTranscript(messages),
+            // Stream IDs belong to AI SDK; restored IDs belong to the durable
+            // checkpoint. Both must resolve to the same interactive answer.
+            [ANSWER_SOURCE_IDS_METADATA_KEY]: Object.fromEntries([
+              ...Object.entries(asRecord(thread.metadata?.[ANSWER_SOURCE_IDS_METADATA_KEY]) ?? {}),
+              ...(typeof asRecord(input.message)?.id === "string" ? [[String(asRecord(input.message)!.id), checkpointMessageId]] : []),
+            ].slice(-64)),
+          },
         });
       });
     },
@@ -267,12 +288,34 @@ export function createTesseraSessionMemory(
       if (!thread) return undefined;
       return sanitizeStoredTranscript(thread.metadata?.[UI_TRANSCRIPT_METADATA_KEY]).messages;
     },
+    async answerState(input) {
+      return queueTranscriptUpdate(input, async () => {
+        const thread = await memory.getThreadById({ threadId: input.id, resourceId: input.resourceId });
+        if (!thread) return undefined;
+        const transcript = sanitizeStoredTranscript(thread.metadata?.[UI_TRANSCRIPT_METADATA_KEY]);
+        const aliases = asRecord(thread.metadata?.[ANSWER_SOURCE_IDS_METADATA_KEY]) ?? {};
+        const durableId = aliases[input.messageId] ?? input.messageId;
+        const message = transcript.messages.find((entry) => entry.id === durableId && entry.role === "assistant");
+        // A browser can only attach state to a real, immutable assistant program.
+        if (!message?.parts.some((part) => part.type === "text" && createHash("sha256").update(part.text).digest("hex") === input.contentHash)) return undefined;
+        const entries = asRecord(thread.metadata?.[ANSWER_STATE_METADATA_KEY]) ?? {};
+        const key = `${message.id}:${input.contentHash}`;
+        if (input.state === undefined) return isAnswerState(entries[key]) ? entries[key] : {};
+        if (!isAnswerState(input.state)) throw new TypeError("The answer state is invalid.");
+        // Bound retained UI state independently from conversation history.
+        const retained = [...Object.entries(entries).filter(([name]) => name !== key), [key, input.state] as const].slice(-32);
+        while (retained.length > 1 && JSON.stringify(retained).length > 256 * 1024) retained.shift();
+        const updated = Object.fromEntries(retained);
+        await memory.updateThread({ id: input.id, metadata: { ...thread.metadata, [ANSWER_STATE_METADATA_KEY]: updated } });
+        return input.state;
+      });
+    },
     async close() {
       await Promise.all([...transcriptUpdates.values()]);
-      await storage.close();
+      if (options.closeStorage !== false) await storage.close();
       // LibSQL creates the file lazily. Tighten its mode only after it exists
       // and never follow a symlink when doing so.
-      if (existsSync(databasePath)) {
+      if (!options.storage && existsSync(databasePath)) {
         const metadata = lstatSync(databasePath);
         if (metadata.isFile() && !metadata.isSymbolicLink()) chmodSync(databasePath, 0o600);
       }
@@ -285,7 +328,8 @@ export function tesseraSessionResourceId(identity?: Readonly<{ tenantId: string;
   if (!identity
     || (identity.tenantId === LOCAL_STUDIO_IDENTITY.tenantId
       && identity.subject === LOCAL_STUDIO_IDENTITY.subject)) return "local-studio";
-  return `tenant:${identity.tenantId}\u001fsubject:${identity.subject}`;
+  // Delegates so the id Mastra forwards as `x-resource-id` stays header-safe.
+  return tesseraAgentResourceId({ tenantId: identity.tenantId, subject: identity.subject });
 }
 
 /** Produces a compact local title without a second model call. */
@@ -299,6 +343,7 @@ function publicThread(thread: StorageThreadType): TesseraSessionThread {
     title: normalizeThreadTitle(thread.title ?? "New analysis"),
     createdAt: toIsoString(thread.createdAt),
     updatedAt: toIsoString(thread.updatedAt),
+    agentType: thread.metadata?.[AGENT_TYPE_METADATA_KEY] === "feishu" ? "feishu" : "database",
   });
 }
 
@@ -437,6 +482,16 @@ function sanitizeUiMessage(input: unknown, forcedMessageId?: string): TesseraSes
     }
     if (part.type === "tool-prepare_analysis") {
       parts.push(sanitizeAnalysisToolPart(part, context, parts.length));
+      continue;
+    }
+    if (part.type === "tool-search_feishu_documents" || part.type === "tool-read_feishu_document") {
+      const toolName = part.type === "tool-search_feishu_documents" ? "search_feishu_documents" : "read_feishu_document";
+      const output = asRecord(part.output);
+      const status = output?.status === "completed" || output?.status === "denied" || output?.status === "not_found" ? output.status : "unavailable";
+      parts.push({ type: part.type, toolCallId: storedPartId(part.toolCallId, `${messageId}-tool-${parts.length + 1}`), state: "output-available",
+        input: { action: toolName }, output: { status, truncated: output?.truncated === true }, providerExecuted: true,
+        title: toolName === "search_feishu_documents" ? "搜索文档" : "读取文档",
+      } as TesseraUIMessage["parts"][number]);
       continue;
     }
   }

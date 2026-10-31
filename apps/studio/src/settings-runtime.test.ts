@@ -242,6 +242,41 @@ describe("Tessera Studio settings runtime", () => {
     }
   });
 
+  test("lists models from a candidate gateway with server-side credentials without replacing the runtime", async () => {
+    const requests: Array<{ path: string; authorization: string | null }> = [];
+    const gateway = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch(request) {
+        requests.push({ path: new URL(request.url).pathname, authorization: request.headers.get("authorization") });
+        return Response.json({ data: [{ id: "deepseek-flash", name: "DeepSeek Flash" }] });
+      },
+    });
+    const tracker: BuildTracker = { closed: 0, records: [] };
+    const manager = await createTesseraStudioRuntimeManager({ config: baseConfig, factory: createFactory(tracker) });
+    try {
+      const catalog = await manager.listModels(candidate({ llm: {
+        provider: "custom",
+        model: "deepseek-flash",
+        apiKey: "catalog-secret",
+        baseUrl: `http://127.0.0.1:${gateway.port}/v1`,
+      } }));
+
+      expect(catalog.models).toEqual([{
+        id: "deepseek-flash",
+        name: "DeepSeek Flash",
+        family: "Custom gateway",
+      }]);
+      expect(requests).toEqual([{ path: "/v1/models", authorization: "Bearer catalog-secret" }]);
+      expect(JSON.stringify(catalog)).not.toContain("catalog-secret");
+      expect(manager.getSnapshot().llm.provider).toBe("openrouter");
+      expect(tracker.records).toHaveLength(1);
+    } finally {
+      await manager.close();
+      await gateway.stop(true);
+    }
+  });
+
   test("does not publish database mutations from a read-only generation", async () => {
     const manager = await createTesseraStudioRuntimeManager({
       config: baseConfig,

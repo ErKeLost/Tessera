@@ -7,5 +7,6 @@ export function isStudioResumePayload(value: unknown): value is Record<string, u
     && typeof body.runId === "string"
     && typeof body.toolCallId === "string"
     && typeof body.requestId === "string"
-    && typeof body.checkpointId === "string";
+    && typeof body.checkpointId === "string"
+    && (body.agentType === undefined || body.agentType === "database" || body.agentType === "feishu");
 }

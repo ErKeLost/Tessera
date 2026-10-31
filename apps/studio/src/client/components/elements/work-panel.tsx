@@ -51,7 +51,7 @@ export function WorkPanel({
       onOpenChange={onOpenChange}
       className={cn("w-full max-w-sm", className)}
     >
-      <CollapsibleTrigger className="group/trigger text-foreground/55 hover:text-foreground/90 flex items-center gap-1.5 py-1 text-[13.5px] transition-[color,scale] outline-none active:scale-[0.98]">
+      <CollapsibleTrigger className="group/trigger text-foreground/70 hover:text-foreground flex items-center gap-1.5 py-1 text-[13.5px] transition-[color,scale] outline-none active:scale-[0.98]">
         <ChevronRightIcon className="size-3.5 shrink-0 opacity-60 transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)] group-data-[state=open]/trigger:rotate-90 motion-reduce:transition-none" />
         <SwapLabel active={streaming ? 0 : 1} className="text-start">
           <>
@@ -62,7 +62,7 @@ export function WorkPanel({
               Working
             </ShimmerLabel>
             {elapsed !== undefined && (
-              <span className={cn(mono, "text-foreground/30 tabular-nums")}>
+              <span className={cn(mono, "text-foreground/55 tabular-nums")}>
                 {`for ${elapsed}`}
               </span>
             )}
@@ -70,7 +70,7 @@ export function WorkPanel({
           <>{`Worked${suffix}`}</>
         </SwapLabel>
         {detail === undefined ? null : (
-          <span className={cn(mono, "text-foreground/30 ms-auto tabular-nums")}>
+          <span className={cn(mono, "text-foreground/55 ms-auto tabular-nums")}>
             {detail}
           </span>
         )}

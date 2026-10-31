@@ -20,11 +20,11 @@ export function modelReasoningOptions(
   effort = llm.reasoningEffort,
 ) {
   const providerOptions = { ...llm.providerOptions };
-  if (typeof llm.model === "string" && llm.model.startsWith("openrouter/") && effort !== undefined) {
-    providerOptions.openrouter = {
-      ...providerOptions.openrouter,
-      reasoning: { effort },
-    };
+  const [provider] = typeof llm.model === "string" ? llm.model.split("/", 1) : [];
+  if (provider === "openrouter" && effort !== undefined) {
+    providerOptions.openrouter = { ...providerOptions.openrouter, reasoning: { effort } };
+  } else if ((provider === "custom" || provider === "openai") && effort !== undefined) {
+    providerOptions[provider] = { ...providerOptions[provider], reasoningEffort: effort };
   }
   return Object.keys(providerOptions).length ? { providerOptions } : {};
 }

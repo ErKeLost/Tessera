@@ -1,8 +1,8 @@
 import { generateSystemPrompt } from "@openuidev/lang-core";
 import {
-  shadcnChatLibrary,
-  shadcnPromptOptions,
-} from "../client/components/generative/shadcn-genui";
+  heroChatLibrary,
+  heroPromptOptions,
+} from "../client/components/generative/heroui-genui";
 import {
   answerDatabaseActionPromptRules,
   answerDatabaseActionToolExamples,
@@ -28,9 +28,9 @@ import {
 export type CompiledAnswerPrompts = Readonly<{ base: string; actions: string }>;
 
 export function compileAnswerPrompts(): CompiledAnswerPrompts {
-  const library = shadcnChatLibrary.toSpec();
+  const library = heroChatLibrary.toSpec();
   const readRules = [
-    ...(shadcnPromptOptions.additionalRules ?? []),
+    ...(heroPromptOptions.additionalRules ?? []),
     ...answerReadPromptRules(),
   ];
   const readTools = [
@@ -43,7 +43,7 @@ export function compileAnswerPrompts(): CompiledAnswerPrompts {
     base: generateSystemPrompt({
       library,
       promptOptions: {
-        ...shadcnPromptOptions,
+        ...heroPromptOptions,
         additionalRules: [...readRules, ...answerReadOnlyPromptRules()],
         tools: readTools,
         toolExamples: readExamples,
@@ -52,7 +52,7 @@ export function compileAnswerPrompts(): CompiledAnswerPrompts {
     actions: generateSystemPrompt({
       library,
       promptOptions: {
-        ...shadcnPromptOptions,
+        ...heroPromptOptions,
         additionalRules: [...readRules, ...answerDatabaseActionPromptRules()],
         tools: [...readTools, answerDatabaseActionToolSpec()],
         toolExamples: [...readExamples, ...answerDatabaseActionToolExamples()],

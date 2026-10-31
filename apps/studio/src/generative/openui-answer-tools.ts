@@ -129,11 +129,11 @@ data = Query("relation_preview", { schema: "public", table: "orders" }, { column
 tbl = Table([Col("id", "string"), Col("status", "string")], @Each(data.rows, "row", [row.id, row.status]))
 total = TextContent("Rows: " + @Count(data.rows))`,
 
-    `Example — Grouped metrics for a chart:
-root = Card([header, chart])
+    `Example — Grouped metrics for an analysis table:
+root = Card([header, table])
 header = CardHeader("Orders by status", "Aggregated in the database")
 agg = Query("relation_metrics", { schema: "public", table: "orders", groupBy: ["status"], metrics: [{ fn: "count", alias: "count" }] }, { columns: [], rows: [] })
-chart = BarChart(@Each(agg.rows, "row", row.status), [Series("Orders", @Each(agg.rows, "row", row.count))], "grouped", "Status", "Orders")`,
+table = Table([Col("Status", "string"), Col("Orders", "number")], @Each(agg.rows, "row", [row.status, row.count]))`,
   ];
 }
 

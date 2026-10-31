@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { StudioDatabaseActionEffect } from "../../api/studio-api";
 import {
+  completeAnswerMutation,
   answerActionDetails,
   answerActionMutationResult,
   describeAnswerActionEffect,

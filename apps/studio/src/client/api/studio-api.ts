@@ -15,6 +15,7 @@ export type StudioThreadSummary = Readonly<{
   title: string;
   createdAt: string;
   updatedAt: string;
+  agentType: "database" | "feishu";
 }>;
 
 export type DatabaseDialect = "postgres" | "mysql" | "sqlite" | "turso" | "mongodb";
@@ -66,7 +67,7 @@ export type StudioCatalog = Readonly<{
 
 export type StudioMeta = Readonly<{
   protocolVersion: number;
-  capabilities: Readonly<{ chat: boolean }>;
+  capabilities: Readonly<{ chat: boolean; agentTypes?: readonly ("database" | "feishu")[] }>;
 }>;
 
 export type StudioSettingsStatus = Readonly<{
@@ -134,6 +135,7 @@ type RequestJsonOptions = Readonly<{
 
 export async function requestJson<T>(input: RequestInfo | URL, init?: RequestInit, options: RequestJsonOptions = {}): Promise<T> {
   const response = await fetch(input, init);
+  if (response.status === 401 && typeof window !== "undefined") window.location.assign(window.location.pathname.startsWith("/feishu") ? "/auth/login?next=feishu" : "/auth/login");
   const body = await response.json().catch(() => undefined) as ApiError | T | undefined;
   if (!response.ok && !options.acceptedStatuses?.includes(response.status)) {
     const message = body && typeof body === "object" && "error" in body ? body.error?.message : undefined;
@@ -293,9 +295,9 @@ export async function fetchStudioThreads(signal?: AbortSignal): Promise<readonly
   return readThreadList(await requestJson<unknown>("/api/threads", { signal }));
 }
 
-export async function createStudioThread(signal?: AbortSignal): Promise<StudioThreadSummary> {
+export async function createStudioThread(agentType: "database" | "feishu" = "database", signal?: AbortSignal): Promise<StudioThreadSummary> {
   const body = await requestJson<unknown>("/api/threads", {
-    body: "{}",
+    body: JSON.stringify({ agentType }),
     headers: { "Content-Type": "application/json" },
     method: "POST",
     signal,
@@ -396,6 +398,7 @@ function readThreadSummary(value: unknown): StudioThreadSummary | undefined {
     title: readPublicText(thread?.title, 160) ?? "New analysis",
     createdAt: readPublicText(thread?.createdAt, 64) ?? "",
     updatedAt: readPublicText(thread?.updatedAt, 64) ?? "",
+    agentType: thread?.agentType === "feishu" ? "feishu" : "database",
   };
 }
 

@@ -8,7 +8,7 @@ describe("OpenRouter model catalog", () => {
   test("returns every text model and keeps only valid reasoning efforts", () => {
     const records = parseOpenRouterModelRecords({
       data: [
-        { id: "deepseek/deepseek-v4-pro", name: "Older DeepSeek", created: 10 },
+        { id: "deepseek/deepseek-v4-pro", name: "Older DeepSeek", created: 10, context_length: 128_000 },
         {
           id: "deepseek/deepseek-v4-pro-0813",
           name: "DeepSeek: DeepSeek V4 Pro 0813",
@@ -82,6 +82,7 @@ describe("OpenRouter model catalog", () => {
       defaultEnabled: true,
     });
     expect(catalog.models[5]?.reasoning?.mandatory).toBeTrue();
+    expect(catalog.models.find((model) => model.id === "deepseek/deepseek-v4-pro")).toMatchObject({ contextWindow: 128_000 });
   });
 
   test("includes the configured OpenRouter model when it is older than the provider limit", () => {

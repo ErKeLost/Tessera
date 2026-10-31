@@ -28,7 +28,15 @@ export type AnswerActionOutcome =
 export function resolveAnswerAction(event: ActionEvent): AnswerActionOutcome {
   if (event.type === BuiltinActionType.ContinueConversation) {
     const text = event.humanFriendlyMessage.trim();
-    return text.length === 0 ? { kind: "ignore" } : { kind: "assistant", text };
+    if (text.length === 0) return { kind: "ignore" };
+    // Form submissions must carry the values the reader actually selected.
+    // This is ordinary user input, never authority or private model memory.
+    const details: Record<string, unknown> = {};
+    if (event.formState && Object.keys(event.formState).length > 0) details.formValues = event.formState;
+    if (event.params?.context !== undefined) details.context = event.params.context;
+    let serialized = "";
+    try { serialized = Object.keys(details).length > 0 ? JSON.stringify(details) : ""; } catch { /* Ignore non-JSON custom context. */ }
+    return { kind: "assistant", text: serialized && serialized.length <= 8_000 ? `${text}\n\nSubmitted values (JSON):\n${serialized}` : text };
   }
   if (event.type === COPY_TEXT_ACTION) {
     const text = event.params?.text;

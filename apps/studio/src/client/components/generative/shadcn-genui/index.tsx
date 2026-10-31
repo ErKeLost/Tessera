@@ -18,21 +18,6 @@ import { Progress } from "./components/progress";
 import { Separator } from "./components/separator";
 import { TextContent } from "./components/text-content";
 
-// Charts
-import {
-  AreaChartCondensed,
-  BarChartCondensed,
-  LineChartCondensed,
-  PieChartComponent,
-  Point,
-  RadarChartComponent,
-  RadialChartComponent,
-  ScatterChartComponent,
-  ScatterSeries,
-  Series,
-  Slice,
-} from "./components/charts";
-
 // Forms
 import { CheckBoxGroup, CheckBoxItem } from "./components/checkbox-group";
 import { DatePicker } from "./components/date-picker";
@@ -171,18 +156,6 @@ export const shadcnComponentGroups: ComponentGroup[] = [
     components: ["Table", "Col"],
   },
   {
-    name: "Charts (2D)",
-    components: ["BarChart", "LineChart", "AreaChart", "RadarChart", "Series"],
-  },
-  {
-    name: "Charts (1D)",
-    components: ["PieChart", "RadialChart", "Slice"],
-  },
-  {
-    name: "Charts (Scatter)",
-    components: ["ScatterChart", "ScatterSeries", "Point"],
-  },
-  {
     name: "Forms",
     components: [
       "Form",
@@ -316,15 +289,6 @@ success = Alert("Payment confirmed", "Your transaction was successful.", "succes
 warning = Alert("Disk almost full", "You have less than 10% storage remaining.", "warning")
 danger = Alert("Account suspended", "Please contact support immediately.", "destructive")`,
 
-  `Example 4 — Bar chart with badges:
-root = Card([header, badges, chart, followUps])
-header = CardHeader("Monthly Revenue", "Q4 2024 performance across regions")
-badges = TagBlock([Tag("Live data", "default"), Tag("USD", "secondary"), Tag("Grouped", "outline")])
-chart = BarChart(["Oct", "Nov", "Dec"], [s1, s2], "grouped", "Month", "Revenue ($K)")
-s1 = Series("North America", [420, 380, 510])
-s2 = Series("Europe", [310, 290, 340])
-followUps = FollowUpBlock([FollowUpItem("Show as line chart"), FollowUpItem("Add Asia-Pacific")])`,
-
   `Example 5 — Buttons with all variants:
 root = Card([title, btns])
 title = TextContent("Button Styles", "large-heavy")
@@ -335,17 +299,6 @@ b3 = Button("Outline", @ToAssistant("Show me the outline button style"), "outlin
 b4 = Button("Ghost", @ToAssistant("Show me the ghost button style"), "ghost")
 b5 = Button("Link", @ToAssistant("Show me the link button style"), "link")
 b6 = Button("Destructive", @ToAssistant("Show me the destructive button style"), "destructive")`,
-
-  `Example 6 — Tabs with charts:
-root = Card([header, tabs])
-header = CardHeader("Sales Dashboard", "Compare metrics across time periods")
-tabs = Tabs([tab1, tab2, tab3])
-tab1 = TabItem("revenue", "Revenue", [revChart])
-tab2 = TabItem("users", "Users", [usersChart])
-tab3 = TabItem("breakdown", "Breakdown", [pieChart])
-revChart = BarChart(["Jan", "Feb", "Mar", "Apr"], [Series("Revenue", [45, 52, 61, 58])], "grouped", "Month", "USD ($K)")
-usersChart = LineChart(["Jan", "Feb", "Mar", "Apr"], [Series("Active", [1200, 1350, 1500, 1420]), Series("New", [300, 420, 380, 450])], "Month", "Users")
-pieChart = PieChart([Slice("Desktop", 62), Slice("Mobile", 31), Slice("Tablet", 7)])`,
 
   `Example 7 — Typography showcase:
 root = Card([h1, h2, h3, quote, codeEx, sep, text])
@@ -372,12 +325,11 @@ title = TextContent("Search Results", "large-heavy")
 table = Table([Col("Name", "string"), Col("Status", "string")], [["Item 1", "Active"], ["Item 2", "Pending"], ["Item 3", "Active"]])
 pagination = PaginationBlock(2, 10)`,
 
-  `Example 10 — Drawer with content:
+  `Example 8 — Drawer with content:
 root = Card([title, drawerBtn])
 title = TextContent("Report Summary", "large-heavy")
-drawerBtn = DrawerBlock("View Full Report", "Quarterly Report Q4 2024", "Detailed breakdown of performance metrics", [chart, summary])
-chart = BarChart(["Oct", "Nov", "Dec"], [Series("Revenue", [42, 38, 51])], "grouped", "Month", "Revenue ($K)")
-summary = TextContent("Overall revenue increased by 12% compared to Q3.")`,
+drawerBtn = DrawerBlock("View Full Report", "Quarterly Report Q4 2024", "Detailed breakdown of performance metrics", [summary])
+summary = TextContent("Overall revenue increased compared with the previous quarter.")`,
 
   `Example 11 — Standalone calendar:
 root = Card([title, cal])
@@ -459,20 +411,6 @@ export const shadcnChatLibrary = createLibrary({
     // Tables
     Table,
     Col,
-    // Charts (2D)
-    BarChartCondensed,
-    LineChartCondensed,
-    AreaChartCondensed,
-    RadarChartComponent,
-    Series,
-    // Charts (1D)
-    PieChartComponent,
-    RadialChartComponent,
-    Slice,
-    // Charts (Scatter)
-    ScatterChartComponent,
-    ScatterSeries,
-    Point,
     // Forms
     Form,
     FormControl,

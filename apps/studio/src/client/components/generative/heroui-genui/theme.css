@@ -1,0 +1,92 @@
+/* HeroUI's semantic tokens are scoped to generated answers and their portals. */
+.tessera-heroui {
+  --color-background: var(--ds-color-canvas);
+  --color-foreground: var(--ds-color-ink);
+  --color-surface: var(--ds-color-surface-raised);
+  --color-surface-foreground: var(--ds-color-ink);
+  --color-surface-hover: var(--ds-color-surface-hover);
+  --color-surface-secondary: var(--ds-color-surface-muted);
+  --color-surface-secondary-foreground: var(--ds-color-ink);
+  --color-surface-tertiary: var(--ds-color-surface-hover);
+  --color-surface-tertiary-foreground: var(--ds-color-ink);
+  --color-overlay: var(--ds-color-surface-overlay);
+  --color-overlay-foreground: var(--ds-color-ink);
+  --color-muted: var(--ds-color-body);
+  --color-accent: var(--ds-color-link);
+  --color-accent-foreground: var(--ds-color-on-primary);
+  --color-segment: var(--ds-color-surface-raised);
+  --color-segment-foreground: var(--ds-color-ink);
+  --color-border: var(--ds-color-border);
+  --color-separator: var(--ds-color-border);
+  --color-focus: var(--ds-color-focus);
+  --color-link: var(--ds-color-link);
+  --color-default: var(--ds-color-surface-hover);
+  --color-default-foreground: var(--ds-color-ink);
+  --color-success: var(--ds-color-success);
+  --color-success-foreground: var(--ds-color-on-success);
+  --color-warning: var(--ds-color-warning);
+  --color-warning-foreground: var(--ds-color-on-warning);
+  --color-danger: var(--ds-color-error);
+  --color-danger-foreground: var(--ds-color-on-error);
+  --color-backdrop: var(--ds-color-scrim);
+  --color-field: var(--ds-color-surface-raised);
+  --color-field-foreground: var(--ds-color-ink);
+  --color-field-placeholder: var(--ds-color-body);
+  --color-field-border: var(--ds-color-border-strong);
+  --accent: var(--ds-color-link);
+  --accent-foreground: var(--ds-color-on-primary);
+  --focus: var(--ds-color-focus);
+  --muted: var(--ds-color-body);
+  --surface: var(--ds-color-surface-raised);
+  --surface-foreground: var(--ds-color-ink);
+  --surface-secondary: var(--ds-color-surface-muted);
+  --surface-secondary-foreground: var(--ds-color-ink);
+  --surface-tertiary: var(--ds-color-surface-hover);
+  --surface-tertiary-foreground: var(--ds-color-ink);
+  --overlay: var(--ds-color-surface-overlay);
+  --overlay-foreground: var(--ds-color-ink);
+  --field-background: var(--ds-color-surface-raised);
+  --field-foreground: var(--ds-color-ink);
+  --field-placeholder: var(--ds-color-body);
+  --field-border: var(--ds-color-border-strong);
+  --field-border-width: 1px;
+  --default: var(--ds-color-surface-hover);
+  --default-foreground: var(--ds-color-ink);
+  --danger: var(--ds-color-error);
+  --danger-foreground: var(--ds-color-on-error);
+  --success: var(--ds-color-success);
+  --success-foreground: var(--ds-color-on-success);
+  --warning: var(--ds-color-warning);
+  --warning-foreground: var(--ds-color-on-warning);
+  --separator: var(--ds-color-border);
+  --segment: var(--ds-color-surface-raised);
+  --segment-foreground: var(--ds-color-ink);
+  --radius: var(--ds-radius-card);
+  --field-radius: var(--ds-radius-control);
+  --surface-shadow: var(--shadow-whisper);
+  --field-shadow: none;
+  --overlay-shadow: var(--shadow-overlay);
+}
+
+/* HeroUI's bundled @apply rules bake the root theme's muted surface into
+   description classes. Rebind those text slots locally so they remain readable
+   on the card surface in both light and dark modes. */
+.tessera-heroui .card__description,
+.tessera-heroui .alert__description,
+.tessera-heroui .description,
+.tessera-heroui .typography--color-muted {
+  color: var(--ds-color-body);
+}
+
+.tessera-heroui .table__column {
+  color: var(--ds-color-ink);
+}
+
+.tessera-answer-query-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}

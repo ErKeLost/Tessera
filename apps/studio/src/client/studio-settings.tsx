@@ -17,7 +17,7 @@ import {
 import { Button } from "./components/ui/button";
 import { JevEvaluationPanel } from "./components/elements/jev-evaluation-panel";
 import { StudioProviderIcon, studioProviderLabel } from "./components/elements/provider-icon";
-import { OpenRouterModelPicker } from "./components/elements/openrouter-model-picker";
+import { ProviderModelPicker } from "./components/elements/openrouter-model-picker";
 import {
   Dialog,
   DialogClose,
@@ -79,6 +79,7 @@ type StudioOpenRouterModelOption = Readonly<{
   id: string;
   name: string;
   family: string;
+  contextWindow?: number;
   reasoning?: StudioReasoningCapability;
 }>;
 
@@ -136,6 +137,7 @@ export type StudioSettingsCandidate = Readonly<{
 }>;
 
 export type StudioSettingsDialogProps = Readonly<{
+  agentType?: "database" | "feishu";
   initialTab?: StudioSettingsTab;
   open: boolean;
   onOpenChange(open: boolean): void;
@@ -199,11 +201,20 @@ const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string | undefined>> =
   anthropic: "https://api.anthropic.com/v1",
   google: "https://generativelanguage.googleapis.com/v1beta",
 };
+const DEFAULT_PROVIDER_MODELS: Readonly<Record<string, string>> = {
+  openrouter: "qwen/qwen3.8-27b",
+  vercel: "openai/gpt-4.1-mini",
+  openai: "gpt-4.1-mini",
+  anthropic: "claude-sonnet-4-5",
+  google: "gemini-2.5-flash",
+  custom: "",
+};
 const REASONING_EFFORTS = new Set<StudioReasoningEffort>(["minimal", "low", "medium", "high", "xhigh", "max", "none"]);
 const EMPTY_MODEL_CATALOG: StudioOpenRouterModelCatalog = { models: [] };
 const CONFIGURED_SECRET_MASK = "••••••••••••";
 
 export function StudioSettingsDialog({
+  agentType = "database",
   initialTab = "database",
   open,
   onOpenChange,
@@ -322,7 +333,7 @@ export function StudioSettingsDialog({
       ...current,
       provider,
       apiKey: "",
-      model: provider === "vercel" ? "openai/gpt-4.1-mini" : current.model,
+      model: current.provider === provider ? current.model : DEFAULT_PROVIDER_MODELS[provider] ?? "",
       baseUrl: DEFAULT_PROVIDER_BASE_URLS[provider] ?? "",
       ...(provider === "openrouter" ? {} : { reasoningEffort: "default" as const }),
     }));
@@ -514,7 +525,7 @@ export function StudioSettingsDialog({
             <span className="tessera-settings-title-icon"><StudioIcon icon="solar:settings-linear" size={19} /></span>
             <DialogTitle>Settings</DialogTitle>
           </div>
-          <DialogDescription>Manage the local database, model, permissions, and execution settings.</DialogDescription>
+          <DialogDescription>{agentType === "feishu" ? "管理文档分析使用的模型与执行设置。" : "Manage the local database, model, permissions, and execution settings."}</DialogDescription>
         </div>
       </DialogHeader>
 
@@ -523,7 +534,7 @@ export function StudioSettingsDialog({
         onValueChange={(value) => setActiveTab(value as StudioSettingsTab)}
       >
         <TabsList className="w-full">
-          {SETTINGS_TABS.map(([value, label, icon]) => (
+          {SETTINGS_TABS.filter(([value]) => agentType !== "feishu" || (value !== "database" && value !== "permissions")).map(([value, label, icon]) => (
             <TabsTrigger key={value} value={value}>
               <StudioIcon icon={icon} size={15} />
               <span>{label}</span>
@@ -531,7 +542,7 @@ export function StudioSettingsDialog({
           ))}
         </TabsList>
 
-            <TabsContent value="database">
+            {agentType !== "feishu" ? <TabsContent value="database">
               <FieldGroup>
                 {form.dialect !== "mongodb" ? (
                   <Field>
@@ -592,7 +603,7 @@ export function StudioSettingsDialog({
                   </Field>
                 ) : null}
               </FieldGroup>
-            </TabsContent>
+            </TabsContent> : null}
 
             <TabsContent value="model">
               <FieldGroup>
@@ -612,7 +623,7 @@ export function StudioSettingsDialog({
                 <Field>
                   <Label htmlFor="settings-model"><StudioIcon icon="solar:cpu-linear" size={14} />Model</Label>
                   {GATEWAY_MODEL_PROVIDERS.has(form.provider) ? (
-                    <OpenRouterModelPicker
+                    <ProviderModelPicker
                       ariaLabel={`Choose a ${studioProviderLabel(form.provider)} text model`}
                       disabled={busy || modelOptions.length === 0}
                       id="settings-model"
@@ -699,13 +710,13 @@ export function StudioSettingsDialog({
 
             <TabsContent value="limits">
               <FieldGroup>
-                <NumberField disabled={busy} icon="solar:table-linear" id="settings-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => updateForm("maxRows", value)} value={form.maxRows} />
+                {agentType !== "feishu" ? <NumberField disabled={busy} icon="solar:table-linear" id="settings-max-rows" label="Maximum rows" max={10_000} min={1} onChange={(value) => updateForm("maxRows", value)} value={form.maxRows} /> : null}
                 <NumberField disabled={busy} icon="solar:stopwatch-linear" id="settings-timeout-ms" label="Timeout (ms)" max={120_000} min={250} onChange={(value) => updateForm("timeoutMs", value)} value={form.timeoutMs} />
                 <NumberField disabled={busy} icon="solar:route-linear" id="settings-max-steps" label="Maximum steps" max={50} min={3} onChange={(value) => updateForm("maxSteps", value)} value={form.maxSteps} />
               </FieldGroup>
             </TabsContent>
 
-            <TabsContent value="permissions">
+            {agentType !== "feishu" ? <TabsContent value="permissions">
               <PermissionSettingsFields
                 disabled={busy}
                 onChange={(permissions) => {
@@ -715,12 +726,12 @@ export function StudioSettingsDialog({
                 }}
                 value={form.permissions}
               />
-            </TabsContent>
+            </TabsContent> : null}
       </Tabs>
 
       <SettingsNotice notice={notice} state={requestState} />
 
-      <section className="grid gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4" aria-labelledby="settings-reset-title">
+      {agentType !== "feishu" ? <section className="grid gap-3 rounded-lg border border-destructive/25 bg-destructive/5 p-4" aria-labelledby="settings-reset-title">
         <div className="flex items-start gap-3">
           <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md bg-destructive/10 text-destructive">
             <StudioIcon icon="solar:refresh-linear" size={17} />
@@ -750,7 +761,7 @@ export function StudioSettingsDialog({
             Reset local settings
           </Button>
         )}
-      </section>
+      </section> : null}
 
       <DialogFooter>
         {testTarget ? (
@@ -1152,7 +1163,18 @@ function readModelCatalog(value: unknown): StudioOpenRouterModelCatalog {
     if (!id || !name || !family || ids.has(id)) continue;
     ids.add(id);
     const reasoning = readReasoningCapability(model?.reasoning);
-    models.push({ id, name, family, ...(reasoning === undefined ? {} : { reasoning }) });
+    const contextWindow = typeof model?.contextWindow === "number"
+      && Number.isSafeInteger(model.contextWindow)
+      && model.contextWindow > 0
+      ? model.contextWindow
+      : undefined;
+    models.push({
+      id,
+      name,
+      family,
+      ...(contextWindow === undefined ? {} : { contextWindow }),
+      ...(reasoning === undefined ? {} : { reasoning }),
+    });
   }
   return { models };
 }

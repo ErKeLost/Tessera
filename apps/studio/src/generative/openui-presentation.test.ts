@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shadcnChatLibrary } from "../client/components/generative/shadcn-genui";
+import { heroChatLibrary } from "../client/components/generative/heroui-genui";
 import { compileAnswerPrompts } from "./openui-answer-prompt";
 import { ANALYSIS_ROOT, buildAnalysisPresentationPrompt } from "./openui-presentation";
 import {
@@ -55,6 +55,6 @@ describe("buildAnalysisPresentationPrompt", () => {
 
     expect(regenerated.base).toBe(OPENUI_SYSTEM_PROMPT);
     expect(regenerated.actions).toBe(OPENUI_ACTION_SYSTEM_PROMPT);
-    expect(shadcnChatLibrary.root).toBe(ANALYSIS_ROOT);
+    expect(heroChatLibrary.root).toBe(ANALYSIS_ROOT);
   });
 });

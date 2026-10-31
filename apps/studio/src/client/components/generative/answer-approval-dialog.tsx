@@ -1,6 +1,6 @@
 "use client";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "@heroui/react";
 import { CheckIcon, ShieldAlertIcon, XIcon } from "lucide-react";
 import type { AnswerApprovalPrompt } from "./answer-approval";
 
@@ -72,11 +72,11 @@ export function AnswerApprovalDialog({
         <footer className="tessera-approval-card-actions">
           <span className="tessera-approval-card-footnote">Nothing changes until you approve.</span>
           <div>
-            <Button onClick={() => onDecide("reject")} type="button" variant="ghost">
+            <Button onPress={() => onDecide("reject")} type="button" variant="ghost">
               <XIcon />
               Decline
             </Button>
-            <Button onClick={() => onDecide("approve")} type="button">
+            <Button onPress={() => onDecide("approve")} type="button" variant="danger">
               <CheckIcon />
               Approve &amp; run
             </Button>

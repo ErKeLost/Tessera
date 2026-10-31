@@ -20,6 +20,10 @@ export const TESSERA_AGENT_TOOL_NAMES = [
   "execute_sql",
 ] as const;
 
+/** Distinguishes the governed source-specific Agent implementations. */
+export const TESSERA_AGENT_TYPES = ["database", "feishu"] as const;
+export type TesseraAgentType = (typeof TESSERA_AGENT_TYPES)[number];
+
 export type TesseraAgentToolName = (typeof TESSERA_AGENT_TOOL_NAMES)[number];
 export type TesseraAgentToolState = "started" | "completed" | "blocked" | "failed";
 
@@ -35,6 +39,64 @@ export type TesseraAgentImageMediaType = "image/png" | "image/jpeg" | "image/web
 export type TesseraAgentImageInput = Readonly<{
   dataUrl: string;
   mediaType: TesseraAgentImageMediaType;
+}>;
+
+/** A server-owned, read-only Feishu document reference returned by a provider. */
+export type TesseraFeishuDocumentReference = Readonly<{
+  documentId: string;
+  title: string;
+  kind: "docx" | "wiki" | "sheet" | "bitable" | "slide" | "file" | "unknown";
+  url?: string;
+  updatedAt?: string;
+  snippet?: string;
+}>;
+
+export type TesseraFeishuSearchResult = Readonly<{
+  status: "completed" | "unavailable" | "denied";
+  documents: readonly TesseraFeishuDocumentReference[];
+  nextCursor?: string;
+  message?: string;
+}>;
+
+/** Normalized content returned by a Feishu provider after ACL validation. */
+export type TesseraFeishuDocument = Readonly<{
+  status: "completed" | "unavailable" | "denied" | "not_found";
+  document?: TesseraFeishuDocumentReference;
+  content?: string;
+  contentHash?: string;
+  truncated?: boolean;
+  nextCursor?: string;
+  message?: string;
+}>;
+
+/**
+ * Host-owned Feishu read boundary. Tokens, app secrets, HTTP clients, and ACL
+ * checks stay outside the Agent package; the model only sees bounded results.
+ */
+export type TesseraFeishuReader = Readonly<{
+  search(input: Readonly<{
+    query: string;
+    cursor?: string;
+    limit: number;
+  }>, context: Readonly<{
+    identity: TesseraAgentIdentity;
+    signal: AbortSignal;
+  }>): Promise<TesseraFeishuSearchResult>;
+  read(input: Readonly<{
+    documentId: string;
+    cursor?: string;
+    maxCharacters: number;
+  }>, context: Readonly<{
+    identity: TesseraAgentIdentity;
+    signal: AbortSignal;
+  }>): Promise<TesseraFeishuDocument>;
+}>;
+
+export type TesseraFeishuEvidence = Readonly<{
+  documentId: string;
+  title: string;
+  url?: string;
+  contentHash?: string;
 }>;
 
 /**
@@ -81,6 +143,8 @@ export type TesseraAgentRunInput = Readonly<{
   runId: string;
   threadId: string;
   message: string;
+  /** Host-selected source type; tool registration remains implementation-owned. */
+  agentType?: TesseraAgentType;
   images?: readonly TesseraAgentImageInput[];
   /** Server-bound transient page context. Never sourced directly from UI text. */
   turnContext?: TesseraAgentTurnContext;

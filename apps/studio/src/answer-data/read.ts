@@ -29,6 +29,38 @@ const MAX_METRIC_ROWS = 1_000;
 
 // ── Shared helpers ──
 
+/**
+ * Catalog column types the drivers return as numbers.
+ *
+ * Postgres hands back `COUNT(*)` and `bigint` as strings, and MySQL does the
+ * same for `DECIMAL`, so a cell that is numerically typed can still arrive as
+ * text. Answer math (`@Percent`, `@Sum`, `@Sort`) and the chart layer only work
+ * on numbers, so a column this pattern matches is read as a number below.
+ */
+const NUMERIC_DATA_TYPE =
+  /^(?:int|integer|bigint|smallint|tinyint|mediumint|numeric|decimal|real|double|float|serial|bigserial|money|number)/iu;
+
+function isNumericDataType(dataType: string | undefined): boolean {
+  return typeof dataType === "string" && NUMERIC_DATA_TYPE.test(dataType.trim());
+}
+
+/** Reads a numeric cell as a number, or `undefined` when it is not one. */
+function answerNumber(value: unknown): number | undefined {
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value === "bigint") {
+    return value <= BigInt(Number.MAX_SAFE_INTEGER) && value >= BigInt(Number.MIN_SAFE_INTEGER)
+      ? Number(value)
+      : undefined;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "") return undefined;
+    const parsed = Number(trimmed);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 /** Bounds one cell to a JSON-safe value; objects are stringified, never echoed raw. */
 export function answerPreviewCell(value: unknown): AnswerPreviewCell {
   if (value === null || value === undefined) return null;
@@ -62,9 +94,17 @@ function projectRows(
   columns: readonly string[],
   rows: ReadonlyArray<Record<string, unknown>>,
   limit: number,
+  numericColumns: ReadonlySet<string> = new Set(),
 ): AnswerQueryResult {
   const bounded = rows.slice(0, limit).map((source) => Object.fromEntries(
-    columns.map((name) => [name, answerPreviewCell(source[name])]),
+    columns.map((name) => {
+      const value = source[name];
+      // A numeric column stays numeric across the wire: an answer that reads
+      // `"77"` instead of `77` renders a chart with no geometry and a percent
+      // column with no text. Anything that does not parse keeps its own value.
+      const number = numericColumns.has(name) ? answerNumber(value) : undefined;
+      return [name, answerPreviewCell(number ?? value)];
+    }),
   ));
   return {
     columns: [...columns],
@@ -100,6 +140,11 @@ export async function executeRelationPreview(
   if (columns.length === 0) {
     throw new AnswerDataError("relation_not_previewable", "The requested relation does not expose any previewable columns.");
   }
+  const numericColumns = new Set(
+    table.columns
+      .filter((column) => columns.includes(column.name) && isNumericDataType(column.dataType))
+      .map((column) => column.name),
+  );
 
   const preview = await input.dataAgent.previewRelation({
     schema: input.request.schema,
@@ -108,7 +153,12 @@ export async function executeRelationPreview(
     refresh: false,
   }, input.signal);
 
-  const projected = projectRows(columns, preview.result.rows, DATA_AGENT_RELATION_PREVIEW_LIMIT);
+  const projected = projectRows(
+    columns,
+    preview.result.rows,
+    DATA_AGENT_RELATION_PREVIEW_LIMIT,
+    numericColumns,
+  );
   return { ...projected, truncated: preview.result.truncated || projected.truncated };
 }
 
@@ -118,6 +168,8 @@ export type CompiledRelationMetrics = Readonly<{
   sql: string;
   parameters: Array<string | number | boolean>;
   limit: number;
+  /** Output columns the database computes as numbers, so they leave as numbers. */
+  numericAliases: readonly string[];
 }>;
 
 function quoteIdentifier(dialect: DatabaseCatalog["dialect"], identifier: string): string {
@@ -133,7 +185,7 @@ function coerceFilterValue(
   if (value === undefined) return "";
   if (typeof value !== "string") return value;
   const type = dataType.trim();
-  if (/^(?:int|integer|bigint|smallint|numeric|decimal|real|double|float|serial|money)/iu.test(type)) {
+  if (isNumericDataType(type)) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : value;
   }
@@ -206,13 +258,16 @@ export function compileRelationMetricsSql(input: CompileRelationMetricsInput): C
 
   const groupBy = request.groupBy ?? [];
   const outputAliases: string[] = [];
+  const numericAliases: string[] = [];
   const selectParts: string[] = [];
   for (const name of groupBy) {
-    if (!columns.has(name)) {
+    const column = columns.get(name);
+    if (column === undefined) {
       throw new AnswerDataError("invalid_metrics", `The grouping column '${name}' is not available.`);
     }
     selectParts.push(quote(name));
     outputAliases.push(name);
+    if (isNumericDataType(column.dataType)) numericAliases.push(name);
   }
 
   for (const metric of request.metrics) {
@@ -220,6 +275,7 @@ export function compileRelationMetricsSql(input: CompileRelationMetricsInput): C
       const alias = metric.alias ?? "count";
       selectParts.push(`COUNT(*) AS ${quote(alias)}`);
       outputAliases.push(alias);
+      numericAliases.push(alias);
       continue;
     }
     const column = metric.column === undefined ? undefined : columns.get(metric.column);
@@ -229,6 +285,10 @@ export function compileRelationMetricsSql(input: CompileRelationMetricsInput): C
     const alias = metric.alias ?? `${metric.fn}_${column.name}`;
     selectParts.push(`${metric.fn.toUpperCase()}(${quote(column.name)}) AS ${quote(alias)}`);
     outputAliases.push(alias);
+    // `count`, `sum` and `avg` are numbers whatever they are computed over.
+    // `min` / `max` keep the source column's type, so a date stays a date.
+    if (metric.fn !== "min" && metric.fn !== "max") numericAliases.push(alias);
+    else if (isNumericDataType(column.dataType)) numericAliases.push(alias);
   }
 
   const orderAlias = request.orderBy?.alias;
@@ -254,7 +314,7 @@ export function compileRelationMetricsSql(input: CompileRelationMetricsInput): C
     `LIMIT ${limit}`,
   ].join("\n");
 
-  return { sql, parameters, limit };
+  return { sql, parameters, limit, numericAliases };
 }
 
 export type ExecuteRelationMetricsInput = Readonly<{
@@ -288,6 +348,6 @@ export async function executeRelationMetrics(
   }, input.signal);
 
   const columns = result.columns.map((column) => column.name);
-  const projected = projectRows(columns, result.rows, compiled.limit);
+  const projected = projectRows(columns, result.rows, compiled.limit, new Set(compiled.numericAliases));
   return { ...projected, truncated: result.truncated || projected.truncated };
 }

@@ -7,6 +7,8 @@ export type TesseraListDatabaseToolInput = Readonly<{ action: "list_database" }>
 export type TesseraSearchDataContextToolInput = Readonly<{ action: "search_data_context" }>;
 export type TesseraExecuteSqlToolInput = Readonly<{ action: "execute_sql" }>;
 export type TesseraPrepareAnalysisToolInput = Readonly<{ action: "prepare_analysis" }>;
+export type TesseraSearchFeishuDocumentsToolInput = Readonly<{ action: "search_feishu_documents" }>;
+export type TesseraReadFeishuDocumentToolInput = Readonly<{ action: "read_feishu_document" }>;
 
 export type TesseraListDatabaseToolOutput = Readonly<{
   status: "completed" | "not_found" | "unavailable" | "blocked" | "failed";
@@ -57,11 +59,29 @@ export type TesseraPrepareAnalysisToolOutput = Readonly<{
   message?: string;
 }>;
 
+export type TesseraSearchFeishuDocumentsToolOutput = Readonly<{
+  status: "completed" | "unavailable" | "denied";
+  documentCount?: number;
+  truncated?: boolean;
+  reason?: string;
+  message?: string;
+}>;
+
+export type TesseraReadFeishuDocumentToolOutput = Readonly<{
+  status: "completed" | "unavailable" | "denied" | "not_found";
+  title?: string;
+  truncated?: boolean;
+  reason?: string;
+  message?: string;
+}>;
+
 export type TesseraUITools = {
   list_database: { input: TesseraListDatabaseToolInput; output: TesseraListDatabaseToolOutput };
   search_data_context: { input: TesseraSearchDataContextToolInput; output: TesseraSearchDataContextToolOutput };
   execute_sql: { input: TesseraExecuteSqlToolInput; output: TesseraExecuteSqlToolOutput };
   prepare_analysis: { input: TesseraPrepareAnalysisToolInput; output: TesseraPrepareAnalysisToolOutput };
+  search_feishu_documents: { input: TesseraSearchFeishuDocumentsToolInput; output: TesseraSearchFeishuDocumentsToolOutput };
+  read_feishu_document: { input: TesseraReadFeishuDocumentToolInput; output: TesseraReadFeishuDocumentToolOutput };
 };
 
 export type TesseraUIData = {

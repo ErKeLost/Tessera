@@ -11,6 +11,7 @@ const nitroDist = fileURLToPath(new URL("./dist/nitro", import.meta.url));
 const nitroPublicIndex = fileURLToPath(new URL("./dist/nitro/public/index.html", import.meta.url));
 const nitroServerEntry = fileURLToPath(new URL("./src/nitro-server.ts", import.meta.url));
 const nitroLifecyclePlugin = fileURLToPath(new URL("./src/nitro-plugin.ts", import.meta.url));
+const nitroPreset = process.env.NITRO_PRESET ?? "node-server";
 const rendererTemplate = fileURLToPath(new URL("./src/client/index.html", import.meta.url));
 const publicDirectory = fileURLToPath(new URL("./public", import.meta.url));
 const studioPackage = JSON.parse(
@@ -50,15 +51,15 @@ export default defineConfig(({ command }) => ({
   plugins: [
     nitro({
       compatibilityDate: "2026-08-22",
-      defaultPreset: "node-server",
-      hooks: {
+      defaultPreset: nitroPreset,
+      ...(nitroPreset === "netlify" ? {} : { hooks: {
         async compiled(nitroApp) {
           const template = nitroApp.options.renderer?.template;
           if (!template) throw new Error("Nitro did not generate the Studio renderer template.");
           await copyFile(template, nitroPublicIndex);
         },
-      },
-      output: { dir: nitroDist },
+      } }),
+      ...(nitroPreset === "netlify" ? {} : { output: { dir: nitroDist } }),
       plugins: [nitroLifecyclePlugin],
       renderer: { template: rendererTemplate },
       rootDir: studioRoot,

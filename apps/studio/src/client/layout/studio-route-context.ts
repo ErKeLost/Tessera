@@ -17,9 +17,16 @@ export type StudioAgentPageContext = Readonly<{
   view: "data" | "definition";
 }>;
 
+export type StudioAgentType = "database" | "feishu";
+
 export type StudioRouteContext = Readonly<{
   activeThread: StudioThreadSummary | undefined;
   activeThreadId: string | undefined;
+  threadsLoading: boolean;
+  agentType: StudioAgentType;
+  isFeishu: boolean;
+  chatPath(threadId: string): string;
+  openFeishuAuthorization(): void;
   agentPageContext: StudioAgentPageContext | undefined;
   openSettings(tab: StudioSettingsTab): void;
   refreshWorkspace: ReturnType<typeof useRefreshStudioWorkspace>;

@@ -49,6 +49,8 @@ import { HTTPError } from "h3";
 import { serve, type Server, type ServerRequest } from "srvx";
 import { z } from "zod";
 import { createTesseraStudioAgent, toMastraModelConfig } from "./agent";
+import { isAnswerState } from "./generative/answer-state";
+import { FeishuConnectionService, FeishuConnectionError, feishuAppSettingsSchema, localFeishuEncryptionSecret, FEISHU_CALLBACK_PATH } from "./feishu-connections";
 import {
   createTesseraConfigFromDatabaseUrl,
   defineTesseraConfig,
@@ -76,6 +78,7 @@ import {
 import { createTesseraContinualHarness, type TesseraContinualHarness } from "./continual-harness";
 import {
   createTesseraLocalSettingsStore,
+  createDefaultTesseraStudioRuntimeFactory,
   createTesseraStudioRuntimeManager,
   parseTesseraStudioSettingsCandidate,
   TesseraSettingsRuntimeError,
@@ -163,6 +166,7 @@ const MAX_STUDIO_CHAT_RETRIES = 256;
 const runRequestSchema = z.object({
   message: z.string().trim().min(1).max(12_000),
   threadId: z.string().trim().min(1).max(128).optional(),
+  agentType: z.enum(["database", "feishu"]).default("database"),
 }).strict();
 
 /**
@@ -179,6 +183,7 @@ const chatWorkspaceContextPayloadSchema = z.object({
 
 const createThreadRequestSchema = z.object({
   title: z.string().trim().min(1).max(120).optional(),
+  agentType: z.enum(["database", "feishu"]).default("database"),
 }).strict();
 
 const renameThreadRequestSchema = z.object({
@@ -213,6 +218,7 @@ const chatResumeRequestSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   requestId: z.string().trim().min(1).max(512),
   checkpointId: z.string().trim().min(1).max(512),
+  agentType: z.enum(["database", "feishu"]).default("database"),
 }).strict();
 
 const databaseActionCancelRequestSchema = z.object({
@@ -302,6 +308,7 @@ export type StudioAgentRunInput = TesseraAgentRunInput & Readonly<{
 export type StudioAgentDiagnostic = TesseraAgentDiagnostic;
 export type StudioAgentRun = TesseraAgentRun;
 export type StudioAgentEvent = TesseraAgentEvent;
+export type StudioAgentType = "database" | "feishu";
 
 /**
  * The Agent boundary is intentionally narrow. It receives a discovered
@@ -309,6 +316,8 @@ export type StudioAgentEvent = TesseraAgentEvent;
  * material that the Studio can render later.
  */
 export interface StudioAgent {
+  /** Source-specific tool surface selected by the Studio host. */
+  agentType?: StudioAgentType;
   /**
    * `data-agent` means this implementation owns catalog loading and caching.
    * It lets the transport avoid a hidden preflight scan before the visible
@@ -344,6 +353,9 @@ export type StudioAppDependencies = Readonly<{
   dataAgent?: DataAgent;
   catalogProvider?: StudioCatalogProvider;
   agent?: StudioAgent;
+  /** Optional parallel Feishu Agent; database remains the default Agent. */
+  feishuAgent?: StudioAgent;
+  feishuConnections?: FeishuConnectionService;
   /** Server-only local SQLite session store. It never reads the analysed database. */
   sessionMemory?: TesseraSessionMemory;
   /** Typed, approval-gated database mutations. Read actions remain Data Agent-owned. */
@@ -375,6 +387,7 @@ type StudioRouteRuntime = Readonly<{
   dataAgent: DataAgent;
   catalogProvider: StudioCatalogProvider;
   agent?: StudioAgent;
+  feishuAgent?: StudioAgent;
   sessionMemory?: TesseraSessionMemory;
   databaseActions?: TesseraDatabaseActionService;
 }>;
@@ -383,6 +396,13 @@ type StudioRouteRuntimeLease = Readonly<{
   runtime: StudioRouteRuntime;
   release(): Promise<void>;
 }>;
+
+function agentForType(
+  runtime: StudioRouteRuntime,
+  type: StudioAgentType,
+): StudioAgent | undefined {
+  return type === "feishu" ? runtime.feishuAgent : runtime.agent;
+}
 
 export type CreateStudioCatalogProviderOptions = Readonly<{
   introspection?: CatalogIntrospectionOptions;
@@ -410,6 +430,7 @@ export type TesseraStudioRuntime = Readonly<{
   connector: DatabaseConnector;
   dataAgent: DataAgent;
   databaseActions?: TesseraDatabaseActionService;
+  feishuAgent?: StudioAgent;
   close(): Promise<void>;
 }>;
 
@@ -439,6 +460,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     dataAgent,
     catalogProvider,
     ...(dependencies.agent === undefined ? {} : { agent: dependencies.agent }),
+    ...(dependencies.feishuAgent === undefined ? {} : { feishuAgent: dependencies.feishuAgent }),
     ...(dependencies.sessionMemory === undefined ? {} : { sessionMemory: dependencies.sessionMemory }),
     ...(dependencies.databaseActions === undefined ? {} : { databaseActions: dependencies.databaseActions }),
   });
@@ -531,11 +553,18 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
 
   /** Secret-free runtime handshake. It intentionally does not disclose model or database configuration. */
   app.get("/api/meta", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-    const agentAvailable = runtime.agent !== undefined || await dependencies.agentAvailable?.() === true;
+    const agentAvailable = runtime.agent !== undefined
+      || runtime.feishuAgent !== undefined
+      || await dependencies.agentAvailable?.() === true;
+    const agentTypes = [
+      ...(runtime.agent === undefined ? [] : ["database" as const]),
+      ...(runtime.feishuAgent === undefined ? [] : ["feishu" as const]),
+    ];
     return context.json({
       protocolVersion: 1,
       capabilities: {
         chat: agentAvailable,
+        ...(agentTypes.length === 0 ? {} : { agentTypes }),
       },
     });
   }));
@@ -549,14 +578,80 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     return context.json({ settings: runtime.getSnapshot() });
   });
 
+  const feishuIdentity = (context: StudioContext) => {
+    const identity = context.get("identity");
+    if (!identity) throw new StudioHttpError(401, "authentication_required", "请先登录工作区。");
+    return identity;
+  };
+  const requireFeishu = () => {
+    if (!dependencies.feishuConnections) throw new StudioHttpError(503, "feishu_unavailable", "此部署尚未启用飞书连接。");
+    return dependencies.feishuConnections;
+  };
+  const feishuFailure = (error: unknown): never => {
+    if (error instanceof FeishuConnectionError) throw new StudioHttpError(400, error.code, error.message);
+    if (error instanceof StudioHttpError) throw error;
+    throw new StudioHttpError(502, "feishu_connection_failed", "飞书连接失败，请检查应用配置、权限和回调地址后重试。");
+  };
+  app.get("/api/feishu", async (context) => {
+    if (!dependencies.feishuConnections) return context.json({ available: false, configured: false, connected: false, callbackPath: FEISHU_CALLBACK_PATH });
+    try { return context.json(await dependencies.feishuConnections.status(feishuIdentity(context))); }
+    catch (error) { return feishuFailure(error); }
+  });
+  app.put("/api/feishu", async (context) => {
+    await authorizeSettingsChange(context, dependencies, "settings");
+    const candidate = feishuAppSettingsSchema.safeParse(await readJsonBody(context.req.raw));
+    if (!candidate.success) throw new StudioHttpError(400, "invalid_feishu_settings", "请填写有效的 App ID 和 App Secret。");
+    try { return context.json(await requireFeishu().configure(feishuIdentity(context), candidate.data)); }
+    catch (error) { return feishuFailure(error); }
+  });
+  app.post("/api/feishu/connect", async (context) => {
+    try {
+      const origin = new URL(context.req.url).origin;
+      const result = await requireFeishu().begin(feishuIdentity(context), origin);
+      const secure = origin.startsWith("https://");
+      context.header("Set-Cookie", `${secure ? "__Host-" : ""}tessera-feishu-state=${result.browserBinding}; Path=/; HttpOnly; SameSite=Lax; Max-Age=300${secure ? "; Secure" : ""}`);
+      return context.json({ url: result.url });
+    } catch (error) { return feishuFailure(error); }
+  });
+  app.get(FEISHU_CALLBACK_PATH, async (context) => {
+    const origin = new URL(context.req.url).origin;
+    const name = `${origin.startsWith("https://") ? "__Host-" : ""}tessera-feishu-state`;
+    const cookie = context.req.header("cookie")?.split(";").map((part) => part.trim()).find((part) => part.startsWith(`${name}=`))?.slice(name.length + 1) ?? "";
+    const code = context.req.query("code");
+    const state = context.req.query("state");
+    try {
+      if (!code || !state || code.length > 4_096 || state.length > 256 || context.req.query("error")) throw new Error("Missing OAuth response");
+      await requireFeishu().complete(feishuIdentity(context), { code, state, browserBinding: cookie, origin }, context.req.raw.signal);
+      return new Response(null, { status: 303, headers: { Location: "/feishu?feishu=connected", "Cache-Control": "no-store", "Set-Cookie": `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${origin.startsWith("https://") ? "; Secure" : ""}` } });
+    } catch {
+      return new Response(null, { status: 303, headers: { Location: "/feishu?feishu=error", "Cache-Control": "no-store" } });
+    }
+  });
+  app.delete("/api/feishu", async (context) => {
+    await authorizeSettingsChange(context, dependencies, "settings");
+    try { await requireFeishu().disconnect(feishuIdentity(context)); return context.json({ disconnected: true }); }
+    catch (error) { return feishuFailure(error); }
+  });
+
   app.get("/api/settings/models", async (context) => {
     const runtime = requireSettingsRuntime(dependencies.settingsRuntime);
     const settings = runtime.getSnapshot();
     const provider = context.req.query("provider") ?? settings.llm.provider;
     if (provider === "vercel") return context.json(await vercelModelCatalog.list());
-    if (provider !== "openrouter") return context.json({ models: [] });
-    const currentModel = settings.llm.provider === provider ? settings.llm.model : undefined;
-    return context.json(await modelCatalog.list({ currentModel }));
+    if (provider === "openrouter") {
+      const currentModel = settings.llm.provider === provider ? settings.llm.model : undefined;
+      return context.json(await modelCatalog.list({ currentModel }));
+    }
+    if (provider !== settings.llm.provider) return context.json({ models: [] });
+    if (["openai", "anthropic", "google", "custom"].includes(provider)) {
+      await authorizeSettingsChange(context, dependencies, "test");
+      try {
+        return context.json(await runtime.listModels(undefined, { signal: context.req.raw.signal }));
+      } catch (error) {
+        throw settingsRuntimeHttpError(error);
+      }
+    }
+    return context.json({ models: [] });
   });
 
   app.post("/api/settings/reset", async (context) => {
@@ -830,6 +925,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       id: randomUUID(),
       resourceId: resourceIdForContext(context),
       ...(request.data.title === undefined ? {} : { title: request.data.title }),
+      agentType: request.data.agentType,
     });
     return context.json({ thread }, 201);
   }));
@@ -851,6 +947,26 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     }
     return context.json({ messages });
   }));
+
+  const handleAnswerState = async (context: StudioContext) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
+    const memory = requireSessionMemory(runtime.sessionMemory);
+    if (!memory.answerState) throw new StudioHttpError(503, "session_unavailable", "Interactive answer storage is not available.");
+    const params = z.object({ messageId: z.string().min(1).max(512), contentHash: z.string().regex(/^[a-f0-9]{64}$/u) }).safeParse({
+      messageId: context.req.param("messageId"), contentHash: context.req.param("contentHash"),
+    });
+    if (!params.success) throw new StudioHttpError(400, "invalid_answer_state", "The answer state request is invalid.");
+    const stateBody = context.req.method === "PUT" ? await readJsonBody(context.req.raw) : undefined;
+    if (context.req.method === "PUT" && !isAnswerState(stateBody)) throw new StudioHttpError(400, "invalid_answer_state", "The answer state is invalid or too large.");
+    const state = isAnswerState(stateBody) ? stateBody : undefined;
+    const result = await memory.answerState({
+      id: parseThreadId(context.req.param("threadId")), resourceId: resourceIdForContext(context),
+      ...params.data, ...(state === undefined ? {} : { state }),
+    });
+    if (result === undefined) throw new StudioHttpError(404, "answer_not_found", "The requested answer is not available.");
+    return context.json({ state: result });
+  });
+  app.get("/api/threads/:threadId/messages/:messageId/state/:contentHash", handleAnswerState);
+  app.put("/api/threads/:threadId/messages/:messageId/state/:contentHash", handleAnswerState);
 
   app.patch("/api/threads/:threadId", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
     const memory = requireSessionMemory(runtime.sessionMemory);
@@ -1119,20 +1235,20 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
   }));
 
   app.post("/api/runs", async (context) => withStudioRouteRuntime(dependencies, staticRuntime, async (runtime) => {
-    if (!runtime.agent) {
-      throw new StudioHttpError(503, "agent_unavailable", "The Tessera Agent is not configured for this Studio.");
-    }
-
     const request = runRequestSchema.safeParse(await readJsonBody(context.req.raw));
     if (!request.success) {
       throw new StudioHttpError(400, "invalid_run_request", "The run request is invalid.");
     }
+    const agent = agentForType(runtime, request.data.agentType);
+    if (!agent) {
+      throw new StudioHttpError(503, "agent_unavailable", "The Tessera Agent is not configured for this Studio.");
+    }
 
     const runId = randomUUID();
     const threadId = request.data.threadId ?? randomUUID();
-    await ensureStudioSession(runtime.sessionMemory, threadId, request.data.message, context);
+    await ensureStudioSession(runtime.sessionMemory, threadId, request.data.message, context, request.data.agentType);
     const catalog = await catalogForStudioAgent({
-      agent: runtime.agent,
+      agent,
       catalogProvider: runtime.catalogProvider,
       signal: context.req.raw.signal,
       request: context.get("apiRequest"),
@@ -1146,10 +1262,11 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       stage: "run_started",
     });
     try {
-      run = agentRunSchema.parse(await runtime.agent.run({
+      run = agentRunSchema.parse(await agent.run({
         runId,
         threadId,
         message: request.data.message,
+        agentType: request.data.agentType,
         ...(catalog === undefined ? {} : { catalog: catalogForAgent(catalog) }),
         signal: context.req.raw.signal,
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
@@ -1179,10 +1296,11 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     const lease = acquireStudioRouteRuntime(dependencies, staticRuntime);
     try {
       const runtime = lease.runtime;
-      if (!runtime.agent) {
-        throw new StudioHttpError(503, "agent_unavailable", "The Tessera Agent is not configured for this Studio.");
-      }
       const request = await readStudioChatRequest(context.req.raw);
+      const agent = agentForType(runtime, request.agentType);
+      if (!agent) {
+        throw new StudioHttpError(503, "agent_unavailable", "The selected Tessera Agent is not configured for this Studio.");
+      }
 
       if (request.trigger === "regenerate-message" && (request.threadId === undefined || request.messageId === undefined)) {
         throw new StudioHttpError(400, "invalid_chat_request", "The chat request is invalid.");
@@ -1190,6 +1308,8 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       const runId = randomUUID();
       const threadId = request.threadId ?? randomUUID();
       const sessionResourceId = resourceIdForContext(context);
+      const existing = await runtime.sessionMemory?.getThread({ id: threadId, resourceId: sessionResourceId });
+      if (existing && (existing.agentType ?? "database") !== request.agentType) throw new StudioHttpError(404, "thread_not_found", "The requested session is not available.");
       let message = request.message;
       if (request.trigger === "regenerate-message") {
         const accepted = chatRetries.accept({
@@ -1211,7 +1331,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           message = persistedMessage;
         }
       } else {
-        await ensureStudioSession(runtime.sessionMemory, threadId, message, context);
+        await ensureStudioSession(runtime.sessionMemory, threadId, message, context, request.agentType);
         // A later user turn supersedes any older failed-response retry token.
         // Otherwise a client could replay an old error after newer context
         // had already been accepted for this thread.
@@ -1226,7 +1346,9 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
           } satisfies TesseraUIMessage],
         });
       }
-      const turnContext = runtime.agent.catalogLoading === "data-agent"
+      const turnContext = agent.agentType === "feishu"
+        ? undefined
+        : agent.catalogLoading === "data-agent"
         ? await bindStudioAgentTurnContext({
           dataAgent: runtime.dataAgent,
           workspaceContext: request.workspaceContext,
@@ -1234,7 +1356,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         })
         : undefined;
       const catalog = await catalogForStudioAgent({
-        agent: runtime.agent,
+        agent,
         catalogProvider: runtime.catalogProvider,
         signal: context.req.raw.signal,
         request: context.get("apiRequest"),
@@ -1247,6 +1369,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         runId,
         threadId,
         message,
+        agentType: request.agentType,
         ...(request.images.length === 0 ? {} : { images: request.images }),
         ...(catalog === undefined ? {} : { catalog: catalogForAgent(catalog) }),
         ...(turnContext === undefined ? {} : { turnContext }),
@@ -1255,8 +1378,8 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
         ...(context.get("identity") === undefined ? {} : { identity: context.get("identity") }),
       };
 
-      const source = runtime.agent.streamUI?.(agentInput)
-        ?? streamLegacyAgentToUI(runtime.agent, agentInput);
+      const source = agent.streamUI?.(agentInput)
+        ?? streamLegacyAgentToUI(agent, agentInput);
       const durableSource = createUIMessageStream<TesseraUIMessage>({
         execute: ({ writer }) => writer.merge(source),
         onError: () => "The Tessera Agent stream could not be processed.",
@@ -1296,7 +1419,7 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
             checkpointId: runId,
             message: responseMessage,
           });
-          runtime.agent?.continualHarness?.submitCompletedTurn({
+          agent.continualHarness?.submitCompletedTurn({
             runId,
             resourceId: sessionResourceId,
             threadId,
@@ -1345,14 +1468,16 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
     const lease = acquireStudioRouteRuntime(dependencies, staticRuntime);
     try {
       const runtime = lease.runtime;
-      if (!runtime.agent?.streamUI) {
-        throw new StudioHttpError(503, "agent_unavailable", "The Tessera Agent is not configured for this Studio.");
-      }
       const parsed = chatResumeRequestSchema.safeParse(await readJsonBody(context.req.raw));
       if (!parsed.success) throw new StudioHttpError(400, "invalid_chat_resume", "The chat resume request is invalid.");
+      const agent = agentForType(runtime, parsed.data.agentType);
+      if (!agent?.streamUI) {
+        throw new StudioHttpError(503, "agent_unavailable", "The selected Tessera Agent is not configured for this Studio.");
+      }
       const memory = requireSessionMemory(runtime.sessionMemory);
       const thread = await memory.getThread({ id: parsed.data.threadId, resourceId: resourceIdForContext(context) });
       if (!thread) throw new StudioHttpError(404, "thread_not_found", "The requested session is not available.");
+      if ((thread.agentType ?? "database") !== parsed.data.agentType || parsed.data.agentType !== "database") throw new StudioHttpError(400, "invalid_chat_resume", "This session has no database approval to resume.");
       const messages = await memory.readMessages({ id: parsed.data.threadId, resourceId: resourceIdForContext(context) });
       const userMessage = [...(messages ?? [])].reverse().find((message) => message.role === "user");
       const message = userMessage?.parts
@@ -1364,11 +1489,12 @@ export function createStudioApp(dependencies: StudioAppDependencies): StudioApp 
       const originalMessages = resumeOriginalUiMessages(messages ?? [], parsed.data);
 
       const streamDiagnostics = createStudioStreamDiagnosticCollector();
-      const source = runtime.agent.streamUI({
+      const source = agent.streamUI({
         runId: parsed.data.runId,
         toolCallId: parsed.data.toolCallId,
         threadId: parsed.data.threadId,
         message,
+        agentType: parsed.data.agentType,
         resumeData: {
           decision: parsed.data.decision,
           requestId: parsed.data.requestId,
@@ -1483,6 +1609,7 @@ function acquireStudioRouteRuntime(
       dataAgent: lease.runtime.dataAgent,
       catalogProvider: createDataAgentCatalogProvider(lease.runtime.dataAgent),
       ...(lease.runtime.agent === undefined ? {} : { agent: lease.runtime.agent }),
+      ...(lease.runtime.feishuAgent === undefined ? {} : { feishuAgent: lease.runtime.feishuAgent }),
       ...(lease.runtime.sessionMemory === undefined ? {} : { sessionMemory: lease.runtime.sessionMemory }),
       ...(lease.runtime.accessMode !== "read-write" || lease.runtime.databaseActions === undefined
         ? {}
@@ -1592,6 +1719,7 @@ async function validateStudioReasoningSelection(
 ): Promise<void> {
   const candidate = parseTesseraStudioSettingsCandidate(value);
   if (candidate.llm.reasoningEffort === "default") return;
+  if (candidate.llm.provider === "custom" || candidate.llm.provider === "openai") return;
   if (candidate.llm.provider !== "openrouter") {
     throw new TesseraSettingsRuntimeError("invalid_settings", "Tessera Studio settings are invalid.");
   }
@@ -1674,6 +1802,8 @@ export async function createTesseraStudioRuntime(
         dataAgent: runtime.dataAgent,
         catalogProvider: createDataAgentCatalogProvider(runtime.dataAgent),
         ...(runtime.agent === undefined ? {} : { agent: runtime.agent }),
+        ...(runtime.feishuAgent === undefined ? {} : { feishuAgent: runtime.feishuAgent }),
+        feishuConnections: options.feishuConnections,
         ...(runtime.sessionMemory === undefined ? {} : { sessionMemory: runtime.sessionMemory }),
         ...(runtime.accessMode !== "read-write" || runtime.databaseActions === undefined
           ? {}
@@ -1777,6 +1907,8 @@ export async function createTesseraStudioRuntime(
       dataAgent,
       catalogProvider,
       ...(agent === undefined ? {} : { agent }),
+      ...(options.feishuAgent === undefined ? {} : { feishuAgent: options.feishuAgent }),
+      feishuConnections: options.feishuConnections,
       sessionMemory,
       ...(databaseActions === undefined ? {} : { databaseActions }),
       allowedOrigins: config.studio.allowedOrigins,
@@ -1793,6 +1925,7 @@ export async function createTesseraStudioRuntime(
       connector,
       dataAgent,
       ...(databaseActions === undefined ? {} : { databaseActions }),
+      ...(options.feishuAgent === undefined ? {} : { feishuAgent: options.feishuAgent }),
       close() {
         closeTask ??= Promise.allSettled([
           agent?.continualHarness?.close(),
@@ -1857,17 +1990,20 @@ export async function createTesseraStudioService(
   let settingsRuntime = options.settingsRuntime;
   let durableState: TesseraDurableStateStore | undefined;
   let runtime: TesseraStudioRuntime | undefined;
+  let feishuConnections = options.feishuConnections;
   try {
     if (!settingsRuntime) {
       durableState = createTesseraDurableStateStore();
+      feishuConnections ??= new FeishuConnectionService({ state: durableState.state, encryptionSecret: await localFeishuEncryptionSecret() });
       settingsRuntime = await createTesseraStudioRuntimeManager({
         config,
         initiallyUnconfigured: isTesseraStudioUnconfigured(config),
         store: createTesseraLocalSettingsStore(),
         databaseState: durableState.state,
+        factory: createDefaultTesseraStudioRuntimeFactory({ feishuConnections }),
       });
     }
-    runtime = await createTesseraStudioRuntime(config, { ...options, settingsRuntime });
+    runtime = await createTesseraStudioRuntime(config, { ...options, settingsRuntime, feishuConnections });
   } catch (error) {
     await runtime?.close().catch(() => undefined);
     if (!runtime && options.settingsRuntime === undefined) {
@@ -2159,15 +2295,18 @@ async function ensureStudioSession(
   threadId: string,
   message: string,
   context: StudioContext,
+  agentType: StudioAgentType = "database",
 ): Promise<void> {
   if (!memory) return;
   const validThreadId = parseThreadId(threadId);
   try {
-    await memory.createThread({
+    const thread = await memory.createThread({
       id: validThreadId,
       resourceId: resourceIdForContext(context),
       title: tesseraThreadTitleFromMessage(message),
+      agentType,
     });
+    if ((thread.agentType ?? "database") !== agentType) throw new Error("Agent type mismatch");
   } catch {
     // A thread id from a separate authenticated user must remain
     // indistinguishable from an unavailable local thread.
@@ -2296,7 +2435,7 @@ type AgentCatalogLoadInput = Readonly<{
 async function catalogForStudioAgent(input: AgentCatalogLoadInput & {
   agent: StudioAgent;
 }): Promise<DatabaseCatalog | undefined> {
-  if (input.agent.catalogLoading === "data-agent") return undefined;
+  if (input.agent.agentType === "feishu" || input.agent.catalogLoading === "data-agent") return undefined;
   try {
     return await loadAgentCatalog(input);
   } catch {
@@ -3446,6 +3585,7 @@ async function readStudioChatRequest(request: Request): Promise<StudioChatReques
   const parsed = runRequestSchema.safeParse({
     message: text || (imageParts.length > 0 ? "Analyze the attached image." : ""),
     ...(typeof payload.threadId === "string" ? { threadId: payload.threadId } : {}),
+    ...(payload.agentType === undefined ? {} : { agentType: payload.agentType }),
   });
   if (!parsed.success) {
     throw new StudioHttpError(400, "invalid_chat_request", "The chat request is invalid.");

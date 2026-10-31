@@ -29,7 +29,7 @@ describe("answerPreviewCell", () => {
 });
 
 function previewDataAgent(overrides: {
-  tables?: Array<{ name: string; columns: Array<{ name: string; ordinal?: number }> }>;
+  tables?: Array<{ name: string; columns: Array<{ name: string; dataType?: string; ordinal?: number }> }>;
   rows?: Array<Record<string, unknown>>;
   truncated?: boolean;
 } = {}): DataAgent {
@@ -71,6 +71,24 @@ describe("executeRelationPreview", () => {
       dataAgent: previewDataAgent({ tables: [{ name: "orders", columns: [] }] }),
       request: { schema: "public", table: "orders" },
     })).rejects.toMatchObject({ code: "relation_not_previewable" });
+  });
+
+  test("reads a numeric column as a number and leaves text alone", async () => {
+    const result = await executeRelationPreview({
+      dataAgent: previewDataAgent({
+        tables: [{
+          name: "orders",
+          columns: [
+            { name: "id", dataType: "bigint", ordinal: 1 },
+            { name: "code", dataType: "text", ordinal: 2 },
+          ],
+        }],
+        rows: [{ id: "77", code: "0042" }],
+      }),
+      request: { schema: "public", table: "orders" },
+    });
+
+    expect(result.rows).toEqual([{ id: 77, code: "0042" }]);
   });
 });
 
@@ -124,6 +142,43 @@ describe("compileRelationMetricsSql", () => {
     expect(compiled.sql).not.toContain("GROUP BY");
   });
 
+  test("reads every numeric aggregate as a number", () => {
+    const compiled = compileRelationMetricsSql({
+      ...base,
+      request: {
+        schema: "public",
+        table: "orders",
+        groupBy: ["status"],
+        metrics: [
+          { fn: "count", alias: "registrations" },
+          { fn: "sum", column: "amount" },
+          { fn: "avg", column: "amount" },
+          { fn: "max", column: "status" },
+        ],
+      },
+    });
+
+    expect(compiled.numericAliases).toEqual(["registrations", "sum_amount", "avg_amount"]);
+  });
+
+  test("keeps a numeric grouping column numeric", () => {
+    const compiled = compileRelationMetricsSql({
+      ...base,
+      columns: [
+        { name: "bucket", dataType: "integer" },
+        { name: "status", dataType: "text" },
+      ],
+      request: {
+        schema: "public",
+        table: "orders",
+        groupBy: ["bucket", "status"],
+        metrics: [{ fn: "count" }],
+      },
+    });
+
+    expect(compiled.numericAliases).toEqual(["bucket", "count"]);
+  });
+
   test("refuses a column that is not in the catalog", () => {
     expect(() => compileRelationMetricsSql({
       ...base,
@@ -167,8 +222,7 @@ describe("compileRelationMetricsSql", () => {
 });
 
 describe("executeRelationMetrics", () => {
-  test("runs the compiled statement and projects a safe result", async () => {
-    const queries: Array<{ sql: string; parameters: unknown[]; maxRows: number }> = [];
+  test("runs the compiled statement and projects a safe result", async () => {    const queries: Array<{ sql: string; parameters: unknown[]; maxRows: number }> = [];
     const dataAgent = {
       inspectCatalog: async () => ({
         catalog: { dialect: "postgres", schemas: [{ name: "public", tables: [{ name: "orders", columns: COLUMNS }] }] },
@@ -200,5 +254,37 @@ describe("executeRelationMetrics", () => {
     expect(queries[0]?.sql).toContain('GROUP BY "status"');
     expect(result.columns).toEqual(["status", "count"]);
     expect(result.rows).toEqual([{ status: "open", count: 3 }]);
+  });
+
+  test("reads a driver's string aggregate as a number", async () => {
+    const dataAgent = {
+      inspectCatalog: async () => ({
+        catalog: { dialect: "postgres", schemas: [{ name: "public", tables: [{ name: "orders", columns: COLUMNS }] }] },
+      }),
+    } as unknown as DataAgent;
+    const connector = {
+      query: async () => ({
+        columns: [{ name: "status" }, { name: "count" }, { name: "newest" }],
+        // Postgres returns COUNT(*) as text and MIN(created_at) as a timestamp.
+        rows: [{ status: "open", count: "77", newest: "2026-09-30T16:00:00.000Z" }],
+        truncated: false,
+      }),
+    } as unknown as Pick<DatabaseConnector, "query">;
+
+    const result = await executeRelationMetrics({
+      dataAgent,
+      connector,
+      request: {
+        schema: "public",
+        table: "orders",
+        groupBy: ["status"],
+        metrics: [
+          { fn: "count", alias: "count" },
+          { fn: "max", column: "status", alias: "newest" },
+        ],
+      },
+    });
+
+    expect(result.rows).toEqual([{ status: "open", count: 77, newest: "2026-09-30T16:00:00.000Z" }]);
   });
 });

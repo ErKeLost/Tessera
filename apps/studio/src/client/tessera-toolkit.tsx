@@ -52,8 +52,11 @@ function TesseraToolCall({
     || safeResult?.status === "failed"
     || safeResult?.status === "blocked"
     || safeResult?.status === "rejected"
-    || safeResult?.status === "unavailable";
+    || safeResult?.status === "unavailable"
+    || safeResult?.status === "denied"
+    || safeResult?.status === "not_found";
   const failed = status.type === "incomplete" || failedResult;
+  const toolLabel = toolName === "search_feishu_documents" ? "搜索文档" : toolName === "read_feishu_document" ? "读取文档" : toolName;
   const initialApprovalHandles = sqlApprovalHandles(safeResult);
   const [approvalState, setApprovalState] = useState<ApprovalState>(
     initialApprovalHandles === undefined ? "idle" : "loading",
@@ -67,7 +70,7 @@ function TesseraToolCall({
   // The approval surface is the review UI. Keep the implementation payload
   // collapsed while waiting so users see the action summary first, not a raw
   // JSON envelope.
-  const shouldAutoOpen = running || failed;
+  const shouldAutoOpen = running;
   const [open, setOpen] = useState(shouldAutoOpen);
 
   useEffect(() => {
@@ -127,9 +130,9 @@ function TesseraToolCall({
   return (
     <>
       <ToolCall
-        activeLabel={toolName}
+        activeLabel={toolLabel}
         failed={failed}
-        label={toolName}
+        label={toolLabel}
         onOpenChange={setOpen}
         open={open}
         query={failed ? "failed" : status.type}
@@ -404,6 +407,14 @@ export const tesseraStudioToolkit: Toolkit = defineToolkit({
     render: NativeTesseraTool,
   },
   prepare_analysis: {
+    type: "backend" as const,
+    render: NativeTesseraTool,
+  },
+  search_feishu_documents: {
+    type: "backend" as const,
+    render: NativeTesseraTool,
+  },
+  read_feishu_document: {
     type: "backend" as const,
     render: NativeTesseraTool,
   },

@@ -116,3 +116,11 @@ export function answerActionMutationResult(outcome: AnswerActionOutcome): Record
     ...("message" in outcome && outcome.message !== undefined ? { message: outcome.message } : {}),
   };
 }
+
+/** A failed/rejected effect must stop OpenUI's remaining @Run/@Reset steps. */
+export function completeAnswerMutation(outcome: AnswerActionOutcome): Record<string, unknown> {
+  if (outcome.status === "rejected") throw new Error("The database change was declined.");
+  if (outcome.status === "failed") throw new Error(outcome.message ?? "The database change could not be completed.");
+  if (outcome.status !== "completed") throw new Error("The database change still needs approval.");
+  return answerActionMutationResult(outcome);
+}

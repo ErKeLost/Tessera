@@ -37,7 +37,7 @@ import {
   type StudioSettingsTab,
 } from "./studio-settings";
 import { useStudioTheme } from "./studio-theme";
-import type { StudioAgentPageContext } from "./layout/studio-route-context";
+import type { StudioAgentPageContext, StudioAgentType } from "./layout/studio-route-context";
 import { isStudioResumePayload } from "./studio-resume";
 import {
   Conversation,
@@ -63,19 +63,21 @@ import {
 import { TooltipIconButton } from "./components/assistant-ui/tooltip-icon-button";
 import { AgentActivity } from "./components/agent-activity";
 import { ErrorState } from "./components/elements/error-state";
-import { OpenRouterModelPicker, StudioModelBrandIcon } from "./components/elements/openrouter-model-picker";
+import { ProviderModelPicker, StudioModelBrandIcon } from "./components/elements/openrouter-model-picker";
 import { ReasoningPanel } from "./components/elements/reasoning-panel";
 import { WorkPanel } from "./components/elements/work-panel";
 import { PromptInput } from "./components/agents/prompt-input";
 import { Button } from "./components/ui/button";
-import { useStudioSettingsQuery } from "./queries/studio-queries";
+import { useStudioFeishuQuery, useStudioSettingsQuery } from "./queries/studio-queries";
 import { TesseraToolFallback, tesseraStudioToolkit } from "./tessera-toolkit";
+import { AnswerThreadContext } from "./components/generative/answer-state-context";
 
 const tesseraStudioAssistantConfig = AuiConfig({
   tools: Tools({ toolkit: tesseraStudioToolkit }),
 });
 
-const StudioThreadIdContext = createContext<string | undefined>(undefined);
+const StudioThreadIdContext = AnswerThreadContext;
+const StudioAgentTypeContext = createContext<StudioAgentType>("database");
 
 export function StudioAssistant({
   initialMessages,
@@ -83,6 +85,8 @@ export function StudioAssistant({
   onOpenSettings,
   onThreadActivity,
   threadId,
+  agentType = "database",
+  onOpenFeishuAuthorization,
   workspaceContext,
 }: {
   initialMessages: readonly TesseraUIMessage[];
@@ -90,6 +94,8 @@ export function StudioAssistant({
   onOpenSettings(tab: StudioSettingsTab): void;
   onThreadActivity?(): void;
   threadId: string;
+  agentType?: StudioAgentType;
+  onOpenFeishuAuthorization?(): void;
   workspaceContext?: StudioAgentPageContext;
 }) {
   // The transport stays stable while the table selection changes, while each
@@ -115,7 +121,7 @@ export function StudioAssistant({
             return {
               api: "/api/chat/resume",
               headers: { "Content-Type": "application/json" },
-              body: requestBody,
+              body: { ...requestBody, agentType },
             };
           }
           const message = messages.at(-1);
@@ -132,15 +138,19 @@ export function StudioAssistant({
               messages: [message],
               threadId,
               trigger,
+              agentType,
               ...(currentWorkspaceContext === undefined ? {} : { workspaceContext: currentWorkspaceContext }),
             },
           };
         },
       }),
-    [threadId],
+    [agentType, threadId],
   );
   const chat = useChat<TesseraUIMessage>({
     id: threadId,
+    // Coalesce token bursts before updating the React external store. This
+    // bounds OpenUI parsing/layout work without delaying the network stream.
+    throttle: 50,
     messages: [...initialMessages],
     onFinish: () => {
       onThreadActivity?.();
@@ -148,11 +158,16 @@ export function StudioAssistant({
     transport,
   });
   const settingsQuery = useStudioSettingsQuery();
+  const feishuQuery = useStudioFeishuQuery(agentType === "feishu");
   const configurationCheckRef = useRef(false);
   const ensureConfiguration = useMemo(() => async (send: () => void | Promise<void>) => {
     if (configurationCheckRef.current) return;
     configurationCheckRef.current = true;
     try {
+      if (agentType === "feishu") {
+        const connection = await feishuQuery.refetch();
+        if (!connection.data?.connected) { onOpenFeishuAuthorization?.(); return; }
+      }
       let status = settingsQuery.data;
       if (!status) {
         try {
@@ -165,7 +180,7 @@ export function StudioAssistant({
         showConfigurationError(onOpenSettings);
         return;
       }
-      const missingDatabase = !status.database.urlConfigured;
+      const missingDatabase = agentType === "database" && !status.database.urlConfigured;
       const missingModelKey = !status.llm.apiKeyConfigured;
       if (missingDatabase || missingModelKey) {
         showMissingConfigurationToast({
@@ -180,7 +195,7 @@ export function StudioAssistant({
     } finally {
       configurationCheckRef.current = false;
     }
-  }, [onOpenSettings, settingsQuery.data, settingsQuery.refetch]);
+  }, [agentType, feishuQuery.refetch, onOpenFeishuAuthorization, onOpenSettings, settingsQuery.data, settingsQuery.refetch]);
   const initialPromptSent = useRef(false);
   useEffect(() => {
     if (!initialPrompt || initialMessages.length > 0 || initialPromptSent.current) return;
@@ -200,9 +215,11 @@ export function StudioAssistant({
 
   return (
     <AssistantRuntimeProvider config={tesseraStudioAssistantConfig} runtime={runtime}>
+      <StudioAgentTypeContext.Provider value={agentType}>
       <StudioThreadIdContext.Provider value={threadId}>
         <StudioConversation onBeforeSend={ensureConfiguration} onOpenSettings={onOpenSettings} />
       </StudioThreadIdContext.Provider>
+      </StudioAgentTypeContext.Provider>
     </AssistantRuntimeProvider>
   );
 }
@@ -352,6 +369,7 @@ function SuspendedApprovalDataRenderer({ data }: { data: {
 }
 
 function StudioEmptyState() {
+  const agentType = useContext(StudioAgentTypeContext);
   const isEmpty = useAuiState((state) => state.thread.messages.length === 0);
   if (!isEmpty) return null;
   return (
@@ -359,9 +377,15 @@ function StudioEmptyState() {
       <div className="tessera-empty-content">
         <h1>What would you like to analyze?</h1>
         <div className="tessera-starter-prompts" aria-label="Suggested analyses">
+          {agentType === "feishu" ? <>
+            <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="搜索我有权限的产品规划文档，概括主要方向并引用来源。">查找文档</ThreadPrimitive.Suggestion>
+            <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="我想阅读一份飞书文档，我会提供文档链接。">阅读文档</ThreadPrimitive.Suggestion>
+            <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="搜索项目相关的周报，整理进展与风险并引用来源。">归纳进展</ThreadPrimitive.Suggestion>
+          </> : <>
           <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Show me the structure of this database and its most important tables.">Explore schema</ThreadPrimitive.Suggestion>
           <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Find the most important trends in this database.">Analyze trends</ThreadPrimitive.Suggestion>
           <ThreadPrimitive.Suggestion className="tessera-starter-prompt" prompt="Check the data for quality issues and unusual values.">Check quality</ThreadPrimitive.Suggestion>
+          </>}
         </div>
       </div>
     </div>
@@ -464,8 +488,8 @@ function StudioTraceGroup({
  * Times one streaming span and holds its disclosure open while it runs, then
  * settles it closed and keeps the final wall clock for the resting label.
  */
-function useStreamSpan(streaming: boolean) {
-  const [open, setOpen] = useState(streaming);
+function useStreamSpan(streaming: boolean, openWhileStreaming = true) {
+  const [open, setOpen] = useState(streaming && openWhileStreaming);
   const [elapsedMs, setElapsedMs] = useState(0);
   const startedAtRef = useRef<number | null>(streaming ? Date.now() : null);
 
@@ -483,7 +507,7 @@ function useStreamSpan(streaming: boolean) {
       startedAtRef.current = Date.now();
       setElapsedMs(0);
     }
-    setOpen(true);
+    if (openWhileStreaming) setOpen(true);
     const updateElapsed = () => {
       if (startedAtRef.current !== null) {
         setElapsedMs(Date.now() - startedAtRef.current);
@@ -492,7 +516,7 @@ function useStreamSpan(streaming: boolean) {
     updateElapsed();
     const interval = window.setInterval(updateElapsed, 250);
     return () => window.clearInterval(interval);
-  }, [streaming]);
+  }, [openWhileStreaming, streaming]);
 
   return { open, setOpen, elapsedMs };
 }
@@ -500,7 +524,7 @@ function useStreamSpan(streaming: boolean) {
 function StudioReasoningGroup({ group }: { group: StudioReasoningGroupPart }) {
   const messageParts = useAuiState((state) => state.message.parts);
   const streaming = group.status.type === "running";
-  const { open, setOpen, elapsedMs } = useStreamSpan(streaming);
+  const { open, setOpen, elapsedMs } = useStreamSpan(streaming, false);
 
   const steps = group.indices.flatMap((index) => {
     const part = messageParts[index];
@@ -650,6 +674,7 @@ function StudioComposer({
   onBeforeSend: StudioSendGuard;
   onOpenSettings(tab: StudioSettingsTab): void;
 }) {
+  const agentType = useContext(StudioAgentTypeContext);
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const attachmentCount = useAuiState((state) => state.composer.attachments.length);
   const { resolvedTheme } = useStudioTheme();
@@ -692,7 +717,7 @@ function StudioComposer({
           onStop={() => aui.composer.cancel()}
           onSubmit={() => { void onBeforeSend(() => composer.send()); }}
           onValueChange={composer.setText}
-          placeholder="Ask about your data..."
+          placeholder={agentType === "feishu" ? "粘贴飞书文档链接，或搜索文档…" : "Ask about your data..."}
           value={composer.value}
         />
       </BorderBeam>
@@ -701,10 +726,11 @@ function StudioComposer({
 }
 
 function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: StudioSettingsTab): void }) {
+  const agentType = useContext(StudioAgentTypeContext);
   return (
     <>
       <StudioModelPicker />
-      <TooltipIconButton
+      {agentType === "database" ? <TooltipIconButton
         aria-label="Configure permissions"
         className="ml-auto size-8 shrink-0 rounded-full"
         onClick={() => onOpenSettings("permissions")}
@@ -713,40 +739,49 @@ function StudioComposerSettings({ onOpenSettings }: { onOpenSettings(tab: Studio
         type="button"
       >
         <ShieldCheckIcon aria-hidden="true" size={16} />
-      </TooltipIconButton>
+      </TooltipIconButton> : null}
     </>
   );
 }
 
-type OpenRouterModelOption = Readonly<{
+type ProviderModelOption = Readonly<{
   id: string;
   name: string;
   family: string;
+  contextWindow?: number;
   reasoning?: Readonly<{
     defaultEffort?: StudioReasoningEffort;
     supportedEfforts: readonly StudioReasoningEffort[];
   }>;
 }>;
 
+const COMPOSER_MODEL_PROVIDERS = new Set(["openrouter", "vercel", "openai", "anthropic", "google", "custom"]);
+const REASONING_EFFORT_ORDER: readonly StudioReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh", "max"];
+const COMPATIBLE_GATEWAY_EFFORTS: readonly StudioReasoningEffort[] = ["low", "medium", "high"];
+
 function StudioModelPicker() {
   const settingsQuery = useStudioSettingsQuery();
   const provider = settingsQuery.data?.llm.provider;
   const selectedModel = settingsQuery.data?.llm.model;
-  const gatewayPicker = provider === "openrouter" || provider === "vercel";
-  const [models, setModels] = useState<readonly OpenRouterModelOption[]>([]);
+  const catalogPicker = provider !== undefined && COMPOSER_MODEL_PROVIDERS.has(provider);
+  const [models, setModels] = useState<readonly ProviderModelOption[]>([]);
   const [open, setOpen] = useState(false);
   const [settings, setSettings] = useState<StudioSettingsSnapshot>();
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [savingModel, setSavingModel] = useState<string>();
+  const [savingEffort, setSavingEffort] = useState(false);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
-    if (!gatewayPicker || !provider) {
+    if (!catalogPicker || !provider) {
       setModels([]);
+      setError(undefined);
       setLoadingCatalog(false);
       return;
     }
     const controller = new AbortController();
+    setModels([]);
+    setError(undefined);
     setLoadingCatalog(true);
     void Promise.all([
       fetch("/api/settings", { headers: { Accept: "application/json" }, signal: controller.signal }),
@@ -760,7 +795,7 @@ function StudioModelPicker() {
         const [settingsBody, modelsBody] = await Promise.all([settingsResponse.json(), modelsResponse.json()]);
         if (controller.signal.aborted) return;
         setSettings(readStudioSettingsSnapshot(settingsBody));
-        setModels(readOpenRouterModels(modelsBody));
+        setModels(readProviderModels(modelsBody));
         setError(undefined);
       })
       .catch(() => {
@@ -770,7 +805,7 @@ function StudioModelPicker() {
         if (!controller.signal.aborted) setLoadingCatalog(false);
       });
     return () => controller.abort();
-  }, [gatewayPicker, provider, settingsQuery.dataUpdatedAt]);
+  }, [catalogPicker, provider, settingsQuery.dataUpdatedAt]);
 
   const pickerModels = useMemo(() => {
     if (!selectedModel) return models;
@@ -778,8 +813,11 @@ function StudioModelPicker() {
     return [{ id: selectedModel, name: selectedModel, family: provider ?? "" }, ...models];
   }, [models, provider, selectedModel]);
 
-  const selectModel = async (model: OpenRouterModelOption) => {
-    if (!settings || savingModel) return;
+  const selectedOption = pickerModels.find((model) => model.id === selectedModel);
+  const effortOptions = useMemo(() => composerEffortOptions(provider, selectedOption), [provider, selectedOption]);
+
+  const selectModel = async (model: ProviderModelOption) => {
+    if (!settings || savingModel || savingEffort) return;
     setSavingModel(model.id);
     setError(undefined);
     const candidate: StudioSettingsCandidate = {
@@ -812,10 +850,42 @@ function StudioModelPicker() {
     }
   };
 
+  const selectEffort = async (effort: StudioReasoningSelection) => {
+    if (!settings || savingModel || savingEffort || !provider || !selectedModel) return;
+    setSavingEffort(true);
+    setError(undefined);
+    const candidate: StudioSettingsCandidate = {
+      database: {
+        accessMode: settings.database.accessMode,
+        dialect: settings.database.dialect,
+      },
+      llm: {
+        model: selectedModel,
+        provider: settings.llm.provider,
+        reasoningEffort: effort,
+      },
+      limits: settings.limits,
+    };
+    try {
+      const response = await fetch("/api/settings", {
+        body: JSON.stringify(candidate),
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        method: "PUT",
+      });
+      if (!response.ok) throw new Error("model_picker_effort_save_failed");
+      setSettings(readStudioSettingsSnapshot(await response.json()));
+      await settingsQuery.refetch();
+    } catch {
+      setError("The effort setting was not changed. Check workspace settings and try again.");
+    } finally {
+      setSavingEffort(false);
+    }
+  };
+
   if (!provider && settingsQuery.isLoading) {
     return (
-      <OpenRouterModelPicker
-        ariaLabel="Choose a gateway model"
+      <ProviderModelPicker
+        ariaLabel="Choose a model"
         disabled
         loading
         models={[]}
@@ -825,7 +895,7 @@ function StudioModelPicker() {
     );
   }
 
-  if (!gatewayPicker) {
+  if (!catalogPicker) {
     const option = selectedModel
       ? { id: selectedModel, name: selectedModel, family: provider ?? "" }
       : undefined;
@@ -838,11 +908,19 @@ function StudioModelPicker() {
   }
 
   return (
-    <OpenRouterModelPicker
-      ariaLabel="Choose a gateway model"
+    <ProviderModelPicker
+      ariaLabel="Choose a model"
       busyValue={savingModel}
-      disabled={Boolean(savingModel)}
+      disabled={Boolean(savingModel || savingEffort)}
       error={error}
+      effort={effortOptions.length > 1 ? {
+        value: effortOptions.includes(settings?.llm.reasoningEffort ?? "default")
+          ? settings?.llm.reasoningEffort ?? "default"
+          : "default",
+        options: effortOptions,
+        disabled: savingEffort,
+        onValueChange: (value) => void selectEffort(value as StudioReasoningSelection),
+      } : undefined}
       loading={loadingCatalog}
       models={pickerModels}
       onOpenChange={setOpen}
@@ -857,32 +935,53 @@ function StudioModelPicker() {
   );
 }
 
-function readOpenRouterModels(value: unknown): readonly OpenRouterModelOption[] {
+function composerEffortOptions(
+  provider: string | undefined,
+  model: ProviderModelOption | undefined,
+): StudioReasoningSelection[] {
+  const supported = model?.reasoning?.supportedEfforts
+    ?? (provider === "custom" || provider === "openai" ? COMPATIBLE_GATEWAY_EFFORTS : []);
+  if (supported.length === 0) return [];
+  return ["default", ...REASONING_EFFORT_ORDER.filter((effort) => supported.includes(effort))];
+}
+
+function readProviderModels(value: unknown): readonly ProviderModelOption[] {
   const root = value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
   const source = Array.isArray(root?.models) ? root.models : [];
   const seen = new Set<string>();
-  const models: OpenRouterModelOption[] = [];
+  const models: ProviderModelOption[] = [];
   for (const item of source) {
     const model = item !== null && typeof item === "object" && !Array.isArray(item)
       ? item as Record<string, unknown>
       : undefined;
-    const id = readModelText(model?.id);
-    const name = readModelText(model?.name);
+    const id = readModelText(model?.id, 512);
+    const name = readModelText(model?.name, 256);
     const family = readModelText(model?.family);
     if (!id || !name || !family || seen.has(id)) continue;
     seen.add(id);
-    models.push({ id, name, family, reasoning: readModelReasoning(model?.reasoning) });
+    const contextWindow = typeof model?.contextWindow === "number"
+      && Number.isSafeInteger(model.contextWindow)
+      && model.contextWindow > 0
+      ? model.contextWindow
+      : undefined;
+    models.push({
+      id,
+      name,
+      family,
+      ...(contextWindow === undefined ? {} : { contextWindow }),
+      reasoning: readModelReasoning(model?.reasoning),
+    });
   }
   return models;
 }
 
-function readModelText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() && value.length <= 200 ? value.trim() : undefined;
+function readModelText(value: unknown, maximumLength = 200): string | undefined {
+  return typeof value === "string" && value.trim() && value.length <= maximumLength ? value.trim() : undefined;
 }
 
-function readModelReasoning(value: unknown): OpenRouterModelOption["reasoning"] {
+function readModelReasoning(value: unknown): ProviderModelOption["reasoning"] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
   const source = value as Record<string, unknown>;
   const supportedEfforts = Array.isArray(source.supportedEfforts)
@@ -899,7 +998,7 @@ function readModelReasoning(value: unknown): OpenRouterModelOption["reasoning"] 
 }
 
 function modelReasoningEffort(
-  model: OpenRouterModelOption,
+  model: ProviderModelOption,
   current: StudioReasoningSelection,
 ): StudioReasoningSelection {
   const supported = model.reasoning?.supportedEfforts;

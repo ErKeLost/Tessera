@@ -7,6 +7,8 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { Outlet, useLocation, useNavigate } from "react-router";
 import { Group, Panel, Separator, type PanelImperativeHandle } from "react-resizable-panels";
 import { publicError } from "../api/studio-api";
+import { isFeishuEnvironment } from "../feishu-environment";
+import { FeishuAuthorizationDialog } from "../feishu-authorization-dialog";
 import { Button } from "../components/motion/button";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import {
@@ -15,6 +17,7 @@ import {
   useStudioThreadMutations,
   useStudioThreadsQuery,
   useStudioWorkspaceQueries,
+  useStudioFeishuQuery,
 } from "../queries/studio-queries";
 import { StudioHistoryMenu } from "../studio-history-menu";
 import { StudioSettingsDialog, type StudioSettingsTab } from "../studio-settings";
@@ -34,15 +37,22 @@ const MIN_ASSISTANT_PANEL_SIZE = "24%";
 export function StudioRouteShell() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: threads = [], isLoading: threadsLoading, error: threadsError } = useStudioThreadsQuery();
+  const isFeishu = isFeishuEnvironment({ pathname: location.pathname, userAgent: navigator.userAgent, referrer: document.referrer });
+  const agentType = isFeishu ? "feishu" : "database";
+  const chatPath = useCallback((id: string) => `${isFeishu ? "/feishu" : ""}/chat/${encodeURIComponent(id)}`, [isFeishu]);
+  const { data: allThreads = [], isLoading: threadsLoading, error: threadsError } = useStudioThreadsQuery();
+  const threads = allThreads.filter((thread) => thread.agentType === agentType);
   const mutations = useStudioThreadMutations();
-  const workspace = useStudioWorkspaceQueries();
+  const workspace = useStudioWorkspaceQueries(!isFeishu);
+  const feishuStatus = useStudioFeishuQuery(isFeishu);
+  const [feishuOpen, setFeishuOpen] = useState(false);
+  const prompted = useRef(false);
   const refreshWorkspace = useRefreshStudioWorkspace();
   const settingsQuery = useStudioSettingsQuery();
   const { resolvedTheme } = useStudioTheme();
-  const threadId = location.pathname.match(/^\/chat\/([^/]+)/)?.[1];
+  const threadId = location.pathname.match(/^(?:\/feishu)?\/chat\/([^/]+)/)?.[1];
   const activeThreadId = threadId ? decodeURIComponent(threadId) : undefined;
-  const activeThread = threads.find((thread) => thread.id === activeThreadId);
+  const activeThread = allThreads.find((thread) => thread.id === activeThreadId);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [databaseOpen, setDatabaseOpen] = useState(false);
   const [agentPageContext, setAgentPageContext] = useState<StudioAgentPageContext>();
@@ -71,9 +81,15 @@ export function StudioRouteShell() {
   }, [databaseOpen]);
 
   const openSettings = useCallback((tab: StudioSettingsTab) => {
-    setSettingsTab(tab);
+    setSettingsTab(isFeishu && (tab === "database" || tab === "permissions") ? "model" : tab);
     setSettingsOpen(true);
-  }, []);
+  }, [isFeishu]);
+  useEffect(() => {
+    if (isFeishu && feishuStatus.data && !feishuStatus.data.connected && !prompted.current) {
+      prompted.current = true;
+      setFeishuOpen(true);
+    }
+  }, [isFeishu, feishuStatus.data]);
 
   const onAgentPageContextChange = useCallback((context: TableEditorAgentPageContext | undefined) => {
     if (!context) {
@@ -95,12 +111,12 @@ export function StudioRouteShell() {
 
   const createThread = useCallback(async () => {
     try {
-      const created = await mutations.create.mutateAsync();
-      navigate(`/chat/${encodeURIComponent(created.id)}`);
+      const created = await mutations.create.mutateAsync(agentType);
+      navigate(chatPath(created.id));
     } catch {
       // The sidebar keeps its inline error surface for failed commands.
     }
-  }, [mutations.create, navigate]);
+  }, [agentType, chatPath, mutations.create, navigate]);
 
   const renameThread = useCallback(async (id: string, title: string) => {
     await mutations.rename.mutateAsync({ threadId: id, title });
@@ -110,27 +126,33 @@ export function StudioRouteShell() {
     await mutations.remove.mutateAsync(id);
     if (id !== activeThreadId) return;
     const next = threads.find((thread) => thread.id !== id);
-    navigate(next ? `/chat/${encodeURIComponent(next.id)}` : "/");
-  }, [activeThreadId, mutations.remove, navigate, threads]);
+    navigate(next ? chatPath(next.id) : isFeishu ? "/feishu" : "/");
+  }, [activeThreadId, chatPath, isFeishu, mutations.remove, navigate, threads]);
 
   const clearThreads = useCallback(async () => {
-    await mutations.clear.mutateAsync();
-    navigate("/");
+    await Promise.all(threads.map((thread) => mutations.remove.mutateAsync(thread.id)));
+    navigate(isFeishu ? "/feishu" : "/");
     setHistoryOpen(false);
-  }, [mutations.clear, navigate]);
+  }, [isFeishu, mutations.remove, navigate, threads]);
 
   const onSelectThread = useCallback((id: string) => {
-    navigate(`/chat/${encodeURIComponent(id)}`);
-  }, [navigate]);
+    navigate(chatPath(id));
+  }, [chatPath, navigate]);
 
   const routeContext: StudioRouteContext = {
     activeThread,
     activeThreadId,
+    threadsLoading,
+    agentType,
+    isFeishu,
+    chatPath,
+    openFeishuAuthorization: () => setFeishuOpen(true),
     agentPageContext,
     openSettings,
     refreshWorkspace,
     workspace,
   };
+
 
   return (
     <div className="studio-minimal-shell">
@@ -165,7 +187,7 @@ export function StudioRouteShell() {
             <StudioIcon icon="solar:add-circle-linear" size={16} />
             <span>New</span>
           </Button>
-          <TooltipIconButton
+          {!isFeishu ? <TooltipIconButton
             aria-label="Open database explorer"
             className="studio-header-tool studio-database-button"
             onClick={() => setDatabaseOpen((open) => !open)}
@@ -173,7 +195,7 @@ export function StudioRouteShell() {
             type="button"
           >
             <StudioIcon icon="solar:database-linear" size={17} />
-          </TooltipIconButton>
+          </TooltipIconButton> : <Button type="button" size="sm" variant="outline" onClick={() => setFeishuOpen(true)}>{feishuStatus.data?.connected ? "飞书已连接" : "连接飞书"}</Button>}
           <TooltipIconButton
             aria-label="Configure workspace"
             className="studio-header-tool studio-settings-button"
@@ -207,7 +229,7 @@ export function StudioRouteShell() {
             panelRef={databasePanelRef}
           >
             <AnimatePresence initial={false}>
-              {databaseOpen ? (
+              {databaseOpen && !isFeishu ? (
                 <motion.div
                   animate={reduceMotion ? { opacity: 1 } : { opacity: 1, x: 0, filter: "blur(0px)" }}
                   className="studio-database-panel-content"
@@ -256,11 +278,13 @@ export function StudioRouteShell() {
         initialTab={settingsTab}
         onOpenChange={setSettingsOpen}
         onSaved={() => {
-          void refreshWorkspace();
+          if (!isFeishu) void refreshWorkspace();
           void settingsQuery.refetch();
         }}
+        agentType={agentType}
         open={settingsOpen}
       />
+      {isFeishu ? <FeishuAuthorizationDialog open={feishuOpen} onOpenChange={setFeishuOpen} /> : null}
       <GooeyToaster
         closeOnEscape
         offset="24px"
